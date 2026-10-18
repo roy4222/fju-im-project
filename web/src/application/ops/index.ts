@@ -54,6 +54,10 @@ export type { AuditLog, AuditLogEntry, AuditWhoFilter } from '@/application/ops/
 export {
   AUDIT_EXCLUDED_ACTIONS,
   AUDIT_PAGE_LIMIT,
+  AUDIT_QUERY_MAX_LENGTH,
+  AUDIT_TARGET_TYPE_LABEL_ENTRIES,
+  AuditQueryInvalidError,
+  parseAuditQuery,
   AUDIT_WHO_FILTERS,
   AUDIT_WHO_LABEL,
   AUDIT_WINDOW_DAYS,
@@ -64,16 +68,3 @@ export {
   describeAuditTarget,
   normalizeAuditWho,
 } from '@/application/ops/audit-log'
-export type { StorageAlertLevel, StorageMeasurement } from '@/application/ops/storage'
-export {
-  formatGiB,
-  isStorageMeasurementStale,
-  STORAGE_CRITICAL_PERCENT,
-  STORAGE_MEASURE_INTERVAL_MS,
-  STORAGE_STALE_AFTER_MS,
-  STORAGE_WARN_PERCENT,
-  storageAlertLabel,
-  storageAlertLevel,
-  storageTileText,
-  usageFromStatfs,
-} from '@/application/ops/storage'

@@ -16,7 +16,9 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * 票 25（S11）：第十一支再新增簽核五表與精選三表（細節在 s11-signoff-showcase.integration.test.ts）。
  * 票 39：第十二支只給舊表加欄與索引；已套 0010、有資料的庫升上來，舊列拿到安全的預設（下面倒數第二組）。
  * 第三波 W0：第十三支新增首頁設定、個別補交兩表，並給舊表加刪除標記與輪播順序（細節在 wave3-schema.integration.test.ts）。
- * 第三波 W15：第十四支只改精選「一組一屆一個條目」的唯一索引，改成只算未刪除的（刪掉後同組可以再建草稿；下面最後一組）。
+ * 第三波 W15：第十四支只改精選「一組一屆一個條目」的唯一索引，改成只算未刪除的（刪掉後同組可以再建草稿；下面倒數第二組）。
+ * B 階段 A-01：0017 新增系辦結算表 `grade_settlements`、0018 給 `evaluations` 加評語欄；已套 0016、有資料的庫升上來（下面倒數第二組）。
+ * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -122,6 +124,12 @@ const S11_TABLES = [
 /** 第三波 W0 新增的兩張表：首頁設定（固定一列）與個別補交。 */
 const W0_TABLES = ['home_settings', 'submission_reopens']
 
+/** B 階段 VB-1 的 0015：寄信紀錄。 */
+const VB1_TABLES = ['mail_outbox']
+
+/** B 階段 A-01 的 0017：系辦結算。 */
+const A01_TABLES = ['grade_settlements']
+
 const EXPECTED_TABLES = [
   ...S00_TABLES,
   ...S01_TABLES,
@@ -134,9 +142,11 @@ const EXPECTED_TABLES = [
   ...S10_TABLES,
   ...S11_TABLES,
   ...W0_TABLES,
+  ...VB1_TABLES,
+  ...A01_TABLES,
 ].sort()
 
-const LATEST = '0014_v1_news_pinned'
+const LATEST = '0019_rules_position'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -148,7 +158,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出六十八張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出七十張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
@@ -184,6 +194,35 @@ describe('空庫 migration', () => {
 })
 
 describe('契約 01 §4 的約束確實建出來了', () => {
+  it('0015：三個核實方式 CHECK 都多了 google_email_match（Q42 自動開通），舊值照收、亂填照擋', async () => {
+    await withIsolatedDatabase({ label: 'vb1-verification-method', setup: migratedSchema }, async (db) => {
+      const defs = await db.sql(
+        `select conname, pg_get_constraintdef(c.oid) as def from pg_constraint c
+           join pg_namespace n on n.oid = c.connamespace
+          where n.nspname = $1 and conname like '%verification_method_check' order by conname`,
+        [db.schemaName],
+      )
+      expect(defs.rows.map((r) => r.conname)).toEqual([
+        'audit_events_verification_method_check',
+        'registration_applications_verification_method_check',
+        'user_status_events_verification_method_check',
+      ])
+      for (const row of defs.rows) {
+        for (const method of ['id_document', 'school_channel', 'other', 'google_email_match']) {
+          expect(String(row.def), `${row.conname} 少了 ${method}`).toContain(`'${method}'`)
+        }
+      }
+      const audit = (method: string) =>
+        db.sql(
+          `insert into audit_events (id, actor_kind, action, target_type, target_id, scope, verification_method, real_at, business_at)
+           values (gen_random_uuid(), 'system', 'account.approve', 'registration_application', gen_random_uuid(), 'global', $1, now(), now())`,
+          [method],
+        )
+      await expect(audit('google_email_match')).resolves.toBeTruthy()
+      await expect(audit('guess')).rejects.toThrow(/audit_events_verification_method_check/)
+    })
+  })
+
   it('列舉欄用 CHECK 白名單，不用 pgEnum', async () => {
     await withIsolatedDatabase({ label: 'checks', setup: migratedSchema }, async (db) => {
       const enums = await db.sql('select typname from pg_type where typtype = $1', ['e'])
@@ -409,6 +448,127 @@ describe('0013（W15）：精選一組一屆一個「未刪除」的條目', () 
       await expect(entry(false)).rejects.toThrow(/showcase_entries_one_per_group/)
       const index = await db.sql(`select indexdef from pg_indexes where schemaname = $1 and indexname = 'showcase_entries_one_per_group'`, [db.schemaName])
       expect(String(index.rows[0]!.indexdef)).toMatch(/UNIQUE INDEX .*WHERE \(\(group_id IS NOT NULL\) AND \(deleted_at IS NULL\)\)/)
+    })
+  })
+})
+
+describe('0017、0018（A-01）：已套 0016、有資料的庫升到 0018', () => {
+  it('舊 evaluations 列的評語是 null；check 擋 501 字、收 500 字；結算表同屆同階段只能一筆現行', async () => {
+    await withIsolatedDatabase({ label: 'm0018' }, async (db) => {
+      await applyMigrations(db, '0016_avatar')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '老師', 'm0018@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), '113', '113', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      const group = await db.sql(
+        `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+         values (gen_random_uuid(), $1, 'G01', 'general', now(), now(), 'system') returning id`,
+        [cohortId],
+      )
+      const groupId = String(group.rows[0]!.id)
+      const scheme = await db.sql(
+        `insert into grading_schemes (id, cohort_id, name, created_by_kind, created_by_user_id) values (gen_random_uuid(), $1, '方案', 'user', $2) returning id`,
+        [cohortId, userId],
+      )
+      const version = await db.sql(
+        `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_by_user_id)
+         values (gen_random_uuid(), $1, 1, '[]'::jsonb, 'draft', $2) returning id`,
+        [scheme.rows[0]!.id, userId],
+      )
+      const versionId = String(version.rows[0]!.id)
+      const assignment = await db.sql(
+        `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+         values (gen_random_uuid(), $1, 's1', $2, now(), $2) returning id`,
+        [groupId, userId],
+      )
+      const assignmentId = String(assignment.rows[0]!.id)
+      const evaluation = (comment?: string) =>
+        db.sql(
+          `insert into evaluations (id, assignment_id, kind, scheme_version_id, scores, submitted_real_at, submitted_business_at, request_id${comment === undefined ? '' : ', comment'})
+           values (gen_random_uuid(), $1, 'draft', $2, '{}'::jsonb, now(), now(), gen_random_uuid()${comment === undefined ? '' : ', $3'}) returning id`,
+          comment === undefined ? [assignmentId, versionId] : [assignmentId, versionId, comment],
+        )
+      const old = String((await evaluation()).rows[0]!.id)
+
+      await applyMigration(db, '0017_te_b2a_grade_settlements')
+      await applyMigration(db, '0018_te_b4_evaluation_comment')
+
+      expect((await db.sql(`select comment from evaluations where id = $1`, [old])).rows).toEqual([{ comment: null }])
+      await expect(evaluation('字'.repeat(501))).rejects.toThrow(/evaluations_comment_length_check/)
+      await expect(evaluation('字'.repeat(500))).resolves.toBeTruthy()
+
+      const settle = () =>
+        db.sql(
+          `insert into grade_settlements (id, cohort_id, stage_key, settled_at, settled_by_user_id, reason, counted_evaluations, request_id)
+           values (gen_random_uuid(), $1, 's1', now(), $2, '期中結算', 0, gen_random_uuid()::text) returning id`,
+          [cohortId, userId],
+        )
+      const first = String((await settle()).rows[0]!.id)
+      await expect(settle()).rejects.toThrow(/grade_settlements_active_one/)
+      // 解除三欄要一起填。
+      await expect(db.sql(`update grade_settlements set released_at = now() where id = $1`, [first])).rejects.toThrow(
+        /grade_settlements_released_check/,
+      )
+      await db.sql(`update grade_settlements set released_at = now(), released_by_user_id = $2, release_reason = '重開' where id = $1`, [first, userId])
+      await expect(settle()).resolves.toBeTruthy()
+    })
+  })
+})
+
+describe('0019（A-14）：已套 0018、有資料的庫升到 0019：回填順序', () => {
+  it('同屆未刪除的規則依實際開放時間從 1 編號、各屆各自編；刪除的與其他位置是 null', async () => {
+    await withIsolatedDatabase({ label: 'm0019' }, async (db) => {
+      await applyMigrations(db, '0018_te_b4_evaluation_comment')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0019@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = async (code: string) =>
+        String(
+          (
+            await db.sql(
+              `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), $1, $1, 'active', '2027-06-30', 'system') returning id`,
+              [code],
+            )
+          ).rows[0]!.id,
+        )
+      const c113 = await cohort('113')
+      const c114 = await cohort('114')
+      const item = async (cohortId: string, placement: string, title: string, openedAt: string | null, deleted = false) =>
+        String(
+          (
+            await db.sql(
+              `insert into managed_items (id, cohort_id, placement, audience_kind, title, actual_opened_at, created_by_kind, deleted_at, deleted_by_user_id)
+               values (gen_random_uuid(), $1, $2, 'public', $3, $4, 'system', $5, $6) returning id`,
+              [cohortId, placement, title, openedAt, deleted ? new Date() : null, deleted ? userId : null],
+            )
+          ).rows[0]!.id,
+        )
+      // 插入順序故意打亂：回填看實際開放時間，不看插入順序。
+      const third = await item(c113, 'rules', '第三章', '2026-09-03T00:00:00Z')
+      const first = await item(c113, 'rules', '第一章', '2026-09-01T00:00:00Z')
+      const gone = await item(c113, 'rules', '已刪除', '2026-08-01T00:00:00Z', true)
+      const second = await item(c113, 'rules', '第二章', '2026-09-02T00:00:00Z')
+      const never = await item(c113, 'rules', '從未發布', null)
+      const news = await item(c113, 'news', '公告', '2026-09-01T00:00:00Z')
+      const other = await item(c114, 'rules', '別屆第一章', '2026-09-05T00:00:00Z')
+
+      await applyMigration(db, '0019_rules_position')
+
+      const positions = await db.sql(`select id, rules_position from managed_items`)
+      const at = new Map(positions.rows.map((r) => [String(r.id), r.rules_position]))
+      expect([first, second, third, never].map((id) => at.get(id))).toEqual([1, 2, 3, 4])
+      expect(at.get(other)).toBe(1)
+      expect(at.get(gone)).toBeNull()
+      expect(at.get(news)).toBeNull()
+      const index = await db.sql(`select indexdef from pg_indexes where schemaname = $1 and indexname = 'managed_items_rules_position_idx'`, [
+        db.schemaName,
+      ])
+      expect(String(index.rows[0]!.indexdef)).toMatch(/\(cohort_id, rules_position\) WHERE .*placement = 'rules'.*deleted_at IS NULL/)
     })
   })
 })

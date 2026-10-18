@@ -28,6 +28,7 @@ const WEEK = ['一', '二', '三', '四', '五', '六', '日']
 const DOT: Record<CalendarTone, string> = { deadline: 'bg-primary', event: 'bg-ink', canceled: 'bg-muted-foreground/50' }
 const TAG: Record<string, string> = {
   截止: 'bg-primary-subtle text-primary-on-subtle',
+  學生截止: 'bg-primary-subtle text-primary-on-subtle',
   逾期: 'bg-destructive/10 text-destructive',
   已交: 'bg-muted text-muted-foreground',
   活動: 'bg-[oklch(0.93_0.03_253)] text-ink',
@@ -56,7 +57,7 @@ function EntryRow({ entry, withDate }: { entry: CalendarEntry; withDate: boolean
   )
 }
 
-/** 老師／系辦視角沒有截止資料（Q125），圖例也不列「截止」。 */
+/** 老師／系辦視角的截止是該屆作業的「學生截止」（Q125 B 案、B15），圖例跟著換字。 */
 export function FullCalendar({
   entries,
   today,
@@ -139,12 +140,10 @@ export function FullCalendar({
           })}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-border/70 pt-3 text-xs text-muted-foreground">
-          {perspective === 'student' ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-primary" />
-              截止
-            </span>
-          ) : null}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-primary" />
+            {perspective === 'student' ? '截止' : '學生截止'}
+          </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-ink" />
             活動

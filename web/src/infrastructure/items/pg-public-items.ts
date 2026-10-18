@@ -68,10 +68,11 @@ type Row = {
   event_date: string | null
   awarded_on: string | null
   pinned_at: Date | null
+  rules_position: number | null
 }
 
 const COLUMNS = `m.id, m.placement, m.status, m.title, m.summary, m.category, m.audience_kind, m.cohort_id, m.receiver_unit,
-       m.cover_file_id, m.actual_opened_at, m.pinned_at,
+       m.cover_file_id, m.actual_opened_at, m.pinned_at, m.rules_position,
        to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline,
        to_char(m.event_date, 'YYYY-MM-DD') as event_date,
        to_char(m.awarded_on, 'YYYY-MM-DD') as awarded_on,
@@ -134,6 +135,32 @@ const ORDER_SQL: Record<NonNullable<PublicListFilter['order']>, string> = {
   'awarded-asc': `${AWARDED_DAY} asc, m.actual_opened_at asc, m.id asc`,
 }
 
+/**
+ * 規則章節（A-14；Q198）不看 `order`。前台會列出所有屆別看得到的規則，位置卻是各屆從 1 編，所以分兩步：
+ * 1. **槽位**照遷移前的排法（實際開放時間、id）決定——第 k 個槽位屬於哪一屆，跟以前一模一樣；
+ * 2. 每一屆的章節照系辦排的位置（`rules_position asc nulls last, actual_opened_at asc, id asc`，跟系辦清單、`moveRule`
+ *    同一個順序）依序填回**該屆**的槽位。
+ * 回填後各屆位置就是時間序，所以沒人動過時整份順序跟遷移前完全一致（AC-A-40，跨屆交錯也一樣）；系辦移動只換該屆
+ * 自己槽位裡的章節，不會跑到別屆的位置。只有一屆時就是位置序。
+ */
+function rulesOrder<R extends Row>(rows: readonly R[]): R[] {
+  const bySlot = [...rows].sort((a, b) => compareOpened(a, b) || compareId(a, b))
+  const queues = new Map<string, R[]>()
+  for (const r of bySlot) queues.set(r.cohort_id, [...(queues.get(r.cohort_id) ?? []), r])
+  for (const queue of queues.values()) {
+    queue.sort((a, b) => (a.rules_position ?? Infinity) - (b.rules_position ?? Infinity) || compareOpened(a, b) || compareId(a, b))
+  }
+  return bySlot.map((slot) => queues.get(slot.cohort_id)!.shift()!)
+}
+
+function compareOpened(a: Row, b: Row): number {
+  return (a.actual_opened_at?.getTime() ?? Infinity) - (b.actual_opened_at?.getTime() ?? Infinity) || 0
+}
+
+function compareId(a: Row, b: Row): number {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
 /** `ilike` 的萬用字元跳脫：搜尋字串裡的 `%`、`_` 當一般字。 */
 function likePattern(q: string): string {
   return `%${q.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
@@ -157,17 +184,23 @@ export class PgPublicItemQuery implements PublicItemQuery {
 
   async fullText(actor: ResolvedActor, placement: Placement): Promise<(PublicItemCard & { readonly bodyHtml: string })[]> {
     const db = this.#reader()
-    const rows = await this.#visibleRows(db, await viewerFor(db, actor), placement, { order: 'oldest', limit: MAX_LIMIT })
+    // 規則是整本目錄：全部列出，不受筆數上限（A-14 Review 第 2 輪：201 章時第 200 位的那一章不能漏）。
+    const all = placement === 'rules'
+    const rows = await this.#visibleRows(db, await viewerFor(db, actor), placement, { order: 'oldest', limit: MAX_LIMIT }, all)
     const cards = await this.#cards(db, rows)
     return cards.map((card, index) => ({ ...card, bodyHtml: renderBodyHtml(rows[index]!.body_html) }))
   }
 
-  /** 發布中、這個位置、看的人在對象內（SQL 條件＋逐筆 `canViewItem` 複核）。 */
+  /**
+   * 發布中、這個位置、看的人在對象內（SQL 條件＋逐筆 `canViewItem` 複核）。
+   * `all`：規則整本列出、不截筆數（只有 `fullText` 用）。
+   */
   async #visibleRows(
     db: Pick<Pool, 'query'>,
     viewer: Viewer,
     placement: Placement,
     filter: PublicListFilter,
+    all = false,
   ): Promise<(Row & { body_html: string })[]> {
     const values: unknown[] = [placement]
     const where = [`m.placement = $1`, `m.status = 'published'`, `m.deleted_at is null`]
@@ -196,16 +229,22 @@ export class PgPublicItemQuery implements PublicItemQuery {
     values.push(...audience.values)
     where.push(audience.sql)
     const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? DEFAULT_LIMIT)), MAX_LIMIT)
-    values.push(limit)
+    // 規則要**整份**讀出來才排得出槽位（`rulesOrder`）：SQL 不截（先依時間截會把排進前面的新章漏掉），排完才依上限截；
+    // 整本目錄（`all`）不截。其他位置照舊在 SQL 排好再 limit。
+    const rules = placement === 'rules'
+    if (!rules) values.push(limit)
 
     const rows = await db.query<Row & { body_html: string }>(
       `select ${COLUMNS}, m.body_html from managed_items m
         where ${where.join(' and ')}
-        order by ${ORDER_SQL[filter.order ?? 'newest']}
-        limit $${values.length}`,
+        order by ${rules ? ORDER_SQL.oldest : ORDER_SQL[filter.order ?? 'newest']}
+        ${rules ? '' : `limit $${values.length}`}`,
       values,
     )
-    return rows.rows.filter((r) => canViewItem(viewer, visibilityOf(r)))
+    const visible = rows.rows.filter((r) => canViewItem(viewer, visibilityOf(r)))
+    if (!rules) return visible
+    const ordered = rulesOrder(visible)
+    return all ? ordered : ordered.slice(0, limit)
   }
 
   async categories(actor: ResolvedActor, placement: Placement): Promise<string[]> {

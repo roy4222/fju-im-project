@@ -30,11 +30,23 @@ export type Actor = {
    */
   readonly displayName?: string
   /**
+   * 本人的頭像設定（`user_profiles.avatar_preset`／`avatar_file_id`），resolver 同一句一起讀，給外殼帳號選單用。
+   * 兩欄都 null 時依帳號 hash 固定一張（`avatarUrl`）。同 `displayName`：選填、不拿來做授權判斷。
+   */
+  readonly avatarPreset?: number | null
+  readonly avatarFileId?: string | null
+  /**
    * 這次 session 實際使用的登入方式（契約 01 §4.1 `sessions.login_method`；契約 02 §2 `OperationContext.loginMethod`）。
    * 由 actor resolver 從**同一個 session** 讀出來，不從帳號綁定推論、也不收呼叫端傳入的值（票 26：同意紀錄要記這一欄）。
    * 測試自己組的 actor 可以不帶；需要它的用例（簽核表態）沒有就拒絕。
    */
   readonly loginMethod?: 'google' | 'password'
+  /**
+   * 老師還沒補完首次資料（票 8；跟 `TeacherSetupCommand.needsSetup` 同一個條件）。resolver 跟身分同一句讀出來，
+   * 隨身分快取一起存，`requireRole('teacher')` 看這個導去補資料頁，不再每次另查（B 設計方案 §4.1）。
+   * 只有老師才帶；選填，測試自己組的 actor 可以不給（＝不用補）。
+   */
+  readonly teacherSetupPending?: boolean
 }
 
 /** 沒有有效 session 時的結果。刻意是明確的值，不是 `null`，呼叫端就漏不掉。 */

@@ -20,7 +20,9 @@ import {
   type EvaluationState,
   type FinalReceipt,
   type GradingCommand,
+  type GradingProgressSummary,
   type GradingQuery,
+  type PendingReview,
   type RequirementReceipt,
   type SchemeStage,
   type SchemeVersionReceipt,
@@ -49,6 +51,7 @@ import { flagOverridesForReview } from '@/infrastructure/grading/facts'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
+import { exactScore } from '@/shared/score'
 import { RealClock, type Clock } from '@/shared/time'
 
 /**
@@ -60,8 +63,11 @@ import { RealClock, type Clock } from '@/shared/time'
  * 鎖順序（契約 01 §6：cohorts → groups → 頭列）：`cohorts FOR SHARE` → `groups FOR SHARE` →
  * `grading_schemes`（發布拿 `FOR UPDATE`，其他拿 `FOR SHARE`）→ `evaluator_assignments FOR UPDATE`（暫存、正式送出）。
  * - 發布新版本和「第一位老師開始填」（第一份暫存或正式送出，鎖定方案）在方案頭列上排隊：不會發生「剛鎖定就被換掉版本」。
- * - 同一個指派同時兩個不同請求編號正式送出：在指派列上排隊，後到的醒來看到已有採計 → `CONFLICT`（需先退回）。
- *   資料庫的部分唯一 `evaluation_status_one_counted` 是後備防線，繞過鎖也只會有一筆成功。
+ * - 同一個指派同時兩個不同請求編號正式送出（B 階段 TE-B1 起＝重送）：在指派列上排隊，後到的醒來看到已有採計，
+ *   把它改成 historical（事件 reason `resubmitted`）再採計自己這筆；兩筆都成功、採計恰一筆。
+ *   資料庫的部分唯一 `evaluation_status_one_counted` 是後備防線，繞過鎖也不會有兩筆採計。
+ * - 系辦結算（`pg-grade-settlements.ts`）拿方案頭列 `FOR UPDATE`；暫存、送出、重送在同一把鎖（`FOR SHARE`）內查現行結算：
+ *   誰先拿到鎖誰贏——先結算的話老師 `CONFLICT`，先送出的話結算數得到這一份。
  *
  * 學生零可見：這裡的每一個讀寫都先過角色閘門——學生呼叫任何一個都是 `FORBIDDEN`，查詢也不回任何分數。
  * 老師只拿得到**自己**的指派與輸入；誰是本人一律由 actor 決定，不收畫面傳來的老師 id。
@@ -132,6 +138,42 @@ export function noScheme(): Err {
 
 export function stageOf(stages: readonly SchemeStage[], key: string): SchemeStage | null {
   return stages.find((s) => s.key === key) ?? null
+}
+
+/**
+ * 清單型的回執（契約寫 `Result<readonly X[]>`）：`ok()` 會把內容展開成物件、陣列就壞了，所以直接在陣列上掛
+ * `requestId`、`serverTime`——拿到的仍是陣列（可以 `map`），也滿足 `Receipt<readonly X[]>`。
+ */
+export function okList<T>(items: readonly T[]): Result<readonly T[]> {
+  return { ok: true, receipt: Object.assign([...items], { requestId: uuidv7(), serverTime: new Date().toISOString() }) }
+}
+
+/** 評語上限（B 階段 TE-B4；資料庫 `evaluations_comment_length_check` 同一個數，按字元數算）。 */
+export const MAX_COMMENT_LENGTH = 500
+
+/** 評語：沒給或只有空白 → null；超過 500 字 → `VALIDATION_FAILED`。內容照老師打的存，不修剪。 */
+export function normalizeComment(value: unknown): { ok: true; value: string | null } | Err {
+  if (value === undefined || value === null) return { ok: true, value: null }
+  if (typeof value !== 'string') return err('VALIDATION_FAILED', '評語格式不對，請重新整理頁面再試。', { details: { field: 'comment' } })
+  if (value.trim() === '') return { ok: true, value: null }
+  // 用字元數（code point）比，跟資料庫的 char_length 一致：emoji 不會被算成兩個字。
+  if ([...value].length > MAX_COMMENT_LENGTH) {
+    return err('VALIDATION_FAILED', `評語最多 ${MAX_COMMENT_LENGTH} 字，請刪短一點再存。`, { details: { field: 'comment' } })
+  }
+  return { ok: true, value }
+}
+
+/** 這一屆這一階段有沒有現行結算（呼叫端已拿方案頭列的鎖）。 */
+export async function stageSettled(tx: PoolClient, cohortId: string, stageKey: string): Promise<boolean> {
+  const rows = await tx.query('select 1 from grade_settlements where cohort_id = $1 and stage_key = $2 and released_at is null', [
+    cohortId,
+    stageKey,
+  ])
+  return (rows.rowCount ?? 0) > 0
+}
+
+export function settledConflict(stageName: string): Err {
+  return err('CONFLICT', `${stageName}成績已結算，不能再改。需要修改請聯絡系辦解除結算。`)
 }
 
 export class PgGradingCommand implements GradingCommand {
@@ -549,6 +591,8 @@ export class PgGradingCommand implements GradingCommand {
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.assignmentId)) return notAssigned()
     const scores = input.scores ?? {}
+    const comment = normalizeComment(input.comment)
+    if (!comment.ok) return comment
     const teacherId = who.userId
     const businessNow = await this.#businessClock.now()
 
@@ -573,7 +617,10 @@ export class PgGradingCommand implements GradingCommand {
           actorUserId: teacherId,
           operationKind: kind === 'draft' ? 'grading.save_draft' : 'grading.submit_final',
           requestId,
-          fingerprint: sha256(canonicalJson({ assignmentId: assignment.id, scores })),
+          // 沒有評語時指紋跟加評語欄之前一樣。
+          fingerprint: sha256(
+            canonicalJson({ assignmentId: assignment.id, scores, ...(comment.value !== null ? { comment: comment.value } : {}) }),
+          ),
           scope: 'cohort',
           cohortId: cohort.id,
         },
@@ -588,21 +635,37 @@ export class PgGradingCommand implements GradingCommand {
       const stage = stageOf(stages, assignment.stage_key)
       if (!stage) return err('VALIDATION_FAILED', '目前的評分規則已經沒有這個階段，請聯絡系辦。')
 
-      const counted = await tx.query('select 1 from evaluation_status where assignment_id = $1 and state = $2', [assignment.id, 'counted'])
-      if (counted.rowCount) {
-        return err('CONFLICT', '這一份評分已經正式送出並鎖定，不能再改；需要修改請聯絡系辦退回。')
-      }
-
       const normalized = normalizeScores(stage, scores, { complete: kind === 'final' })
       if (!normalized.ok) return normalized
+      // B 階段 TE-B2a：系辦結算了這一階段就不能再暫存、送出、重送（方案頭列鎖內查，跟結算排隊）。
+      if (await stageSettled(tx, cohort.id, stage.key)) return settledConflict(stage.name)
 
+      // B 階段 TE-B1：正式送出後可以再暫存、再送出。重送＝舊的採計改成歷史（理由 `resubmitted`），這一筆採計。
+      const counted = await tx.query<{ evaluation_id: string }>(
+        'select evaluation_id from evaluation_status where assignment_id = $1 and state = $2',
+        [assignment.id, 'counted'],
+      )
+      const previousCounted = kind === 'final' ? (counted.rows[0]?.evaluation_id ?? null) : null
+
+      if (previousCounted) {
+        await tx.query(
+          `update evaluation_status set state = 'historical', revision = revision + 1, updated_at = $2, updated_by_user_id = $3
+            where evaluation_id = $1`,
+          [previousCounted, realAt, teacherId],
+        )
+        await tx.query(
+          `insert into evaluation_status_events (id, evaluation_id, from_state, to_state, reason, actor_kind, actor_user_id, real_at)
+           values ($1, $2, 'counted', 'historical', 'resubmitted', 'user', $3, $4)`,
+          [uuidv7(), previousCounted, teacherId, realAt],
+        )
+      }
       if (kind === 'final') await reachFaultPoint('grading.final.before-insert')
       const evaluationId = uuidv7()
       await tx.query(
         `insert into evaluations
-           (id, assignment_id, kind, scheme_version_id, scores, submitted_real_at, submitted_business_at, request_id)
-         values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
-        [evaluationId, assignment.id, kind, versionId, JSON.stringify(normalized.value), realAt, businessNow, requestId],
+           (id, assignment_id, kind, scheme_version_id, scores, comment, submitted_real_at, submitted_business_at, request_id)
+         values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)`,
+        [evaluationId, assignment.id, kind, versionId, JSON.stringify(normalized.value), comment.value, realAt, businessNow, requestId],
       )
       const state = kind === 'draft' ? 'draft' : 'counted'
       await tx.query(
@@ -639,7 +702,15 @@ export class PgGradingCommand implements GradingCommand {
         cohortId: cohort.id,
         realAt,
         businessAt: businessNow,
-        payload: { assignmentId: assignment.id, groupId: group.id, stageKey: stage.key, schemeVersionId: versionId, schemeLocked: lockedNow },
+        payload: {
+          assignmentId: assignment.id,
+          groupId: group.id,
+          stageKey: stage.key,
+          schemeVersionId: versionId,
+          schemeLocked: lockedNow,
+          // 重送：被改成歷史的那一筆（系辦評分紀錄據此標「老師重新送出」）。不發通知（D6）。
+          ...(previousCounted ? { resubmitted: true, previousEvaluationId: previousCounted } : {}),
+        },
       })
       // 新的一份採計＝計算基礎改變（票 24）：這一組有生效中的更正就進「待復核」。
       if (kind === 'final') {
@@ -681,7 +752,7 @@ export class PgGradingCommand implements GradingCommand {
 export function runGrading<R>(pool: PoolSource, body: (tx: PoolClient) => Promise<Result<R>>): Promise<Result<R>> {
   return inTransaction(pool, 'grading', body, (constraint) => {
     if (constraint === 'evaluation_status_one_counted') {
-      return err('CONFLICT', '這一份評分已經正式送出並鎖定，不能再改；需要修改請聯絡系辦退回。')
+      return err('CONFLICT', '這一份評分剛剛同時有另一次送出，請重新整理頁面看最新的內容再送。')
     }
     if (constraint === 'evaluator_assignments_one_active') {
       return err('VALIDATION_FAILED', '這位老師剛剛已經被指派評這一組的這個階段了；請重新整理頁面。')
@@ -717,33 +788,85 @@ export function alreadyAssigned(teacherName: string, groupCode: string, stageNam
 
 // ── 查詢 ────────────────────────────────────────────────────────────────────
 
-type LatestRow = {
-  assignment_id: string
-  kind: 'draft' | 'final'
+type EvaluationRow = {
   scheme_version_id: string
   scores: Record<string, string>
+  comment: string | null
   submitted_real_at: Date
-  state: 'draft' | 'counted'
 }
 
-/** 每個指派目前的評分：有採計就是那一筆，否則是最新的暫存。退回、歷史、失效都不算。 */
-export async function latestEvaluations(db: Pick<Pool, 'query'>, assignmentIds: readonly string[]): Promise<Map<string, LatestRow>> {
+/**
+ * 一個指派目前的評分（B 階段 TE-B1）：`counted` 是採計那一筆；`draft` 是**晚於採計**的最新暫存
+ * （沒有採計時就是最新暫存）——有採計又有 `draft`＝正式送出後又改了還沒重送（`draftAfterFinal`）。
+ * `finals` 是每一次正式送出的時間（舊的在前，含已成歷史、被退回的）。退回、歷史、失效的暫存都不算目前的評分。
+ */
+export type CurrentEvaluation = {
+  readonly counted: EvaluationRow | null
+  readonly draft: EvaluationRow | null
+  readonly finals: readonly Date[]
+}
+
+type CurrentRow = {
+  assignment_id: string
+  c_version: string | null
+  c_scores: Record<string, string> | null
+  c_comment: string | null
+  c_at: Date | null
+  d_version: string | null
+  d_scores: Record<string, string> | null
+  d_comment: string | null
+  d_at: Date | null
+  finals: Date[] | null
+}
+
+/** 每個指派目前的評分（見 `CurrentEvaluation`）；固定 1 句，不隨指派數增加。 */
+export async function latestEvaluations(
+  db: Pick<Pool, 'query'>,
+  assignmentIds: readonly string[],
+): Promise<Map<string, CurrentEvaluation>> {
   if (assignmentIds.length === 0) return new Map()
-  const rows = await db.query<LatestRow>(
-    `select distinct on (e.assignment_id)
-            e.assignment_id, e.kind, e.scheme_version_id, e.scores, e.submitted_real_at, s.state
-       from evaluations e
-       join evaluation_status s on s.evaluation_id = e.id
-      where e.assignment_id = any($1::uuid[]) and s.state in ('draft', 'counted')
-      order by e.assignment_id, (s.state = 'counted') desc, e.submitted_real_at desc, e.id desc`,
+  const rows = await db.query<CurrentRow>(
+    `select a.id as assignment_id,
+            c.scheme_version_id as c_version, c.scores as c_scores, c.comment as c_comment, c.submitted_real_at as c_at,
+            d.scheme_version_id as d_version, d.scores as d_scores, d.comment as d_comment, d.submitted_real_at as d_at,
+            h.finals
+       from unnest($1::uuid[]) as a(id)
+       left join lateral (
+         select e.scheme_version_id, e.scores, e.comment, e.submitted_real_at
+           from evaluations e join evaluation_status s on s.evaluation_id = e.id
+          where e.assignment_id = a.id and s.state = 'counted' limit 1
+       ) c on true
+       left join lateral (
+         select e.scheme_version_id, e.scores, e.comment, e.submitted_real_at
+           from evaluations e join evaluation_status s on s.evaluation_id = e.id
+          where e.assignment_id = a.id and s.state = 'draft' and (c.submitted_real_at is null or e.submitted_real_at > c.submitted_real_at)
+          order by e.submitted_real_at desc, e.id desc limit 1
+       ) d on true
+       left join lateral (
+         select array_agg(e.submitted_real_at order by e.submitted_real_at, e.id) as finals
+           from evaluations e where e.assignment_id = a.id and e.kind = 'final'
+       ) h on true`,
     [assignmentIds],
   )
-  return new Map(rows.rows.map((r) => [r.assignment_id, r]))
+  const out = new Map<string, CurrentEvaluation>()
+  for (const r of rows.rows) {
+    const counted =
+      r.c_at && r.c_version && r.c_scores
+        ? { scheme_version_id: r.c_version, scores: r.c_scores, comment: r.c_comment, submitted_real_at: r.c_at }
+        : null
+    const draft =
+      r.d_at && r.d_version && r.d_scores
+        ? { scheme_version_id: r.d_version, scores: r.d_scores, comment: r.d_comment, submitted_real_at: r.d_at }
+        : null
+    if (counted || draft || r.finals?.length) out.set(r.assignment_id, { counted, draft, finals: r.finals ?? [] })
+  }
+  return out
 }
 
 type ReturnedRow = {
   assignment_id: string
   scores: Record<string, string>
+  comment: string | null
   submitted_real_at: Date
   reason: string
   returned_at: Date
@@ -756,7 +879,7 @@ type ReturnedRow = {
 export async function latestReturned(db: Pick<Pool, 'query'>, assignmentIds: readonly string[]): Promise<Map<string, ReturnedRow>> {
   if (assignmentIds.length === 0) return new Map()
   const rows = await db.query<ReturnedRow>(
-    `select distinct on (e.assignment_id) e.assignment_id, e.scores, e.submitted_real_at, ev.reason, ev.real_at as returned_at
+    `select distinct on (e.assignment_id) e.assignment_id, e.scores, e.comment, e.submitted_real_at, ev.reason, ev.real_at as returned_at
        from evaluations e
        join evaluation_status s on s.evaluation_id = e.id and s.state = 'returned'
        join lateral (
@@ -775,8 +898,133 @@ const LEADER_NAME = `(select coalesce(nullif(btrim(lp.display_name), ''), lu.nam
      from group_leaders gl join users lu on lu.id = gl.user_id left join user_profiles lp on lp.user_id = gl.user_id
     where gl.group_id = g.id and gl.valid_to is null limit 1)`
 
-function stateOf(latest: LatestRow | undefined): EvaluationState {
-  return !latest ? 'empty' : latest.state === 'counted' ? 'counted' : 'draft'
+function stateOf(current: CurrentEvaluation | undefined): EvaluationState {
+  return current?.counted ? 'counted' : current?.draft ? 'draft' : 'empty'
+}
+
+/** 本屆本階段的現行結算（`c`＝cohorts、`a`＝evaluator_assignments）；放在主查詢裡當子查詢，不另查。 */
+const SETTLED_AT = `(select gs.settled_at from grade_settlements gs
+    where gs.cohort_id = c.id and gs.stage_key = a.stage_key and gs.released_at is null)`
+
+export type BoardGroupRow = { id: string; code: string; advisor_name: string | null }
+export type BoardRequirementRow = { group_id: string; stage_key: string; required_count: number; revision: number }
+export type BoardAssignmentRow = {
+  id: string
+  group_id: string
+  stage_key: string
+  teacher_user_id: string
+  teacher_name: string
+  inactive: boolean
+}
+
+/** 本屆每組每階段的要求份數（含 revision，評分規則頁改份數用）。 */
+export async function loadBoardRequirements(db: Pick<Pool, 'query'>, cohortId: string): Promise<BoardRequirementRow[]> {
+  const rows = await db.query<BoardRequirementRow>(
+    `select r.group_id, r.stage_key, r.required_count, r.revision
+       from stage_requirements r join groups g on g.id = r.group_id where g.cohort_id = $1`,
+    [cohortId],
+  )
+  return rows.rows
+}
+
+/** 本屆有效的評分指派（老師名、是否停用），依建立時間、id 排序。 */
+export async function loadBoardAssignments(db: Pick<Pool, 'query'>, cohortId: string): Promise<BoardAssignmentRow[]> {
+  const rows = await db.query<BoardAssignmentRow>(
+    `select a.id, a.group_id, a.stage_key, a.teacher_user_id,
+            coalesce(nullif(btrim(p.display_name), ''), u.name) as teacher_name,
+            not (u.status = 'active' and u.deidentified_at is null
+                 and exists (select 1 from role_assignments r
+                              where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)) as inactive
+       from evaluator_assignments a
+       join groups g on g.id = a.group_id
+       join users u on u.id = a.teacher_user_id
+       left join user_profiles p on p.user_id = a.teacher_user_id
+      where g.cohort_id = $1 and a.valid_to is null
+      order by a.created_at, a.id`,
+    [cohortId],
+  )
+  return rows.rows
+}
+
+/** 可指派的老師（啟用、未去識別、有老師身分）。 */
+export async function loadActiveTeachers(db: Pick<Pool, 'query'>): Promise<{ id: string; name: string }[]> {
+  const rows = await db.query<{ id: string; name: string }>(
+    `select u.id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name
+       from users u left join user_profiles p on p.user_id = u.id
+      where u.status = 'active' and u.deidentified_at is null
+        and exists (select 1 from role_assignments r where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
+      order by 2`,
+  )
+  return rows.rows
+}
+
+/**
+ * 系辦評分總覽的組裝（`adminBoard` 與屆別評分快照共用，A-05）：同一份資料列進來，兩邊組出的 DTO 一模一樣。
+ * `groups` 只放進行中的組（依代號排序）；`assignments` 是本屆有效指派（依建立時間、id 排序）。
+ */
+export function assembleAdminBoard(rows: {
+  readonly cohort: CohortRow
+  readonly scheme: SchemeRow | null
+  readonly versionRows: readonly VersionRow[]
+  readonly groups: readonly BoardGroupRow[]
+  readonly requirements: readonly BoardRequirementRow[]
+  readonly assignments: readonly BoardAssignmentRow[]
+  readonly latest: ReadonlyMap<string, CurrentEvaluation>
+  readonly teachers: readonly { id: string; name: string }[]
+}): AdminGradingBoard {
+  const { cohort, scheme, latest } = rows
+  const versions: SchemeVersionView[] = rows.versionRows.map((v) => ({
+    id: v.id,
+    versionNo: v.version_no,
+    status: v.status,
+    stages: readSchemeStages(v.stages),
+    isCurrent: v.id === scheme?.current_version_id,
+    createdAt: v.created_at,
+    lockedAt: v.locked_at,
+  }))
+  const stagesByVersion = new Map(versions.map((v) => [v.id, v.stages]))
+  const assignmentViews: AdminAssignmentView[] = rows.assignments.map((a) => {
+    const current = latest.get(a.id)
+    // 有採計看採計那一筆（正式送出後的新暫存不影響系辦看到的分數，AC-A-2），否則看最新暫存。
+    const row = current?.counted ?? current?.draft ?? null
+    // 正式分數一律照目前版本算（方案鎖定後套用新版本＝用新權重重算，票 24）；暫存照它填的版本算。
+    const currentStages = versions.find((v) => v.isCurrent)?.stages ?? []
+    const stage = row
+      ? current?.counted
+        ? stageOf(currentStages, a.stage_key)
+        : stageOf(stagesByVersion.get(row.scheme_version_id) ?? [], a.stage_key)
+      : null
+    const summary = row && stage ? summarizeScores(stage, current?.counted ? row.scores : pick(stage, row.scores)) : null
+    return {
+      id: a.id,
+      groupId: a.group_id,
+      stageKey: a.stage_key,
+      teacherUserId: a.teacher_user_id,
+      teacherName: a.teacher_name,
+      teacherInactive: a.inactive,
+      state: stateOf(current),
+      score: summary?.score ?? null,
+      filled: summary?.filled ?? 0,
+      total: summary?.total ?? 0,
+      updatedAt: row?.submitted_real_at ?? null,
+      comment: row?.comment ?? null,
+    }
+  })
+  return {
+    cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
+    schemeId: scheme?.id ?? null,
+    versions,
+    current: versions.find((v) => v.isCurrent) ?? null,
+    groups: rows.groups.map((g) => ({ id: g.id, code: g.code, advisorName: g.advisor_name })),
+    requirements: rows.requirements.map((r) => ({
+      groupId: r.group_id,
+      stageKey: r.stage_key,
+      requiredCount: r.required_count,
+      revision: r.revision,
+    })),
+    assignments: assignmentViews,
+    teachers: rows.teachers.map((t) => ({ userId: t.id, name: t.name })),
+  }
 }
 
 export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery {
@@ -809,18 +1057,8 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
           )
         ).rows
       : []
-    const versions: SchemeVersionView[] = versionRows.map((v) => ({
-      id: v.id,
-      versionNo: v.version_no,
-      status: v.status,
-      stages: readSchemeStages(v.stages),
-      isCurrent: v.id === scheme?.current_version_id,
-      createdAt: v.created_at,
-      lockedAt: v.locked_at,
-    }))
-    const stagesByVersion = new Map(versions.map((v) => [v.id, v.stages]))
 
-    const groups = await db.query<{ id: string; code: string; advisor_name: string | null }>(
+    const groups = await db.query<BoardGroupRow>(
       `select g.id, g.code, coalesce(nullif(btrim(p.display_name), ''), u.name) as advisor_name
          from groups g
          left join advisor_assignments a on a.group_id = g.id and a.valid_to is null
@@ -830,85 +1068,25 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         order by g.code`,
       [cohortId],
     )
-    const requirements = await db.query<{ group_id: string; stage_key: string; required_count: number; revision: number }>(
-      `select r.group_id, r.stage_key, r.required_count, r.revision
-         from stage_requirements r join groups g on g.id = r.group_id where g.cohort_id = $1`,
-      [cohortId],
-    )
-    const assignments = await db.query<{
-      id: string
-      group_id: string
-      stage_key: string
-      teacher_user_id: string
-      teacher_name: string
-      inactive: boolean
-    }>(
-      `select a.id, a.group_id, a.stage_key, a.teacher_user_id,
-              coalesce(nullif(btrim(p.display_name), ''), u.name) as teacher_name,
-              not (u.status = 'active' and u.deidentified_at is null
-                   and exists (select 1 from role_assignments r
-                                where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)) as inactive
-         from evaluator_assignments a
-         join groups g on g.id = a.group_id
-         join users u on u.id = a.teacher_user_id
-         left join user_profiles p on p.user_id = a.teacher_user_id
-        where g.cohort_id = $1 and a.valid_to is null
-        order by a.created_at, a.id`,
-      [cohortId],
-    )
+    const requirements = await loadBoardRequirements(db, cohortId)
+    const assignments = await loadBoardAssignments(db, cohortId)
     const latest = await latestEvaluations(
       db,
-      assignments.rows.map((a) => a.id),
+      assignments.map((a) => a.id),
     )
-    const assignmentViews: AdminAssignmentView[] = assignments.rows.map((a) => {
-      const row = latest.get(a.id)
-      // 正式分數一律照目前版本算（方案鎖定後套用新版本＝用新權重重算，票 24）；暫存照它填的版本算。
-      const currentStages = versions.find((v) => v.isCurrent)?.stages ?? []
-      const stage = row
-        ? row.state === 'counted'
-          ? stageOf(currentStages, a.stage_key)
-          : stageOf(stagesByVersion.get(row.scheme_version_id) ?? [], a.stage_key)
-        : null
-      const summary = row && stage ? summarizeScores(stage, row.state === 'counted' ? row.scores : pick(stage, row.scores)) : null
-      return {
-        id: a.id,
-        groupId: a.group_id,
-        stageKey: a.stage_key,
-        teacherUserId: a.teacher_user_id,
-        teacherName: a.teacher_name,
-        teacherInactive: a.inactive,
-        state: stateOf(row),
-        score: summary?.score ?? null,
-        filled: summary?.filled ?? 0,
-        total: summary?.total ?? 0,
-        updatedAt: row?.submitted_real_at ?? null,
-      }
-    })
-
-    const teachers = await db.query<{ id: string; name: string }>(
-      `select u.id, coalesce(nullif(btrim(p.display_name), ''), u.name) as name
-         from users u left join user_profiles p on p.user_id = u.id
-        where u.status = 'active' and u.deidentified_at is null
-          and exists (select 1 from role_assignments r where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
-        order by 2`,
-    )
+    const teachers = await loadActiveTeachers(db)
 
     return ok(
-      {
-        cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
-        schemeId: scheme?.id ?? null,
-        versions,
-        current: versions.find((v) => v.isCurrent) ?? null,
-        groups: groups.rows.map((g) => ({ id: g.id, code: g.code, advisorName: g.advisor_name })),
-        requirements: requirements.rows.map((r) => ({
-          groupId: r.group_id,
-          stageKey: r.stage_key,
-          requiredCount: r.required_count,
-          revision: r.revision,
-        })),
-        assignments: assignmentViews,
-        teachers: teachers.rows.map((t) => ({ userId: t.id, name: t.name })),
-      },
+      assembleAdminBoard({
+        cohort,
+        scheme: scheme ?? null,
+        versionRows,
+        groups: groups.rows,
+        requirements,
+        assignments,
+        latest,
+        teachers,
+      }),
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )
   }
@@ -926,9 +1104,10 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       cohort_name: string
       stages: unknown
       leader_name: string | null
+      settled_at: Date | null
     }>(
       `select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages,
-              ${LEADER_NAME} as leader_name
+              ${LEADER_NAME} as leader_name, ${SETTLED_AT} as settled_at
          from evaluator_assignments a
          join groups g on g.id = a.group_id and g.status = 'active'
          join cohorts c on c.id = g.cohort_id and c.status <> 'archived'
@@ -944,9 +1123,10 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       const stages = readSchemeStages(r.stages)
       const stage = stageOf(stages, r.stage_key)
       if (!stage) return []
-      const row = latest.get(r.id)
+      const current = latest.get(r.id)
+      const counted = current?.counted ?? null
+      const row = counted ?? current?.draft ?? null
       const summary = row ? summarizeScores(stage, pick(stage, row.scores)) : null
-      const counted = row?.state === 'counted' ? row : null
       return [
         {
           assignmentId: r.id,
@@ -956,14 +1136,16 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
           groupCode: r.group_code,
           stageKey: stage.key,
           stageName: stage.name,
-          state: stateOf(row),
+          state: stateOf(current),
           filled: summary?.filled ?? 0,
           total: stage.items.length,
-          returned: returned.has(r.id) && row?.state !== 'counted',
+          returned: returned.has(r.id) && !counted,
           leaderName: r.leader_name,
           // 跟評閱桌同一個算法：正式分數照目前方案版本算（`teacherBench` 的採計分支）。
           finalScore: counted ? summarizeScores(stage, counted.scores).score : null,
           submittedAt: counted?.submitted_real_at ?? null,
+          draftAfterFinal: !!counted && !!current?.draft,
+          settled: r.settled_at !== null,
         },
       ]
     })
@@ -994,6 +1176,67 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
     )
   }
 
+  /**
+   * 系辦首頁（AD-21）：本屆待復核的更正，1 句。口徑同 `PgGradebookQuery.gradebook` 的 `pendingReviews`：
+   * 只算進行中的組（解散的組不能再復核），新的在前。
+   */
+  async pendingReviews(actor: ResolvedActor, cohortId: string): Promise<Result<readonly PendingReview[]>> {
+    const denied = authorizeAdmin(actor, '查看評分')
+    if (denied) return denied
+    if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
+    const rows = await this.#reader().query<{
+      id: string
+      group_id: string
+      code: string
+      original_value: string
+      new_value: string
+      reason: string
+    }>(
+      `select o.id, o.group_id, g.code, o.original_value::text as original_value, o.new_value::text as new_value, o.reason
+         from grade_overrides o
+         join override_review_state r on r.override_id = o.id
+         join groups g on g.id = o.group_id
+        where g.cohort_id = $1 and g.status = 'active' and r.state = 'pending_review'
+        order by o.real_at desc, o.id desc`,
+      [cohortId],
+    )
+    return okList(
+      rows.rows.map((o) => ({
+        overrideId: o.id,
+        groupId: o.group_id,
+        groupCode: o.code,
+        originalValue: exactScore(o.original_value),
+        newValue: exactScore(o.new_value),
+        reason: o.reason,
+      })),
+    )
+  }
+
+  /**
+   * 系辦首頁評分卡（AD-21）：1 句。口徑同 `admin/grading/progress.ts` 的 `teacherProgress`（全部階段、排除解散組）：
+   * 分母＝進行中組別上、目前方案版本有的階段的有效指派份數；分子＝其中有採計的份數。
+   */
+  async progressSummary(actor: ResolvedActor, cohortId: string): Promise<Result<GradingProgressSummary>> {
+    const denied = authorizeAdmin(actor, '查看評分')
+    if (denied) return denied
+    if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
+    const row = (
+      await this.#reader().query<{ required: number; counted: number }>(
+        `select count(*)::int as required,
+                count(*) filter (where exists (
+                  select 1 from evaluation_status s where s.assignment_id = a.id and s.state = 'counted'))::int as counted
+           from evaluator_assignments a
+           join groups g on g.id = a.group_id and g.status = 'active'
+           join grading_schemes sc on sc.cohort_id = g.cohort_id
+           join grading_scheme_versions v on v.id = sc.current_version_id
+          where g.cohort_id = $1 and a.valid_to is null
+            and exists (select 1 from jsonb_array_elements(v.stages) st where st->>'key' = a.stage_key)`,
+        [cohortId],
+      )
+    ).rows[0]
+    return ok({ counted: row?.counted ?? 0, required: row?.required ?? 0 }, { requestId: uuidv7(), serverTime: new Date().toISOString() })
+  }
+
   /** 評閱桌本體：指派＋頭列（含組長）合併 1 句，再並行讀組員、目前評分、退回各 1 句。 */
   async #bench(actor: ResolvedActor, groupId: string): Promise<{ ok: true; bench: TeacherBench; leaderName: string | null } | Err> {
     const who = authorizeTeacher(actor)
@@ -1010,9 +1253,10 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       version_no: number | null
       stages: unknown
       leader_name: string | null
+      settled_at: Date | null
     }>(
       `select a.id, a.stage_key, g.code, c.code as cohort_code, c.name as cohort_name, v.id as version_id, v.version_no, v.stages,
-              ${LEADER_NAME} as leader_name
+              ${LEADER_NAME} as leader_name, ${SETTLED_AT} as settled_at
          from evaluator_assignments a
          join groups g on g.id = a.group_id
          join cohorts c on c.id = g.cohort_id
@@ -1041,25 +1285,36 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
     const entries: BenchEntry[] = assignments.rows.flatMap((a): BenchEntry[] => {
       const stage = stageOf(stages, a.stage_key)
       if (!stage) return []
-      const row = latest.get(a.id)
-      const state = stateOf(row)
-      if (state === 'counted' && row) {
+      const current = latest.get(a.id)
+      const state = stateOf(current)
+      const settled = a.settled_at ? { settledAt: a.settled_at } : null
+      const submissionHistory = (current?.finals ?? []).map((at, i) => ({ no: i + 1, at }))
+      const counted = current?.counted
+      if (counted) {
         // 正式分數一律照**目前**方案版本算（票 24：方案鎖定後套用新版本＝用新權重重算舊分數；成績表同一個算法）。
+        // 正式送出後又暫存（TE-B1）：表單顯示那筆暫存，正式分數仍是採計那一筆。
+        const draft = current.draft
         return [
           {
             assignmentId: a.id,
             stage,
             state,
-            scores: row.scores,
-            savedAt: row.submitted_real_at,
-            submittedAt: row.submitted_real_at,
-            finalScore: summarizeScores(stage, row.scores).score,
-            draftFromOlderVersion: false,
+            scores: draft ? pick(stage, draft.scores) : counted.scores,
+            savedAt: (draft ?? counted).submitted_real_at,
+            submittedAt: counted.submitted_real_at,
+            finalScore: summarizeScores(stage, counted.scores).score,
+            draftFromOlderVersion: !!draft && draft.scheme_version_id !== head.version_id,
             returned: null,
+            comment: (draft ?? counted).comment,
+            draftAfterFinal: !!draft,
+            resubmittable: !settled,
+            settled,
+            submissionHistory,
           },
         ]
       }
       // 被退回、還沒重新送出：理由一直顯示；退回的那一份比最新暫存新，就把它預填回表單。
+      const row = current?.draft ?? null
       const back = returnedRows.get(a.id)
       const prefillFromReturned = !!back && (!row || back.returned_at.getTime() > row.submitted_real_at.getTime())
       return [
@@ -1073,6 +1328,11 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
           finalScore: null,
           draftFromOlderVersion: !prefillFromReturned && !!row && row.scheme_version_id !== head.version_id,
           returned: back ? { reason: back.reason, returnedAt: back.returned_at } : null,
+          comment: prefillFromReturned ? back.comment : (row?.comment ?? null),
+          draftAfterFinal: false,
+          resubmittable: false,
+          settled,
+          submissionHistory,
         },
       ]
     })

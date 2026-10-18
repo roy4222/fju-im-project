@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { IconCheck, IconDownload, IconFileTypePdf, IconMinus, IconSignature, IconX } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { StatusPill } from '@/app/_ui/dashboard/cards'
 import { newerVersionNo, signoffStateLabel } from '@/app/dashboard/_signoff/state-label'
 import { consentTodo } from '@/app/dashboard/student/_todo/todos'
@@ -68,7 +69,7 @@ export function ConsentVersion({ v, action, headingLevel = 1 }: { v: VersionDeta
                     <span className="min-w-0">
                       <span className="block font-semibold break-all">{a.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼 {a.checksum.slice(0, 12)}
+                        {a.source.itemTitle} 第 {a.source.versionNo} 次正式送出・檔案核對碼（有爭議時查看） {a.checksum.slice(0, 12)}
                       </span>
                     </span>
                     <a
@@ -136,7 +137,7 @@ function History({ v }: { v: VersionDetail }) {
       <ul className="tabular flex flex-col gap-1">
         <li>
           <span className="font-semibold text-foreground">第 {v.versionNo} 版（這一版）</span>・{formatTaipeiMinute(v.createdAt)} {v.createdByName}{' '}
-          建立・文件一致性檢查碼 {v.contentChecksum.slice(0, 12)}
+          建立・文件一致性檢查碼（有爭議時查看） {v.contentChecksum.slice(0, 12)}
           （用來確認每個人同意的是同一份內容；內容一改，碼就不同）
         </li>
         {others.map((h) => (
@@ -197,6 +198,7 @@ function WholeGroup({ v, newer }: { v: VersionDetail; newer: number | null }) {
               ) : (
                 <IconMinus className="size-4 shrink-0 text-muted-foreground" aria-label="還沒表態" />
               )}
+              <UserAvatar user={{ id: s.userId, name: s.displayName, avatarPreset: s.avatarPreset ?? null, avatarFileId: s.avatarFileId ?? null }} size={24} decorative />
               <span className={cn(me && 'font-bold')}>
                 {s.displayName}
                 {me ? '（你）' : ''}
@@ -209,7 +211,11 @@ function WholeGroup({ v, newer }: { v: VersionDetail; newer: number | null }) {
           )
         })}
         <li className="flex items-start gap-2.5 border-t border-border pt-2.5 text-sm" data-testid="progress-advisor">
-          <IconSignature className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <UserAvatar
+            user={{ id: p.advisor.userId, name: p.advisor.displayName, avatarPreset: p.advisor.avatarPreset ?? null, avatarFileId: p.advisor.avatarFileId ?? null }}
+            size={24}
+            decorative
+          />
           <span className="min-w-0">
             <span className="block">{p.advisor.displayName}（指導老師）</span>
             <span className={cn('block text-xs', p.advisor.result && p.advisor.result !== 'agree' ? 'text-destructive' : 'text-muted-foreground')}>

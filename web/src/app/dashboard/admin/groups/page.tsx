@@ -10,8 +10,10 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { GroupingSettingsEditor, VoidProposalButton } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { AdvisorCell, BatchAssignDialog } from '@/app/dashboard/admin/groups/advisor-forms'
+import { DissolveGroupButton } from '@/app/dashboard/admin/groups/dissolve-dialog'
+import { DissolvedGroups } from '@/app/dashboard/admin/groups/dissolved-groups'
 import { groupsGradingPorts, loadAdvisorGrading } from '@/app/dashboard/admin/groups/groups-data'
-import { GroupDetailButton, UngroupedStudents, type GroupDetailHistory } from '@/app/dashboard/admin/groups/member-forms'
+import { GroupDetailButton, UngroupedStudents } from '@/app/dashboard/admin/groups/member-forms'
 import { LinkOpportunityButton } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
@@ -23,14 +25,13 @@ import {
   GROUP_SIZE_LIMIT,
   PROPOSAL_DAYS_LIMIT,
 } from '@/composition/cohorts'
-import type { GroupHistoryEntry, RosterFilter, RosterSort } from '@/application/groups'
+import type { RosterFilter, RosterSort } from '@/application/groups'
 import {
   ADVISOR_BATCH_KIND_LABEL,
   applyRosterFilter,
   ADVISOR_BATCH_OUTCOME_LABEL,
   ADVISOR_CSV_MAX_BYTES,
   CHANGE_REASON_MAX_LENGTH,
-  describeGroupHistory,
   getGroupQuery,
   getOpportunityQuery,
   GROUP_TYPE_LABEL,
@@ -77,11 +78,9 @@ const GROUP_TABS = [
  * （不放標題列，網站問題 #8；屆別膠囊名稱長，放分頁列下方）；頁首說明拿掉，指派數字搬到「全部組別」、分組設定摘要搬到「組隊中」；
  * 「組隊中」「最近終止」改卡片；組別表多一欄「合作案」。
  * AD-06（§3.3.1）：產學組的「合作案」格有「連結合作案／改連結」對話框（`link-opportunity-dialog.tsx`）。
+ * A-19（PR #333）：名單每列的操作欄有「解散」（`dissolve-dialog.tsx`）；解散的組離開名單，改列在下方「已解散的組別」
+ * （`dissolved-groups.tsx`）。
  */
-
-function historyItem(h: GroupHistoryEntry, index: number): GroupDetailHistory {
-  return { key: `${index}`, atLabel: formatTaipeiMinute(h.at), text: describeGroupHistory(h), reason: h.reason }
-}
 
 function rosterHref(cohortId: string, filter: RosterFilter, overrides: Partial<RosterFilter> = {}): string {
   const query = rosterQueryString(filter, overrides)
@@ -151,12 +150,13 @@ export default async function AdminGroupsPage({
     )
   }
 
-  const [overview, businessNow, teachers, linkOptions] = await Promise.all([
-    getGroupQuery().overview(cohort.id),
+  const [overview, businessNow, teachers, linkOptions, dissolvedGroups] = await Promise.all([
+    getGroupQuery().overview(cohort.id, { history: false }),
     getBusinessClock().now(),
     getGroupQuery().teacherOptions(),
     // 連結合作案對話框的初始選項（AD-06）：一句 SQL、只有已發布、前 50 筆；搜尋與換頁在對話框裡走 action。
     getOpportunityQuery().linkOptions(actor, { limit: 50 }),
+    getGroupQuery().dissolvedGroups(cohort.id),
   ])
   // 重派對話框要列的原老師評分指派：整屆讀一次 `adminBoard`，不逐組查（AD-14）。
   const gradingOf = await loadAdvisorGrading(groupsGradingPorts(), actor, cohort.id, overview.groups)
@@ -269,6 +269,14 @@ export default async function AdminGroupsPage({
                 id: g.id,
                 code: g.code,
                 emails: g.members.map((m) => m.loginEmail).filter((e): e is string => typeof e === 'string' && e.length > 0),
+                actions: (
+                  <DissolveGroupButton
+                    group={{ id: g.id, code: g.code, revision: g.revision, memberNames: g.members.map((m) => m.name) }}
+                    cohortId={cohort.id}
+                    requestId={randomUUID()}
+                    reasonMaxLength={CHANGE_REASON_MAX_LENGTH}
+                  />
+                ),
                 cells: [
                   <GroupDetailButton
                     key="code"
@@ -278,7 +286,6 @@ export default async function AdminGroupsPage({
                       revision: g.revision,
                       typeLabel: GROUP_TYPE_LABEL[g.groupType],
                       members: g.members.map((m) => ({ ...m })),
-                      history: g.history.map(historyItem),
                     }}
                     size={size}
                     requestIds={{ remove: randomUUID(), leader: randomUUID() }}
@@ -354,6 +361,9 @@ export default async function AdminGroupsPage({
           />
         </div>
       </Panel>
+
+      {/* 剛解散完：動作把那組的 id 帶回網址（`?dissolved=`），回執顯示在這一塊。 */}
+      <DissolvedGroups groups={dissolvedGroups} justDissolvedId={typeof params.dissolved === 'string' ? params.dissolved : null} />
 
       {/* 以下兩塊原型沒有（原型的分組是直接成立）；正式碼的分組是提案制，照同一套 Panel 樣子放在後面。 */}
       <Panel

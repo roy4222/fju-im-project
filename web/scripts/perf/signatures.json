@@ -4,7 +4,7 @@
     "select id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, impersonated_by, login_method from sessions ",
     "select id, name, email, email_verified, image, created_at, updated_at, role, banned, ban_reason, ban_expires, status, must_change_password, deidentified_at from users where users.id = $1",
     "select status, must_change_password, deidentified_at from users where id = $1",
-    "select users.id, users.status, users.must_change_password, users.deidentified_at, user_profiles.cohort_id, users.name, user_profiles.display_name from users left join user_profiles ",
+    "select users.id, users.status, users.must_change_password, users.deidentified_at, user_profiles.cohort_id, users.name, user_profiles.display_name, user_profiles.avatar_preset, user_profiles.avatar_file_id from users left join user_profiles ",
     "select role from role_assignments where (role_assignments.user_id = $1 and role_assignments.revoked_real_at is null)",
     "select exists ( select ? from role_assignments where user_id = $1 and role = ? and revoked_real_at is null ) and not exists ( select ? from user_profiles where user_id = $1 and profile_completed_at is not null ) as needs"
   ],
@@ -15,7 +15,7 @@
     "select distinct on (e.assignment_id) e.assignment_id, e.scores, e.submitted_real_at, ev.reason, ev.real_at as returned_at from evaluations ",
     "select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no, s.state, s.cause, v.participants, ",
     "select version_id, user_id, role, result, reason, real_at from approvals where version_id = any($1::uuid[])",
-    "select id, name from users where id = any($1::uuid[]) and deidentified_at is not null",
+    "select u.id, u.name, u.deidentified_at, p.avatar_preset, p.avatar_file_id from users u left join user_profiles p on p.user_id = u.id where u.id = any($1::uuid[])",
     "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
   ]
 }

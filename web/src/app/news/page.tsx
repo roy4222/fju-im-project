@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { currentActor } from '@/app/_ui/guard'
+import { renderActor } from '@/app/_ui/guard'
 import { ListEmpty, NewsCard, PillLink, PublicPage, SearchField } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
@@ -26,7 +26,7 @@ export default async function NewsPage({
   const params = await searchParams
   const category = one(params.category).slice(0, 40)
   const q = one(params.q).slice(0, 100)
-  const actor = await currentActor()
+  const actor = await renderActor()
   const query = getPublicItemQuery()
   const [cards, categories] = await Promise.all([
     query.list(actor, 'news', { category: category || undefined, q: q || undefined }),

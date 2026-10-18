@@ -171,7 +171,7 @@ function NextCard({ next, perspective }: { next: HeroNext; perspective: 'student
  * 三角色首頁頂端的「現在」橫幅（共用 SH-4；原型 v4 home-student／home-teacher-v2）。
  * 左欄：歡迎（h1）、小字「現在」＋角色自己的一句、大字階段、日期與剩幾天、「看完整時程」＋主要動作（只一顆）。
  * 右欄：`next` 白卡（`hero-next`）；沒有 `next` 時左欄佔滿。
- * `trail`（學生、老師）在橫幅底下掛金屬像素拖尾；手機、觸控、減少動態不載入。
+ * `trail`（學生、老師、系辦）在橫幅底下掛金屬像素拖尾；手機、觸控、減少動態不載入。
  * 舊版的進度條、階段四格、小格、插圖、compact 都拿掉了：那幾個 props 只為了三角色首頁還沒改前能編譯，傳了會被忽略。
  */
 export function HomeHero({

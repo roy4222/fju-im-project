@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { fillItemBody } from './item-body'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole, type TestSession } from './session'
 
 /**
@@ -188,7 +189,7 @@ test('系辦發一份 G01 要交的「期中報告」（9 天後截止）', asyn
   await signInAs(page, 'admin')
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
   await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
-  await page.getByLabel('正文').fill('請上傳期中報告 PDF。')
+  await fillItemBody(page, '請上傳期中報告 PDF。')
   await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '整組一份', exact: true }).check()
   await page.getByLabel('誰看得到').selectOption('groups')
@@ -289,11 +290,11 @@ test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的�
     await showMonth(calendar, aDay)
     await expect(monthRow(calendar, aDay, ACTIVITY_A)).toHaveCount(1)
     await expect(monthRow(calendar, aDay, ACTIVITY_B)).toHaveCount(1)
-    // 沒有任何「截止」：圖例不列、截止那個月也沒有期中報告。
+    // 學生截止（Q125 B 案、B15）：截止那個月有期中報告、標「學生截止」，連到老師／系辦的公告與作業列表。
     const dueDay = ymd(at(DUE_DAY))
     await showMonth(calendar, dueDay)
-    await expect(page.getByRole('main')).not.toContainText(SUBMISSION)
-    await expect(calendar.getByText('截止', { exact: true })).toHaveCount(0)
+    await expect(monthRow(calendar, dueDay, SUBMISSION)).toContainText('學生截止')
+    await expect(monthRow(calendar, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', role === 'admin' ? `/dashboard/admin/affairs?cohort=${cohortId}` : '/dashboard/teacher/affairs')
   }
 })
 

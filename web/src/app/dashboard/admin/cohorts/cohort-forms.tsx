@@ -1,9 +1,9 @@
 'use client'
 import { useActionState, useRef, useState } from 'react'
 import { IconAlertTriangle } from '@tabler/icons-react'
-import { activateCohortAction, createCohortAction, setCohortFlagAction } from './actions'
+import { activateCohortAction, createCohortAction, setCohortFlagAction, setCohortStatusAction } from './actions'
 import { Pill } from '@/app/_ui/dashboard/primitives'
-import { ALERT, BTN_ROW, DIALOG, DIALOG_TITLE, INPUT as INPUT_BASE, NOTE } from '@/app/_ui/dashboard/look'
+import { ALERT, BTN_ROW, DIALOG, DIALOG_TITLE, INPUT as INPUT_BASE, LABEL, NOTE, TEXTAREA } from '@/app/_ui/dashboard/look'
 import { buttonVariants } from '@/app/_ui/ui/button'
 
 /**
@@ -88,8 +88,12 @@ export type CohortRow = {
   /** 畫面上的屆別寫法「名稱（代碼）」（系1），伺服器端用 `cohortLabel` 算好；也是卡片的 region 名。 */
   label: string
   statusLabel: string
-  /** 已封存的屆別卡上沒有任何操作按鈕（封存／解封是 B）。 */
+  /** 已封存的屆別卡上沒有旗標按鈕，只剩「解除封存」（AD-B4）。 */
   archived: boolean
+  /** 已封存卡上的「已封存 {時間}」，伺服器端格式化好的臺灣時間；不是已封存時為 null。 */
+  archivedAtLabel: string | null
+  /** 進行中的屆別才有「封存這一屆」（AD-B4；籌備中、已封存都沒有）。 */
+  canArchive: boolean
   /** 籌備中的屆別才有「轉為進行中」按鈕（票 11；AD-12 起在卡內的危險操作小區）。 */
   canActivate: boolean
   isDefaultWorking: boolean
@@ -102,6 +106,8 @@ export type CohortRow = {
     defaultWorking: string
     registrationOpen: string
     activate: string
+    archive: string
+    unarchive: string
   }
 }
 
@@ -121,17 +127,28 @@ const BUTTON_LABEL: Record<Flag, string> = {
  * 屆別卡片（AD-12，取代原本 `min-w-[40rem]` 的表格）：每屆一張 `region`，名稱是「名稱（代碼）」。
  * 卡上：狀態膠囊、學生數、組數、兩個旗標（持有就是膠囊，沒有就是「設為」按鈕）、籌備中才有的危險操作小區。
  */
-export function CohortCards({ rows, flagLabels }: { rows: readonly CohortRow[]; flagLabels: Record<Flag, string> }) {
+export function CohortCards({
+  rows,
+  flagLabels,
+  reasonMaxLength,
+}: {
+  rows: readonly CohortRow[]
+  flagLabels: Record<Flag, string>
+  reasonMaxLength: number
+}) {
   const [flagState, formAction, pending] = useActionState(setCohortFlagAction, undefined)
   const [activateState, activateAction, activating] = useActionState(activateCohortAction, undefined)
-  // 兩種動作共用卡片列上方那一句回饋：顯示最近一次的。
-  const [latest, setLatest] = useState<'flag' | 'activate' | null>(null)
-  const [seen, setSeen] = useState({ flagState, activateState })
-  if (seen.flagState !== flagState || seen.activateState !== activateState) {
-    setSeen({ flagState, activateState })
-    setLatest(seen.activateState !== activateState ? 'activate' : 'flag')
+  const [statusState, statusAction, changingStatus] = useActionState(setCohortStatusAction, undefined)
+  // 三種動作共用卡片列上方那一句回饋：顯示最近一次的。
+  const [latest, setLatest] = useState<'flag' | 'activate' | 'status' | null>(null)
+  const [seen, setSeen] = useState({ flagState, activateState, statusState })
+  if (seen.flagState !== flagState || seen.activateState !== activateState || seen.statusState !== statusState) {
+    setSeen({ flagState, activateState, statusState })
+    setLatest(
+      seen.statusState !== statusState ? 'status' : seen.activateState !== activateState ? 'activate' : 'flag',
+    )
   }
-  const state = latest === 'activate' ? activateState : flagState
+  const state = latest === 'status' ? statusState : latest === 'activate' ? activateState : flagState
 
   function flagControl(row: CohortRow, flag: Flag) {
     const held = flag === 'defaultWorking' ? row.isDefaultWorking : row.isRegistrationOpen
@@ -188,7 +205,20 @@ export function CohortCards({ rows, flagLabels }: { rows: readonly CohortRow[]; 
                   <dd className="tabular text-lg font-bold text-ink">{row.groupCount}</dd>
                 </div>
               </dl>
-              {row.archived ? null : (
+              {row.archived ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                  <span className="text-sm text-muted-foreground" data-testid="archived-at">
+                    已封存{row.archivedAtLabel ? ` ${row.archivedAtLabel}` : ''}
+                  </span>
+                  <CohortStatusButton
+                    row={row}
+                    mode="unarchive"
+                    action={statusAction}
+                    pending={changingStatus}
+                    reasonMaxLength={reasonMaxLength}
+                  />
+                </div>
+              ) : (
                 <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
                   {flagControl(row, 'defaultWorking')}
                   {flagControl(row, 'registrationOpen')}
@@ -204,6 +234,24 @@ export function CohortCards({ rows, flagLabels }: { rows: readonly CohortRow[]; 
                     <IconAlertTriangle aria-hidden className="size-4" /> 危險操作
                   </span>
                   <ActivateCohortButton row={row} action={activateAction} pending={activating} />
+                </section>
+              ) : null}
+              {/* 封存（AD-B4）：整屆變唯讀，跟日常的旗標按鈕拉開，先填理由再確認。 */}
+              {row.canArchive ? (
+                <section
+                  aria-label="危險區"
+                  className="mt-auto flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2"
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-bold text-destructive">
+                    <IconAlertTriangle aria-hidden className="size-4" /> 危險區
+                  </span>
+                  <CohortStatusButton
+                    row={row}
+                    mode="archive"
+                    action={statusAction}
+                    pending={changingStatus}
+                    reasonMaxLength={reasonMaxLength}
+                  />
                 </section>
               ) : null}
             </section>
@@ -268,6 +316,126 @@ function ActivateCohortButton({
             </button>
             <button type="submit" disabled={pending} className={DANGER_SUBMIT}>
               確定轉為進行中
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </>
+  )
+}
+
+const STATUS_COPY = {
+  archive: {
+    button: '封存這一屆',
+    title: (label: string) => `封存${label}？`,
+    submit: '確定封存',
+    facts: [
+      ['範圍', '這一屆的組別、評分、簽核、成果都變成只能查看；老師的評分清單與「我的組別」不再列這一屆。'],
+      ['後果', '按下就生效並留一筆狀態紀錄與操作紀錄。預設工作屆別、開放註冊屆別不能封存，要先換成別屆。'],
+      ['能不能恢復', '可以，已封存的卡上有「解除封存」，同樣要填理由。'],
+    ],
+  },
+  unarchive: {
+    button: '解除封存',
+    title: (label: string) => `解除封存${label}？`,
+    submit: '確定解除封存',
+    facts: [
+      ['範圍', '這一屆回到進行中；老師的評分清單、學生的組別頁可以再寫入。'],
+      ['後果', '按下就生效並留一筆狀態紀錄與操作紀錄。'],
+      ['能不能恢復', '可以再封存。'],
+    ],
+  },
+} as const
+
+/**
+ * 「封存這一屆」「解除封存」的確認視窗（AD-B4；設計方案 §7）：寫對象、範圍、後果、能不能恢復，理由必填。
+ * 理由留空就在視窗裡提示「請填理由」、不送出；送出就關掉視窗，結果顯示在卡片列上方那一句回饋。
+ */
+function CohortStatusButton({
+  row,
+  mode,
+  action,
+  pending,
+  reasonMaxLength,
+}: {
+  row: CohortRow
+  mode: 'archive' | 'unarchive'
+  action: (formData: FormData) => void
+  pending: boolean
+  reasonMaxLength: number
+}) {
+  const ref = useRef<HTMLDialogElement>(null)
+  const [missing, setMissing] = useState(false)
+  const copy = STATUS_COPY[mode]
+  const reasonId = `cohort-${mode}-reason-${row.id}`
+  const facts: readonly (readonly [string, string])[] = [['對象', row.label], ...copy.facts]
+  const close = () => {
+    setMissing(false)
+    ref.current?.close()
+  }
+  return (
+    <>
+      <button
+        type="button"
+        disabled={pending}
+        aria-label={`${copy.button}：${row.code}`}
+        className={mode === 'archive' ? DANGER : BTN_ROW}
+        onClick={() => ref.current?.showModal()}
+      >
+        {copy.button}
+      </button>
+      <dialog ref={ref} aria-label={copy.title(row.code)} className={DIALOG.lg} onClose={() => setMissing(false)}>
+        <form
+          action={action}
+          noValidate
+          onSubmit={(event) => {
+            const reason = new FormData(event.currentTarget).get('reason')
+            if (!String(reason ?? '').trim()) {
+              event.preventDefault()
+              setMissing(true)
+              return
+            }
+            close()
+          }}
+          className="space-y-4 p-5"
+        >
+          <input type="hidden" name="cohortId" value={row.id} />
+          <input type="hidden" name="mode" value={mode} />
+          <input type="hidden" name="label" value={row.label} />
+          <input type="hidden" name="requestId" value={row.requestIds[mode]} />
+          <h2 className={DIALOG_TITLE}>{copy.title(row.label)}</h2>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm" data-testid="danger-facts">
+            {facts.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="whitespace-nowrap text-muted-foreground">{k}</dt>
+                <dd className="text-foreground">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <label htmlFor={reasonId} className={LABEL}>
+            理由（必填，最多 {reasonMaxLength} 字）
+            <textarea
+              id={reasonId}
+              name="reason"
+              rows={3}
+              maxLength={reasonMaxLength}
+              aria-required
+              aria-invalid={missing || undefined}
+              onChange={() => setMissing(false)}
+              className={TEXTAREA}
+            />
+          </label>
+          {missing ? (
+            <p role="alert" className={ALERT}>
+              請填理由。
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" className={CANCEL} onClick={close}>
+              先不要
+            </button>
+            <button type="submit" disabled={pending} className={mode === 'archive' ? DANGER_SUBMIT : 'btn-fju h-10 px-4 text-sm disabled:opacity-60'}>
+              {copy.submit}
             </button>
           </div>
         </form>

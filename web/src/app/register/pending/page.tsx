@@ -4,17 +4,22 @@ import { homeFor, requireSignedIn } from '@/app/_ui/guard'
 import { AuthCard } from '@/app/_ui/primitives'
 import { PublicCard } from '@/app/_ui/public-content'
 import { SignOutButton } from '@/app/_ui/sign-out'
+import { SITE_CONTACT } from '@/app/_ui/site-contact'
 import { NarrowShell } from '@/app/_ui/site-shell'
 import {
   APPLIED_NAME_MAX_LENGTH,
   DEPARTMENT_CLASS_MAX_LENGTH,
+  EMAIL_VERIFY_PATH,
   getRegistrationCommand,
+  homeForUser,
+  isRegistrationOpen,
   PASSWORD_MIN_LENGTH,
 } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
-import { formatTaipeiMinute } from '@/shared/time'
+import { taipeiParts } from '@/shared/time'
 import { reviseApplicationAction } from '../actions'
 import { ApplicationForm } from '../application-form'
+import { ReviewProgress } from './_components/progress'
 
 export const metadata = { title: '等待審核｜資管系專題平台', robots: { index: false } }
 
@@ -27,8 +32,10 @@ export const metadata = { title: '等待審核｜資管系專題平台', robots:
  * 與原型的差異：
  * - **不顯示名單比對結果**。原型寫「你的學號或姓名未命中本屆名單」，那等於告訴任何人
  *   「某個學號在不在名單上」（拿別人的學號註冊再改幾次就問得出來）。比對結果只給系辦看。
- * - 沒有「核准後會寄通知信」：Email 延後，審核結果也不進通知匣（§2.4 第六輪）；
- *   重新整理或重新登入就看得到最新狀態。
+ * - 不顯示「第 N 版」（VB-5；visitor-r3 §3.5、Q44／Q33）：只說「已編輯・時間」與修改紀錄的「時間・送出／編輯」。
+ *   系辦那邊的「第 N 版」照舊（核准依版本）。
+ * - 三步進度＋帶證件去哪裡（VB-5）。說明句前半（Google Email 與名單相同立即開通）由 VB-6 打開。
+ * - 已驗證、還沒送申請資料的人到第 3 步 `/register/apply` 填（visitor-r3；VB-6）。
  */
 export default async function RegisterPendingPage({
   searchParams,
@@ -41,10 +48,13 @@ export default async function RegisterPendingPage({
   const home = homeFor(actor)
   const elsewhere = home === '/register/pending' ? '/' : home
   if (actor.status !== 'pending') redirect(elsewhere)
+  // 用密碼註冊、還沒驗證 Email 的人先回第 2 步（VB-3；AC-VI-50）。其他頁的狀態閘門都把待審的人帶到這裡。
+  if ((await homeForUser(actor.userId)) === EMAIL_VERIFY_PATH) redirect(EMAIL_VERIFY_PATH)
 
   const viewed = await getRegistrationCommand().viewMine(actor)
   if (!viewed.ok) redirect(elsewhere)
   const mine = viewed.receipt
+  if (mine.state === 'none' && isRegistrationOpen()) redirect('/register/apply')
   const { updated, via } = await searchParams
   const viaGoogle = via === 'google'
   const updatedRevision = typeof updated === 'string' && /^\d+$/.test(updated) ? Number(updated) : null
@@ -65,6 +75,9 @@ export default async function RegisterPendingPage({
       }
     : { appliedName: mine.accountName, studentNo: '', departmentClass: '', phone: '', contactEmail: mine.loginEmail }
 
+  // 最後一次修改的時間（修改紀錄新到舊；改過才有，不說是第幾版）。
+  const edited = current && mine.history.length > 1 ? mine.history[0]!.at : null
+
   const title = mine.state === 'pending' ? '等待系辦審核' : mine.state === 'rejected' ? '申請被退回' : '還沒送出申請資料'
 
   return (
@@ -73,9 +86,11 @@ export default async function RegisterPendingPage({
         <div className="flex flex-col gap-5">
           {updatedRevision !== null && mine.state === 'pending' ? (
             <p role="status" className="rounded-[10px] bg-primary-subtle px-4 py-3 text-sm font-semibold text-primary-on-subtle">
-              {updatedRevision === 1 ? '申請已送出' : `資料已更新為第 ${updatedRevision} 版`}，狀態仍是待審核；系辦會看到最新的資料。
+              {updatedRevision === 1 ? '申請已送出' : '資料已更新'}，狀態仍是待審核；系辦會看到最新的資料。
             </p>
           ) : null}
+
+          {mine.state !== 'none' ? <ReviewProgress rejected={mine.state === 'rejected'} /> : null}
 
           <div
             className={cn(
@@ -92,9 +107,9 @@ export default async function RegisterPendingPage({
             <div className="min-w-0 text-sm">
               {mine.state === 'pending' ? (
                 <>
-                  <p className="font-bold text-foreground">系辦核對名單與本人身分後才會開通</p>
+                  <p className="font-bold text-foreground">用 Google 註冊且 Email 與名單相同會立即開通；其他由系辦核對，通常 1～3 個工作天。</p>
                   <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                    系辦會以當面核對學生證或校方管道確認本人。開通後重新整理或重新登入，就會進入學生首頁。
+                    開通後重新整理或重新登入，就會進入學生首頁。
                   </p>
                 </>
               ) : mine.state === 'rejected' && mine.rejection ? (
@@ -104,7 +119,7 @@ export default async function RegisterPendingPage({
                     理由：{mine.rejection.reason}
                   </p>
                   <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-                    {formatTaipeiMinute(new Date(mine.rejection.decidedAt))} 退回。請依理由修正下面的資料後重新送出，會再進入待審核。
+                    {formatWhen(mine.rejection.decidedAt)} 退回。請依理由修正下面的資料後重新送出，會再進入待審核。
                   </p>
                 </>
               ) : (
@@ -125,8 +140,8 @@ export default async function RegisterPendingPage({
                   ['系級', current.departmentClass || '—', false],
                   ['手機', current.phone, true],
                   ['聯絡 Email', current.contactEmail, false],
-                  ['送出時間', formatTaipeiMinute(new Date(current.submittedAt)), true],
-                  ['資料版本', `第 ${current.revision} 版`, true],
+                  ['送出時間', formatWhen(current.submittedAt), true],
+                  ...(edited ? ([['最後修改', `已編輯・${formatWhen(edited)}`, true]] as const) : []),
                 ] as const
               ).map(([k, v, numeric]) => (
                 <div key={k} className="flex justify-between gap-4">
@@ -135,6 +150,17 @@ export default async function RegisterPendingPage({
                 </div>
               ))}
             </dl>
+          ) : null}
+          {mine.state !== 'none' ? (
+            <div className="rounded-[10px] border border-dashed border-border px-4 py-3 text-sm" data-testid="bring-id">
+              <p className="font-bold text-foreground">請帶學生證到系辦核對身分</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                {SITE_CONTACT.address}・電話{' '}
+                <a href={SITE_CONTACT.phoneHref} className="font-semibold whitespace-nowrap text-primary tabular-nums hover:underline">
+                  {SITE_CONTACT.phone}
+                </a>
+              </p>
+            </div>
           ) : null}
           <p className="text-[13px] leading-relaxed text-muted-foreground">若資料填錯，可以在下面直接修改；有問題請到系辦公室（利瑪竇大樓）詢問。</p>
         </div>
@@ -165,9 +191,8 @@ export default async function RegisterPendingPage({
         <PublicCard title="修改紀錄" className="sm:p-9">
           <ol className="flex flex-col gap-1.5 text-sm" aria-label="修改紀錄">
             {mine.history.map((h) => (
-              <li key={h.revision} className="flex justify-between gap-3 tabular-nums">
-                <span className="text-foreground">第 {h.revision} 版{h.revision === 1 ? '（送出）' : '（修改）'}</span>
-                <span className="text-muted-foreground">{formatTaipeiMinute(new Date(h.at))}</span>
+              <li key={h.revision} className="tabular-nums text-foreground">
+                {formatWhen(h.at)}・{h.revision === 1 ? '送出' : '編輯'}
               </li>
             ))}
           </ol>
@@ -179,4 +204,10 @@ export default async function RegisterPendingPage({
       </div>
     </NarrowShell>
   )
+}
+
+/** 申請人看到的時間：`YYYY/M/D HH:mm`（臺灣時間；AC-VI-52）。 */
+function formatWhen(iso: string): string {
+  const p = taipeiParts(new Date(iso))
+  return `${p.year}/${p.month}/${p.day} ${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`
 }

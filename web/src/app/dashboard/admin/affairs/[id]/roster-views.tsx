@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { IconArrowLeft, IconFileText, IconUsersGroup } from '@tabler/icons-react'
 import type { FormField } from '@/application/items'
 import type { ItemWindow, MyVersionDetail, ReceiverDetail, ReopenEntry, RosterEntry } from '@/application/submissions'
+import { ExemptDialog } from '@/app/dashboard/admin/affairs/[id]/exempt-dialog'
 import { ReopenPanel, type ReopenPanelProps } from '@/app/dashboard/admin/affairs/[id]/reopen-panel'
 import { BTN_OUTLINE_SM, Panel, Pill, type PillTone } from '@/app/_ui/dashboard-kit'
 import type { StatusTone } from '@/application/submissions'
@@ -12,7 +14,7 @@ import { formatTaipeiMinute, formatTaipeiSecond } from '@/shared/time'
 
 /**
  * 收件名單頁的幾塊畫面（票 18；票 21 補上整組一份：組別完成率、點進組別看版本與附件）。
- * 全部是 server component，沒有互動狀態：切換靠網址參數。
+ * 全部是 server component，沒有互動狀態：切換靠網址參數。名單列的「設免繳／恢復」（A-08）是 client 的 `ExemptDialog`。
  */
 
 export type ListKey = 'current' | 'exempt' | 'removed'
@@ -43,6 +45,7 @@ export function RosterList({
   window,
   businessNow,
   individual,
+  exemptItemId,
 }: {
   base: string
   list: ListKey
@@ -50,6 +53,8 @@ export function RosterList({
   window: ItemWindow
   businessNow: Date
   individual: boolean
+  /** 可以設免繳／恢復時是項目 id；屆別封存（或不是收件）時是 null，列上不放按鈕（A-08）。 */
+  exemptItemId: string | null
 }) {
   const rows = grouped[list]
   const who = individual ? '人' : '組'
@@ -87,7 +92,15 @@ export function RosterList({
       ) : (
         <ul className="divide-y divide-border border-t border-border" aria-label={LIST_LABEL[list]} data-testid={`roster-${list}`}>
           {rows.map((entry) => (
-            <RosterRow key={`${entry.receiverKind}:${entry.receiverId}`} base={base} entry={entry} window={window} businessNow={businessNow} individual={individual} />
+            <RosterRow
+              key={`${entry.receiverKind}:${entry.receiverId}`}
+              base={base}
+              entry={entry}
+              window={window}
+              businessNow={businessNow}
+              individual={individual}
+              exemptItemId={exemptItemId}
+            />
           ))}
         </ul>
       )}
@@ -101,12 +114,14 @@ function RosterRow({
   window,
   businessNow,
   individual,
+  exemptItemId,
 }: {
   base: string
   entry: RosterEntry
   window: ItemWindow
   businessNow: Date
   individual: boolean
+  exemptItemId: string | null
 }) {
   const category = categoryOf(entry)
   const status = receiverStatus(window, entry, businessNow)
@@ -167,6 +182,16 @@ function RosterRow({
       >
         檢視
       </Link>
+      {/* 目前名單：設免繳；免繳：恢復；已移出的人不放（A-08）。 */}
+      {exemptItemId && category !== 'removed' ? (
+        <ExemptDialog
+          itemId={exemptItemId}
+          receiverId={entry.receiverId}
+          name={individual ? entry.name : `${entry.name} 組`}
+          exempt={category === 'exempt'}
+          requestId={randomUUID()}
+        />
+      ) : null}
     </li>
   )
 }

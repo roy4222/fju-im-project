@@ -15,6 +15,8 @@ import type {
 import type {
   AddMemberInput,
   ChangeLeaderInput,
+  DissolveGroupInput,
+  DissolveReceipt,
   LeaderChangeReceipt,
   LeaderSuccession,
   LeadershipToSucceed,
@@ -97,12 +99,19 @@ export interface GroupCommand {
    */
   addMember(actor: ResolvedActor, input: AddMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /**
-   * 從某組移出：移出最後一人要走解散（解散之後才開放，先拒絕）；移出組長要同時指定接任。
+   * 從某組移出：移出最後一人要走解散（`dissolveGroup`；這裡拒絕）；移出組長要同時指定接任。
    * 被移出的人只收到本人的異動說明（`group.member_removed`），其他人收 `group.members_changed`。
    */
   removeMember(actor: ResolvedActor, input: RemoveMemberInput, requestId: string): Promise<Result<MemberChangeReceipt>>
   /** 換組長：新組長要是有效成員；全組收 `group.leader_changed`。成員集合沒變，不觸發重簽。 */
   changeLeader(actor: ResolvedActor, input: ChangeLeaderInput, requestId: string): Promise<Result<LeaderChangeReceipt>>
+  /**
+   * 系辦解散組別（開站後，最小版；產品模組 03 §4「換成員與解散」、08 §4「組別解散」）。理由必填、帶組別版本。
+   * 同一筆交易：記下組員快照與當下評分方案版本（`group.dissolve` 稽核 payload）、結束全部組員資格與組長列、
+   * 結束該組有效評分指派並讓暫存失效（模組 06）、作廢目前簽核版本（模組 07）、組別標 dissolved；
+   * 通知解散前有效成員、主指導、評分工作因此停止的老師（去重，每人一則）。之後這組任何寫入都回 `GROUP_DISSOLVED`。
+   */
+  dissolveGroup(actor: ResolvedActor, input: DissolveGroupInput, requestId: string): Promise<Result<DissolveReceipt>>
 }
 
 /**
@@ -199,6 +208,9 @@ export type GroupMember = {
    * 學生與老師的查詢一律 null——同組學生看不到彼此的登入信箱（5.1 沒授權這件事）。
    */
   readonly loginEmail: string | null
+  /** 頭像（ST-12）：沒設定＝null，畫面用 hash 預設圖。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 /**
@@ -301,6 +313,21 @@ export type UngroupedStudent = {
 /** `countsByCohort` 一屆的計數。 */
 export type CohortHeadcount = { readonly students: number; readonly groups: number }
 
+/** 系辦首頁「本屆分組」的計數（AD-21）：每個數字都跟 `overview()` 算出來的一樣，只是一句 SQL 算完。 */
+export type CohortGroupingCounts = {
+  /** 有效組（`active`）數。 */
+  readonly total: number
+  /** 有效組的現任成員數。 */
+  readonly students: number
+  /** `overview().ungrouped` 的人數。 */
+  readonly ungrouped: number
+  readonly industry: number
+  /** 產學組裡沒有現任主指導的組數。 */
+  readonly noAdvisorIndustry: number
+  /** `overview().openProposals` 的件數。 */
+  readonly openProposals: number
+}
+
 export type CohortGroupingOverview = {
   readonly groups: readonly GroupSummary[]
   readonly openProposals: readonly ProposalSummary[]
@@ -312,6 +339,17 @@ export type CohortGroupingOverview = {
  * `studentView`、`overview`、`cohortGroups` 的 `opts.history`（SH-P4）：預設 `true`；`false` 時每個
  * `GroupSummary.history` 是 `[]`，也不查歷程（省 5 句），給不顯示歷程的頁用（系辦首頁、老師分組總覽）。
  */
+/** 已解散的組別（管理員分組總覽的唯讀清單；資料凍結，成績在成績頁查看與匯出）。 */
+export type DissolvedGroupSummary = {
+  readonly id: string
+  readonly code: string
+  readonly groupType: GroupType
+  readonly dissolvedAt: Date
+  readonly reason: string
+  /** 解散當下的有效成員快照（組長標出）。 */
+  readonly members: readonly { readonly name: string; readonly studentNo: string | null; readonly isLeader: boolean }[]
+}
+
 export interface GroupQuery {
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
   studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView>
@@ -328,11 +366,20 @@ export interface GroupQuery {
    * 沒有任何組別與學生的屆別不在 Map 裡，呼叫端當 0。
    */
   countsByCohort(): Promise<ReadonlyMap<string, CohortHeadcount>>
+  /** 系辦首頁「本屆分組」只要計數（AD-21；呼叫端守門）：1 句 SQL，口徑逐項同 `overview()`。屆別不存在全是 0。 */
+  homeCounts(cohortId: string): Promise<CohortGroupingCounts>
   /**
    * 一屆已成立的組別、成員與主指導（老師的「分組」頁；所有老師都可查看一般與產學組別，呼叫端守門）。
    * 歷程不帶理由與操作者。
    */
   cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]>
+  /**
+   * 單一組別的異動歷程（管理員，帶理由與操作者；呼叫端守門）。系辦分組頁用 `overview(.., { history: false })`
+   * 不載歷程，開啟組別詳情時才用它取（SH-B4）。組別不存在回空的。
+   */
+  groupHistory(groupId: string): Promise<GroupHistoryEntry[]>
+  /** 管理員分組總覽的「已解散的組別」（呼叫端守門）。新的在前。 */
+  dissolvedGroups(cohortId: string): Promise<DissolvedGroupSummary[]>
   /** 管理員指派對話框的老師選項：帳號正常、目前是老師。 */
   teacherOptions(): Promise<TeacherOption[]>
   /** 這位老師目前指導幾組（未封存的屆別）。 */
@@ -420,6 +467,22 @@ export interface OpportunityQuery {
   linkOptions(actor: ResolvedActor, opts?: { q?: string; limit?: number; offset?: number }): Promise<readonly LinkOption[]>
   /** 學生本人的組別在合作案與類型區塊要的資料；沒有組別回 null。 */
   leaderPanel(actor: ResolvedActor, cohortId: string): Promise<LeaderPanel | null>
+  /**
+   * 案主老師「連結組別」對話框的選項（TE-B3）：未封存屆別裡 active、產學合作、目前沒有連任何合作案的組，
+   * 依屆別、組別代碼排序。只有老師與系辦拿得到，其他人回空陣列。
+   */
+  teacherLinkTargets(actor: ResolvedActor): Promise<readonly TeacherLinkTarget[]>
+}
+
+/** 「連結組別」對話框的一個選項：組別代碼＋組長名，送出時帶 `revision`。 */
+export type TeacherLinkTarget = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly cohortCode: string
+  readonly cohortName: string
+  /** 目前的組長；沒有組長（例如組長剛被移出）是 null。 */
+  readonly leaderName: string | null
+  readonly revision: number
 }
 
 /** 組別名單匯出的結果（票 20；#105）：檔案內容與筆數，檔名由呼叫端依時間組。 */

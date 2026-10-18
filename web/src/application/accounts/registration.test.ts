@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { ResolvedActor } from '@/application/accounts/actor'
 import {
+  applyDenial,
+  autoApprovalEligible,
   BULK_APPROVAL_SKIP_LABEL,
   bulkApprovalSkip,
   evidenceFlags,
+  MANUAL_VERIFICATION_METHODS,
   matchRoster,
   normalizeApplicationFields,
   normalizeApproval,
@@ -16,7 +19,9 @@ import {
   suggestedApprovalCohort,
   type RosterCandidate,
   VERIFICATION_LABEL,
+  VERIFICATION_METHODS,
   VERIFICATION_NOTE_HINT,
+  VERIFICATION_NOTE_REQUIRED,
 } from '@/application/accounts/registration'
 
 /** 票 7：註冊、名單比對與審核的純規則（產品模組 01 §2.4）。 */
@@ -319,5 +324,92 @@ describe('授權', () => {
     expect(ownApplicationDenied({ ...pending, mustChangePassword: true }, 'registration.reviseOwn')).toBe(
       'PASSWORD_CHANGE_REQUIRED',
     )
+  })
+})
+
+describe('送申請前的 Email 驗證（VB-2，AC-VI-50）', () => {
+  it('密碼註冊、還沒驗證 Email → 「請先完成 Email 驗證。」', () => {
+    expect(applyDenial({ loginMethod: 'password', emailVerified: false })).toBe('請先完成 Email 驗證。')
+  })
+
+  it('已驗證、或 Google 來的人放行', () => {
+    expect(applyDenial({ loginMethod: 'password', emailVerified: true })).toBeNull()
+    expect(applyDenial({ loginMethod: 'google', emailVerified: false })).toBeNull()
+    expect(applyDenial({ loginMethod: 'google', emailVerified: true })).toBeNull()
+  })
+
+  it('讀不到登入方式（舊 session）不在這條擋，交給呼叫端的其他規則', () => {
+    expect(applyDenial({ loginMethod: undefined, emailVerified: false })).toBeNull()
+  })
+})
+
+describe('Q42 自動開通的條件（VB-6，AC-VI-57）', () => {
+  const cohorts = [
+    { id: C115, code: '115', name: '115 學年度專題' },
+    { id: C114, code: '114', name: '114 學年度專題' },
+  ]
+  const matched = matchRoster(app, [candidate()], C115)
+  const eligible = {
+    loginMethod: 'google' as const,
+    emailVerified: true,
+    match: matched,
+    registrationOpenCohortId: C115,
+    bulkApprovalSkip: bulkApprovalSkip({ match: matched, duplicates: noDuplicates }, cohorts),
+  }
+
+  it('Google 登入、Email 已驗證、Email＋學號＋姓名命中開放註冊屆別的同一列、學號沒人用：可以自動開通', () => {
+    expect(matched.emailComparison).toBe('same')
+    expect(eligible.bulkApprovalSkip).toBeNull()
+    expect(autoApprovalEligible(eligible)).toBe(true)
+  })
+
+  it('密碼註冊（就算 Email 相同）、讀不到登入方式、Email 沒驗證：不自動開通', () => {
+    expect(autoApprovalEligible({ ...eligible, loginMethod: 'password' })).toBe(false)
+    expect(autoApprovalEligible({ ...eligible, loginMethod: undefined })).toBe(false)
+    expect(autoApprovalEligible({ ...eligible, emailVerified: false })).toBe(false)
+  })
+
+  it('名單 Email 不同或沒填：不自動開通', () => {
+    const different = matchRoster({ ...app, loginEmail: 's02@example.com' }, [candidate()], C115)
+    expect(different.emailComparison).toBe('different')
+    expect(autoApprovalEligible({ ...eligible, match: different })).toBe(false)
+    const blank = matchRoster(app, [candidate({ email: null })], C115)
+    expect(blank.emailComparison).toBe('roster_blank')
+    expect(autoApprovalEligible({ ...eligible, match: blank })).toBe(false)
+  })
+
+  it('批次資格不成立（學號已被占用、別人同學號待審、跨屆）：不自動開通', () => {
+    for (const skip of ['student_no_taken', 'other_pending', 'multiple_cohorts'] as const) {
+      expect(autoApprovalEligible({ ...eligible, bulkApprovalSkip: skip }), skip).toBe(false)
+    }
+  })
+
+  it('姓名不符、學號不在名單、名單那一列不在開放註冊屆別、沒有開放註冊屆別：不自動開通', () => {
+    const mismatch = matchRoster({ ...app, appliedName: '王小名' }, [candidate()], C115)
+    expect(autoApprovalEligible({ ...eligible, match: mismatch })).toBe(false)
+    const notFound = matchRoster({ ...app, studentNo: '499999999' }, [candidate()], C115)
+    expect(autoApprovalEligible({ ...eligible, match: notFound })).toBe(false)
+    expect(autoApprovalEligible({ ...eligible, registrationOpenCohortId: C114 })).toBe(false)
+    expect(autoApprovalEligible({ ...eligible, registrationOpenCohortId: null })).toBe(false)
+  })
+
+  it('Email 比對全址去空白＋小寫（R2）；不移除 +suffix、不合併全形字', () => {
+    const upper = matchRoster({ ...app, loginEmail: ' S01@EXAMPLE.com ' }, [candidate()], C115)
+    expect(autoApprovalEligible({ ...eligible, match: upper })).toBe(true)
+    for (const loginEmail of ['s01+x@example.com', 'ｓ01@example.com', 's.01@example.com']) {
+      const m = matchRoster({ ...app, loginEmail }, [candidate()], C115)
+      expect(autoApprovalEligible({ ...eligible, match: m }), loginEmail).toBe(false)
+    }
+  })
+
+  it('核實方式多一種 google_email_match（標籤固定）；系辦能選的清單沒有它，送進來也不收', () => {
+    expect(VERIFICATION_METHODS).toContain('google_email_match')
+    expect(VERIFICATION_LABEL.google_email_match).toBe('Google Email 與名單相同（自動開通）')
+    expect(VERIFICATION_NOTE_REQUIRED.google_email_match).toBe(false)
+    expect(MANUAL_VERIFICATION_METHODS).toEqual(['id_document', 'school_channel', 'other'])
+    expect(normalizeApproval({ verificationMethod: 'google_email_match', verificationNote: '', reason: '' })).toMatchObject({
+      ok: false,
+      details: { field: 'verificationMethod' },
+    })
   })
 })

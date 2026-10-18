@@ -11,7 +11,7 @@ import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey } from
 import { VisibilityPanel } from '@/app/dashboard/admin/affairs/[id]/visibility-panel'
 import { CompletionPanel } from '@/app/dashboard/_submissions/completion-panel'
 import type { RosterEntry } from '@/application/submissions'
-import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
+import { cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import { ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { categoryOf, completionOf, getRosterQuery, getSubmissionQuery } from '@/composition/submissions'
 import { addTaipeiDays, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
@@ -33,7 +33,9 @@ function one(value: string | string[] | undefined): string | undefined {
  * - 點一個人（`?person=`）看名單紀錄與每一次正式送出；再點一次（`&version=`）看那一次的回答（唯讀）。
  *   已移出的人回答保留，一樣點得進去。草稿內容不在這裡顯示，只標「有草稿、最後儲存時間」。
  * - 只有系辦管理員看得到：頁面守角色，查詢本身再判一次（老師、學生拿到的是 null → 404）。
- *   免填、移出、加回、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
+ *   移出、加回、催繳這些**操作**在之後的票（開發計畫「之後再做：名單變動與到期工作」）。
+ * - 設免繳／恢復（B 階段 A-08）：「目前名單」每列「設免繳」（填理由）、「免繳」每列「恢復」；已交過的人也能設，繳交保留。
+ *   屆別封存後不放這兩個按鈕（用例另外回 `COHORT_ARCHIVED`）。
  * - 讓單一學生或單一組補交（第三波 W10）：截止後在點進去的那一位畫面按「讓他補交」，填期限與理由；只通知那一位。
  * - 整組一份（票 21）：名單三類列組別；完成率以組為單位（同組誰送都算一份）；點一組看它每一次正式送出與附件。
  * - 個人一份（票 22）：右欄多一塊「主指導閱覽」開關（SUB-24）；已經有人作答就不能開。
@@ -58,6 +60,7 @@ export default async function RosterPage({
   const [roster, businessNow] = await Promise.all([rosterQuery.roster(actor, id), getBusinessClock().now()])
   if (!roster) notFound()
   const { item, entries } = roster
+  const archived = (await getCohortStatusQuery().get(item.cohortId))?.status === 'archived'
   const individual = item.receiverUnit === 'individual'
   const base = `/dashboard/admin/affairs/${item.itemId}`
 
@@ -173,7 +176,15 @@ export default async function RosterPage({
 
   return shell(
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-      <RosterList base={base} list={list} grouped={grouped} window={item} businessNow={businessNow} individual={individual} />
+      <RosterList
+        base={base}
+        list={list}
+        grouped={grouped}
+        window={item}
+        businessNow={businessNow}
+        individual={individual}
+        exemptItemId={archived ? null : item.itemId}
+      />
       <div className="flex flex-col gap-5">
         <CompletionPanel completion={completion} individual={individual} />
         {visibilityPanel}

@@ -198,7 +198,7 @@ function googleSignIn(who: { sub: string; email: string; name: string; emailVeri
     provider: 'google',
     callbackURL: '/login',
     errorCallbackURL: '/login',
-    newUserCallbackURL: '/register/pending?via=google',
+    newUserCallbackURL: '/register/apply?via=google',
     ...overrides,
   }).then((start) => finishAtGoogle(start, who))
 }
@@ -302,7 +302,7 @@ describe('Google 首次登入（ACC-13）', () => {
     const email = uniq('first')
     const who = { sub: `sub-first-${seq}`, email, name: 'Google 王小明' }
     const first = await googleSignIn(who)
-    expect(first.location).toBe('/register/pending?via=google')
+    expect(first.location).toBe('/register/apply?via=google')
     expect(first.cookie).toContain('session_token')
 
     const user = await one<{ id: string; status: string; name: string }>(`select id, status, name from users where email = $1`, [email])
@@ -346,8 +346,9 @@ describe('Google 首次登入（ACC-13）', () => {
     expect(session).toMatchObject({ userId: user.id, status: 'active', loginMethods: { google: true, password: false } })
   })
 
-  it('同 Email 已有密碼帳號：未登入時用 Google 進來一律拒絕（account_not_linked），不合併、不建第二個帳號', async () => {
+  it('同 Email 已有密碼帳號、本地 Email 未驗證：未登入時用 Google 進來拒絕（account_not_linked），不合併、不建第二個帳號', async () => {
     const { email, userId } = await passwordAccount('active')
+    await db.sql(`update users set email_verified = false where id = $1`, [userId])
     const result = await googleSignIn({ sub: `sub-same-${seq}`, email, name: '同 Email' }, { errorCallbackURL: '/login?next=%2Faccount' })
     expect(result.location).toBe('/login?next=%2Faccount&error=account_not_linked')
     expect(result.cookie).not.toContain('session_token')
@@ -609,6 +610,286 @@ describe('連結 Google（ACC-16）', () => {
   })
 })
 
+// ── Q45：同 Email 的 Google 自動連結（VB-5；visitor-r3 §3.7、AC-VI-61～63、AC-VI-78 login google 段） ──────
+
+describe('同 Email 的 Google 自動連結（Q45，VB-5）', () => {
+  /** 跟 `finishAtGoogle` 一樣走完 callback，但留下原始的 `Set-Cookie`（要驗屬性）。 */
+  async function rawCallback(start: Response, who: { sub: string; email: string; name: string; emailVerified?: boolean }, cookie = '') {
+    expect(start.status, await start.clone().text()).toBe(200)
+    const { url } = (await start.json()) as { url: string }
+    nextIdentity = who
+    const callback = await handlers.GET(
+      new Request(`${BASE_URL}/api/auth/callback/google?code=code-${seq}&state=${new URL(url).searchParams.get('state')}`, {
+        headers: { cookie: [cookie, cookiesFrom(start)].filter(Boolean).join('; ') },
+      }),
+    )
+    expect(callback.status).toBe(302)
+    return { location: callback.headers.get('location') ?? '', setCookie: callback.headers.getSetCookie(), cookie: cookiesFrom(callback) }
+  }
+  const signInStart = () =>
+    post('/sign-in/social', { provider: 'google', callbackURL: '/login', errorCallbackURL: '/login', newUserCallbackURL: '/register/apply?via=google' })
+  const gaCookie = (setCookie: string[]) => setCookie.find((c) => c.startsWith('fju_ga_login='))
+  const googleRows = (userId: string) => one(`select count(*)::int as n from accounts where user_id = $1 and provider_id = 'google'`, [userId])
+
+  it('AC-VI-61：本地 Email 未驗證 → account_not_linked、不建 google 列／users 列／session、不寫 fju_ga_login', async () => {
+    const { email, userId } = await passwordAccount('active')
+    expect(await one(`select email_verified from users where id = $1`, [userId])).toEqual({ email_verified: false })
+    const result = await rawCallback(await signInStart(), { sub: `sub-q45-unv-${seq}`, email, name: '舊帳號' })
+    expect(result.location).toBe('/login?error=account_not_linked')
+    expect(result.cookie).not.toContain('session_token')
+    expect(gaCookie(result.setCookie)).toBeUndefined()
+    expect(await googleRows(userId)).toEqual({ n: 0 })
+    expect(await one(`select count(*)::int as n from users where email = $1`, [email])).toEqual({ n: 1 })
+    expect(await one(`select count(*)::int as n from sessions where user_id = $1 and login_method = 'google'`, [userId])).toEqual({ n: 0 })
+  })
+
+  it('AC-VI-62：用驗證碼驗證 Email 之後，同一身分走 Google → 直接登入並自動連結、login_method=google、兩種登入方式', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    const who = { sub: `sub-q45-ver-${seq}`, email, name: '舊帳號' }
+    expect((await rawCallback(await signInStart(), who)).location).toBe('/login?error=account_not_linked')
+
+    // 註冊時伺服器已寄出第一封驗證碼（擷取模式寫在 mail_outbox）；「我的帳號」填碼走同一個入口。
+    const mail = await one<{ body_text: string }>(
+      `select body_text from mail_outbox where to_email = $1 and template = 'email_otp' order by created_at desc, id desc limit 1`,
+      [email],
+    )
+    const otp = mail.body_text.match(/驗證碼是 (\d{6})/)![1]!
+    const wrapper = await import('@/infrastructure/auth/wrapper')
+    await wrapper.verifyEmailWithOtp({ email, otp }, new Headers({ cookie, 'x-real-ip': freshIp() }))
+    expect(await one(`select email_verified from users where id = $1`, [userId])).toEqual({ email_verified: true })
+    expect(await self.viewMine(headersOf(cookie))).toMatchObject({ userId, emailVerified: true })
+
+    const linked = await rawCallback(await signInStart(), who)
+    expect(linked.location).toBe('/login')
+    expect(linked.cookie).toContain('session_token')
+    expect(await one(`select user_id from accounts where provider_id = 'google' and account_id = $1`, [who.sub])).toEqual({ user_id: userId })
+    expect(await one(`select count(*)::int as n from users where email = $1`, [email])).toEqual({ n: 1 })
+    expect(await self.viewMine(headersOf(linked.cookie))).toMatchObject({ userId, loginMethods: { google: true, password: true } })
+    expect(
+      await one(`select login_method from sessions where user_id = $1 order by created_at desc limit 1`, [userId]),
+    ).toEqual({ login_method: 'google' })
+  })
+
+  it('AC-VI-63：已驗證、已核准、沒連過 Google 的帳號 → Google 直接登入並自動連結', async () => {
+    const { email, userId } = await passwordAccount('active')
+    await db.sql(`update users set email_verified = true where id = $1`, [userId])
+    const who = { sub: `sub-q45-ok-${seq}`, email, name: '新流程' }
+    const result = await rawCallback(await signInStart(), who)
+    expect(result.location).toBe('/login')
+    expect(result.cookie).toContain('session_token')
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+    expect(await one(`select email, name from users where id = $1`, [userId])).toEqual({ email, name: '密碼使用者' })
+  })
+
+  it('Google 沒驗證這個 Email → 本地已驗證也不自動連結', async () => {
+    const { email, userId } = await passwordAccount('active')
+    await db.sql(`update users set email_verified = true where id = $1`, [userId])
+    const result = await rawCallback(await signInStart(), { sub: `sub-q45-gunv-${seq}`, email, name: '未驗證', emailVerified: false })
+    expect(result.location).toMatch(/error=/)
+    expect(result.cookie).not.toContain('session_token')
+    expect(await googleRows(userId)).toEqual({ n: 0 })
+  })
+
+  it('AC-VI-78：Google callback 登入成功的回應 Set-Cookie 有 fju_ga_login=google（Path=/、Max-Age=60、SameSite=Lax、沒有 HttpOnly）', async () => {
+    const email = uniq('ga-google')
+    const result = await rawCallback(await signInStart(), { sub: `sub-ga-${seq}`, email, name: 'GA' })
+    expect(result.cookie).toContain('session_token')
+    const line = gaCookie(result.setCookie)
+    expect(line).toBeDefined()
+    expect(line).toMatch(/^fju_ga_login=google;/)
+    expect(line).toMatch(/;\s*Path=\/(;|$)/i)
+    expect(line).toMatch(/;\s*Max-Age=60(;|$)/i)
+    expect(line).toMatch(/;\s*SameSite=Lax(;|$)/i)
+    expect(line).not.toMatch(/HttpOnly/i)
+    // 測試站台是 http，不加 Secure。
+    expect(line).not.toMatch(/Secure/i)
+  })
+
+  it('AC-VI-78：失敗的 callback（拒絕連結、Google 換 token 失敗）不寫 fju_ga_login', async () => {
+    const { email } = await passwordAccount('active')
+    const rejected = await rawCallback(await signInStart(), { sub: `sub-ga-no-${seq}`, email, name: '舊帳號' })
+    expect(rejected.location).toMatch(/error=account_not_linked/)
+    expect(gaCookie(rejected.setCookie)).toBeUndefined()
+
+    const start = await signInStart()
+    const { url } = (await start.json()) as { url: string }
+    nextIdentity = null
+    const failed = await handlers.GET(
+      new Request(`${BASE_URL}/api/auth/callback/google?code=bad&state=${new URL(url).searchParams.get('state')}`, {
+        headers: { cookie: cookiesFrom(start) },
+      }),
+    )
+    expect(failed.status).toBe(302)
+    expect(failed.headers.get('location')).toMatch(/error=/)
+    expect(gaCookie(failed.headers.getSetCookie())).toBeUndefined()
+  })
+
+  // Sol r1 P1：本地已驗證但帳號停用／去識別化時，登入本來就會失敗（session hook 擋），但套件會先寫 google 列。
+  // 隱性連結寫入前要先看資料庫的帳號狀態；本人主動連結不受影響。
+  for (const [label, setup] of [
+    ['已停用', `update users set email_verified = true, status = 'disabled' where id = $1`],
+    ['已去識別化（status 還是 active）', `update users set email_verified = true, deidentified_at = now() where id = $1`],
+    ['已去識別化＋停用', `update users set email_verified = true, status = 'disabled', deidentified_at = now() where id = $1`],
+    ['Email 未驗證', `update users set email_verified = false where id = $1`],
+  ] as const) {
+    it(`本地帳號${label} → 同 Email 的 Google 不連結：沒有新的 google 列、沒有 session、跟未驗證同一個 account_not_linked`, async () => {
+      const { email, userId } = await passwordAccount('active')
+      await db.sql(setup, [userId])
+      const result = await rawCallback(await signInStart(), { sub: `sub-q45-blocked-${seq}`, email, name: '不能連' })
+      expect(result.location).toBe('/login?error=account_not_linked')
+      expect(result.cookie).not.toContain('session_token')
+      expect(gaCookie(result.setCookie)).toBeUndefined()
+      expect(await googleRows(userId)).toEqual({ n: 0 })
+      expect(await one(`select count(*)::int as n from accounts where provider_id = 'google' and account_id = $1`, [`sub-q45-blocked-${seq}`])).toEqual({ n: 0 })
+    })
+  }
+
+  it('四種不能連的本地帳號（停用、去識別化、去識別化＋停用、未驗證）：回應碼、Location、Set-Cookie 形狀逐字相同（不能拿來列舉帳號狀態）', async () => {
+    const setups = [
+      `update users set email_verified = true, status = 'disabled' where id = $1`,
+      `update users set email_verified = true, deidentified_at = now() where id = $1`,
+      `update users set email_verified = true, status = 'disabled', deidentified_at = now() where id = $1`,
+      `update users set email_verified = false where id = $1`,
+    ]
+    const seen: { status: number; location: string; cookies: string[] }[] = []
+    for (const setup of setups) {
+      const { email, userId } = await passwordAccount('active')
+      await db.sql(setup, [userId])
+      const start = await post('/sign-in/social', {
+        provider: 'google',
+        callbackURL: '/login',
+        errorCallbackURL: '/login?next=%2Faccount',
+        newUserCallbackURL: '/register/apply?via=google',
+      })
+      const { url } = (await start.json()) as { url: string }
+      nextIdentity = { sub: `sub-q45-same-${seq}`, email, name: '不能連' }
+      const callback = await handlers.GET(
+        new Request(`${BASE_URL}/api/auth/callback/google?code=code-${seq}&state=${new URL(url).searchParams.get('state')}`, {
+          headers: { cookie: cookiesFrom(start) },
+        }),
+      )
+      seen.push({
+        status: callback.status,
+        location: callback.headers.get('location') ?? '',
+        // 值每次都不同（state 等），比名稱與屬性。
+        cookies: callback.headers.getSetCookie().map((c) => c.replace(/^([^=]+)=[^;]*/, '$1=<value>')).sort(),
+      })
+      expect(await googleRows(userId)).toEqual({ n: 0 })
+    }
+    expect(seen[0]).toMatchObject({ status: 302, location: '/login?next=%2Faccount&error=account_not_linked' })
+    for (const other of seen.slice(1)) expect(other).toEqual(seen[0])
+  })
+
+  // ── Sol r3 P1：導回網址的序列化要跟套件原生「未驗證不連」逐字相同 ─────────────────────────
+  //
+  // 未驗證那一態是套件自己早退（1.7.5 `oauth2/link-account.mjs:79`），守衛根本沒被叫到，所以它就是「原生」的基準；
+  // 停用、去識別化（守衛擋的）要跟它逐字相同。`encodeURIComponent` 不轉 `~`，但 `URLSearchParams` 重新序列化會變 `%7E`，
+  // 所以合法的 next（例如 /account?tab=~）就分得出哪一態是守衛擋的；空白（%20、+）、尾端 &、#fragment、絕對網址同理。
+  const restrictedSetups = [
+    ['Email 未驗證', `update users set email_verified = false where id = $1`],
+    ['已停用', `update users set email_verified = true, status = 'disabled' where id = $1`],
+    ['已去識別化（status 還是 active）', `update users set email_verified = true, deidentified_at = now() where id = $1`],
+    ['已去識別化＋停用', `update users set email_verified = true, status = 'disabled', deidentified_at = now() where id = $1`],
+  ] as const
+
+  /** 四態各走一次 callback（`rawCallback` 已斷言 302），回每一態的 Location 與 Set-Cookie 形狀（值每次不同，只比名稱與屬性）。第一個是未驗證（原生）。 */
+  async function restrictedShapes(start: () => Promise<Response>) {
+    const seen: { label: string; shape: { location: string; cookies: string[] } }[] = []
+    for (const [label, setup] of restrictedSetups) {
+      const { email, userId } = await passwordAccount('active')
+      await db.sql(setup, [userId])
+      const result = await rawCallback(await start(), { sub: `sub-q45-shape-${seq}`, email, name: '不能連' })
+      seen.push({
+        label,
+        shape: { location: result.location, cookies: result.setCookie.map((c) => c.replace(/^([^=]+)=[^;]*/, '$1=<value>')).sort() },
+      })
+      expect(result.cookie).not.toContain('session_token')
+      expect(gaCookie(result.setCookie)).toBeUndefined()
+      expect(await googleRows(userId)).toEqual({ n: 0 })
+    }
+    return seen
+  }
+
+  for (const [errorCallbackURL, native] of [
+    ['/login?next=%2Faccount%3Ftab%3D~', '/login?next=%2Faccount%3Ftab%3D~&error=account_not_linked'],
+    ['/login?next=%2Fa%20b+c', '/login?next=%2Fa%20b+c&error=account_not_linked'],
+    ['/login?next=%2Faccount&', '/login?next=%2Faccount&error=account_not_linked'],
+    ['/login?next=%2Faccount%3Ftab%3D~#top', '/login?next=%2Faccount%3Ftab%3D~&error=account_not_linked#top'],
+    [`${BASE_URL}/login?next=%2Faccount%3Ftab%3D~`, `${BASE_URL}/login?next=%2Faccount%3Ftab%3D~&error=account_not_linked`],
+  ] as const) {
+    it(`errorCallbackURL=${errorCallbackURL}：四態的完整 Location、Set-Cookie 都等於套件原生未驗證的 ${native}`, async () => {
+      const seen = await restrictedShapes(() =>
+        post('/sign-in/social', { provider: 'google', callbackURL: '/login', errorCallbackURL, newUserCallbackURL: '/register/apply?via=google' }),
+      )
+      expect(seen[0]).toMatchObject({ label: 'Email 未驗證', shape: { location: native } })
+      for (const other of seen.slice(1)) expect(other.shape, other.label).toEqual(seen[0]!.shape)
+    })
+  }
+
+  // ── Sol r3 P2：「是不是守衛拒絕」只看守衛留下的標記，不看導回網址的參數 ─────────────────────
+  //
+  // `/sign-in/social`、`/link-social` 是公開 API，callbackURL／errorCallbackURL 可以自帶 `error=account_not_linked&error_description=…`。
+  // 沒被守衛擋的回應（成功登入、成功連結、Google 端拒絕）要跟 VB-5 之前完全一樣：原樣導回、該有的 cookie 都在。
+  const decoyCallbackURL = '/account?error=account_not_linked&error_description=keep'
+
+  it('callbackURL 自帶 error=account_not_linked：已驗證帳號 Google 登入成功 → 原樣導回、建 session、自動連結、寫 fju_ga_login', async () => {
+    const { email, userId } = await passwordAccount('active')
+    await db.sql(`update users set email_verified = true where id = $1`, [userId])
+    const result = await rawCallback(
+      await post('/sign-in/social', { provider: 'google', callbackURL: decoyCallbackURL, errorCallbackURL: '/login', newUserCallbackURL: '/register/apply?via=google' }),
+      { sub: `sub-q45-decoy-login-${seq}`, email, name: '已驗證' },
+    )
+    expect(result.location).toBe(decoyCallbackURL)
+    expect(result.cookie).toContain('session_token')
+    expect(gaCookie(result.setCookie)).toMatch(/^fju_ga_login=google;/)
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+  })
+
+  it('callbackURL 自帶 error=account_not_linked：本人按「連結 Google」成功 → 原樣導回、連結寫入', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    const start = await post('/link-social', { provider: 'google', callbackURL: decoyCallbackURL, errorCallbackURL: '/account' }, cookie)
+    const result = await rawCallback(start, { sub: `sub-q45-decoy-link-${seq}`, email, name: '本人' }, cookie)
+    expect(result.location).toBe(decoyCallbackURL)
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+  })
+
+  it('errorCallbackURL 自帶 error=account_not_linked、或 next 帶 ~：Google 端的 access_denied 照套件原樣補在後面', async () => {
+    for (const [errorCallbackURL, description, native] of [
+      ['/login?error=account_not_linked&error_description=keep', 'cancelled', '/login?error=account_not_linked&error_description=keep&error=access_denied&error_description=cancelled'],
+      ['/login?next=%2Faccount%3Ftab%3D~', 'keep~detail', '/login?next=%2Faccount%3Ftab%3D~&error=access_denied&error_description=keep%7Edetail'],
+    ] as const) {
+      const start = await post('/sign-in/social', { provider: 'google', callbackURL: '/login', errorCallbackURL })
+      const { url } = (await start.json()) as { url: string }
+      const response = await handlers.GET(
+        new Request(`${BASE_URL}/api/auth/callback/google?error=access_denied&error_description=${description}&state=${new URL(url).searchParams.get('state')}`, {
+          headers: { cookie: cookiesFrom(start) },
+        }),
+      )
+      expect(response.status, errorCallbackURL).toBe(302)
+      expect(response.headers.get('location'), errorCallbackURL).toBe(native)
+      expect(gaCookie(response.headers.getSetCookie())).toBeUndefined()
+    }
+  })
+
+  it('守衛只管隱性連結：本人（active、fresh session、Email 未驗證）按「連結 Google」照樣連得上', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    expect(await one(`select email_verified from users where id = $1`, [userId])).toEqual({ email_verified: false })
+    const start = await post('/link-social', { provider: 'google', callbackURL: '/account?linked=google', errorCallbackURL: '/account' }, cookie)
+    const result = await rawCallback(start, { sub: `sub-q45-active-${seq}`, email, name: '本人' }, cookie)
+    expect(result.location).toBe('/account?linked=google')
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+  })
+
+  it('本人按「連結 Google」的 callback 不是登入：不寫 fju_ga_login', async () => {
+    const { email, userId, cookie } = await passwordAccount('active')
+    const start = await post('/link-social', { provider: 'google', callbackURL: '/account?linked=google', errorCallbackURL: '/account' }, cookie)
+    const result = await rawCallback(start, { sub: `sub-ga-link-${seq}`, email, name: '連結者' }, cookie)
+    expect(result.location).toBe('/account?linked=google')
+    expect(await googleRows(userId)).toEqual({ n: 1 })
+    expect(gaCookie(result.setCookie)).toBeUndefined()
+  })
+})
+
 // ── ACC-18 後半：替 Google 帳號設密碼 ─────────────────────────────────────
 
 describe('替 Google 帳號設密碼（ACC-18）', () => {
@@ -750,5 +1031,79 @@ describe('註冊 API：Email 已被用過（票 7 遺留）', () => {
     expect(JSON.parse(dupBody)).toMatchObject({ code: 'EMAIL_UNAVAILABLE', message: '這個 Email 無法用來註冊。如果你已經有帳號，請直接登入。' })
     expect(bad.status).toBe(400)
     expect(JSON.parse(await bad.text())).toEqual(JSON.parse(dupBody))
+  })
+})
+
+// ── Q42 自動開通（VB-6） ─────────────────────────────────────────────────────
+
+describe('Google 註冊 Email 與名單相同 → 自動開通（Q42，VB-6，AC-VI-55）', () => {
+  beforeAll(async () => {
+    const version = String(
+      (
+        await db.sql(
+          `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+           values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
+          [cohortId, adminId],
+        )
+      ).rows[0]!.id,
+    )
+    for (const [no, email] of [
+      ['411401002', 'g2@example.com'],
+      ['411401003', 'g3@example.com'],
+    ] as const) {
+      await db.sql(
+        `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
+         values (gen_random_uuid(), $1, $2, '李小華', '李小華', '資管二甲', $3)`,
+        [version, no, email],
+      )
+    }
+  })
+
+  const apply = (actor: ResolvedActor, studentNo: string, email: string) =>
+    registration.reviseMine(
+      actor,
+      { appliedName: '李小華', studentNo, departmentClass: '資管二甲', phone: '0912-345-678', contactEmail: email },
+      null,
+    )
+
+  it('Google 回呼建帳號（email_verified=true）→ 第 3 步送「李小華」411401002 → 直接開通、核實方式 google_email_match、系統核准', async () => {
+    const first = await googleSignIn({ sub: `sub-g2-${seq}`, email: 'g2@example.com', name: 'Google 李小華' })
+    expect(first.location).toBe('/register/apply?via=google')
+    // 用真的 session 解析出這次請求是誰（登入方式＝google），跟第 3 步的 Server Action 一樣。
+    const { resolveActor } = await import('@/composition/accounts')
+    const actor = await resolveActor(headersOf(first.cookie))
+    expect(actor).toMatchObject({ kind: 'authenticated', status: 'pending', loginMethod: 'google' })
+
+    expect(await apply(actor, '411401002', 'g2@example.com')).toMatchObject({ ok: true, receipt: { revision: 1, autoApproved: true } })
+    const user = await one<{ id: string }>(`select id from users where email = 'g2@example.com'`)
+    expect(await one(`select status from users where id = $1`, [user.id])).toEqual({ status: 'active' })
+    expect(
+      await one(
+        `select state, verification_method, verification_note, decided_by_user_id from registration_applications where user_id = $1`,
+        [user.id],
+      ),
+    ).toEqual({ state: 'approved', verification_method: 'google_email_match', verification_note: null, decided_by_user_id: null })
+    expect(await one(`select cohort_id from user_profiles where user_id = $1`, [user.id])).toEqual({ cohort_id: cohortId })
+    expect(
+      await one(`select count(*)::int as n from role_assignments where user_id = $1 and role = 'student' and revoked_real_at is null`, [user.id]),
+    ).toEqual({ n: 1 })
+    expect(
+      await one(`select count(*)::int as n from audit_events where action = 'registration.auto_approve' and actor_kind = 'system' and payload->>'userId' = $1`, [user.id]),
+    ).toEqual({ n: 1 })
+    // 下一次請求就是學生了。
+    expect(await resolveActor(headersOf(first.cookie))).toMatchObject({ status: 'active', roles: ['student'] })
+  })
+
+  it('Google 說 Email 沒驗證（email_verified=false）→ 就算名單相同也照舊待審', async () => {
+    const first = await googleSignIn({ sub: `sub-g3-${seq}`, email: 'g3@example.com', name: 'Google 李小華', emailVerified: false })
+    const { resolveActor } = await import('@/composition/accounts')
+    const actor = await resolveActor(headersOf(first.cookie))
+    expect(actor).toMatchObject({ kind: 'authenticated', status: 'pending', loginMethod: 'google' })
+    const result = await apply(actor, '411401003', 'g3@example.com')
+    expect(result).toMatchObject({ ok: true, receipt: { revision: 1 } })
+    expect(result.ok && result.receipt.autoApproved).toBeFalsy()
+    expect(
+      await one(`select ra.state, u.status from registration_applications ra join users u on u.id = ra.user_id where u.email = 'g3@example.com'`),
+    ).toEqual({ state: 'pending', status: 'pending' })
   })
 })

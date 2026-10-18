@@ -1,4 +1,4 @@
-import type { Pool } from 'pg'
+import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RegistrationCommand, ResolvedActor } from '@/application/accounts'
 import {
@@ -23,6 +23,7 @@ const PASSWORD = 'Correct-Horse-Battery-9'
 let db: IsolatedDatabase
 let app: Pool
 let command: RegistrationCommand
+let failingMailCommand: RegistrationCommand
 let handlers: typeof import('@/infrastructure/auth/wrapper').authRouteHandlers
 let resetSignUpLimiter: () => void
 let adminId: string
@@ -90,11 +91,26 @@ beforeAll(async () => {
   const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
   const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
   const { PgCohortStatusQuery } = await import('@/infrastructure/cohorts/pg-cohorts')
-  command = new PgRegistrationCommand({
+  const { CaptureMailer } = await import('@/infrastructure/mail/capture-mailer')
+  const { BrevoMailer } = await import('@/infrastructure/mail/brevo-mailer')
+  const deps = {
     audit: new PgAuditWriter(),
     ledger: new PgOperationLedger(() => app),
     db: () => app,
     cohorts: new PgCohortStatusQuery(() => app),
+  }
+  // 審核結果信（VB-1）：一般用例注入擷取 mailer；另一個實例的 Brevo 永遠回 500，驗「寄失敗不影響審核」。
+  command = new PgRegistrationCommand({ ...deps, mail: { mailer: new CaptureMailer({ db: () => app }), siteUrl: BASE_URL } })
+  failingMailCommand = new PgRegistrationCommand({
+    ...deps,
+    mail: {
+      mailer: new BrevoMailer({
+        db: () => app,
+        config: { apiKey: 'fake-key', from: '專題管理平台 <noreply@example.com>' },
+        fetch: async () => new Response(JSON.stringify({ code: 'internal_error' }), { status: 500 }),
+      }),
+      siteUrl: BASE_URL,
+    },
   })
 
   const user = async (email: string, name: string) =>
@@ -350,7 +366,7 @@ describe('本人：看與改自己的申請（§2.4 Q7）', () => {
     expect(result).toMatchObject({ ok: false, code: 'FORBIDDEN' })
   })
 
-  it('沒有申請單的待審帳號（直接打 API 註冊的）：看到 none，補送一次就有第 1 版', async () => {
+  it('沒有申請單的待審帳號（直接打 API 註冊的）：看到 none；沒驗證 Email 送不出（不建申請），驗證後補送一次就有第 1 版', async () => {
     const email = uniqueEmail('api-only')
     const response = await handlers.POST(
       new Request(`${BASE_URL}/api/auth/sign-up/email`, {
@@ -364,11 +380,15 @@ describe('本人：看與改自己的申請（§2.4 Q7）', () => {
     const actor = pendingActor(id)
     expect(await command.viewMine(actor)).toMatchObject({ ok: true, receipt: { state: 'none', current: null, loginEmail: email } })
 
-    const submitted = await command.reviseMine(
-      actor,
-      { appliedName: '補送同學', studentNo: '411500123', departmentClass: '資管二乙', phone: '0933333333', contactEmail: email },
-      null,
-    )
+    const fields = { appliedName: '補送同學', studentNo: '411500123', departmentClass: '資管二乙', phone: '0933333333', contactEmail: email }
+    // VB-3 Review：沒驗證 Email 的密碼帳號重放舊的「修改資料」入口送第一份申請 → 擋下，不建申請（AC-VI-50）。
+    // 判斷讀資料庫，session 快照說什麼都一樣。
+    const unverified = await command.reviseMine({ ...pendingActor(id), loginMethod: 'password' } as ResolvedActor, fields, null)
+    expect(unverified).toMatchObject({ ok: false, code: 'FORBIDDEN', message: '請先完成 Email 驗證。' })
+    expect(await one<{ n: number }>(`select count(*)::int as n from registration_applications where user_id = $1`, [id])).toEqual({ n: 0 })
+
+    await one(`update users set email_verified = true where id = $1 returning id`, [id])
+    const submitted = await command.reviseMine(actor, fields, null)
     expect(submitted).toMatchObject({ ok: true, receipt: { revision: 1 } })
     expect(await command.viewMine(actor)).toMatchObject({ ok: true, receipt: { state: 'pending' } })
   })
@@ -750,14 +770,14 @@ describe('批次核准：預覽之後名單變了（第三波 W6 審查修正）
 
   it('預覽後名單改成姓名不符：每筆在自己的交易裡重查資格，略過、仍待審、沒有核准紀錄', async () => {
     const cohort = await newCohort('113')
-    await rosterVersion(cohort, [['411300001', '改名前']])
-    const userId = await register({ studentNo: '411300001', appliedName: '改名前' })
+    await rosterVersion(cohort, [['410900001', '改名前']])
+    const userId = await register({ studentNo: '410900001', appliedName: '改名前' })
     const id = await appOf(userId)
     const preview = await command.previewApproveMany(admin(), [id])
     expect(preview).toMatchObject({ ok: true, receipt: { rows: [{ applicationId: id, skip: null }] } })
 
     // 系辦確認前，名單換了一版：姓名變了。
-    await rosterVersion(cohort, [['411300001', '改名後']])
+    await rosterVersion(cohort, [['410900001', '改名後']])
     const done = await command.approveMany(admin(), input([{ applicationId: id, revision: 1, requestId: requestId() }]))
     expect(done).toMatchObject({
       ok: true,
@@ -802,5 +822,376 @@ describe('批次核准：預覽之後名單變了（第三波 W6 審查修正）
       await command.approveMany(admin(), input([{ applicationId: b, revision: 1, requestId: requestId() }], [b])),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await one(`select status from users where id = $1`, [offRoster])).toEqual({ status: 'pending' })
+  })
+})
+
+describe('審核結果信（B 階段 VB-1，AC-VI-53）', () => {
+  const admin = () => activeActor(adminId, ['admin'])
+  let studentNo = 411500700
+  const appOf = async (userId: string) =>
+    (await one<{ id: string }>(`select id from registration_applications where user_id = $1 and state = 'pending'`, [userId])).id
+  const outboxOf = (email: string) =>
+    db.sql(
+      `select template, to_email, subject, body_text, status, error from mail_outbox where to_email = $1 and template = 'registration_result' order by created_at`,
+      [email],
+    )
+  const approveInput = async (userId: string) => ({
+    applicationId: await appOf(userId), revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: cohort115, requestId: requestId(),
+  })
+
+  it('核准後 mail_outbox 有一列寄給登入 Email、連到 /login；不含姓名與學號；同請求編號重送不再寄', async () => {
+    const email = uniqueEmail('mail-ok')
+    const no = String(++studentNo)
+    const userId = await register({ studentNo: no, appliedName: '寄信測試', loginEmail: email })
+    const input = await approveInput(userId)
+    expect(await command.approve(admin(), input)).toMatchObject({ ok: true, receipt: { decision: 'approved' } })
+
+    const { rows } = await outboxOf(email)
+    expect(rows).toEqual([
+      {
+        template: 'registration_result',
+        to_email: email,
+        subject: '【專題管理平台】帳號已開通',
+        body_text: `你的帳號已開通，請到 ${BASE_URL}/login 登入。`,
+        status: 'captured',
+        error: null,
+      },
+    ])
+    expect(String(rows[0]!.body_text)).not.toContain('寄信測試')
+    expect(String(rows[0]!.body_text)).not.toContain(no)
+
+    expect(await command.approve(admin(), input)).toMatchObject({ ok: true })
+    expect((await outboxOf(email)).rows).toHaveLength(1)
+  })
+
+  it('退回後的信帶理由並連到 /register/pending', async () => {
+    const email = uniqueEmail('mail-reject')
+    const userId = await register({ studentNo: String(++studentNo), appliedName: '退回測試', loginEmail: email })
+    const rejected = await command.reject(admin(), { applicationId: await appOf(userId), revision: 1, reason: '學號打錯', requestId: requestId() })
+    expect(rejected).toMatchObject({ ok: true, receipt: { decision: 'rejected' } })
+    expect((await outboxOf(email)).rows).toEqual([
+      {
+        template: 'registration_result',
+        to_email: email,
+        subject: '【專題管理平台】註冊申請被退回',
+        body_text: `你的註冊申請被退回。理由：學號打錯。請到 ${BASE_URL}/register/pending 修改後重新送出。`,
+        status: 'captured',
+        error: null,
+      },
+    ])
+  })
+
+  it('批次核准：每位核准的人各一封，略過的人沒有', async () => {
+    const e1 = uniqueEmail('mail-bulk1')
+    const e2 = uniqueEmail('mail-bulk2')
+    // 自己一屆、自己一份名單，不跟上面的案例搶學號。
+    const cohort108 = String(
+      (
+        await db.sql(
+          `insert into cohorts (id, code, name, created_by_kind, is_registration_open)
+           values (gen_random_uuid(), '108', '108 學年度專題', 'system', false) returning id`,
+        )
+      ).rows[0]!.id,
+    )
+    const version = String(
+      (
+        await db.sql(
+          `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+           values (gen_random_uuid(), $1, $2, now(), '{}'::jsonb) returning id`,
+          [cohort108, adminId],
+        )
+      ).rows[0]!.id,
+    )
+    await db.sql(
+      `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized)
+       values (gen_random_uuid(), $1, '410800777', '寄信批次', '寄信批次')`,
+      [version],
+    )
+    const u1 = await register({ studentNo: '410800777', appliedName: '寄信批次', loginEmail: e1 })
+    const u2 = await register({ studentNo: '411599999', appliedName: '不在名單', loginEmail: e2 })
+    const items = [
+      { applicationId: await appOf(u1), revision: 1, requestId: requestId() },
+      { applicationId: await appOf(u2), revision: 1, requestId: requestId() },
+    ]
+    const done = await command.approveMany(admin(), { items, previewSkipped: [], verificationMethod: 'id_document', verificationNote: '', reason: '' })
+    if (!done.ok) throw new Error(done.message)
+    expect(done.receipt.skipped.map((s) => [s.appliedName, s.reason])).toEqual([['不在名單', '名單比對不到，請個別審核']])
+    expect(done.receipt.approved.map((a) => a.appliedName)).toEqual(['寄信批次'])
+    expect((await outboxOf(e1)).rows.map((r) => [r.template, r.status])).toEqual([['registration_result', 'captured']])
+    expect((await outboxOf(e2)).rows).toEqual([])
+  })
+
+  it('連線池滿載：10 筆同時退回、10 筆同時核准都做完、各寄一封（交易連線先還回池子再寄信，Review 第 1 輪）', async () => {
+    // 正式設定的池子上限是 10。交易 commit 後若還抓著連線去寄信，寄信要的那一條永遠等不到 → 全部卡住。
+    // 這裡給取連線 5 秒逾時，卡住就變成寄信失敗（outbox 少列），測試直接紅，不會掛著。
+    const url = new URL(TEST_DATABASE_URL)
+    url.username = 'fju_app'
+    url.password = process.env.TEST_FJU_APP_PASSWORD ?? 'fju_app_local_test'
+    const full = new Pool({ connectionString: url.toString(), max: 10, connectionTimeoutMillis: 5_000, options: `-c search_path=${db.schemaName}` })
+    const { PgRegistrationCommand } = await import('@/infrastructure/accounts/registration-command')
+    const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
+    const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
+    const { PgCohortStatusQuery } = await import('@/infrastructure/cohorts/pg-cohorts')
+    const { CaptureMailer } = await import('@/infrastructure/mail/capture-mailer')
+    const saturated = new PgRegistrationCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => full),
+      db: () => full,
+      cohorts: new PgCohortStatusQuery(() => full),
+      mail: { mailer: new CaptureMailer({ db: () => full }), siteUrl: BASE_URL },
+    })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const batch = async (tag: string) => {
+        const emails = Array.from({ length: 10 }, (_, i) => uniqueEmail(`${tag}${i}`))
+        const users: string[] = []
+        for (const email of emails) users.push(await register({ studentNo: String(++studentNo), appliedName: '滿載測試', loginEmail: email }))
+        return { emails, users }
+      }
+      const countFor = async (emails: string[]) =>
+        Number((await one<{ n: number }>(`select count(*)::int as n from mail_outbox where to_email = any($1) and template = 'registration_result' and status = 'captured'`, [emails])).n)
+
+      const rejecting = await batch('pool-rej')
+      const rejected = await Promise.all(
+        await Promise.all(
+          rejecting.users.map(async (u) => ({ applicationId: await appOf(u), revision: 1, reason: '學號打錯', requestId: requestId() })),
+        ).then((inputs) => inputs.map((input) => saturated.reject(admin(), input))),
+      )
+      expect(rejected.filter((r) => r.ok)).toHaveLength(10)
+      expect(await countFor(rejecting.emails)).toBe(10)
+
+      const approving = await batch('pool-ok')
+      const inputs = await Promise.all(approving.users.map((u) => approveInput(u)))
+      const approved = await Promise.all(inputs.map((input) => saturated.approve(admin(), input)))
+      expect(approved.filter((r) => r.ok)).toHaveLength(10)
+      expect(await countFor(approving.emails)).toBe(10)
+      expect(full.waitingCount).toBe(0)
+      expect(errors).not.toHaveBeenCalled()
+    } finally {
+      errors.mockRestore()
+      await full.end()
+    }
+  })
+
+  it('寄信失敗（Brevo 500）：核准照樣成功、帳號開通，那一列記 failed、不存內文', async () => {
+    const email = uniqueEmail('mail-fail')
+    const userId = await register({ studentNo: String(++studentNo), appliedName: '寄失敗', loginEmail: email })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const approved = await failingMailCommand.approve(admin(), await approveInput(userId))
+    errors.mockRestore()
+    expect(approved).toMatchObject({ ok: true, receipt: { decision: 'approved' } })
+    expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'active' })
+    expect((await outboxOf(email)).rows).toEqual([
+      {
+        template: 'registration_result',
+        to_email: email,
+        subject: '【專題管理平台】帳號已開通',
+        body_text: null,
+        status: 'failed',
+        error: 'brevo_500_internal_error',
+      },
+    ])
+  })
+})
+
+describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
+  const admin = () => activeActor(adminId, ['admin'])
+  let rosterVersion: string
+  const googleActor = (userId: string): ResolvedActor => ({ ...pendingActor(userId), loginMethod: 'google' }) as ResolvedActor
+
+  /** 115 屆最新一版名單多一列（學號、姓名、名單 Email）。 */
+  const rosterRow = async (studentNo: string, name: string, email: string | null) =>
+    db.sql(
+      `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
+       values (gen_random_uuid(), $1, $2, $3, lower($3), '資管二甲', $4)`,
+      [rosterVersion, studentNo, name, email],
+    )
+  /** 待審、Email 已驗證的帳號；`google` 時多一個 Google 登入方式（Google 回呼建帳號後的樣子）。 */
+  const pendingUser = async (email: string, google = true) => {
+    const id = String(
+      (
+        await db.sql(
+          `insert into users (id, name, email, email_verified, updated_at, status)
+           values (gen_random_uuid(), 'Google 名字', $1, true, now(), 'pending') returning id`,
+          [email],
+        )
+      ).rows[0]!.id,
+    )
+    if (google) {
+      await db.sql(
+        `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at)
+         values (gen_random_uuid(), $1, 'google', $2, now(), now())`,
+        [`sub-${email}`, id],
+      )
+    }
+    return id
+  }
+  const fieldsOf = (appliedName: string, studentNo: string, contactEmail: string) => ({
+    appliedName,
+    studentNo,
+    departmentClass: '資管二甲',
+    phone: '0912-345-678',
+    contactEmail,
+  })
+  const stateOf = (userId: string) =>
+    one<{ state: string; verification_method: string | null; status: string }>(
+      `select ra.state, ra.verification_method, u.status
+         from registration_applications ra join users u on u.id = ra.user_id where ra.user_id = $1`,
+      [userId],
+    )
+
+  beforeAll(async () => {
+    rosterVersion = (await one<{ id: string }>(`select id from roster_versions where cohort_id = $1`, [cohort115])).id
+    await rosterRow('411401002', '李小華', 'g2@example.com')
+  })
+
+  it('AC-VI-55：Google 來、Email＋學號＋姓名命中開放屆別同一列、學號沒人用 → 直接開通（系統核准、稽核一筆、不寄信）', async () => {
+    const userId = await pendingUser('g2@example.com')
+    const result = await command.reviseMine(googleActor(userId), fieldsOf('李小華', '411401002', 'g2@example.com'), null)
+    expect(result).toMatchObject({ ok: true, receipt: { revision: 1, autoApproved: true } })
+
+    const application = await one<Record<string, unknown>>(
+      `select id, state, verification_method, verification_note, decided_by_user_id, decided_real_at, assigned_cohort_id
+         from registration_applications where user_id = $1`,
+      [userId],
+    )
+    expect(application).toMatchObject({
+      state: 'approved',
+      verification_method: 'google_email_match',
+      verification_note: null,
+      decided_by_user_id: null,
+      assigned_cohort_id: cohort115,
+    })
+    expect(application.decided_real_at).not.toBeNull()
+    expect(await one(`select status, name from users where id = $1`, [userId])).toEqual({ status: 'active', name: '李小華' })
+    expect(await one(`select cohort_id, student_no from user_profiles where user_id = $1`, [userId])).toEqual({
+      cohort_id: cohort115,
+      student_no: '411401002',
+    })
+    expect(
+      await one(`select granted_by_user_id, reason from role_assignments where user_id = $1 and role = 'student'`, [userId]),
+    ).toEqual({ granted_by_user_id: userId, reason: '自動開通（Google Email 與名單相同）' })
+    expect(await one(`select cohort_id, student_no from student_identities where user_id = $1`, [userId])).toEqual({
+      cohort_id: cohort115,
+      student_no: '411401002',
+    })
+    expect(
+      await one(`select actor_kind, actor_user_id, verification_method from user_status_events where user_id = $1`, [userId]),
+    ).toEqual({ actor_kind: 'system', actor_user_id: null, verification_method: 'google_email_match' })
+    const audits = await db.sql(
+      `select actor_kind, actor_user_id, action, scope, cohort_id, reason, verification_method, payload
+         from audit_events where target_id = $1 order by real_at, action`,
+      [application.id],
+    )
+    // 證據：自動開通那一列（PR 說明引用這段輸出）。
+    console.info('[AC-VI-55 audit_events]', JSON.stringify(audits.rows.find((r) => r.action === 'registration.auto_approve')))
+    expect(audits.rows.map((r) => r.action).sort()).toEqual(['registration.apply', 'registration.auto_approve'])
+    expect(audits.rows.find((r) => r.action === 'registration.auto_approve')).toMatchObject({
+      actor_kind: 'system',
+      actor_user_id: null,
+      scope: 'cohort',
+      cohort_id: cohort115,
+      reason: 'Google Email 與名單相同，自動開通',
+      verification_method: 'google_email_match',
+      payload: { userId, revision: 1, rosterMatch: 'matched', emailComparison: 'same' },
+    })
+    // 不寄「帳號已開通」（畫面直接告訴他）。
+    expect(await one(`select count(*)::int as n from mail_outbox where to_email = 'g2@example.com'`)).toEqual({ n: 0 })
+    // 「帳號已開通」頁的判斷：讀資料庫，是自動開通。
+    expect(await command.autoApprovedMine(activeActor(userId, ['student']))).toBe(true)
+    // 已開通：沒有待審申請可看，也不會出現在系辦待審清單。
+    expect(await command.viewMine(activeActor(userId, ['student']))).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    const listed = await command.listPending(admin())
+    expect(listed.ok && listed.receipt.applications.some((a) => a.userId === userId)).toBe(false)
+  })
+
+  it('AC-VI-56：密碼註冊 Email 相同、Email 不同、學號已被占用、姓名不同、+suffix、全形字 → 六種都照舊待審、不報錯', async () => {
+    await rosterRow('411401010', '李小華', 'g10@example.com') // (a)
+    await rosterRow('411401011', '李小華', 'g11@example.com') // (b)
+    await rosterRow('411401012', '李小華', 'g12@example.com') // (c)
+    await rosterRow('411401013', '李小華', 'g13@example.com') // (d)
+    await rosterRow('411401014', '李小華', 'g14@example.com') // (e)
+    await rosterRow('411401015', '李小華', 'g15@example.com') // (f)
+
+    // (c) 先讓別人用 411401012 經系辦核准占用（名單同一列，但那人 Email 不同、走人工審核）。
+    const holder = await pendingUser('holder-g12@example.com', false)
+    expect(await command.reviseMine(pendingActor(holder), fieldsOf('李小華', '411401012', 'holder-g12@example.com'), null)).toMatchObject({
+      ok: true,
+    })
+    const holderApp = (await one<{ id: string }>(`select id from registration_applications where user_id = $1`, [holder])).id
+    expect(
+      await command.approve(admin(), {
+        applicationId: holderApp, revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: cohort115, requestId: requestId(),
+      }),
+    ).toMatchObject({ ok: true })
+    // 系辦人工核准的學生不是自動開通（「帳號已開通」頁不給他看）；待審、沒登入也都不是。
+    expect(await command.autoApprovedMine(activeActor(holder, ['student']))).toBe(false)
+    expect(await command.autoApprovedMine(ANON)).toBe(false)
+
+    const cases: { tag: string; email: string; studentNo: string; name: string; password?: true }[] = [
+      { tag: '(a) 密碼註冊', email: 'g10@example.com', studentNo: '411401010', name: '李小華', password: true },
+      { tag: '(b) Email 不同', email: 'g11x@example.com', studentNo: '411401011', name: '李小華' },
+      { tag: '(c) 學號已被占用', email: 'g12@example.com', studentNo: '411401012', name: '李小華' },
+      { tag: '(d) 姓名不同', email: 'g13@example.com', studentNo: '411401013', name: '李小花' },
+      { tag: '(e) +suffix', email: 'g14+x@example.com', studentNo: '411401014', name: '李小華' },
+      { tag: '(f) 全形 g', email: 'ｇ15@example.com', studentNo: '411401015', name: '李小華' },
+    ]
+    for (const c of cases) {
+      const userId = await pendingUser(c.email, !c.password)
+      const actor = c.password ? ({ ...pendingActor(userId), loginMethod: 'password' } as ResolvedActor) : googleActor(userId)
+      const result = await command.reviseMine(actor, fieldsOf(c.name, c.studentNo, c.email), null)
+      expect(result, c.tag).toMatchObject({ ok: true, receipt: { revision: 1 } })
+      expect(result.ok && result.receipt.autoApproved, c.tag).toBeFalsy()
+      expect(await stateOf(userId), c.tag).toEqual({ state: 'pending', verification_method: null, status: 'pending' })
+      expect(await one(`select count(*)::int as n from student_identities where user_id = $1`, [userId]), c.tag).toEqual({ n: 0 })
+    }
+    expect(await one(`select count(*)::int as n from audit_events where action = 'registration.auto_approve' and payload->>'userId' = $1`, [holder])).toEqual({ n: 0 })
+  })
+
+  it('被退回後重送：就算資料完全符合也不自動開通（系辦的決定不由系統推翻）', async () => {
+    await rosterRow('411401020', '李小華', 'g20@example.com')
+    const userId = await pendingUser('g20@example.com')
+    // 第一次送錯姓名 → 待審 → 系辦退回。
+    expect(await command.reviseMine(googleActor(userId), fieldsOf('李小花', '411401020', 'g20@example.com'), null)).toMatchObject({ ok: true })
+    const first = (await one<{ id: string }>(`select id from registration_applications where user_id = $1`, [userId])).id
+    expect(await command.reject(admin(), { applicationId: first, revision: 1, reason: '姓名有誤', requestId: requestId() })).toMatchObject({ ok: true })
+
+    const again = await command.reviseMine(googleActor(userId), fieldsOf('李小華', '411401020', 'g20@example.com'), null)
+    expect(again).toMatchObject({ ok: true, receipt: { revision: 1 } })
+    expect(again.ok && again.receipt.autoApproved).toBeFalsy()
+    expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
+    expect(
+      await one(`select state, verification_method from registration_applications where user_id = $1 and id <> $2`, [userId, first]),
+    ).toEqual({ state: 'pending', verification_method: null })
+  })
+
+  it('並行：兩個人同時用同一個學號（Email 只差大小寫，都算相同）→ 只有一人自動開通，另一人安靜留在待審', async () => {
+    await rosterRow('411401030', '李小華', 'race@example.com')
+    const a = await pendingUser('race@example.com')
+    const b = await pendingUser('RACE@example.com')
+    const results = await Promise.all([
+      command.reviseMine(googleActor(a), fieldsOf('李小華', '411401030', 'race@example.com'), null),
+      command.reviseMine(googleActor(b), fieldsOf('李小華', '411401030', 'RACE@example.com'), null),
+    ])
+    for (const r of results) expect(r).toMatchObject({ ok: true, receipt: { revision: 1 } })
+    expect(results.filter((r) => r.ok && r.receipt.autoApproved).length).toBe(1)
+    const states = [await stateOf(a), await stateOf(b)].map((s) => s.state).sort()
+    expect(states).toEqual(['approved', 'pending'])
+    expect(await one(`select count(*)::int as n from student_identities where student_no = '411401030'`)).toEqual({ n: 1 })
+    expect(
+      await one(`select count(*)::int as n from audit_events where action = 'registration.auto_approve' and payload->>'userId' = any($1::text[])`, [[a, b]]),
+    ).toEqual({ n: 1 })
+  })
+
+  it('未驗證 Email 的密碼帳號連「修改待審申請」也送不出（reviseMine 開頭擋，所有路徑）', async () => {
+    const userId = await register({ studentNo: '411401040', appliedName: '舊帳號' })
+    await one(`update users set email_verified = false where id = $1 returning id`, [userId])
+    const actor = { ...pendingActor(userId), loginMethod: 'password' } as ResolvedActor
+    const result = await command.reviseMine(actor, fieldsOf('舊帳號', '411401041', 'x@example.com'), 1)
+    expect(result).toMatchObject({ ok: false, code: 'FORBIDDEN', message: '請先完成 Email 驗證。' })
+    expect(await one(`select revision, student_no from registration_applications where user_id = $1`, [userId])).toEqual({
+      revision: 1,
+      student_no: '411401040',
+    })
   })
 })

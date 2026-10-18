@@ -362,6 +362,8 @@ export type LinkedGroupRef = {
   /** 屆別名稱（例如「第 43 屆」）；畫面標「名稱（代碼）」（系1）。 */
   readonly cohortName: string
   readonly linkedAt: Date
+  /** 誰連的（組長、案主老師或系辦；TE-B3 畫面標「由 {老師} 連結」）；帳號已去識別化時是顯示用的替代名。 */
+  readonly linkedByName: string
 }
 
 /** 詳情：正文三段**已經過伺服器端清洗**（`renderBodyHtml`），畫面直接輸出。 */

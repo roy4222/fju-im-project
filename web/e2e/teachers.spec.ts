@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
+import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -135,14 +136,10 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   // 搶先註冊：同一個 Email 被拒（統一訊息），不會多出一個帳號。
   const hijacker = await freshPage(browser)
   await hijacker.goto('/register')
-  await hijacker.getByLabel('姓名').fill('冒用者')
-  await hijacker.getByLabel('學號').fill('499999999')
-  await hijacker.getByLabel('系級').fill('資管二甲')
-  await hijacker.getByLabel('手機').fill('0912-345-678')
-  await hijacker.getByLabel('登入 Email').fill(email)
+  await hijacker.getByLabel('Email', { exact: true }).fill(email)
   await hijacker.getByLabel('密碼', { exact: true }).fill('Hijacker-Password-2026')
   await hijacker.getByLabel('確認密碼').fill('Hijacker-Password-2026')
-  await hijacker.getByRole('button', { name: '送出註冊' }).click()
+  await hijacker.getByRole('button', { name: '建立帳號' }).click()
   await expect(hijacker.getByText('這個 Email 無法用來註冊')).toBeVisible()
   await hijacker.context().close()
 
@@ -180,9 +177,18 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
 }) => {
   const student = await freshPage(browser)
   const session = await createTestSession(student.request, null)
+  // VB-2 之後「沒驗證 Email、沒送申請」的密碼帳號登入會先被帶去 /register/verify（AC-VI-50）；
+  // 這條測的是臨時密碼，前置當成已驗證 Email 的待審學生。
+  const owner = new Pool({ connectionString: process.env.DATABASE_URL_OWNER })
+  try {
+    await owner.query('update users set email_verified = true where email = $1', [session.email])
+  } finally {
+    await owner.end()
+  }
   await student.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
   await student.goto('/register/pending')
-  await expect(student).toHaveURL(/\/register\/pending$/)
+  // 沒送申請的待審帳號會被帶去第 3 步（VB-6）。
+  await expect(student).toHaveURL(/\/register\/apply$/)
 
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
@@ -225,8 +231,8 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
   await student.goto('/register/pending')
   await expect(student, '改密前連待審頁也不能看').toHaveURL(/\/account\/change-password$/)
   await changePassword(student, second)
-  // 待審學生改完密碼回等待審核頁。
-  await expect(student).toHaveURL(/\/register\/pending$/)
+  // 待審學生改完密碼回等待審核頁；沒送申請的待審帳號會被帶去第 3 步（VB-6）。
+  await expect(student).toHaveURL(/\/register\/apply$/)
   await student.context().close()
 })
 

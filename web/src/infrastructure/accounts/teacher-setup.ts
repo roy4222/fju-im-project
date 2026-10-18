@@ -14,6 +14,7 @@ import type { AuditWriter } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
+import { bustIdentity } from '@/infrastructure/auth/identity-cache'
 
 /**
  * 老師第一次登入補資料（產品模組 01 §2.4「老師帳號」；工程模組 01 附錄 A
@@ -40,6 +41,24 @@ function denied(code: ErrorCode): Err {
   return err(code, messages[code] ?? '無法執行這個動作。', { next: defaultNextStep(code) })
 }
 
+/**
+ * 「這位老師要不要先補資料」：有老師角色、而且沒有補完的 profile。`needsSetup` 與身分解析器（`actor-resolver.ts`，
+ * 隨身分快取存成 `teacherSetupPending`）共用這一句，查詢文字也就只有一份（`perf/signatures.json` 認它是身分句）。
+ */
+export async function teacherNeedsSetup(db: Pool, userId: string): Promise<boolean> {
+  const rows = await db.query<{ needs: boolean }>(
+    `select exists (
+              select 1 from role_assignments
+               where user_id = $1 and role = 'teacher' and revoked_real_at is null
+            )
+        and not exists (
+              select 1 from user_profiles where user_id = $1 and profile_completed_at is not null
+            ) as needs`,
+    [userId],
+  )
+  return rows.rows[0]?.needs === true
+}
+
 export class PgTeacherSetupCommand implements TeacherSetupCommand {
   readonly #deps: TeacherSetupDeps
   readonly #clock: Clock
@@ -50,17 +69,7 @@ export class PgTeacherSetupCommand implements TeacherSetupCommand {
   }
 
   async needsSetup(userId: string): Promise<boolean> {
-    const rows = await this.#deps.db().query<{ needs: boolean }>(
-      `select exists (
-                select 1 from role_assignments
-                 where user_id = $1 and role = 'teacher' and revoked_real_at is null
-              )
-          and not exists (
-                select 1 from user_profiles where user_id = $1 and profile_completed_at is not null
-              ) as needs`,
-      [userId],
-    )
-    return rows.rows[0]?.needs === true
+    return teacherNeedsSetup(this.#deps.db(), userId)
   }
 
   async view(actor: ResolvedActor): Promise<Result<TeacherProfileView>> {
@@ -150,6 +159,8 @@ export class PgTeacherSetupCommand implements TeacherSetupCommand {
         payload: { phoneProvided: profile.phone !== null },
       })
       await tx.query('commit')
+      // 身分快取裡的 `teacherSetupPending` 要跟著變，下一頁才不會又被導回補資料頁（B 設計方案 §4.1）。
+      bustIdentity(actor.userId)
       return ok({ completedAt: now.toISOString() }, { requestId: uuidv7(), serverTime: now.toISOString() })
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)

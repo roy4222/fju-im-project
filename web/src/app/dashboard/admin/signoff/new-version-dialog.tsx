@@ -24,7 +24,7 @@ export function NewVersionDialog({ children }: { children: ReactNode }) {
           <div>
             <h2 className={DIALOG_TITLE}>新增站內同意書</h2>
             <p className={DIALOG_DESC}>
-              建立一份要全組逐人同意的同意書。系辦只能發布、重開、重置，不能代替學生或老師同意。同一組同一用途再建一版，舊版就被新版取代、所有人重新同意。
+              建立一份要全組逐人同意的同意書。系辦只能發布、重開、重新收集同意，不能代替學生或老師同意。同一組同一用途再建一版，舊版就被新版取代、所有人重新同意。
             </p>
           </div>
           {children}

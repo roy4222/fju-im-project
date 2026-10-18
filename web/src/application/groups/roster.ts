@@ -13,7 +13,7 @@ import { toCsvLine } from '@/shared/csv'
 
 export type RosterTypeFilter = 'all' | GroupType
 /**
- * 「狀態」：目前的組別都是有效的（解散在之後的票），所以這裡的狀態是系辦處理進度：
+ * 「狀態」：名單只列有效的組別（已解散的另列在分組總覽的「已解散的組別」），所以這裡的狀態是系辦處理進度：
  * 指導老師有沒有指派、產學組有沒有連結合作案。
  */
 export type RosterStatusFilter = 'all' | 'advisor_missing' | 'advisor_assigned' | 'industry_unlinked'

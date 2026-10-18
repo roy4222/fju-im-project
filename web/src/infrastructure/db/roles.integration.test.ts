@@ -733,6 +733,22 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'tagline_line1', value: '改過的標語' },
   },
+  mail_outbox: {
+    insert: () => ({
+      sql: `insert into mail_outbox (id, to_email, template, subject, status) values (gen_random_uuid(), $1, 'email_otp', '【專題管理平台】Email 驗證碼', 'queued')`,
+      values: [`${unique('mail')}@example.com`],
+    }),
+    updatable: { column: 'status', value: 'sent' },
+    deleteWhere: 'true',
+  },
+  grade_settlements: {
+    insert: () => ({
+      sql: `insert into grade_settlements (id, cohort_id, stage_key, settled_at, settled_by_user_id, reason, counted_evaluations, request_id)
+            values (gen_random_uuid(), $1, $2, now(), $3, '期中結算', 0, gen_random_uuid()::text)`,
+      values: [cohortId, unique('stage'), userId],
+    }),
+    updatable: { column: 'release_reason', value: '重開' },
+  },
 }
 
 beforeAll(async () => {

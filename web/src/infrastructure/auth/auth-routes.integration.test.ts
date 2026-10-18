@@ -156,10 +156,15 @@ describe('封鎖路由對外一律 403', () => {
     ['POST', '/change-email'],
     ['POST', '/delete-user'],
     ['POST', '/unlink-account'],
-    ['POST', '/request-password-reset'],
-    ['POST', '/reset-password'],
     ['POST', '/send-verification-email'],
     ['GET', '/verify-email'],
+    // VB-2：email-otp 外掛帶進來、但不對外的端點（OTP 登入、OTP 重設密碼、換 Email）。
+    ['POST', '/sign-in/email-otp'],
+    ['POST', '/forget-password/email-otp'],
+    ['POST', '/email-otp/request-password-reset'],
+    ['POST', '/email-otp/reset-password'],
+    ['POST', '/email-otp/request-email-change'],
+    ['POST', '/email-otp/change-email'],
     ['GET', '/list-sessions'],
     ['POST', '/revoke-other-sessions'],
     ['GET', '/account-info'],
@@ -193,6 +198,56 @@ describe('封鎖路由對外一律 403', () => {
     expect(response.status).toBe(403)
     const body = (await response.json()) as { code?: string; message?: string }
     expect(body.code ?? body.message).toBeTruthy()
+  })
+})
+
+describe('VB-2：Email 驗證碼與重設密碼的分類（AC-VI-71）', () => {
+  const OPENED = [
+    '/email-otp/send-verification-otp',
+    '/email-otp/verify-email',
+    '/email-otp/check-verification-otp',
+    '/request-password-reset',
+    '/reset-password',
+    '/reset-password/:token',
+  ]
+
+  it('6 條新開的端點都是允許、不需要 session，而且不在封鎖清單', () => {
+    for (const path of OPENED) {
+      const route = ALLOWED_ROUTES.find((r) => r.path === path)
+      expect(route, path).toBeDefined()
+      expect(route!.session, path).toBe('none')
+      expect(route!.fresh, path).toBe(false)
+      expect(path in BLOCKED_ROUTE_REASONS, path).toBe(false)
+    }
+  })
+
+  it('仍封鎖、新封鎖的 8 條各有理由', () => {
+    for (const path of [
+      '/send-verification-email',
+      '/verify-email',
+      '/sign-in/email-otp',
+      '/forget-password/email-otp',
+      '/email-otp/request-password-reset',
+      '/email-otp/reset-password',
+      '/email-otp/request-email-change',
+      '/email-otp/change-email',
+    ]) {
+      expect(BLOCKED_ROUTE_REASONS[path], path).toMatch(/\S/)
+      expect(ALLOWED_ROUTES.some((r) => r.path === path), path).toBe(false)
+    }
+  })
+
+  it('打新開的端點不再是 403（進到套件與 hook 自己的判斷）', async () => {
+    const reset = await call('POST', '/request-password-reset', { email: 'nobody@example.com', redirectTo: '/reset-password' })
+    expect(reset.status).toBe(200)
+    const resetWithBadToken = await call('POST', '/reset-password', { token: 'nope', newPassword: 'Long-Enough-Password-1' })
+    expect(resetWithBadToken.status).toBe(400)
+    const check = await call('POST', '/email-otp/check-verification-otp', {
+      email: 'nobody@example.com',
+      type: 'email-verification',
+      otp: '000000',
+    })
+    expect(check.status).toBe(400)
   })
 })
 
@@ -328,8 +383,17 @@ describe('設定值', () => {
     expect(authInstance.options.session?.cookieCache?.enabled).toBe(false)
   })
 
-  it('關掉同 Email 的隱含帳號合併', () => {
-    expect(authInstance.options.account?.accountLinking?.disableImplicitLinking).toBe(true)
+  // Q45（VB-5）：同 Email 的 Google 自動連結打開，但只限本地 Email 已驗證、Google 也驗證過、Email 相同。
+  // 未驗證／停用／去識別化不連結，守在 google-oauth.integration.test.ts「同 Email 的 Google 自動連結（Q45，VB-5）」
+  // （AC-VI-61 與四種受限帳號那幾條）。
+  it('同 Email 的隱含連結只在本地 Email 已驗證時開（Q45）：沒有免驗證的 trustedProviders、不允許不同 Email、連結不改資料', () => {
+    expect(authInstance.options.account?.accountLinking).toEqual({
+      enabled: true,
+      disableImplicitLinking: false,
+      requireLocalEmailVerified: true,
+      allowDifferentEmails: false,
+      updateUserInfoOnLink: false,
+    })
   })
 
   it('主鍵由應用產生（uuidv7），不是套件預設', () => {

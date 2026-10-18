@@ -107,9 +107,6 @@ test('沒有首頁設定時首頁跟改版前一樣；聯絡卡、頁尾、忘�
   await expect(footer.getByRole('link', { name: PHONE })).toHaveAttribute('href', 'tel:+886229052666')
   await expectNoOldPhone(page)
 
-  await page.goto('/forgot-password')
-  await expect(page.getByTestId('forgot-password')).toContainText(`電話 ${PHONE}`)
-  await expect(page.getByTestId('forgot-password').getByRole('link', { name: PHONE })).toHaveAttribute('href', 'tel:+886229052666')
   await expectNoOldPhone(page)
 
   for (const path of ['/news', '/rules', '/honors', '/projects/featured', '/login']) {
@@ -186,7 +183,15 @@ test('系辦換首頁大圖與標語：預覽即時變、存了就生效；換�
 
   // 待審的帳號（登入了但還不能用業務功能）開首頁一樣看得到大圖（Review：曾被帳號狀態閘門擋成 403）。
   // 另一個沒帶 cookie 的 request（page.request 帶著系辦的 cookie，註冊會被要求 Origin）。
+  // 用已驗證 Email 的待審帳號：密碼註冊、還沒驗證的人開首頁會先被導回註冊第 2 步（AC-VI-50 首頁段，VB-5），
+  // 這裡要證明的是「待審的人看得到大圖」，所以先把 Email 標成已驗證。
   const pending = await createTestSession(request, null)
+  const verify = new Pool({ connectionString: ownerUrl, max: 1 })
+  try {
+    await verify.query('update users set email_verified = true where id = $1', [pending.userId])
+  } finally {
+    await verify.end()
+  }
   const pendingHome = await visitorHome(browser, pending.cookie)
   await expect(pendingHome.page.getByRole('heading', { level: 1 })).toHaveText(line1)
   await expectHeroLoaded(pendingHome.page)

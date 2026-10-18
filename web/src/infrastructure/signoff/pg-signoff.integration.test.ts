@@ -7,7 +7,7 @@ import type { Pool } from 'pg'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
-import type { CreateVersionInput } from '@/application/signoff'
+import { SIGNOFF_PURPOSES, type CreateVersionInput } from '@/application/signoff'
 import { PgGroupCommand } from '@/infrastructure/groups/pg-groups'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
@@ -564,6 +564,126 @@ describe('成員集合改變 → 目前版本同交易失效（票 14 掛點）'
   })
 })
 
+/** 包住 `pool().connect()` 回來的 client，數 `studentView` 內的 SQL（`#withClient` 走 `connect()`，包 `pool.query` 會數到 0；BEGIN／COMMIT／ROLLBACK 不計）。 */
+function countingPool(sink: string[]): Pool {
+  return new Proxy(app, {
+    get(target, prop, receiver) {
+      if (prop !== 'connect') return Reflect.get(target, prop, receiver)
+      return async () => {
+        const client = await target.connect()
+        return new Proxy(client, {
+          get(c, p, r) {
+            if (p !== 'query') return Reflect.get(c, p, r)
+            return (...args: unknown[]) => {
+              const text = typeof args[0] === 'string' ? args[0] : String((args[0] as { text?: string })?.text ?? '')
+              if (!/^\s*(begin|commit|rollback)\b/i.test(text)) sink.push(text)
+              return (c.query as (...a: unknown[]) => unknown)(...args)
+            }
+          },
+        })
+      }
+    },
+  }) as Pool
+}
+
+describe('學生頁批次查詢（SH-B5）', () => {
+  async function studentStatements(userId: string): Promise<{ n: number; view: Awaited<ReturnType<PgSignoffQuery['studentView']>> }> {
+    const sink: string[] = []
+    const counted = new PgSignoffQuery({ pool: () => countingPool(sink) })
+    const view = await counted.studentView(actor(userId, ['student']))
+    return { n: sink.length, view }
+  }
+
+  it('句數只跟用途包數無關：一包與兩包都是 6；同一包歷史由 1 筆增到 5 筆句數不變，回傳內容仍是各包目前版本＋完整歷史', async () => {
+    const s = await scenario()
+    const me = s.members[0]!.id
+    await mustCreate(s)
+    const oneBagOneVersion = await studentStatements(me)
+    for (let i = 0; i < 4; i += 1) await mustCreate(s, { content: `第 ${i + 2} 版內容` })
+    const oneBagFive = await studentStatements(me)
+    const draft = await showcaseDraft(s)
+    for (let i = 0; i < 5; i += 1) await mustCreate(s, { purpose: 'final_document', showcaseEntryId: draft.entryId, content: `最終第 ${i + 1} 版` })
+    const twoBags = await studentStatements(me)
+
+    expect(oneBagOneVersion.n).toBe(6)
+    expect(oneBagFive.n).toBe(6)
+    expect(twoBags.n).toBe(6)
+    expect(oneBagFive.view.versions).toHaveLength(1)
+    expect(oneBagFive.view.versions[0]!.versionNo).toBe(5)
+    expect(oneBagFive.view.versions[0]!.history.map((h) => h.versionNo)).toEqual([5, 4, 3, 2, 1])
+    expect(twoBags.view.versions.map((v) => [v.purpose, v.versionNo, v.history.length, v.viewer.role, v.viewer.eligible])).toEqual([
+      ['result_confirmation', 5, 5, 'student', true],
+      ['final_document', 5, 5, 'student', true],
+    ])
+  })
+
+  it('每包各配各的歷史與表態：本人在其中一包表態後，只有那一包的 voted／canRespond 變', async () => {
+    const s = await scenario()
+    const me = s.members[0]!.id
+    const draft = await showcaseDraft(s)
+    const a = await mustCreate(s)
+    await mustCreate(s, { purpose: 'final_document', showcaseEntryId: draft.entryId })
+    const checksum = String((await owner.sql('select content_checksum from signoff_package_versions where id = $1', [a.versionId])).rows[0]!.content_checksum)
+    const r = await signoff.respond({ ...actor(me, ['student']), loginMethod: 'password' } as ResolvedActor, { versionId: a.versionId, contentChecksum: checksum, decision: 'agree' }, randomUUID())
+    expect(r.ok).toBe(true)
+    const { view } = await studentStatements(me)
+    const byPurpose = Object.fromEntries(view.versions.map((v) => [v.purpose, v.viewer]))
+    expect(byPurpose.result_confirmation).toMatchObject({ voted: 'agree', canRespond: false })
+    expect(byPurpose.final_document).toMatchObject({ voted: null, canRespond: true })
+  })
+})
+
+describe('批次查詢的角色鍵（SH-B5 Review 修）', () => {
+  it('現任主指導開版本頁：viewer.role＝advisor、eligible＝true、voted＝null；學生 eligible＝true', async () => {
+    const s = await scenario()
+    const v = await mustCreate(s)
+    const r = await query.versionDetail(actor(s.teacher.id, ['teacher']), v.versionId)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.receipt.viewer).toMatchObject({ role: 'advisor', eligible: true, voted: null })
+    const student = await query.versionDetail(actor(s.members[0]!.id, ['student']), v.versionId)
+    expect(student.ok && student.receipt.viewer).toMatchObject({ role: 'student', eligible: true })
+  })
+})
+
+describe('表態列的頭像（ST-12）', () => {
+  it('快照不存頭像：表態列讀此刻的 user_profiles；沒設定＝null；學生頁與老師頁同一份', async () => {
+    const s = await scenario()
+    const v = await mustCreate(s)
+    await owner.sql(`update user_profiles set avatar_preset = 7 where user_id = $1`, [s.members[0]!.id])
+    await owner.sql(`update user_profiles set avatar_preset = 9 where user_id = $1`, [s.teacher.id])
+    const student = await query.studentView(actor(s.members[1]!.id, ['student']))
+    const progress = student.versions.find((x) => x.versionId === v.versionId)!.progress
+    expect(progress.students[0]).toMatchObject({ userId: s.members[0]!.id, avatarPreset: 7, avatarFileId: null })
+    expect(progress.students[1]).toMatchObject({ avatarPreset: null, avatarFileId: null })
+    expect(progress.advisor).toMatchObject({ avatarPreset: 9, avatarFileId: null })
+    const teacher = await query.teacherView(actor(s.teacher.id, ['teacher']))
+    expect(teacher[0]!.current.progress.students[0]).toMatchObject({ avatarPreset: 7 })
+    const detail = await query.versionDetail(actor(s.members[0]!.id, ['student']), v.versionId)
+    expect(detail.ok && detail.receipt.progress.students[0]).toMatchObject({ avatarPreset: 7 })
+  })
+})
+
+describe('系辦重置／重開被擋的句子（AC-A-42）', () => {
+  it('學生按重置／重開：句子通順、不疊字；狀態不對時指向「重新收集同意（內容不變）」', async () => {
+    const s = await scenario()
+    const v = await mustCreate(s)
+    const asStudent = actor(s.members[0]!.id, ['student'])
+    expect(await signoff.reset(asStudent, { versionId: v.versionId, reason: '想重置' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+      message: '只有系辦管理員可以重新收集同意。',
+    })
+    expect(await signoff.reopen(asStudent, { versionId: v.versionId, reason: '想重開' }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+      message: '只有系辦管理員可以重開新版同意書。',
+    })
+    const wrongKind = await signoff.reopen(admin(), { versionId: v.versionId, reason: '想重開' }, randomUUID())
+    expect(wrongKind).toMatchObject({ ok: false, code: 'CONFLICT', message: '這一版還在收集同意或已完成，請改按「重新收集同意（內容不變）」。' })
+  })
+})
+
 describe('讀取邊界（SGN-10 入口）', () => {
   it('版本頁：管理員、參與學生、主指導讀得到；別組學生、別的老師 FORBIDDEN；被移出的參與者仍讀得到自己參與過的那一版', async () => {
     const s = await scenario()
@@ -611,6 +731,86 @@ describe('讀取邊界（SGN-10 入口）', () => {
     expect(row.packages.result_confirmation).toMatchObject({ versionId: v1.versionId, state: 'collecting', studentCount: 3 })
     expect(row.packages.final_document).toBeNull()
     expect(await query.adminBoard(actor(s.teacher.id, ['teacher']), s.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  describe('首頁同意書計數 homeCounts（AD-21）', () => {
+    /** 照系辦首頁原本的算法，從 `adminBoard` 算出計數。 */
+    async function fromBoard(cohortId: string) {
+      const board = await query.adminBoard(admin(), cohortId)
+      if (!board.ok) throw new Error(board.message)
+      const gs = board.receipt.groups
+      return {
+        teacherPending: {
+          result_confirmation: gs.filter((g) => g.packages.result_confirmation?.state === 'teacher_pending').length,
+          final_document: gs.filter((g) => g.packages.final_document?.state === 'teacher_pending').length,
+        },
+        completeGroups: gs.filter((g) => SIGNOFF_PURPOSES.some((p) => g.packages[p]?.state === 'complete')).length,
+      }
+    }
+    async function counts(cohortId: string) {
+      const r = await query.homeCounts(admin(), cohortId)
+      if (!r.ok) throw new Error(r.message)
+      return { teacherPending: r.receipt.teacherPending, completeGroups: r.receipt.completeGroups }
+    }
+    const setState = (versionId: string, state: string) =>
+      owner.sql(
+        `update signoff_version_status set state = $2, completed_real_at = case when $2 = 'complete' then now() end where version_id = $1`,
+        [versionId, state],
+      )
+    const extraGroup = (cohortId: string, code: string, dissolved = false) =>
+      owner.sql(
+        `insert into groups (id, cohort_id, code, group_type, status, dissolved_real_at, dissolve_reason, established_real_at, established_business_at, created_by_kind)
+         values (gen_random_uuid(), $1, $2, 'general', $3, $4, $5, now(), now(), 'system')`,
+        [cohortId, code, dissolved ? 'dissolved' : 'active', dissolved ? new Date() : null, dissolved ? '全組休學' : null],
+      )
+
+    it('同一份資料：等老師（兩個用途）、已完成、別屆、解散組、沒有同意書的組 → 與 adminBoard 算出來的相同；封存屆照樣相同', async () => {
+      const a = await scenario({ size: 3 })
+      const rc = await mustCreate(a)
+      await setState(rc.versionId, 'teacher_pending')
+      const draft = await showcaseDraft(a)
+      const fd = await mustCreate(a, { purpose: 'final_document', showcaseEntryId: draft.entryId })
+      await setState(fd.versionId, 'complete')
+      await extraGroup(a.cohortId, 'G02')
+      await extraGroup(a.cohortId, 'G03', true)
+
+      // 別屆的等老師不算進來。
+      const other = await scenario({ size: 3 })
+      await setState((await mustCreate(other)).versionId, 'teacher_pending')
+
+      const expected = await fromBoard(a.cohortId)
+      expect(expected).toEqual({ teacherPending: { result_confirmation: 1, final_document: 0 }, completeGroups: 1 })
+      expect(await counts(a.cohortId)).toEqual(expected)
+
+      // 第二組也等老師（期末文件），第一組改成兩個用途都完成：仍逐項相同。
+      const b = await scenario({ size: 3 })
+      const bDraft = await showcaseDraft(b)
+      await setState((await mustCreate(b, { purpose: 'final_document', showcaseEntryId: bDraft.entryId })).versionId, 'teacher_pending')
+      await setState(rc.versionId, 'complete')
+      expect(await counts(b.cohortId)).toEqual(await fromBoard(b.cohortId))
+      expect(await counts(a.cohortId)).toEqual({ teacherPending: { result_confirmation: 0, final_document: 0 }, completeGroups: 1 })
+      expect(await counts(a.cohortId)).toEqual(await fromBoard(a.cohortId))
+
+      // 解散的組（簽核包還在）不算。
+      const dissolved = await scenario({ size: 3 })
+      await setState((await mustCreate(dissolved)).versionId, 'teacher_pending')
+      await owner.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = '全組休學' where id = $1`, [dissolved.groupId])
+      expect(await counts(dissolved.cohortId)).toEqual({ teacherPending: { result_confirmation: 0, final_document: 0 }, completeGroups: 0 })
+      expect(await counts(dissolved.cohortId)).toEqual(await fromBoard(dissolved.cohortId))
+
+      await owner.sql(`update cohorts set status = 'archived' where id = $1`, [a.cohortId])
+      expect(await counts(a.cohortId)).toEqual(await fromBoard(a.cohortId))
+    })
+
+    it('空屆別全是 0、與 adminBoard 相同；不存在的屆別也是 0；不是管理員 FORBIDDEN、不是 uuid VALIDATION_FAILED', async () => {
+      const empty = await scenario({ size: 3 })
+      const zero = { teacherPending: { result_confirmation: 0, final_document: 0 }, completeGroups: 0 }
+      expect(await counts(empty.cohortId)).toEqual(zero)
+      expect(await fromBoard(empty.cohortId)).toEqual(zero)
+      expect(await counts(randomUUID())).toEqual(zero)
+      expect(await query.homeCounts(actor(empty.teacher.id, ['teacher']), empty.cohortId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      expect(await query.homeCounts(admin(), 'nope')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    })
   })
 
   it('封存屆別不在 teacherView；同一位老師本屆的組照列；舊屆版本頁直接網址仍讀得到（網站問題 #3、AC-TE-25／26）', async () => {

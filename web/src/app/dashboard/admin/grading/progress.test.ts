@@ -36,6 +36,7 @@ function a(groupId: string, stageKey: string, teacher: [string, string], state: 
     filled: 0,
     total: 0,
     updatedAt: null,
+    comment: null,
   }
 }
 

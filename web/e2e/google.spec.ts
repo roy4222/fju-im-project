@@ -58,7 +58,7 @@ test('登入頁：Google 大鈕導去 Google（state＋PKCE），next 經過 saf
   expect(stored).toMatchObject({
     callbackURL: '/login?next=%2Faccount',
     errorURL: '/login?next=%2Faccount',
-    newUserURL: '/register/pending?via=google',
+    newUserURL: '/register/apply?via=google',
   })
   await expectStateCookie(context)
 })
@@ -95,7 +95,7 @@ test('註冊頁：Google 註冊鈕也導去 Google，失敗回註冊頁', async 
   await expect.poll(google).not.toBeNull()
   expectGoogleAuthorizeUrl(google())
   const stored = await storedCallback(google()!.searchParams.get('state')!)
-  expect(stored).toMatchObject({ errorURL: '/register', newUserURL: '/register/pending?via=google' })
+  expect(stored).toMatchObject({ errorURL: '/register', newUserURL: '/register/apply?via=google' })
   await expectStateCookie(context)
 })
 
@@ -110,7 +110,7 @@ test('直接打 API 帶 idToken（不經 redirect）→ 400，只走 redirect＋
 
 test('Google 回來說同 Email 已有帳號：提示用原方式登入後再連結', async ({ page }) => {
   await page.goto('/login?error=account_not_linked')
-  await expect(page.getByTestId('google-error')).toContainText('請先用原本的 Email 與密碼登入，再到「我的帳號」連結 Google')
+  await expect(page.getByTestId('google-error')).toContainText('請先用 Email 與密碼登入')
   await page.goto('/login?error=unable_to_create_session')
   await expect(page.getByTestId('google-error')).toContainText('Google 登入沒有完成')
 })

@@ -51,4 +51,17 @@ describe('套件限速設定', () => {
       expect(rules[p], p).toBe(false)
     }
   })
+
+  it('Email 驗證碼三條與忘記密碼也關掉套件自帶的 3 次／60 秒（VB-2，AC-VI-72）', () => {
+    const rules: Record<string, unknown> = authInstance.options.rateLimit?.customRules ?? {}
+    for (const p of [
+      '/email-otp/send-verification-otp',
+      '/email-otp/check-verification-otp',
+      '/email-otp/verify-email',
+      // 套件預設 3 次／60 秒／IP，換成 passwordReset 桶。
+      '/request-password-reset',
+    ]) {
+      expect(rules[p], p).toBe(false)
+    }
+  })
 })

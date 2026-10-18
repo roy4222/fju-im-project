@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { IconChevronDown, IconMenu2 } from '@tabler/icons-react'
 import { AccountMenu } from '@/app/_ui/account-menu'
 import { Button } from '@/app/_ui/ui/button'
@@ -34,6 +34,7 @@ export function SiteHeader({
   viewer,
   signOutFormId,
   registrationOpen,
+  avatar,
 }: {
   nav: readonly NavItem[]
   current?: string
@@ -48,6 +49,8 @@ export function SiteHeader({
   signOutFormId: string
   /** 註冊關閉時（設計方案 §5）手機選單不列「註冊」；值由伺服器端的 `SiteShell` 決定。 */
   registrationOpen: boolean
+  /** 帳號選單的頭像（伺服器外殼 render 的 `UserAvatar`）；沒登入是 null。 */
+  avatar?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
 
@@ -109,6 +112,7 @@ export function SiteHeader({
                 <AccountMenu
                   roleLabel={viewer.roleLabel}
                   name={viewer.name}
+                  avatar={avatar}
                   signOutFormId={signOutFormId}
                   links={[
                     { href: '/account', label: '我的帳號', icon: 'account' },

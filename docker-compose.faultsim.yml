@@ -6,7 +6,7 @@
 # 這份**疊在 docker-compose.yml 上面**用（跟 VM 的 docker-compose.vm.yml 一樣的疊法），
 # 所以站台上會咬人的東西這裡都有：worker／app 依賴 migrate（service_completed_successfully）、
 # 映像沒設 APP_IMAGE 時會退回 `ghcr.io/roy4222/fju-web:local` 並試著 build。
-# （票 28 第一版的模擬站是獨立檔，沒有這兩點，所以 VM 上 worker-stall、disk80 的錯在本機重現不出來。）
+# （票 28 第一版的模擬站是獨立檔，沒有這兩點，所以 VM 上 worker-stall 的錯在本機重現不出來。）
 #
 # 基礎檔裡寫死的名字全部換成 fju-faultsim-*，不會撞到本機開發的 fju-postgres：
 #   - project：一律用 `-p fju-faultsim`（fault-drill.sh 會 export COMPOSE_PROJECT_NAME=fju-test，只有 -p 蓋得過）

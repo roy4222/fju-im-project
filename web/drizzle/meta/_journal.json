@@ -106,6 +106,41 @@
       "when": 1792130310085,
       "tag": "0014_v1_news_pinned",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792236736449,
+      "tag": "0015_vb_mail_outbox_and_google_match",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792245601241,
+      "tag": "0016_avatar",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792248150848,
+      "tag": "0017_te_b2a_grade_settlements",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792248176283,
+      "tag": "0018_te_b4_evaluation_comment",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792250671200,
+      "tag": "0019_rules_position",
+      "breakpoints": true
     }
   ]
 }

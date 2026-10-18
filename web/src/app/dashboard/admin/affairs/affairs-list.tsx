@@ -2,9 +2,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { IconClipboardText, IconExternalLink, IconPin, IconPinnedOff, IconSearch } from '@tabler/icons-react'
-import { BTN_OUTLINE_SM, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
-import { setPinnedAction } from '@/app/dashboard/admin/affairs/actions'
+import { IconArrowDown, IconArrowUp, IconClipboardText, IconExternalLink, IconPin, IconPinnedOff, IconSearch } from '@tabler/icons-react'
+import { BTN_ICON, BTN_OUTLINE_SM, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
+import { moveRuleAction, setPinnedAction } from '@/app/dashboard/admin/affairs/actions'
 import { cn } from '@/shared/cn'
 
 /**
@@ -15,6 +15,11 @@ import { cn } from '@/shared/cn'
  *
  * 發布中的公告列多一顆「置頂／取消置頂」（第 1 批 V1）：按完在卡片頂端寫回饋句、`router.refresh()` 重抓列。
  * 按鈕的無障礙名稱帶標題（「置頂「標題」」），跟同一列的「編輯：標題」一樣不會跟別列撞名。
+ *
+ * 「逾期」篩選（AD-B7）的列在狀態欄多一顆「逾期 N 人／組」。
+ *
+ * 「專題規則」篩選（A-14）的列多「上移」「下移」兩顆圖示按鈕：首尾停用（頁面用排好的整份清單算），按完一樣寫回饋句、
+ * `router.refresh()`。無障礙名稱帶標題（「上移「標題」」）。
  */
 
 export type AffairRow = {
@@ -29,6 +34,8 @@ export type AffairRow = {
   /** 截止日已過（紅字）。 */
   overdue: boolean
   isDue: boolean
+  /** 「逾期」篩選才有：欠繳的字（「逾期 2 人」）；其他篩選不讀名單，是 null。 */
+  overdueText: string | null
   /** 收件名單連結的字（「應交 2 位（個人一份）」）；不是收件或還是草稿時是說明文字。 */
   roster: { text: string; href: string | null } | null
   publicHref: string | null
@@ -37,6 +44,8 @@ export type AffairRow = {
   pinned: boolean
   /** 可以置頂／取消置頂：發布中的公告。 */
   canPin: boolean
+  /** 「專題規則」篩選才有：能不能上移／下移（第一章不能上移、最後一章不能下移）；其他篩選是 null。 */
+  move: { up: boolean; down: boolean } | null
 }
 
 const GRID = 'md:grid-cols-[5rem_minmax(14rem,1fr)_4.5rem_8rem_7.5rem_6.5rem_6.5rem]'
@@ -52,6 +61,7 @@ export function AffairsList({
 }) {
   const router = useRouter()
   const [q, setQ] = useState('')
+  // 置頂與上下移共用：一次只做一件，做的時候全部按鈕停用（避免連按把順序搞亂）。
   const [pinning, setPinning] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
   const query = q.trim().toLowerCase()
@@ -66,6 +76,21 @@ export function AffairsList({
       if (result.ok) router.refresh()
     } catch {
       setFeedback({ ok: false, text: '連線中斷；結果尚未確認，請重新整理頁面看狀態再決定要不要再按一次。' })
+    } finally {
+      setPinning(null)
+    }
+  }
+
+  async function move(row: AffairRow, direction: 'up' | 'down') {
+    setPinning(row.id)
+    setFeedback(null)
+    try {
+      // 上下移每按一次就是一次新的移動，所以每按一次用新的請求編號。
+      const result = await moveRuleAction(row.id, direction, crypto.randomUUID())
+      setFeedback({ ok: result.ok, text: result.ok ? (result.message ?? '已完成。') : result.message })
+      if (result.ok) router.refresh()
+    } catch {
+      setFeedback({ ok: false, text: '連線中斷；結果尚未確認，請重新整理頁面看順序再決定要不要再按一次。' })
     } finally {
       setPinning(null)
     }
@@ -146,6 +171,11 @@ export function AffairsList({
                   置頂
                 </Pill>
               ) : null}
+              {r.overdueText ? (
+                <Pill tone="danger" data-testid="overdue-pill">
+                  {r.overdueText}
+                </Pill>
+              ) : null}
             </span>
             <div className="min-w-0 text-xs text-muted-foreground md:text-sm">
               <span className="block truncate">{r.audience}</span>
@@ -173,6 +203,30 @@ export function AffairsList({
               )}
             </span>
             <span className="flex flex-wrap gap-1.5 md:justify-end">
+              {r.move ? (
+                <>
+                  <button
+                    type="button"
+                    className={BTN_ICON}
+                    aria-label={`上移「${r.title}」`}
+                    title="上移"
+                    disabled={pinning !== null || !r.move.up}
+                    onClick={() => move(r, 'up')}
+                  >
+                    <IconArrowUp aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    className={BTN_ICON}
+                    aria-label={`下移「${r.title}」`}
+                    title="下移"
+                    disabled={pinning !== null || !r.move.down}
+                    onClick={() => move(r, 'down')}
+                  >
+                    <IconArrowDown aria-hidden />
+                  </button>
+                </>
+              ) : null}
               {r.canPin ? (
                 <button
                   type="button"

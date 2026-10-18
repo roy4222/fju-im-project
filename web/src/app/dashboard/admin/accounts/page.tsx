@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { IconAlertTriangle, IconChevronRight, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { requireRole } from '@/app/_ui/guard'
 import { loadAdminSummary } from '@/app/_ui/workload'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -40,7 +41,8 @@ import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } fr
 const REVIEW_LABELS: ReviewLabels = {
   evidence: EVIDENCE_LABEL,
   attention: EVIDENCE_NEEDS_ATTENTION,
-  methods: VERIFICATION_METHODS,
+  // google_email_match 是系統自動開通寫的（VB-6），系辦不能選；與 MANUAL_VERIFICATION_METHODS 同一份清單。
+  methods: VERIFICATION_METHODS.filter((m) => m !== 'google_email_match'),
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
   noteHint: VERIFICATION_NOTE_HINT,
@@ -245,6 +247,12 @@ export default async function AdminAccountsPage({
               </nav>
               <AccountsTable
                 rows={directory.rows}
+                // 重設頭像對話框要顯示的目前頭像（UserAvatar 是 Server Component，在這裡先畫好再傳進 client 表格）。
+                avatars={Object.fromEntries(
+                  directory.rows
+                    .filter((r) => r.status === 'active' || r.status === 'disabled')
+                    .map((r) => [r.userId, <UserAvatar key={r.userId} size={64} user={{ id: r.userId, name: r.name, avatarPreset: r.avatarPreset, avatarFileId: r.avatarFileId }} />]),
+                )}
                 total={directory.total}
                 filter={filter}
                 currentUserId={actor.kind === 'authenticated' ? actor.userId : ''}

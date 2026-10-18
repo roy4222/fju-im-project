@@ -1,9 +1,21 @@
 import 'server-only'
 import { toNextJsHandler } from 'better-auth/next-js'
-import { getAuth } from '@/infrastructure/auth/auth-instance'
+import { getAuth, withMailOutcome } from '@/infrastructure/auth/auth-instance'
 import { authPathFromUrl, routeAccess } from '@/infrastructure/auth/route-matrix'
 import { runAsInternalCall } from '@/infrastructure/auth/internal-call'
 import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
+import {
+  checkSignupResumeTicket,
+  findUserIdByEmail,
+  isResumableSignup,
+  listSignupOtpRowIds,
+  normalizeEmail,
+  rebindSignupResumeOtp,
+  restoreSignupResumeOtp,
+  runWithOtpPurpose,
+  startSignupResume,
+} from '@/infrastructure/auth/signup-resume'
+import { getPool } from '@/infrastructure/db/client'
 
 /**
  * Better Auth 的唯一入口（契約 03 §2）。
@@ -31,8 +43,10 @@ function guard(handler: (request: Request) => Promise<Response>) {
   return async (request: Request): Promise<Response> => {
     const path = authPathFromUrl(request.url)
     if (routeAccess(path, request.method) === 'blocked') return blocked()
-    const response = await handler(request)
+    // 寄信結果的盒子（VB-2）：驗證碼信寄不出去時，寄碼端點才回得了 MAIL_FAILED（見 auth-instance 的 withMailOutcome）。
+    const response = await withMailOutcome(() => handler(request))
     if (path === '/sign-up/email' && response.status === 422) return unifySignUpStatus(response)
+    if (OTP_CHECK_PATHS.has(path) && response.status > 400 && response.status < 500) return unifyOtpStatus(response)
     return response
   }
 }
@@ -45,6 +59,21 @@ function guard(handler: (request: Request) => Promise<Response>) {
  * 只改本來就是統一訊息的那種回應，其他 422 原樣放行。
  */
 async function unifySignUpStatus(response: Response): Promise<Response> {
+  return withStatus400(response, EMAIL_UNAVAILABLE_CODE)
+}
+
+/**
+ * 驗碼失敗的狀態碼統一成 400（VB-2 Review 第 1 輪）：`hooks.after` 已把內容換成同一個 `INVALID_OTP`，
+ * 但套件沿用端點原本的狀態碼（錯太多次是 403），光看狀態碼就分得出這個 Email 有沒有寄過碼。
+ */
+const OTP_CHECK_PATHS = new Set(['/email-otp/verify-email', '/email-otp/check-verification-otp'])
+
+async function unifyOtpStatus(response: Response): Promise<Response> {
+  return withStatus400(response, 'INVALID_OTP')
+}
+
+/** 內容的 `code` 是指定的那一個才改成 400，其他回應原樣放行。 */
+async function withStatus400(response: Response, expectedCode: string): Promise<Response> {
   const text = await response.clone().text()
   let code: unknown
   try {
@@ -52,7 +81,7 @@ async function unifySignUpStatus(response: Response): Promise<Response> {
   } catch {
     return response
   }
-  if (code !== EMAIL_UNAVAILABLE_CODE) return response
+  if (code !== expectedCode) return response
   return new Response(text, { status: 400, headers: response.headers })
 }
 
@@ -227,4 +256,259 @@ export function startGoogleLink(headers: Headers, redirects: Omit<OAuthRedirects
  */
 export function setOwnPassword(headers: Headers, input: { newPassword: string }) {
   return runAsInternalCall(() => getAuth().api.setPassword({ body: input, headers }))
+}
+
+// ── Email 驗證碼、續辦、重設密碼（B 階段 VB-2；visitor-r3 設計方案 §3.2、§3.4、§3.8） ─────────────
+
+/**
+ * 給 Server Action 組傳進 `auth.api.*` 的 headers：來源 IP（限速鍵）＋ Turnstile token。
+ *
+ * 表單裡 `<Turnstile>` 寫的隱藏欄是 `cf-turnstile-response`；Server Action 讀出來放進 `x-turnstile-token`，
+ * `hooks.before` 跟直接打 HTTP 的人帶的同一個標頭在同一段程式驗（沒有第二條驗證路徑）。
+ */
+export function authCallHeaders(input: { ip: string; turnstileToken?: string | null }): Headers {
+  const headers = new Headers({ 'x-real-ip': input.ip })
+  const token = input.turnstileToken?.trim()
+  if (token) headers.set('x-turnstile-token', token)
+  return headers
+}
+
+function isEmailUnavailable(error: unknown): boolean {
+  return (error as { body?: { code?: unknown } } | null)?.body?.code === EMAIL_UNAVAILABLE_CODE
+}
+
+export type SignUpOrResumeOutcome =
+  /** 新帳號建好了（已登入受限 session；套件已在伺服器內寄出第一封驗證碼）。 */
+  | { readonly kind: 'created'; readonly userId: string }
+  /**
+   * 這個 Email 有一筆還沒完成的註冊：驗證碼已寄出，新密碼暫存在伺服器。`ticket` 是這一次續辦的票：
+   * 呼叫端要存在**發起續辦的那個瀏覽器**（例如 HttpOnly cookie），填碼時原樣交給 `completeSignupResume`。
+   * 別人對同一個 Email 開始的續辦拿不到這張票，信箱主人就不會在不知情下套用別人填的密碼。
+   */
+  | { readonly kind: 'resume'; readonly email: string; readonly ticket: string }
+
+/**
+ * 註冊第 1 步（VB-3 的 Server Action 用；設計方案 §3.2「續辦」）。
+ *
+ * 先照常 `signUpEmail`（`hooks.before` 依序：註冊限速 → 寄碼額度 → 密碼長度 → Turnstile）。
+ * 回 `EMAIL_UNAVAILABLE` 而且那個帳號**可以續辦**時，才在同一次呼叫裡：
+ * 經內部入口對該 Email 寄一封驗證碼（不要第二個 Turnstile token——走到 `EMAIL_UNAVAILABLE` 代表 hook 已經驗過；
+ * 寄碼額度在註冊那一步已扣過、這裡不重扣，冷卻與 IP 上限照查），寄出去之後才在一筆短交易裡把新密碼雜湊、
+ * 最新那封信的碼、續辦票綁成一列暫存（寄不出去就不留暫存）。寄碼期間**不持有任何連線**——套件與寄信轉接器
+ * 都向同一個池借連線，占著一條再借在 `DB_POOL_MAX=1` 會死等（Review 第 2 輪；為什麼見 `startSignupResume`）。
+ * 綁定與續辦完成用同一把交易級資料庫鎖排隊。
+ * 不可續辦的照舊丟原本的 `EMAIL_UNAVAILABLE`（不寄信、什麼都不動）。
+ *
+ * 續辦一定要跟註冊綁在同一個入口：拆成兩支的話，呼叫端可以不經註冊、不過 Turnstile 就直接觸發寄碼。
+ */
+export async function signUpOrResume(
+  input: { email: string; password: string; name: string },
+  headers: Headers,
+): Promise<SignUpOrResumeOutcome> {
+  try {
+    const created = await signUpWithPassword(input, headers)
+    return { kind: 'created', userId: String(created.user.id) }
+  } catch (error) {
+    if (!isEmailUnavailable(error)) throw error
+    const email = normalizeEmail(input.email)
+    const userId = await findUserIdByEmail(getPool(), email)
+    if (!userId || !(await isResumableSignup(getPool(), userId))) throw error
+
+    const started = await startSignupResume(getPool(), {
+      userId,
+      email,
+      send: () =>
+        withMailOutcome(() =>
+          runAsInternalCall(() =>
+            runWithOtpPurpose('signup-resume-start', email, () =>
+              getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' }, headers }),
+            ),
+          ),
+        ),
+      passwordHash: async () => (await getAuth().$context).password.hash(input.password),
+    })
+    // 寄碼之後、綁定之前帳號變得不能續辦（例如信箱主人剛完成另一次續辦）：沒留暫存，照舊丟原本那個錯。
+    if (!started.ok) throw error
+    return { kind: 'resume', email, ticket: started.ticket }
+  }
+}
+
+/**
+ * 續辦第 2 步：填對驗證碼 → 一筆交易內標已驗證、換成新密碼、刪掉這個人全部舊 session，再發新 session
+ * （cookie 由 `nextCookies()` 帶進 Server Action 的回應）。不經公開 `verify-email` 端點的自動登入。
+ *
+ * 驗碼走 `check-verification-otp`（跟 verify 共用 otpVerify 桶、同一碼錯 5 次作廢）；交易與發 session 在
+ * `hooks.after`，只認內部呼叫＋續辦用途，並在交易裡重驗碼、比對暫存列綁的碼與續辦票。
+ * 碼錯（含錯太多次、過期）一律丟 `INVALID_OTP`（跟公開端點同一個回應，不透露帳號狀態）；
+ * 暫存過期、碼已被新的一封換掉、票不對丟 `SIGNUP_RESUME_EXPIRED`；帳號已經不能續辦丟 `EMAIL_UNAVAILABLE`。
+ */
+export async function completeSignupResume(
+  input: { email: string; otp: string; ticket: string },
+  headers: Headers,
+): Promise<{ readonly userId: string; readonly headers: Headers }> {
+  const email = normalizeEmail(input.email)
+  const result = await runAsInternalCall(() =>
+    runWithOtpPurpose(
+      'signup-resume-finish',
+      email,
+      () =>
+        getAuth().api.checkVerificationOTP({
+          body: { email, type: 'email-verification', otp: input.otp },
+          headers,
+          returnHeaders: true,
+        }),
+      input.ticket,
+    ),
+  )
+  const userId = (result.response as { userId?: unknown }).userId
+  if (typeof userId !== 'string') throw new Error('續辦完成但沒有拿到帳號 id')
+  return { userId, headers: result.headers }
+}
+
+/**
+ * 重寄驗證碼（註冊第 2 步，公開入口）：`headers` 要帶這一次的新 Turnstile token（`authCallHeaders`）。
+ * 冷卻 120 秒、10 分鐘 5 封／Email、每小時 20 封／IP 都在 hook。
+ */
+export function resendVerificationOtp(input: { email: string }, headers: Headers) {
+  return withMailOutcome(() =>
+    getAuth().api.sendVerificationOTP({ body: { email: input.email, type: 'email-verification' }, headers }),
+  )
+}
+
+export type SignupResumeResendOutcome =
+  /** 已寄出並改綁（票不對、帳號已不能續辦時也回這個：不寄信、不改綁，但對外跟寄出分不出來）。 */
+  | 'sent'
+  /** 信寄不出去（Brevo 未設定、拒收或逾時）：原 OTP、原綁定、原期限都留著，沒寄出的新碼撤掉；請使用者稍後再試。 */
+  | 'mail_failed'
+  /** 票對、但已過續辦的絕對截止（票建立起 30 分鐘）：不寄信、不改綁；請使用者重新開始。 */
+  | 'timed_out'
+
+function isMailFailed(error: unknown): boolean {
+  return (error as { body?: { code?: unknown } } | null)?.body?.code === 'MAIL_FAILED'
+}
+
+/**
+ * 同一個 Email 的續辦重寄在這個 process 裡**排隊**（VB-3 Review 第 3 輪 Sol P2）：後到的等先到的整段做完（看票、寄碼、
+ * 還原或改綁）才開始。
+ *
+ * 為什麼要：hook 的 120 秒冷卻當時是「先 `count` 檢查、Turnstile 驗過之後才 `hit`」（auth-instance 的 `enforceOtpSendRate`），
+ * 兩筆同時進來會**都**通過檢查，各寄一封、各插一列；一筆寄失敗先還原、另一筆隨後寄成功，還原會誤撤對方的碼。排隊之後
+ * 第二筆輪到時冷卻已記過，在 hook 就被擋下（`RATE_LIMITED`），不打 Turnstile、不寄、不插列——第一筆寄失敗也一樣
+ * （冷卻在寄信之前就記了，第 2 輪已接受）。hook 那個競態已在 VB-14 改成「第一步就原子地占住冷卻、後面沒過關才放掉」，
+ * 公開重寄也一樣只放行一筆；這條隊留著是第二道（同一張票的兩筆在這裡就排開，連 hook 的 429 都不用吃）。
+ *
+ * 只排同一個 Email，不持有資料庫連線（`DB_POOL_MAX=1` 規則不變）；掛在 `globalThis` 跟 `sharedRateLimiter` 同理
+ * （不同 chunk、測試重載模組都要是同一條隊）。app 單一 process（限速器也是這個前提）；多 process 時冷卻與這裡都要改成共用。
+ * 別條路（`startSignupResume`、公開重寄）不排這條隊：寄碼前後的快照比對會把那種交錯當成「分不出哪列是自己的」保守處理。
+ */
+function queueSignupResumeResend<T>(email: string, fn: () => Promise<T>): Promise<T> {
+  const registry = ((globalThis as { __fjuSignupResumeResendQueue?: Map<string, Promise<void>> }).__fjuSignupResumeResendQueue ??=
+    new Map())
+  const previous = registry.get(email) ?? Promise.resolve()
+  const run = previous.then(fn)
+  const tail: Promise<void> = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  registry.set(email, tail)
+  void tail.then(() => {
+    if (registry.get(email) === tail) registry.delete(email)
+  })
+  return run
+}
+
+/**
+ * 續辦頁的重寄驗證碼（VB-3 Review 第 1 輪 P3、第 2 輪、第 3 輪）。`ticket` 是續辦開始時發給這個瀏覽器的那張票（HttpOnly cookie）。
+ * 同一個 Email 的呼叫在 `queueSignupResumeResend` 裡排隊，整段（看票、寄碼、還原或改綁）一次只跑一筆。
+ *
+ * 1. 先看票（只讀）：票錯、帳號已不能續辦 → **不寄信**，回 `sent`（跟寄出時一樣，不透露原因；拿不到票的人本來就無從
+ *    得知帳號狀態）。票對但已過絕對截止 → 不寄信，回 `timed_out`。票對、截止內、但這封碼的 10 分鐘視窗已過 → **照常寄**
+ *    並在第 4 步把視窗重開（主腦裁定：截止內重寄要復活視窗，不再「不寄信卻回 sent」）。
+ * 2. 寄碼走**內部呼叫＋用途 `signup-resume-resend`**，而不是公開的 `resendVerificationOtp`：hook 不認得這個用途，
+ *    照公開重寄處理——`headers` 要帶這一次的新 Turnstile token；120 秒冷卻、每個 Email 10 分鐘 5 封、每個 IP 每小時
+ *    20 封都由 hook 照算，沒有旁路、不重設計數——差別只在寄信回呼會**等寄送結果**並回報失敗。公開路徑刻意不等
+ *    （防帳號列舉；Review 第 2 輪反例：Brevo 未設定時 outbox 記 failed、函式照樣成功、改綁新碼，舊碼失效新碼沒到）。
+ *    寄信轉接器是同步的（插 outbox → 打 Brevo → 標 sent／failed，沒有 worker 重試），所以結果在同一次呼叫就拿得到，
+ *    不必另做「outbox 送成功才改綁」的兩段式（那要改 mail 層）。
+ * 3. 寄碼前先拍這個 Email 驗證碼列 id 的快照（`listSignupOtpRowIds`；只讀、不占連線）：套件在呼叫寄信回呼之前就插一列
+ *    新碼，自己拿不到那列的 id，寄完拿快照比對才知道哪一列是這一次插的。
+ * 4. 寄失敗（`MAIL_FAILED`）→ 在鎖裡只撤掉快照之後插的那**一**列（`restoreSignupResumeOtp`：多於一列＝別條路交錯、分不出
+ *    是誰的，一列都不刪），綁定與期限都不動，原本那封的碼仍能完成；回 `mail_failed`。被冷卻／限速／Turnstile 擋下的照舊
+ *    丟出去，什麼都不動。
+ * 5. 寄出之後才在鎖裡改綁（`rebindSignupResumeOtp`）：快照之後**恰好一列**（就是這一次插、也確定寄出的那列）才綁它，
+ *    視窗重設成 `min(現在＋10 分鐘, 截止)`，舊碼從此不能完成續辦；多於一列（別條路在寄碼期間也插了）分不出哪列是自己的，
+ *    不改綁（對外仍回 `sent`，完成會拿到「已失效」，再重寄一次就綁得上）——不綁「全域最新」，免得綁到一封沒寄出的碼。
+ *
+ * 錯誤次數：每一封新碼照套件規則各自有 5 次（`allowedAttempts`）；總嘗試次數仍受 `otpVerify` 桶
+ * （每個 Email 10 分鐘 10 次、每個 IP 每小時 60 次）與寄碼上限約束，不會因為重寄變成無限次。
+ */
+export function resendSignupResumeOtp(
+  input: { email: string; ticket: string },
+  headers: Headers,
+): Promise<SignupResumeResendOutcome> {
+  const email = normalizeEmail(input.email)
+  return queueSignupResumeResend(email, () => resendSignupResumeOtpQueued(email, input.ticket, headers))
+}
+
+async function resendSignupResumeOtpQueued(email: string, ticket: string, headers: Headers): Promise<SignupResumeResendOutcome> {
+  const status = await checkSignupResumeTicket(getPool(), { email, ticket })
+  if (status === 'invalid') return 'sent'
+  if (status === 'timed_out') return 'timed_out'
+  const before = await listSignupOtpRowIds(getPool(), email)
+  try {
+    await withMailOutcome(() =>
+      runAsInternalCall(() =>
+        runWithOtpPurpose('signup-resume-resend', email, () =>
+          getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' }, headers }),
+        ),
+      ),
+    )
+  } catch (error) {
+    if (!isMailFailed(error)) throw error
+    await restoreSignupResumeOtp(getPool(), { email, before })
+    return 'mail_failed'
+  }
+  const rebound = await rebindSignupResumeOtp(getPool(), { email, ticket, before })
+  // 看票與寄出之間剛好跨過截止：信已寄出，但這張票不能再用，照實說逾時。
+  if (!rebound.ok && rebound.reason === 'timed_out') return 'timed_out'
+  // 寄出之後帳號才變得不能續辦（例如信箱主人剛好在別處完成）或暫存列剛被別人改綁：信已寄出，對外一樣回正常；完成時會拿到「已失效」。
+  return 'sent'
+}
+
+/**
+ * 「我的帳號」驗證自己的 Email（VB-5，設計方案 §3.7）：內部寄碼入口，不掛 Turnstile。
+ * hook 要求本人 fresh session、Email 只能是 session 本人的登入 Email（限速與冷卻照扣）。
+ */
+export async function sendOwnVerificationOtp(headers: Headers) {
+  // 沒登入時 email 是空字串：hook 找不到 session 會丟 401 `UNAUTHENTICATED`，這裡不另外判斷。
+  const session = await getAuth().api.getSession({ headers })
+  const email = normalizeEmail(session?.user?.email)
+  return withMailOutcome(() =>
+    runAsInternalCall(() =>
+      runWithOtpPurpose('account-verify', email, () =>
+        getAuth().api.sendVerificationOTP({ body: { email, type: 'email-verification' }, headers }),
+      ),
+    ),
+  )
+}
+
+/** 填驗證碼完成 Email 驗證（註冊第 2 步、「我的帳號」共用）。同一碼錯 5 次作廢；限速在 hook。 */
+export function verifyEmailWithOtp(input: { email: string; otp: string }, headers: Headers) {
+  return getAuth().api.verifyEmailOTP({ body: { email: input.email, otp: input.otp }, headers })
+}
+
+/**
+ * 忘記密碼寄重設連結（VB-4 的 Server Action 用）：`headers` 要帶 Turnstile token。
+ * 不論 Email 存不存在都回同一個結果；限速（5 封／小時／Email、20 封／小時／IP）在 hook。
+ */
+export function requestPasswordReset(input: { email: string }, headers: Headers) {
+  return getAuth().api.requestPasswordReset({ body: { email: input.email, redirectTo: '/reset-password' }, headers })
+}
+
+/** 用重設連結的 token 設新密碼（VB-4 的重設頁用）：成功後這個人全部 session 被撤掉；長度在 hook。 */
+export function resetPasswordWithToken(input: { token: string; newPassword: string }, headers?: Headers) {
+  return getAuth().api.resetPassword({
+    body: { token: input.token, newPassword: input.newPassword },
+    ...(headers ? { headers } : {}),
+  })
 }

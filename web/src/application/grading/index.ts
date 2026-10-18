@@ -23,6 +23,7 @@ export {
   SCHEME_STATUS_LABEL,
 } from '@/application/grading/scheme'
 export type { EvaluationState, ScoreInput } from '@/application/grading/evaluation'
+export type { GradingDissolutionHook } from '@/application/grading/dissolution'
 export { EVALUATION_STATE_LABEL, normalizeScores, summarizeScores } from '@/application/grading/evaluation'
 export type {
   CountedEvaluation,
@@ -97,21 +98,32 @@ export type {
   AssignEvaluatorReceipt,
   AssignmentsForTeacherQuery,
   BenchEntry,
+  CohortGradingSnapshot,
   CreateSchemeVersionInput,
   DraftReceipt,
   FinalReceipt,
   GradingCommand,
+  GradingProgressSummary,
   GradingQuery,
+  GradingSettlementCommand,
+  GradingSettlementQuery,
+  GradingSnapshotQuery,
+  ReleaseReceipt,
   RequirementReceipt,
   SchemeVersionReceipt,
   SchemeVersionView,
   ScoresInput,
   SetRequirementInput,
+  Settlement,
+  SettlementHistory,
+  SettlementReceipt,
   TeacherBench,
   TeacherBenchPage,
   TeacherGroupAssignment,
   TeacherQueueEntry,
 } from '@/application/grading/ports'
+export type { StageProgressRow } from '@/application/grading/snapshot'
+export { deriveStageRows } from '@/application/grading/snapshot'
 export type { GroupVersionWithFiles } from '@/application/submissions'
 export {
   describeAssignEvaluatorReceipt,

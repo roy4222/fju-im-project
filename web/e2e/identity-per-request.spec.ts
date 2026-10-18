@@ -1,13 +1,16 @@
 import { expect, request as playwrightRequest, test } from '@playwright/test'
 import { Pool } from 'pg'
+import { ADMIN_HOME, STUDENT_HOME, TEACHER_HOME } from './fingerprints'
 import { createTestSession, grantExtraRole } from './session'
 
 /**
- * SH-P1：身分每個請求只驗一次（`renderActor = cache(currentActor)`），但**快取不跨請求**。
+ * SH-P1：身分每個請求只驗一次（`renderActor = cache(currentActor)`）；**身分快取 TTL 0 時不跨請求**。
+ * e2e 一律帶 `IDENTITY_CACHE_TTL_SECONDS=0` 跑（SH-B1；B 設計方案 §4.2）。正式環境的快取是 60 秒，
+ * 停用、撤角色走系辦畫面，由 `bustUser` 保證下一次請求生效（TTL 60 的整合測試 `actor-resolver-cache.integration.test.ts`）。
  *
  * 帳號狀態與角色直接用 owner 連線改——不經系辦畫面、也不碰 Better Auth 的 `banned`／session——
  * 這樣同一張 cookie 仍然有效，下一次請求被擋下只可能是因為 app 重新讀了 `users.status`／
- * `role_assignments`，而不是 session 被刪。快取若跨了請求，這兩條會拿到 200。
+ * `role_assignments`，而不是 session 被刪。身分若跨了請求（或 verify 沒帶 TTL 0），這兩條會拿到 200。
  *
  * - AC-SH-59：停用（`users.status = 'disabled'`，跟系辦「停用」寫的欄位相同）→ 下一次請求到 `/login`；
  *   恢復後再登入可進。
@@ -18,10 +21,7 @@ const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const PASSWORD = 'E2e-Password-Correct-9'
 
-/** 只有有權限的人才看得到的一段字（同 `pages.spec.ts` 的 FINGERPRINTS）。 */
-const STUDENT_HOME = '看完整時程'
-const TEACHER_HOME = '待辦'
-const ADMIN_HOME = '作業完成率'
+// STUDENT_HOME／TEACHER_HOME／ADMIN_HOME：只有有權限的人才看得到的一段字，取自 `fingerprints.ts`。
 
 async function owner<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能改帳號狀態與角色')

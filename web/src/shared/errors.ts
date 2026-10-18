@@ -42,6 +42,8 @@ export const ERROR_CODES = [
   'PII_DETECTED',
   'FILE_REFERENCED',
   'FINAL_INCOMPLETE',
+  // 換掉或清掉的頭像（SH-9）：下載路由回 404，不導 /403。
+  'FILE_GONE',
   // 併發
   'CONFLICT',
   'REQUEST_MISMATCH',
@@ -57,6 +59,8 @@ export const ERROR_CODES = [
   'RECEIPT_EXPIRED',
   // 系統
   'INTERNAL',
+  // Turnstile siteverify 連不上（503；fail closed，請稍後再試）。B 階段 VB-2。
+  'TURNSTILE_UNAVAILABLE',
 ] as const
 
 export type ErrorCode = (typeof ERROR_CODES)[number]
@@ -119,6 +123,7 @@ const CATEGORY: Record<ErrorCode, ErrorCategory> = {
   ASSET_NOT_APPROVED: 'state',
   PII_DETECTED: 'state',
   FILE_REFERENCED: 'state',
+  FILE_GONE: 'state',
   FINAL_INCOMPLETE: 'state',
   CONFLICT: 'concurrency',
   REQUEST_MISMATCH: 'concurrency',
@@ -131,6 +136,7 @@ const CATEGORY: Record<ErrorCode, ErrorCategory> = {
   DRAFT_NEEDS_REVIEW: 'input',
   RECEIPT_EXPIRED: 'ledger',
   INTERNAL: 'system',
+  TURNSTILE_UNAVAILABLE: 'system',
 }
 
 /**

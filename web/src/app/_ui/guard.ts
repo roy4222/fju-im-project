@@ -6,7 +6,6 @@ import type { Capability, ResolvedActor, Role } from '@/application/accounts'
 import {
   actorHasRole,
   checkStatus,
-  getTeacherSetupCommand,
   resolveActor,
   TEACHER_SETUP_PATH,
 } from '@/composition/accounts'
@@ -81,7 +80,8 @@ export async function requireRole(pathname: string, role: Role) {
   const actor = await requireSignedIn(pathname)
   if (!actorHasRole(actor, role)) redirect('/403')
   // 老師第一次登入要先補姓名與聯絡資料（票 8）：所有老師頁都經這裡，補完才放行。
-  if (role === 'teacher' && actor.kind === 'authenticated' && (await getTeacherSetupCommand().needsSetup(actor.userId))) {
+  // 「要不要補」resolver 已經跟身分一起讀好（隨身分快取存著，補完會 bust），這裡不再另查。
+  if (role === 'teacher' && actor.kind === 'authenticated' && actor.teacherSetupPending === true) {
     redirect(TEACHER_SETUP_PATH)
   }
   // 暖徽章快取（SH-P2）：跟頁面自己的查詢同時跑，外框拿到同一個 promise。動態 import 是因為 nav-badges.ts 靜態 import 本檔。

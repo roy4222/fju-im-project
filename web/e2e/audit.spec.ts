@@ -16,6 +16,25 @@ const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 const stamp = Date.now().toString(36).toUpperCase()
 const CODE = `E2E-AU-${stamp}`
 
+/** 擷取模式下最新一封驗證碼信的 6 碼（VB-3 三步註冊的第 2 步）。 */
+async function latestOtp(email: string): Promise<string> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
+  try {
+    for (let i = 0; i < 50; i += 1) {
+      const row = await pool.query<{ body_text: string | null }>(
+        `select body_text from mail_outbox where to_email = $1 and template = 'email_otp' order by created_at desc limit 1`,
+        [email],
+      )
+      const otp = /(\d{6})/.exec(row.rows[0]?.body_text ?? '')?.[1]
+      if (otp) return otp
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error(`mail_outbox 沒有 ${email} 的驗證碼（e2e 要 MAIL_CAPTURE=1）`)
+  } finally {
+    await pool.end()
+  }
+}
+
 async function signIn(page: Page, role: TestRole) {
   const session = await sharedTestSession(page.request, role)
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
@@ -45,10 +64,12 @@ test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址�
   await page.goto('/dashboard/admin/audit?role=student')
   await expect(page.getByTestId('audit-entry').filter({ hasText: CODE })).toHaveCount(0)
 
-  // 只讀：清單區塊裡沒有按鈕、沒有表單。
+  // 只讀：清單區塊裡唯一的按鈕與表單是搜尋（A-11：GET 表單、不改資料），沒有任何修改入口。
   const events = page.getByRole('region', { name: '操作清單' })
-  await expect(events.getByRole('button')).toHaveCount(0)
-  await expect(events.locator('form')).toHaveCount(0)
+  await expect(events.getByRole('button')).toHaveCount(1)
+  await expect(events.getByRole('button', { name: '搜尋' })).toHaveCount(1)
+  await expect(events.locator('form')).toHaveCount(1)
+  await expect(events.locator('form')).toHaveAttribute('method', 'get')
 })
 
 test('學生與老師打開操作紀錄被擋，拿不到任何一筆', async ({ page }) => {
@@ -86,14 +107,19 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   const studentContext = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': `10.250.${Number(prefix) % 250}.7` } })
   const reg = await studentContext.newPage()
   await reg.goto('/register')
+  await reg.getByLabel('Email', { exact: true }).fill(student.email)
+  await reg.getByLabel('密碼', { exact: true }).fill(password)
+  await reg.getByLabel('確認密碼').fill(password)
+  await reg.getByRole('button', { name: '建立帳號' }).click()
+  // VB-3：註冊改三步。第 2 步的驗證碼從擷取模式的 mail_outbox 讀（MAIL_CAPTURE=1）。
+  await expect(reg).toHaveURL(/\/register\/verify$/)
+  await reg.getByLabel('驗證碼第 1 位').fill(await latestOtp(student.email))
+  await expect(reg).toHaveURL(/\/register\/apply$/)
   await reg.getByLabel('姓名').fill(student.name)
   await reg.getByLabel('學號').fill(student.studentNo)
   await reg.getByLabel('系級').fill('資管二甲')
   await reg.getByLabel('手機').fill('0912-345-678')
-  await reg.getByLabel('登入 Email').fill(student.email)
-  await reg.getByLabel('密碼', { exact: true }).fill(password)
-  await reg.getByLabel('確認密碼').fill(password)
-  await reg.getByRole('button', { name: '送出註冊' }).click()
+  await reg.getByRole('button', { name: '送出申請' }).click()
   await expect(reg).toHaveURL(/\/register\/pending$/)
   await studentContext.close()
 

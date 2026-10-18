@@ -82,6 +82,8 @@ export type AssignEvaluatorInput = {
 export type ScoresInput = {
   readonly assignmentId: string
   readonly scores: ScoreInput
+  /** 評語（B 階段 TE-B4；選填，最多 500 字）：跟分數同一次寫入；空字串存成 null。 */
+  readonly comment?: string | null
 }
 
 // ── 查詢結果 ────────────────────────────────────────────────────────────────
@@ -111,6 +113,8 @@ export type AdminAssignmentView = {
   readonly total: number
   /** 最近一次暫存或正式送出的時間。 */
   readonly updatedAt: Date | null
+  /** 跟 `score` 同一筆（有採計是採計那筆，否則最新暫存）的評語；管理員成績明細看得到。 */
+  readonly comment: string | null
 }
 
 export type AdminGradingBoard = {
@@ -148,6 +152,10 @@ export type TeacherQueueEntry = {
   readonly finalScore: string | null
   /** 採計那一筆的送出時間；還沒送出是 null。 */
   readonly submittedAt: Date | null
+  /** B 階段 TE-B1：正式送出後又有新暫存（還沒重新送出）。 */
+  readonly draftAfterFinal: boolean
+  /** B 階段 TE-B2a：這一階段系辦已結算（唯讀）。 */
+  readonly settled: boolean
 }
 
 /** 系辦退回（票 24）：老師看得到理由與時間，退回前的分數預填回表單。 */
@@ -170,6 +178,16 @@ export type BenchEntry = {
   readonly draftFromOlderVersion: boolean
   /** 票 24：被系辦退回、還沒重新送出（有新的暫存也算，理由一直顯示到重新送出）。 */
   readonly returned: ReturnNotice | null
+  /** 目前這一筆（暫存或採計，跟 `scores` 同一筆）的評語。 */
+  readonly comment: string | null
+  /** 正式送出後又有新暫存：`scores`、`comment`、`savedAt` 是那筆暫存，`finalScore`、`submittedAt` 仍是採計那筆。 */
+  readonly draftAfterFinal: boolean
+  /** 已採計、未結算、未退回 → 可重新送出。 */
+  readonly resubmittable: boolean
+  /** 這一階段系辦已結算（唯讀）；沒結算是 null。 */
+  readonly settled: { readonly settledAt: Date } | null
+  /** 第 1 次…第 n 次正式送出（舊的在前）。 */
+  readonly submissionHistory: readonly { readonly no: number; readonly at: Date }[]
 }
 
 export type TeacherBench = {
@@ -210,9 +228,15 @@ export interface GradingCommand {
   setRequirement(actor: ResolvedActor, input: SetRequirementInput, requestId: string): Promise<Result<RequirementReceipt>>
   /** 指派評分老師；老師收到「評分指派」通知。同組同階段同老師重複 → `VALIDATION_FAILED`。 */
   assign(actor: ResolvedActor, input: AssignEvaluatorInput, requestId: string): Promise<Result<AssignEvaluatorReceipt>>
-  /** 受指派老師暫存（可以沒填完）。不是本人的有效指派 → `NOT_ASSIGNED`。第一位老師開始填時方案版本鎖定（產品 7.5）。 */
+  /**
+   * 受指派老師暫存（可以沒填完；正式送出後也可以，B 階段 TE-B1）。不是本人的有效指派 → `NOT_ASSIGNED`；
+   * 階段已結算 → `CONFLICT`；評語超過 500 字 → `VALIDATION_FAILED`。第一位老師開始填時方案版本鎖定（產品 7.5）。
+   */
   saveDraft(actor: ResolvedActor, input: ScoresInput, requestId: string): Promise<Result<DraftReceipt>>
-  /** 受指派老師正式送出；同指派已有正式評分 → `CONFLICT`（需先退回）。方案版本在第一位老師開始填時鎖定（見 saveDraft）。 */
+  /**
+   * 受指派老師正式送出。同指派已有正式評分 → 舊的改 historical、這一筆採計（重送，B 階段 TE-B1）；
+   * 階段已結算 → `CONFLICT`。方案版本在第一位老師開始填時鎖定（見 saveDraft）。
+   */
   submitFinal(actor: ResolvedActor, input: ScoresInput, requestId: string): Promise<Result<FinalReceipt>>
 }
 
@@ -225,7 +249,16 @@ export interface GradingQuery {
   teacherBench(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBench>>
   /** 評分單組頁：`teacherBench`、`teacherQueue`、本組正式繳交（含附件）並行一次讀；守衛同 `teacherBench`（沒有指派 → `NOT_ASSIGNED`）。 */
   teacherBenchPage(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBenchPage>>
+  /** 系辦首頁（AD-21）：本屆待復核的更正（1 句 SQL；跟成績表的 `pendingReviews` 同一份）。不是管理員 → `FORBIDDEN`。 */
+  pendingReviews(actor: ResolvedActor, cohortId: string): Promise<Result<readonly PendingReview[]>>
+  /**
+   * 系辦首頁評分卡（AD-21）：本屆未解散組別、目前版本有的階段上的有效指派份數（`required`）與其中已採計的份數（`counted`），
+   * 跟 `admin/grading/progress.ts` 的 `teacherProgress` 同一個口徑（1 句 SQL）。不是管理員 → `FORBIDDEN`。
+   */
+  progressSummary(actor: ResolvedActor, cohortId: string): Promise<Result<GradingProgressSummary>>
 }
+
+export type GradingProgressSummary = { readonly counted: number; readonly required: number }
 
 /** 給票 19 重派對話框用：某老師在某組的有效評分指派（管理員頁面才會呼叫）。 */
 export interface AssignmentsForTeacherQuery {
@@ -311,6 +344,8 @@ export type EvaluationHistoryEntry = {
   /** 最近一次狀態變化的理由（退回理由、替換、失效原因）。 */
   readonly lastReason: string | null
   readonly lastChangedAt: Date | null
+  /** 這一份的評語（B 階段 TE-B4；AC-A-4 系辦在計算明細看全文）；沒填是 null。 */
+  readonly comment: string | null
 }
 
 export type AssignmentHistoryEntry = {
@@ -483,4 +518,94 @@ export interface GradebookQuery {
   previewReassignment(actor: ResolvedActor, assignmentId: string): Promise<Result<ReassignmentPreview>>
   /** 套用新方案版本的影響預覽（只讀，取消不會重算任何東西）。 */
   previewSchemeVersion(actor: ResolvedActor, versionId: string): Promise<Result<SchemeApplyPreview>>
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// B 階段 TE-B2a：系辦結算（設計方案 §2.2；實作 `infrastructure/grading/pg-grade-settlements.ts`）
+// ════════════════════════════════════════════════════════════════════════════
+
+export type Settlement = {
+  readonly settlementId: string
+  readonly cohortId: string
+  readonly stageKey: string
+  /** 從目前方案版本找；套用新版本後找不到就是 `stageKey`。 */
+  readonly stageName: string
+  readonly settledAt: Date
+  readonly settledBy: { readonly userId: string; readonly name: string }
+  readonly reason: string
+  readonly countedEvaluations: number
+}
+
+export type SettlementHistory = Settlement & {
+  readonly releasedAt: Date | null
+  readonly releasedBy: { readonly userId: string; readonly name: string } | null
+  readonly releaseReason: string | null
+}
+
+/**
+ * `serverTime` 跟全站回執（`shared/result.ts` 的 `Receipt`）一樣是 ISO 字串（設計方案 §2.2 寫 `Date`，
+ * 但 `Result<R>` 會再交集 `serverTime: string`，兩者並存型別不成立）。日期欄（`settledAt`、`releasedAt`）是 `Date`，重放也是。
+ */
+export type SettlementReceipt = Settlement & { readonly requestId: string; readonly serverTime: string }
+
+export type ReleaseReceipt = {
+  readonly settlementId: string
+  readonly stageKey: string
+  readonly stageName: string
+  readonly releasedAt: Date
+  readonly requestId: string
+  readonly serverTime: string
+}
+
+export interface GradingSettlementCommand {
+  /**
+   * 系辦結算一個階段。FORBIDDEN → VALIDATION_FAILED（理由 1–500 字、階段不在目前版本）→ COHORT_ARCHIVED →
+   * CONFLICT「{階段名}已於 {時間} 結算」。不發通知。
+   */
+  settleStage(
+    actor: ResolvedActor,
+    input: { readonly cohortId: string; readonly stageKey: string; readonly reason: string },
+    requestId: string,
+  ): Promise<Result<SettlementReceipt>>
+  /**
+   * 解除結算。找不到 → VALIDATION_FAILED「找不到這筆結算，請重新整理頁面。」（錯誤碼表沒有 NOT_FOUND）；
+   * 已解除 → CONFLICT「這筆結算已於 {時間} 解除」。
+   */
+  releaseSettlement(
+    actor: ResolvedActor,
+    input: { readonly settlementId: string; readonly reason: string },
+    requestId: string,
+  ): Promise<Result<ReleaseReceipt>>
+}
+
+export interface GradingSettlementQuery {
+  /**
+   * 老師與系辦都可讀；非兩者 → FORBIDDEN。沒有現行結算時 `settlement` 是 null。
+   * （設計方案 §2.2 寫 `Result<Settlement | null>`，但 `Receipt<R>` 是 `R & {requestId, serverTime}`，null 放不進去——
+   * `ok(null)` 會變成只有 requestId 的物件、判斷「有沒有結算」會誤判——所以包一層。）
+   */
+  settlementOf(actor: ResolvedActor, cohortId: string, stageKey: string): Promise<Result<{ readonly settlement: Settlement | null }>>
+  /** 系辦：該屆所有階段的現行結算＋歷史（新的在前）。 */
+  settlements(actor: ResolvedActor, cohortId: string): Promise<Result<readonly SettlementHistory[]>>
+}
+
+/**
+ * 屆別評分快照（B 階段 TE-B6；設計方案 §4）：系辦成績管理頁一次讀完屆別、方案版本、組別、組員、指派與事實，
+ * `board`（老師評分進度）與 `gradebook`（階段完成率、成績表、更正）都從同一份資料組出來，形狀與 `adminBoard`／`gradebook` 相同。
+ * 階段篩選不在這裡（頁面對快照做，見 `snapshot.ts`）。
+ */
+export type CohortGradingSnapshot = {
+  readonly board: AdminGradingBoard
+  readonly gradebook: Gradebook
+  /** 現行結算（未解除），依階段代號排序。 */
+  readonly settlements: readonly Settlement[]
+  readonly loadedAt: Date
+}
+
+export interface GradingSnapshotQuery {
+  /**
+   * 只有系辦；非系辦 → FORBIDDEN「只有系辦可以看評分管理。」。屆別不存在 → VALIDATION_FAILED「找不到這個屆別，請重新整理頁面。」
+   * （設計方案 §4.2 寫 NOT_FOUND，但錯誤碼表沒有 NOT_FOUND，跟 `adminBoard`／`gradebook`／結算一樣用 VALIDATION_FAILED。）
+   */
+  cohortSnapshot(actor: ResolvedActor, cohortId: string): Promise<Result<CohortGradingSnapshot>>
 }

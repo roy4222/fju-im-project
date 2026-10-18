@@ -50,14 +50,38 @@ async function adminPage(browser: Browser): Promise<Page> {
 
 async function fillRegistration(page: Page, s: { name: string; studentNo: string; email: string; dept: string }) {
   await page.goto('/register')
+  await page.getByLabel('Email', { exact: true }).fill(s.email)
+  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+  await page.getByLabel('確認密碼').fill(PASSWORD)
+  await page.getByRole('button', { name: '建立帳號' }).click()
+  // VB-3：註冊改三步。第 2 步的驗證碼從擷取模式的 mail_outbox 讀（MAIL_CAPTURE=1）。
+  await expect(page).toHaveURL(/\/register\/verify$/)
+  await page.getByLabel('驗證碼第 1 位').fill(await latestOtp(s.email))
+  await expect(page).toHaveURL(/\/register\/apply$/)
   await page.getByLabel('姓名').fill(s.name)
   await page.getByLabel('學號').fill(s.studentNo)
   await page.getByLabel('系級').fill(s.dept)
   await page.getByLabel('手機').fill('0912-345-678')
-  await page.getByLabel('登入 Email').fill(s.email)
-  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await page.getByLabel('確認密碼').fill(PASSWORD)
-  await page.getByRole('button', { name: '送出註冊' }).click()
+  await page.getByRole('button', { name: '送出申請' }).click()
+}
+
+/** 擷取模式下最新一封驗證碼信的 6 碼（VB-3 三步註冊的第 2 步）。 */
+async function latestOtp(email: string): Promise<string> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
+  try {
+    for (let i = 0; i < 50; i += 1) {
+      const row = await pool.query<{ body_text: string | null }>(
+        `select body_text from mail_outbox where to_email = $1 and template = 'email_otp' order by created_at desc limit 1`,
+        [email],
+      )
+      const otp = /(\d{6})/.exec(row.rows[0]?.body_text ?? '')?.[1]
+      if (otp) return otp
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error(`mail_outbox 沒有 ${email} 的驗證碼（e2e 要 MAIL_CAPTURE=1）`)
+  } finally {
+    await pool.end()
+  }
 }
 
 async function signIn(page: Page, email: string) {
@@ -147,8 +171,8 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   // 修改資料 → 第 2 版，狀態仍是待審。
   await student.getByLabel('手機').fill('0922-222-222')
   await student.getByRole('button', { name: '儲存修改' }).click()
-  await expect(student.getByRole('status')).toContainText('資料已更新為第 2 版，狀態仍是待審核')
-  await expect(student.getByRole('list', { name: '修改紀錄' })).toContainText('第 2 版（修改）')
+  await expect(student.getByRole('status')).toContainText('資料已更新，狀態仍是待審核；系辦會看到最新的資料。')
+  await expect(student.getByRole('list', { name: '修改紀錄' })).toContainText('・編輯')
 
   // 系辦：待審清單並列比對結果。
   const admin = await adminPage(browser)
@@ -173,7 +197,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   // 系辦畫面還開著（第 2 版），學生又改了一次（第 3 版）。
   await student.getByLabel('系級').fill('資管二乙')
   await student.getByRole('button', { name: '儲存修改' }).click()
-  await expect(student.getByRole('status')).toContainText('第 3 版')
+  await expect(student.getByRole('list', { name: '修改紀錄' }).getByText(/・編輯$/)).toHaveCount(2)
 
   await dialog.getByLabel('當面核對學生證或其他身分證件').check()
   await dialog.getByRole('button', { name: '核准' }).click()
@@ -262,10 +286,14 @@ test('5：同一個 IP 一小時註冊超過 30 次就被擋（直接打 API 與
   }
   await context.clearCookies()
 
-  await fillRegistration(page, { name: '第三十一位', studentNo: `4${prefix}031`, email: `t07-rate-${run}-31@example.com`, dept: '資管二甲' })
+  await page.goto('/register')
+  await page.getByLabel('Email', { exact: true }).fill(`t07-rate-${run}-31@example.com`)
+  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+  await page.getByLabel('確認密碼').fill(PASSWORD)
+  await page.getByRole('button', { name: '建立帳號' }).click()
   await expect(page.locator('form p[role="alert"]')).toHaveText('這個網路 1 小時內的註冊次數已達上限，最晚 1 小時後可以再試；仍無法註冊請聯絡系辦。')
   await expect(page).toHaveURL(/\/register$/)
-  // 填過的資料還在（密碼除外），不用整份重打。
-  await expect(page.getByLabel('學號')).toHaveValue(`4${prefix}031`)
+  // 填過的 Email 還在（密碼除外），不用重打。
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue(`t07-rate-${run}-31@example.com`)
   await context.close()
 })

@@ -15,7 +15,9 @@ import {
   describeSchemeVersionReceipt,
   getGradingCommand,
   getGradingResultsCommand,
+  getGradingSettlementCommand,
 } from '@/composition/grading'
+import { formatTaipeiMinute } from '@/shared/time'
 
 /**
  * 管理員「評分」頁的動作（票 23）：建立方案版本、發布、設定每組每階段要幾份評分、指派評分老師。
@@ -179,4 +181,29 @@ export async function applySchemeAction(_state: ResultsActionState, formData: Fo
   if (UUID.test(cohortId)) redirect(`/dashboard/admin/grading?cohort=${cohortId}&applied=${result.receipt.versionNo}`)
   refresh()
   return { ok: true, message: `已套用評分規則第 ${result.receipt.versionNo} 版：各組成績照新版本重算，新版本已鎖定。` }
+}
+
+// ── B 階段 AD-B1：結算（設計方案 §2.5）─────────────────────────────────────────
+
+export async function settleStageAction(_state: ResultsActionState, formData: FormData): Promise<ResultsActionState> {
+  const result = await getGradingSettlementCommand().settleStage(
+    await currentActor(),
+    { cohortId: text(formData, 'cohortId'), stageKey: text(formData, 'stageKey', 40), reason: text(formData, 'reason', 600) },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message, code: result.code }
+  refresh()
+  const r = result.receipt
+  return { ok: true, message: `已結算「${r.stageName}」：${formatTaipeiMinute(r.settledAt)}，採計 ${r.countedEvaluations} 份。結算期間老師不能再改這個階段的分數。` }
+}
+
+export async function releaseSettlementAction(_state: ResultsActionState, formData: FormData): Promise<ResultsActionState> {
+  const result = await getGradingSettlementCommand().releaseSettlement(
+    await currentActor(),
+    { settlementId: text(formData, 'settlementId'), reason: text(formData, 'reason', 600) },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message, code: result.code }
+  refresh()
+  return { ok: true, message: `已解除「${result.receipt.stageName}」的結算：老師又可以修改與重新送出。` }
 }

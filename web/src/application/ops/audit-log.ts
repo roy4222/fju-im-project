@@ -37,10 +37,31 @@ export const AUDIT_WINDOW_DAYS = 7
 export const AUDIT_PAGE_LIMIT = 200
 
 /**
- * 不列進「操作紀錄」的事件：背景工作每小時寫一筆的磁碟量測（票 28 暫存在 `audit_events`，
- * 等 `storage_stats` 表補上就搬走）。它是量測、不是誰做的操作，列出來會把一週 168 筆洗滿整頁。
+ * 搜尋字長度上限（AD-B6；trim 後 1–50 個 UTF-16 單位，即 JS 的 `.length`）。
+ * 畫面欄位的 `maxlength` 也是這個計量，前後端同一把尺（補充平面字如 𠮷 算 2）；伺服器收到更長的回 `VALIDATION_FAILED`。
  */
-export const AUDIT_EXCLUDED_ACTIONS: readonly string[] = ['storage.measured']
+export const AUDIT_QUERY_MAX_LENGTH = 50
+
+/** 搜尋字不合格（trim 後超過 `AUDIT_QUERY_MAX_LENGTH` 字）。 */
+export class AuditQueryInvalidError extends Error {
+  readonly code = 'VALIDATION_FAILED'
+  constructor() {
+    super(`搜尋字最多 ${AUDIT_QUERY_MAX_LENGTH} 字。`)
+  }
+}
+
+/** 網址參數 `q` 正規化：trim；空字串當作沒有搜尋（null）；超過上限丟 `AuditQueryInvalidError`。 */
+export function parseAuditQuery(value: unknown): string | null {
+  const v = Array.isArray(value) ? value[0] : value
+  if (typeof v !== 'string') return null
+  const q = v.trim()
+  if (q === '') return null
+  if (q.length > AUDIT_QUERY_MAX_LENGTH) throw new AuditQueryInvalidError()
+  return q
+}
+
+/** 不列進「操作紀錄」的事件（目前沒有；原本排除的磁碟量測已隨 A-17 移除）。 */
+export const AUDIT_EXCLUDED_ACTIONS: readonly string[] = []
 
 export type AuditLogEntry = {
   readonly id: string
@@ -69,6 +90,8 @@ export type AuditLogEntry = {
 export type AuditLog = {
   /** 這一份是哪個分頁（網址參數正規化後的值）。 */
   readonly who: AuditWhoFilter
+  /** 搜尋字（已 trim）；沒搜尋為 null。分頁籤數字與清單都隨它過濾。 */
+  readonly q: string | null
   readonly since: Date
   readonly entries: readonly AuditLogEntry[]
   /** 各分頁的筆數（整個時間窗，不受筆數上限影響）。 */
@@ -110,9 +133,14 @@ const ACTION_LABEL: Record<string, string> = {
   'account.seed_e2e_admin': '建立測試管理員帳號',
   'account.deidentify': '刪除個人資料（保留紀錄）',
   'account.session_revocation.reconcile_limit': '登出同步未完成',
+  // B 階段預先登記（A-08 一次登記，後面的票不必再碰這張表）：SH-9／AD-B2 頭像、VB-14 清理未完成註冊。
+  'account.avatar_update': '更換頭像',
+  'account.avatar_reset': '系辦重設頭像',
+  'account.stale_signup_scrubbed': '清理未完成註冊帳號',
   'registration.apply': '送出註冊申請',
   'registration.revise': '修改註冊申請',
   'registration.resubmit': '重新送出註冊申請',
+  'registration.auto_approve': '自動開通註冊（Google Email 與名單相同）',
   'roster.import': '匯入學生名單',
   'session.revoke': '強制登出',
   // 屆別與時間軸（模組 02）
@@ -127,9 +155,13 @@ const ACTION_LABEL: Record<string, string> = {
   'cohort.activity.cancel': '取消活動',
   'cohort.activity.delete': '刪除活動',
   'cohort.activated': '屆別轉為進行中',
+  // B 階段 A-09 封存／解封（預先登記）。
+  'cohort.archive': '封存屆別',
+  'cohort.unarchive': '解除封存屆別',
   'activity.deleted': '刪除活動',
   'business_clock.set': '調整模擬時鐘',
   // 分組、指導與產學（模組 03）
+  'group.dissolve': '解散組別',
   'group.establish': '組別成立',
   'group.export': '匯出組別名單',
   'group.leader.change': '換組長',
@@ -179,6 +211,8 @@ const ACTION_LABEL: Record<string, string> = {
   'item.unpin': '取消置頂公告或作業',
   'item.delete': '刪除公告或作業',
   'item.deleted': '刪除公告或作業',
+  // B 階段 A-14 規則章節排序（預先登記）。
+  'item.rule_moved': '調整規則章節順序',
   'item.published': '發布公告或作業',
   'item.withdrawn': '撤回公告或作業',
   'item.archived': '下架公告或作業',
@@ -188,6 +222,9 @@ const ACTION_LABEL: Record<string, string> = {
   'submission.submitted': '正式送出繳交',
   'submission.reopen': '開放補交',
   'submission.reopened': '開放補交',
+  // B 階段 A-08 設免繳／恢復（冪等鍵與稽核代碼同名）。
+  'submission.exempt_set': '設免繳',
+  'submission.exempt_cleared': '恢復需繳交',
   'submission.save_draft': '儲存繳交草稿',
   'submission.submit': '正式送出繳交',
   'submission.set_advisor_visibility': '設定指導老師閱覽',
@@ -207,10 +244,13 @@ const ACTION_LABEL: Record<string, string> = {
   'grading.override_resolve': '重新確認更正',
   'grading.override_review': '重新確認更正',
   'grading.export': '匯出成績',
+  // B 階段 A-01 結算（預先登記）。
+  'grading.settle': '結算成績',
+  'grading.release': '解除成績結算',
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立站內同意書',
   'signoff.version_reopen': '重開同意書新版',
-  'signoff.version_reset': '重置同意書',
+  'signoff.version_reset': '重新收集同意書',
   'signoff.version_supersede': '同意書被新版取代',
   'signoff.version_void': '作廢同意書',
   'signoff.respond': '回覆同意書',
@@ -282,6 +322,9 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   showcase_entry: '成果展示',
   storage: '儲存空間',
 }
+
+/** 對象類型的中文對照（[代碼, 中文]），給稽核查詢在 SQL 裡組出和畫面一樣的對象文字（搜尋用）。 */
+export const AUDIT_TARGET_TYPE_LABEL_ENTRIES: readonly (readonly [string, string])[] = Object.entries(TARGET_TYPE_LABEL)
 
 export function auditTargetTypeLabel(targetType: string): string {
   return TARGET_TYPE_LABEL[targetType] ?? targetType

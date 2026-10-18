@@ -24,6 +24,7 @@ import { safeNextPath } from '@/shared/safe-next'
 import { getPool } from '@/infrastructure/db/client'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getLeaderSuccessionHook } from '@/composition/groups'
+import { getMailer, mailSiteUrl } from '@/composition/mail'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { err, type Result } from '@/shared/result'
 import { taipeiParts } from '@/shared/time'
@@ -82,6 +83,7 @@ export function getRegistrationCommand(): RegistrationCommand {
     ledger: getOperationLedger(),
     db: getPool,
     cohorts: getCohortStatusQuery(),
+    mail: { mailer: getMailer(), siteUrl: mailSiteUrl() },
   })
   return registrationCommand
 }
@@ -251,8 +253,26 @@ export async function homeForUser(userId: string): Promise<string> {
   if (roles.includes('admin')) return '/dashboard/admin'
   if (roles.includes('teacher')) return '/dashboard/teacher'
   if (roles.includes('student')) return '/dashboard/student'
+  // 用密碼註冊、還沒驗證 Email、也還沒送申請的人先去驗證（VB-2；設計方案 §3.2）。角色優先：
+  // 本批之前註冊、已核准但沒驗證的人上面就回去了；已經送過申請（舊流程）的人照舊去等待審核頁。
+  if (await needsEmailVerification(userId)) return EMAIL_VERIFY_PATH
   // 登入了但還沒有角色＝還在等審核。
   return '/register/pending'
+}
+
+/** 註冊第 2 步（驗證 Email）的路徑；頁面由 VB-3 建。 */
+export const EMAIL_VERIFY_PATH = '/register/verify'
+
+/** 沒驗證 Email、沒有 Google 登入方式、沒有任何註冊申請（呼叫端已確認沒有角色）。 */
+async function needsEmailVerification(userId: string): Promise<boolean> {
+  const result = await getPool().query<{ needs: boolean }>(
+    `select (not u.email_verified
+             and not exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'google')
+             and not exists (select 1 from registration_applications ra where ra.user_id = u.id)) as needs
+       from users u where u.id = $1`,
+    [userId],
+  )
+  return result.rows[0]?.needs === true
 }
 
 /** 登出目前這一台。 */
@@ -267,7 +287,7 @@ export async function signOut(headers: Headers): Promise<void> {
  *   （待審 → 等待審核頁、被要求改密 → 改密頁、其他 → `next` 或自己的首頁），所以 callback
  *   不必自己判斷該去哪；失敗時套件在後面補 `?error=<代碼>`，頁面再翻成一句話。
  * - `next` **一律先經 `safeNextPath`**，不合格就當沒帶，不會被塞進 callbackURL。
- * - 第一次用 Google 進來的人（新帳號）直接到等待審核頁補學號、系級、手機。
+ * - 第一次用 Google 進來的人（新帳號）直接到註冊第 3 步補學號、系級、手機（VB-3）。
  */
 export type GoogleSignInOutcome = { readonly ok: true; readonly url: string } | { readonly ok: false; readonly message: string }
 
@@ -284,7 +304,7 @@ export async function beginGoogleSignIn(input: {
     const started = await startGoogleSignIn(input.headers, {
       callbackURL: next ? `/login?next=${encodeURIComponent(next)}` : '/login',
       errorCallbackURL: landing,
-      newUserCallbackURL: '/register/pending?via=google',
+      newUserCallbackURL: '/register/apply?via=google',
     })
     if (!started.url) return { ok: false, message: 'Google 登入暫時無法使用，請改用 Email 與密碼。' }
     return { ok: true, url: started.url }

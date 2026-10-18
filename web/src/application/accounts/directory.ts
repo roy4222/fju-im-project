@@ -161,6 +161,9 @@ export type AccountRow = {
    * 列表上可以補建角色或停用。
    */
   readonly orphan: boolean
+  /** 目前頭像（系辦重設頭像的對話框要顯示；沒設定時兩欄都是 null，顯示依帳號 id 固定的預設圖）。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 export type CohortFilterOption = { readonly id: string; readonly code: string; readonly name: string }
@@ -185,6 +188,8 @@ export type AccountSummary = {
   readonly activeStudents: number
   /** 孤兒帳號（票 10b）。 */
   readonly orphans: number
+  /** 等系辦審的註冊申請裡最早的送出時間（同 `pendingApplications` 的條件）；沒有是 null（AD-21 首頁「最早 X 天前送出」）。 */
+  readonly oldestPendingAppliedAt: Date | null
 }
 
 // ── 匯出 ────────────────────────────────────────────────────────────────────

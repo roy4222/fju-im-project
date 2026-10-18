@@ -66,6 +66,7 @@ import {
   notAssigned,
   runGrading,
   stageOf,
+  stageSettled,
   type CohortRow,
   type GroupRow,
   type SchemeRow,
@@ -85,13 +86,15 @@ import { RealClock, type Clock } from '@/shared/time'
  *
  * 鎖順序（契約 01 §6：cohorts → groups → 頭列；和票 23 同一條，所以不會互相卡死）：
  * - 退回：`cohorts FOR SHARE` → `groups FOR SHARE` → `grading_schemes FOR SHARE` → 那一份的 `evaluator_assignments FOR UPDATE`
- *   → `evaluation_status FOR UPDATE`（模組實作設計 06 §6 v2.2：和改派同序）。
+ *   → `evaluation_status FOR UPDATE`（模組實作設計 06 §6 v2.2：和改派同序）。結算檢查在方案頭列 `FOR SHARE` 之後查
+ *   `grade_settlements`（結算拿同一列 `FOR UPDATE`，兩邊排隊；B 階段 AC-A-7）；不加新鎖。
  * - 改派：… → 該組該階段**全部**有效指派依 id `FOR UPDATE` → 被移除的那一列 → `stage_requirements FOR UPDATE` → 鎖內重算
  *   `basis_hash` 和預覽比對。正式送出只鎖自己的指派列、退回鎖那一份的指派列、改份數鎖份數列，都會和改派排隊：
  *   預覽之後任何改變採計集合的動作都讓 hash 對不上 → `CONFLICT`（要重新預覽），不會把剛送出的分數當暫存處理。
  * - 更正、復核：`cohorts FOR SHARE` → `groups FOR UPDATE`（和所有拿 `FOR SHARE` 的評分寫入互斥）→ 方案頭列 `FOR SHARE`
  *   → 鎖內重算最終成績與 `basis_hash`。
- * - 套用新方案版本：`cohorts FOR SHARE` → `grading_schemes FOR UPDATE`（和正式送出在方案頭列上排隊，同發布）→ 版本列。
+ * - 套用新方案版本：`cohorts FOR SHARE` → 全屆 `groups FOR SHARE`（依 id 排序）→ `grading_schemes FOR UPDATE` → 版本列。
+ *   必須先拿組別鎖，才能與更正／復核的 `groups FOR UPDATE` → 方案頭列 `FOR SHARE` 同向排隊。
  *
  * 基礎改變（正式送出、退回、改派、改份數、套用新版本）都在同一個交易裡呼叫 `flagOverridesForReview`：
  * 這一組生效中的更正進「待復核」，首次進入時通知管理員。
@@ -267,6 +270,11 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (begun.outcome !== 'fresh') return replayed<ReturnReceipt>(begun)
       if (cohort.status === 'archived') return archived(cohort)
       if (group.status === 'dissolved') return dissolved(group.code)
+      const stageName = (stages ? stageOf(stages, assignment.stage_key)?.name : null) ?? assignment.stage_key
+      // B 階段 AC-A-7：結算期間不能退回（退回會讓採計份數變少）；在方案頭列鎖內查，跟結算排隊（設計方案 §2.3）。
+      if (await stageSettled(tx, cohort.id, assignment.stage_key)) {
+        return err('CONFLICT', `${stageName}已結算，要修改請先解除結算。`)
+      }
       if (assignment.valid_to !== null) {
         return err('NOT_ASSIGNED', '這位老師已經不是這一組這一階段的評分老師（指派已結束），退回後他無法處理；請先處理指派。')
       }
@@ -277,7 +285,6 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       if (!teacher) {
         return err('VALIDATION_FAILED', '這位老師的帳號已停用或不再是老師，退回後他無法重送；請先移除或改派評分老師。')
       }
-      const stageName = (stages ? stageOf(stages, assignment.stage_key)?.name : null) ?? assignment.stage_key
 
       await reachFaultPoint('grading.return.before-update')
       await tx.query(
@@ -807,6 +814,9 @@ export class PgGradingResultsCommand implements GradingResultsCommand {
       const cohortId = owner.rows[0]?.cohort_id
       if (!cohortId) return err('VALIDATION_FAILED', '找不到這一版評分規則，請重新整理頁面。')
       const cohort = (await lockCohort(tx, cohortId))!
+      // 與解散、更正、復核同向：cohort → groups（依 id）→ scheme → version。
+      // 等組別鎖時不能持有方案／版本鎖；取鎖後才讀目前方案、重算預覽及待復核集合。
+      await tx.query('select id from groups where cohort_id = $1 order by id for share', [cohortId])
       const scheme = (
         await tx.query<SchemeRow>('select id, cohort_id, current_version_id, revision from grading_schemes where cohort_id = $1 for update', [cohortId])
       ).rows[0]!
@@ -1026,7 +1036,7 @@ async function buildSchemePreview(
 
 // ── 查詢 ────────────────────────────────────────────────────────────────────
 
-type OverrideRow = {
+export type OverrideRow = {
   id: string
   group_id: string
   original_value: string
@@ -1080,9 +1090,9 @@ function missingOf(stages: readonly SchemeStage[], facts: GroupFacts): MissingEv
     }))
 }
 
-type CurrentVersion = { id: string; versionNo: number; stages: SchemeStage[] } | null
+export type CurrentVersion = { id: string; versionNo: number; stages: SchemeStage[] } | null
 
-async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Promise<CurrentVersion> {
+export async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Promise<CurrentVersion> {
   const row = await db.query<{ id: string; version_no: number; stages: unknown }>(
     `select v.id, v.version_no, v.stages from grading_schemes s join grading_scheme_versions v on v.id = s.current_version_id
       where s.cohort_id = $1`,
@@ -1095,6 +1105,10 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
 /**
  * 解散組別釘住的方案版本（產品模組 03 §4「解散：原組別資料凍結」）：解散當下套用的那一版。
  *
+ * 解散命令（開站後）在 `group.dissolve` 稽核記下當下的目前版本（`schemeVersionId`），有就直接用——連「還沒鎖定的已發布版本」
+ * 也準。記的是 `null`（解散時這屆還沒有方案）就釘在「沒有方案」：回傳的 Map 有這組、值是 `null`，呼叫端不能再退回目前版本，
+ * 否則解散後才發布的第一版會被算進凍結的組（A-19 Review）。沒有記錄（解散命令之前、測試直接改狀態的資料）才用下面的推算：
+ *
  * 不用另存欄位也查得出來：目前版本只有三種換法——發布（目前版本還沒鎖定時）、第一位老師開始填時鎖定目前版本、
  * 鎖定之後套用新版本（新版本同時鎖定、`locked_at`＝套用時間）。所以一旦鎖定過，「某個真實時間點的目前版本」
  * 就是 `locked_at` 不晚於那一刻的最後一個鎖定版本（同一時間戳記取版本號大的，版本號只增不減）。解散的組只要有任何評分，解散前一定鎖定過。
@@ -1103,15 +1117,35 @@ async function currentVersionOf(db: Pick<Pool, 'query'>, cohortId: string): Prom
  * 但它後來若被鎖定，就是第一個鎖定的版本（鎖的一定是目前版本），所以取第一個鎖定版本——解散後、第一次鎖定前
  * 又發布過別的版本時才會不準（這種組沒有任何分數，只影響階段名稱與份數的顯示）。連鎖定都沒有過就照目前版本。
  */
-async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, NonNullable<CurrentVersion>>> {
+/**
+ * 解散當下的組員（`gm`、`g` 是呼叫端的別名）。解散命令把快照（組員資格 id）記在 `group.dissolve` 稽核裡，有就照它，
+ * 同一毫秒剛被移出的人也不會誤收；沒有（解散命令之前、測試直接改狀態的舊資料）才退回用時間比：
+ * 組員資格的 `valid_to` 是業務時間、`dissolved_real_at` 是真實時間，兩者在模擬業務鐘下不能比，
+ * 結束資格時 `updated_at` 寫的是真實時間，所以用它跟解散時間比。
+ */
+const DISSOLVED_MEMBER_SQL = `case
+  when exists (select 1 from audit_events da where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id)
+    then exists (select 1 from audit_events da cross join lateral jsonb_array_elements(da.payload->'members') dm
+                  where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id
+                    and dm->>'membershipId' = gm.id::text)
+  else gm.updated_at >= g.dissolved_real_at
+end`
+
+export async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds: readonly string[]): Promise<Map<string, CurrentVersion>> {
   if (groupIds.length === 0) return new Map()
-  const rows = await db.query<{ group_id: string; id: string; version_no: number; stages: unknown }>(
-    `select g.id as group_id, v.id, v.version_no, v.stages
+  const rows = await db.query<{ group_id: string; recorded: boolean; id: string | null; version_no: number | null; stages: unknown }>(
+    `select g.id as group_id, rec.recorded is not null as recorded, v.id, v.version_no, v.stages
        from groups g
-       join grading_schemes s on s.cohort_id = g.cohort_id
-       join lateral (
+       left join lateral (
+         select true as recorded, (da.payload->>'schemeVersionId')::uuid as version_id from audit_events da
+          where da.action = 'group.dissolve' and da.target_type = 'group' and da.target_id = g.id
+          order by da.real_at desc limit 1
+       ) rec on true
+       left join grading_schemes s on s.cohort_id = g.cohort_id
+       left join lateral (
          select x.id, x.version_no, x.stages from grading_scheme_versions x
-          where x.scheme_id = s.id and x.status = 'locked'
+          where x.scheme_id = s.id
+            and ((rec.recorded and x.id = rec.version_id) or (rec.recorded is null and x.status = 'locked'))
           order by x.locked_at <= g.dissolved_real_at desc,
                    case when x.locked_at <= g.dissolved_real_at then x.locked_at end desc,
                    case when x.locked_at <= g.dissolved_real_at then x.version_no end desc,
@@ -1121,7 +1155,106 @@ async function dissolvedVersions(db: Pick<Pool, 'query'> | PoolClient, groupIds:
       where g.id = any($1::uuid[]) and g.status = 'dissolved'`,
     [groupIds],
   )
-  return new Map(rows.rows.map((r) => [r.group_id, { id: r.id, versionNo: r.version_no, stages: readSchemeStages(r.stages) }]))
+  const pinned = new Map<string, CurrentVersion>()
+  for (const r of rows.rows) {
+    const version = r.id !== null ? { id: r.id, versionNo: r.version_no!, stages: readSchemeStages(r.stages) } : null
+    // 有解散記錄：照記錄（含「沒有方案」）。沒有記錄又推算不出（從沒鎖定過）：不放，呼叫端照目前版本。
+    if (r.recorded || version) pinned.set(r.group_id, version)
+  }
+  return pinned
+}
+
+export type GradebookGroupRow = { id: string; code: string; advisor_name: string | null; dissolved: boolean }
+export type GradebookMemberRow = { group_id: string; name: string; student_no: string | null }
+
+/** 本屆進行中與解散的組（解散的唯讀；產品模組 03 §4「管理員可查與匯出」），排在進行中的組後面。 */
+export async function loadGradebookGroups(db: Pick<Pool, 'query'>, cohortId: string): Promise<GradebookGroupRow[]> {
+  const rows = await db.query<GradebookGroupRow>(
+    `select g.id, g.code, coalesce(nullif(btrim(p.display_name), ''), u.name) as advisor_name, g.status = 'dissolved' as dissolved
+       from groups g
+       left join advisor_assignments a on a.group_id = g.id and a.valid_to is null
+       left join users u on u.id = a.teacher_user_id
+       left join user_profiles p on p.user_id = a.teacher_user_id
+      where g.cohort_id = $1 and g.status in ('active', 'dissolved')
+      order by g.status = 'dissolved', g.code`,
+    [cohortId],
+  )
+  return rows.rows
+}
+
+/** 組員：解散的組列解散當下的組員（見 `DISSOLVED_MEMBER_SQL`）。解散前就被移出的人不列。 */
+export async function loadGradebookMembers(db: Pick<Pool, 'query'>, groupIds: readonly string[]): Promise<GradebookMemberRow[]> {
+  const rows = await db.query<GradebookMemberRow>(
+    `select gm.group_id, ${TEACHER_NAME_SQL} as name, p.student_no
+       from group_memberships gm
+       join groups g on g.id = gm.group_id
+       join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
+      where gm.group_id = any($1::uuid[])
+        and (gm.valid_to is null or (g.status = 'dissolved' and ${DISSOLVED_MEMBER_SQL}))
+      order by gm.group_id, p.student_no nulls last, gm.valid_from, gm.user_id`,
+    [groupIds],
+  )
+  return rows.rows
+}
+
+/** 還沒被取代的更正（新的在前）。 */
+export async function loadGradebookOverrides(db: Pick<Pool, 'query'>, groupIds: readonly string[]): Promise<OverrideRow[]> {
+  const rows = await db.query<OverrideRow>(
+    `${OVERRIDE_SELECT} where o.group_id = any($1::uuid[]) and r.state <> 'superseded' order by o.real_at desc, o.id desc`,
+    [groupIds],
+  )
+  return rows.rows
+}
+
+/**
+ * 成績表的組裝（`gradebook` 與屆別評分快照共用，A-05）：各組結果照自己的方案版本算（解散的組用 `pinned` 釘住的版本）。
+ */
+export function assembleGradebook(rows: {
+  readonly cohort: CohortRow
+  readonly version: CurrentVersion
+  readonly groups: readonly GradebookGroupRow[]
+  readonly facts: ReadonlyMap<string, GroupFacts>
+  readonly members: readonly GradebookMemberRow[]
+  readonly overrides: readonly OverrideRow[]
+  readonly pinned: ReadonlyMap<string, CurrentVersion>
+}): Gradebook {
+  const { cohort, version, groups, facts, members, overrides, pinned } = rows
+  const book: GradebookGroup[] = groups.map((g) => {
+    const f = facts.get(g.id)!
+    const latest = overrides.find((o) => o.group_id === g.id)
+    const own = pinned.has(g.id) ? pinned.get(g.id)! : version
+    return {
+      id: g.id,
+      code: g.code,
+      advisorName: g.advisor_name,
+      dissolved: g.dissolved,
+      versionNo: own?.versionNo ?? null,
+      members: members.filter((m) => m.group_id === g.id).map((m) => ({ name: m.name, studentNo: m.student_no })),
+      result: computeGroupResult(own?.stages ?? [], f.requirements, f.counted),
+      override: latest ? toOverrideView(latest) : null,
+      basisHash: groupBasisHash(own?.id ?? null, f),
+      // 解散的組評分工作已停止（產品模組 03 §4）：沒有缺評要處理。
+      missing: g.dissolved ? [] : missingOf(own?.stages ?? [], f),
+    }
+  })
+  const codeOf = new Map(groups.map((g) => [g.id, g.code]))
+  // 解散的組不能再復核（寫入一律拒），不放進待復核清單；那一組的列仍標「更正待復核」。
+  const dissolvedIds = new Set(groups.filter((g) => g.dissolved).map((g) => g.id))
+  return {
+    cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
+    version,
+    groups: book,
+    pendingReviews: overrides
+      .filter((o) => o.state === 'pending_review' && !dissolvedIds.has(o.group_id))
+      .map((o) => ({
+        overrideId: o.id,
+        groupId: o.group_id,
+        groupCode: codeOf.get(o.group_id) ?? '',
+        originalValue: exactScore(o.original_value),
+        newValue: exactScore(o.new_value),
+        reason: o.reason,
+      })),
+  }
 }
 
 export class PgGradebookQuery implements GradebookQuery {
@@ -1140,78 +1273,18 @@ export class PgGradebookQuery implements GradebookQuery {
     if (!cohort) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
     const version = await currentVersionOf(db, cohortId)
 
-    // 解散的組也列（唯讀；產品模組 03 §4「管理員可查與匯出」），排在進行中的組後面。
-    const groups = await db.query<{ id: string; code: string; advisor_name: string | null; dissolved: boolean }>(
-      `select g.id, g.code, coalesce(nullif(btrim(p.display_name), ''), u.name) as advisor_name, g.status = 'dissolved' as dissolved
-         from groups g
-         left join advisor_assignments a on a.group_id = g.id and a.valid_to is null
-         left join users u on u.id = a.teacher_user_id
-         left join user_profiles p on p.user_id = a.teacher_user_id
-        where g.cohort_id = $1 and g.status in ('active', 'dissolved')
-        order by g.status = 'dissolved', g.code`,
-      [cohortId],
-    )
-    const ids = groups.rows.map((g) => g.id)
+    const groups = await loadGradebookGroups(db, cohortId)
+    const ids = groups.map((g) => g.id)
     const [facts, members, overrides, pinned] = await Promise.all([
       loadFacts(db, ids),
-      // 解散的組列解散當下的組員：還沒結束的，或在解散那一刻（含）之後才結束的（解散把組員放回未分組時）。
-      // 組員資格的 `valid_to` 是業務時間、`dissolved_real_at` 是真實時間，兩者在模擬業務鐘下不能比；
-      // 結束資格時 `updated_at` 寫的是真實時間，所以用它跟解散時間比。解散前就被移出的人不列。
-      db.query<{ group_id: string; name: string; student_no: string | null }>(
-        `select gm.group_id, ${TEACHER_NAME_SQL} as name, p.student_no
-           from group_memberships gm
-           join groups g on g.id = gm.group_id
-           join users u on u.id = gm.user_id left join user_profiles p on p.user_id = gm.user_id
-          where gm.group_id = any($1::uuid[])
-            and (gm.valid_to is null or (g.status = 'dissolved' and gm.updated_at >= g.dissolved_real_at))
-          order by gm.group_id, p.student_no nulls last, gm.valid_from, gm.user_id`,
-        [ids],
-      ),
-      db.query<OverrideRow>(`${OVERRIDE_SELECT} where o.group_id = any($1::uuid[]) and r.state <> 'superseded' order by o.real_at desc, o.id desc`, [
-        ids,
-      ]),
-      dissolvedVersions(db, groups.rows.filter((g) => g.dissolved).map((g) => g.id)),
+      loadGradebookMembers(db, ids),
+      loadGradebookOverrides(db, ids),
+      dissolvedVersions(db, groups.filter((g) => g.dissolved).map((g) => g.id)),
     ])
-
-    const book: GradebookGroup[] = groups.rows.map((g) => {
-      const f = facts.get(g.id)!
-      const latest = overrides.rows.find((o) => o.group_id === g.id)
-      const own = pinned.get(g.id) ?? version
-      return {
-        id: g.id,
-        code: g.code,
-        advisorName: g.advisor_name,
-        dissolved: g.dissolved,
-        versionNo: own?.versionNo ?? null,
-        members: members.rows.filter((m) => m.group_id === g.id).map((m) => ({ name: m.name, studentNo: m.student_no })),
-        result: computeGroupResult(own?.stages ?? [], f.requirements, f.counted),
-        override: latest ? toOverrideView(latest) : null,
-        basisHash: groupBasisHash(own?.id ?? null, f),
-        // 解散的組評分工作已停止（產品模組 03 §4）：沒有缺評要處理。
-        missing: g.dissolved ? [] : missingOf(own?.stages ?? [], f),
-      }
+    return ok(assembleGradebook({ cohort, version, groups, facts, members, overrides, pinned }), {
+      requestId: uuidv7(),
+      serverTime: new Date().toISOString(),
     })
-    const codeOf = new Map(groups.rows.map((g) => [g.id, g.code]))
-    // 解散的組不能再復核（寫入一律拒），不放進待復核清單；那一組的列仍標「更正待復核」。
-    const dissolvedIds = new Set(groups.rows.filter((g) => g.dissolved).map((g) => g.id))
-    return ok(
-      {
-        cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' },
-        version,
-        groups: book,
-        pendingReviews: overrides.rows
-          .filter((o) => o.state === 'pending_review' && !dissolvedIds.has(o.group_id))
-          .map((o) => ({
-            overrideId: o.id,
-            groupId: o.group_id,
-            groupCode: codeOf.get(o.group_id) ?? '',
-            originalValue: exactScore(o.original_value),
-            newValue: exactScore(o.new_value),
-            reason: o.reason,
-          })),
-      },
-      { requestId: uuidv7(), serverTime: new Date().toISOString() },
-    )
   }
 
   async groupDetail(actor: ResolvedActor, groupId: string): Promise<Result<GroupGradeDetail>> {
@@ -1228,7 +1301,8 @@ export class PgGradebookQuery implements GradebookQuery {
     ).rows[0]
     if (!head) return groupNotFound()
     // 解散的組用解散當下的方案版本算（凍結；見 `dissolvedVersions`）。
-    const version = (await dissolvedVersions(db, [groupId])).get(groupId) ?? (await currentVersionOf(db, head.cohort_id))
+    const pinned = await dissolvedVersions(db, [groupId])
+    const version = pinned.has(groupId) ? pinned.get(groupId)! : await currentVersionOf(db, head.cohort_id)
     const stages = version?.stages ?? []
     const facts = await loadGroupFacts(db, groupId)
     const nameOfStage = (key: string) => stageOf(stages, key)?.name ?? key
@@ -1246,9 +1320,10 @@ export class PgGradebookQuery implements GradebookQuery {
         submitted_real_at: Date
         last_reason: string | null
         last_at: Date | null
+        comment: string | null
       }>(
         `select e.id, e.assignment_id, a.stage_key, ${TEACHER_NAME_SQL} as teacher_name, e.kind, s.state, e.scores, e.submitted_real_at,
-                ev.reason as last_reason, ev.real_at as last_at
+                ev.reason as last_reason, ev.real_at as last_at, e.comment
            from evaluations e
            join evaluation_status s on s.evaluation_id = e.id
            join evaluator_assignments a on a.id = e.assignment_id
@@ -1297,6 +1372,7 @@ export class PgGradebookQuery implements GradebookQuery {
         submittedAt: e.submitted_real_at,
         lastReason: e.last_reason,
         lastChangedAt: e.last_at,
+        comment: e.comment,
       }
     })
     const assignmentRows: AssignmentHistoryEntry[] = assignments.rows.map((a) => ({

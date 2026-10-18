@@ -6,7 +6,9 @@ import {
   entriesInMonth,
   monthCells,
   shiftMonth,
+  staffDeadlines,
   type DeadlineSource,
+  type StaffDeadlineRow,
 } from '@/app/timeline/calendar-model'
 
 const COHORT = '11111111-1111-4111-8111-111111111111'
@@ -123,8 +125,37 @@ describe('calendarEntries：截止', () => {
     expect(e).toMatchObject({ href: '/dashboard/student/affairs/i1', time: '23:59', tone: 'deadline' })
   })
 
-  it('老師／系辦視角不列截止（Q125：A 只列階段與活動）', () => {
-    expect(calendarEntries([activity({})], [deadline({})], 'staff').map((e) => e.kind)).toEqual(['event'])
+  it('老師／系辦視角列學生截止，標「學生截止」、tone 同截止（Q125 B 案，AC-ST-30）', () => {
+    const entries = calendarEntries([activity({})], [deadline({ href: '/dashboard/teacher/affairs' })], 'staff')
+    expect(entries.map((e) => e.kind)).toEqual(['event', 'deadline'])
+    expect(entries[1]).toMatchObject({ label: '學生截止', tone: 'deadline', href: '/dashboard/teacher/affairs', date: '2026-08-26' })
+  })
+
+  it('學生視角不會出現「學生截止」（AC-ST-31）', () => {
+    expect(calendarEntries([], [deadline({})], 'student').map((e) => e.label)).toEqual(['截止'])
+  })
+})
+
+describe('staffDeadlines：老師／系辦看的學生截止來源', () => {
+  const row = (patch: Partial<StaffDeadlineRow>): StaffDeadlineRow => ({
+    id: 'i1',
+    title: '期中報告',
+    status: 'published',
+    dueAt: new Date('2026-08-26T23:59:00+08:00'),
+    ...patch,
+  })
+
+  it('只取已發布且有截止日的；草稿、已封存、沒有截止日的都不列', () => {
+    const list = staffDeadlines(
+      [row({}), row({ id: 'd', status: 'draft' }), row({ id: 'u', status: 'archived' }), row({ id: 'n', dueAt: null })],
+      '/dashboard/teacher/affairs',
+    )
+    expect(list).toEqual([{ id: 'i1', title: '期中報告', due: new Date('2026-08-26T23:59:00+08:00'), status: 'open', href: '/dashboard/teacher/affairs' }])
+  })
+
+  it('連到給的列表頁（兩頁都沒有單篇錨點）', () => {
+    const [d] = staffDeadlines([row({})], '/dashboard/admin/affairs?cohort=c1')
+    expect(d!.href).toBe('/dashboard/admin/affairs?cohort=c1')
   })
 })
 

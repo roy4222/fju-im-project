@@ -464,6 +464,67 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
     return { supersededVersionIds: superseded }
   }
 
+  /**
+   * 組別解散（開站後）：在呼叫端交易裡作廢這組每個簽核包的目前版本（產品 03 §4「解散：07 作廢」）。
+   * 鎖序同 `supersedeForParticipantChange`（組別列已被解散用例 `FOR UPDATE`）。已完成的也作廢（等於撤回授權，同系辦作廢）；
+   * 已作廢／已失效的不動。事件不通知任何人（同系辦作廢）；解散事件已通知全組與老師。
+   */
+  async voidForDissolution(
+    tx: PoolClient,
+    input: { groupId: string; reason: string; actorUserId: string; realAt: Date; businessAt: Date },
+  ): Promise<{ voidedVersionIds: string[] }> {
+    const rows = await tx.query<StatusRow & { cohort_id: string; purpose: SignoffPurpose; code: string }>(
+      `select p.cohort_id, p.purpose, g.code, s.version_id, v.version_no, s.state, s.cause
+         from signoff_packages p
+         join groups g on g.id = p.group_id
+         join signoff_version_status s on s.version_id = p.current_version_id
+         join signoff_package_versions v on v.id = s.version_id
+        where p.group_id = $1
+        order by p.purpose
+        for update of p, s`,
+      [input.groupId],
+    )
+    // 版本狀態的原因老師與組員都看得到（版本頁、歷程）：只寫中性的「組別解散」；系辦填的理由只進稽核（A-19 Review）。
+    const cause = '組別解散'
+    const voided: string[] = []
+    for (const row of rows.rows.filter((r) => !isTerminal(r.state))) {
+      await tx.query(
+        `update signoff_version_status
+            set state = 'void', cause = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4
+          where version_id = $1`,
+        [row.version_id, cause, input.realAt, input.actorUserId],
+      )
+      voided.push(row.version_id)
+      const { eventId } = await this.#events.publish(tx, {
+        type: 'signoff.voided',
+        scope: 'cohort',
+        cohortId: row.cohort_id,
+        source: { type: 'signoff_version', id: row.version_id, version: row.version_no },
+        actor: { kind: 'user', userId: input.actorUserId },
+        recipients: [],
+        recipientBasis: { basis: 'none' },
+        payload: { groupId: input.groupId, code: row.code, purpose: row.purpose, from: row.state, cause: 'group_dissolved' },
+        occurredRealAt: input.realAt,
+        occurredBusinessAt: input.businessAt,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: input.actorUserId,
+        role: 'admin',
+        action: 'signoff.version_void',
+        targetType: 'signoff_version',
+        targetId: row.version_id,
+        scope: 'cohort',
+        cohortId: row.cohort_id,
+        reason: `組別解散：${input.reason}`,
+        realAt: input.realAt,
+        businessAt: input.businessAt,
+        payload: { eventId, from: row.state, groupId: input.groupId, purpose: row.purpose, versionNo: row.version_no, cause: 'group_dissolved' },
+      })
+    }
+    return { voidedVersionIds: voided }
+  }
+
   // ── 票 26：本人表態 ─────────────────────────────────────────────────────────
 
   /**
@@ -684,7 +745,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
    */
   async #restart(kind: RestartKind, actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<RestartReceipt>> {
     const what = RESTART_LABEL[kind]
-    const blocked = authorizeAdmin(actor, `${what}同意書`)
+    const blocked = authorizeAdmin(actor, kind === 'reset' ? what : `${what}同意書`)
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
@@ -717,7 +778,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       if (restartKindFor(status.state) !== kind) {
         return err(
           'CONFLICT',
-          kind === 'reset' ? '這一版已退回、被取代或作廢，請改按「重開新版」。' : '這一版還在收集同意或已完成，請改按「重置」。',
+          kind === 'reset' ? '這一版已退回、被取代或作廢，請改按「重開新版」。' : '這一版還在收集同意或已完成，請改按「重新收集同意（內容不變）」。',
         )
       }
 
@@ -1526,15 +1587,46 @@ async function deidentifiedNames(db: Queryable, userIds: readonly string[]): Pro
   return new Map(rows.rows.map((r) => [r.id, displayPersonName(r.name)]))
 }
 
-/** 一批參與者快照（jsonb 原樣）裡，已去識別化的人 → 代稱。 */
-function pseudonymsForSnapshots(db: Queryable, raws: readonly unknown[]): Promise<Map<string, string>> {
-  return deidentifiedNames(
-    db,
-    raws.flatMap((raw) => {
-      const p = readParticipants(raw)
-      return p ? participantUserIds(p) : []
-    }),
+/** 快照裡一個人此刻的資料：代稱（只有已去識別化的人有）與頭像（ST-12；快照不存頭像，讀目前值）。 */
+type SnapshotProfile = { pseudonym: string | null; avatarPreset: number | null; avatarFileId: string | null }
+
+/**
+ * 一批參與者快照（jsonb 原樣）裡每個人此刻的代稱與頭像。一句查詢（取代原本只讀代稱的那一句，句數不變）；
+ * 代稱規則照舊只對 `deidentified_at is not null` 的人套用。
+ */
+async function profilesForSnapshots(db: Queryable, raws: readonly unknown[]): Promise<Map<string, SnapshotProfile>> {
+  const ids = [
+    ...new Set(
+      raws.flatMap((raw) => {
+        const p = readParticipants(raw)
+        return p ? participantUserIds(p) : []
+      }),
+    ),
+  ].filter((id) => id !== '')
+  if (ids.length === 0) return new Map()
+  const rows = await db.query<{ id: string; name: string; deidentified_at: Date | null; avatar_preset: number | null; avatar_file_id: string | null }>(
+    `select u.id, u.name, u.deidentified_at, p.avatar_preset, p.avatar_file_id
+       from users u left join user_profiles p on p.user_id = u.id
+      where u.id = any($1::uuid[])`,
+    [ids],
   )
+  return new Map(
+    rows.rows.map((r) => [
+      r.id,
+      {
+        pseudonym: r.deidentified_at ? displayPersonName(r.name) : null,
+        avatarPreset: r.avatar_preset,
+        avatarFileId: r.avatar_file_id,
+      },
+    ]),
+  )
+}
+
+/** `withPseudonyms` 要的 userId → 代稱（只留已去識別化的人）。 */
+function pseudonymsOf(profiles: ReadonlyMap<string, SnapshotProfile>): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const [id, p] of profiles) if (p.pseudonym !== null) out.set(id, p.pseudonym)
+  return out
 }
 
 type SummaryRow = {
@@ -1551,9 +1643,9 @@ type SummaryRow = {
 function summaryOf(
   r: SummaryRow,
   votes: readonly (VoteRecord & { versionId: string })[],
-  pseudonyms: ReadonlyMap<string, string>,
+  profiles: ReadonlyMap<string, SnapshotProfile>,
 ): VersionSummary {
-  const participants = withPseudonyms(readParticipants(r.participants) ?? NO_PARTICIPANTS, pseudonyms)
+  const participants = withPseudonyms(readParticipants(r.participants) ?? NO_PARTICIPANTS, pseudonymsOf(profiles))
   const mine = votes.filter((v) => v.versionId === r.version_id)
   const times = [r.created_real_at, r.status_updated_at, ...mine.map((v) => v.realAt)].map((d) => new Date(d).getTime())
   return {
@@ -1563,7 +1655,7 @@ function summaryOf(
     cause: r.cause,
     studentCount: participants.students.length,
     createdAt: r.created_real_at,
-    progress: buildProgress(participants, mine, r.state),
+    progress: buildProgress(participants, mine, r.state, profiles),
     lastEventAt: new Date(Math.max(...times)),
   }
 }
@@ -1644,7 +1736,7 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         packages.rows.map((p) => p.version_id),
       )
-      const pseudonyms = await pseudonymsForSnapshots(
+      const profiles = await profilesForSnapshots(
         db,
         packages.rows.map((p) => p.participants),
       )
@@ -1652,7 +1744,7 @@ export class PgSignoffQuery implements SignoffQuery {
         const entry = showcase.rows.find((s) => s.group_id === g.id)
         const current = (purpose: SignoffPurpose): VersionSummary | null => {
           const p = packages.rows.find((r) => r.group_id === g.id && r.purpose === purpose)
-          return p ? summaryOf(p, votes, pseudonyms) : null
+          return p ? summaryOf(p, votes, profiles) : null
         }
         return {
           groupId: g.id,
@@ -1675,6 +1767,34 @@ export class PgSignoffQuery implements SignoffQuery {
       })
       return ok(
         { cohort: { id: cohort.id, code: cohort.code, name: cohort.name, archived: cohort.status === 'archived' }, groups: rows },
+        { requestId: uuidv7(), serverTime: new Date().toISOString() },
+      )
+    })
+  }
+
+  async homeCounts(actor: ResolvedActor, cohortId: string): ReturnType<SignoffQuery['homeCounts']> {
+    const blocked = authorizeAdmin(actor, '管理同意書')
+    if (blocked) return blocked
+    if (!isUuid(cohortId)) return err('VALIDATION_FAILED', '找不到這個屆別，請重新整理頁面。')
+    return this.#withClient(async (db) => {
+      // 條件逐字對齊 `adminBoard`：本屆 `active` 的組、`current_version_id` 的版本與其狀態。
+      const row = (
+        await db.query<{ result_confirmation: number; final_document: number; complete: number }>(
+          `select count(*) filter (where p.purpose = 'result_confirmation' and s.state = 'teacher_pending')::int as result_confirmation,
+                  count(*) filter (where p.purpose = 'final_document' and s.state = 'teacher_pending')::int as final_document,
+                  count(distinct p.group_id) filter (where s.state = 'complete')::int as complete
+             from signoff_packages p
+             join groups g on g.id = p.group_id and g.cohort_id = $1 and g.status = 'active'
+             join signoff_package_versions v on v.id = p.current_version_id
+             join signoff_version_status s on s.version_id = v.id`,
+          [cohortId],
+        )
+      ).rows[0]!
+      return ok(
+        {
+          teacherPending: { result_confirmation: row.result_confirmation, final_document: row.final_document },
+          completeGroups: row.complete,
+        },
         { requestId: uuidv7(), serverTime: new Date().toISOString() },
       )
     })
@@ -1712,9 +1832,8 @@ export class PgSignoffQuery implements SignoffQuery {
           group.id,
         ])
       ).rows
-      const versions: VersionDetail[] = []
-      for (const row of rows) versions.push(await toDetail(db, row, actor))
-      return { groupCode: group.code, versions }
+      const prefetched = await prefetchDetails(db, rows, actor.userId)
+      return { groupCode: group.code, versions: rows.map((row) => toDetailFrom(row, actor, prefetched)) }
     })
   }
 
@@ -1738,12 +1857,12 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         rows.rows.map((r) => r.version_id),
       )
-      const pseudonyms = await pseudonymsForSnapshots(
+      const profiles = await profilesForSnapshots(
         db,
         rows.rows.map((r) => r.participants),
       )
       return rows.rows.map((r) => {
-        const current = summaryOf(r, votes, pseudonyms)
+        const current = summaryOf(r, votes, profiles)
         const isSnapshotAdvisor = readParticipants(r.participants)?.advisor.userId === actor.userId
         return {
           groupId: r.group_id,
@@ -1768,39 +1887,88 @@ function canRead(db: Queryable, actor: Extract<ResolvedActor, { kind: 'authentic
   return canReadSignoffVersions(db, actor, [row.version_id])
 }
 
-async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<VersionDetail> {
-  const history = await db.query<{ version_id: string; version_no: number; state: SignoffState; cause: string | null; created_real_at: Date }>(
-    `select v.id as version_id, v.version_no, s.state, s.cause, v.created_real_at
+/** 一批版本的明細要用的資料（歷史、代稱、表態、本人的組員／指導狀態），一次各查一句；`toDetailFrom` 只讀它、不碰資料庫。 */
+type DetailPrefetch = {
+  historyOf: ReadonlyMap<string, VersionDetail['history']>
+  profiles: ReadonlyMap<string, SnapshotProfile>
+  votes: readonly (VoteRecord & { versionId: string })[]
+  /** `${groupId}:${role}` → 本人此刻還是不是該組的組員（student）或主指導（teacher）。 */
+  eligible: ReadonlyMap<string, boolean>
+}
+
+async function prefetchDetails(db: Queryable, rows: readonly VersionRow[], userId: string): Promise<DetailPrefetch> {
+  const history = await db.query<{ package_id: string; version_id: string; version_no: number; state: SignoffState; cause: string | null; created_real_at: Date }>(
+    `select v.package_id, v.id as version_id, v.version_no, s.state, s.cause, v.created_real_at
        from signoff_package_versions v join signoff_version_status s on s.version_id = v.id
-      where v.package_id = $1 order by v.version_no desc`,
-    [row.package_id],
+      where v.package_id = any($1::uuid[]) order by v.package_id, v.version_no desc`,
+    [[...new Set(rows.map((r) => r.package_id))]],
   )
-  const participants = withPseudonyms(
-    readParticipants(row.participants) ?? NO_PARTICIPANTS,
-    await pseudonymsForSnapshots(db, [row.participants]),
+  const historyOf = new Map<string, VersionDetail['history'][number][]>()
+  for (const h of history.rows) {
+    const list = historyOf.get(h.package_id) ?? []
+    list.push({ versionId: h.version_id, versionNo: h.version_no, state: h.state, cause: h.cause, createdAt: h.created_real_at })
+    historyOf.set(h.package_id, list)
+  }
+  const profiles = await profilesForSnapshots(
+    db,
+    rows.map((r) => r.participants),
   )
-  const votes = await votesOf(db, [row.version_id])
-  const progress = buildProgress(participants, votes, row.state)
+  const votes = await votesOf(
+    db,
+    rows.map((r) => r.version_id),
+  )
+  const groupIds = [...new Set(rows.map((r) => r.group_id))]
+  const eligible = new Map<string, boolean>()
+  if (groupIds.length > 0) {
+    const live = await db.query<{ group_id: string; role: VoteRole }>(
+      `select group_id, 'student' as role from group_memberships where group_id = any($1::uuid[]) and user_id = $2 and valid_to is null
+       union all
+       select group_id, 'advisor' as role from advisor_assignments where group_id = any($1::uuid[]) and teacher_user_id = $2 and valid_to is null`,
+      [groupIds, userId],
+    )
+    for (const r of live.rows) eligible.set(`${r.group_id}:${r.role}`, true)
+  }
+  return { historyOf, profiles, votes, eligible }
+}
+
+async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<VersionDetail> {
+  return toDetailFrom(row, actor, await prefetchDetails(db, [row], actor.userId), await detailExtras(db, row, actor))
+}
+
+/** 只有單版本頁要的附加資料（系辦才有）：匯出紀錄與最近提醒。學生視角一律不跑。 */
+async function detailExtras(db: Queryable, row: VersionRow, actor: Extract<ResolvedActor, { kind: 'authenticated' }>): Promise<DetailExtras> {
+  if (!actor.roles.includes('admin')) return { exports: [], lastRemindedAt: null }
+  const exports = (
+    await db.query<{ format: SignoffExportFormat; real_at: Date; by_name: string }>(
+      `select e.format, e.real_at, coalesce(nullif(btrim(p.display_name), ''), u.name) as by_name
+         from signoff_exports e join users u on u.id = e.exported_by_user_id left join user_profiles p on p.user_id = e.exported_by_user_id
+        where e.version_id = $1 order by e.real_at desc`,
+      [row.version_id],
+    )
+  ).rows.map((e) => ({ format: e.format, at: e.real_at, byName: e.by_name }))
+  return { exports, lastRemindedAt: await lastRemindedAt(db, row.version_id) }
+}
+
+type DetailExtras = { exports: VersionDetail['exports']; lastRemindedAt: Date | null }
+
+function toDetailFrom(
+  row: VersionRow,
+  actor: Extract<ResolvedActor, { kind: 'authenticated' }>,
+  prefetched: DetailPrefetch,
+  extras: DetailExtras = { exports: [], lastRemindedAt: null },
+): VersionDetail {
+  const participants = withPseudonyms(readParticipants(row.participants) ?? NO_PARTICIPANTS, pseudonymsOf(prefetched.profiles))
+  const votes = prefetched.votes.filter((v) => v.versionId === row.version_id)
+  const progress = buildProgress(participants, votes, row.state, prefetched.profiles)
   const isCurrent = row.current_version_id === row.version_id
   const role = roleIn(participants, actor.userId)
-  const eligible = role !== null && (await stillEligible(db, row.group_id, actor.userId, role))
+  const eligible = role !== null && prefetched.eligible.get(`${row.group_id}:${role}`) === true
   const voted = votes.find((v) => v.userId === actor.userId)?.result ?? null
   // 按得下去＝和用例的 checkVote 同一套規則（用例在鎖內再判一次，這裡只決定畫面上要不要出按鈕）。
   const canRespond =
     role !== null &&
     checkVote({ isCurrent, state: row.state, cause: row.cause, checksumMatches: true, role, stillEligible: eligible, alreadyVoted: voted !== null }) ===
       null
-  const isAdmin = actor.roles.includes('admin')
-  const exports = isAdmin
-    ? (
-        await db.query<{ format: SignoffExportFormat; real_at: Date; by_name: string }>(
-          `select e.format, e.real_at, coalesce(nullif(btrim(p.display_name), ''), u.name) as by_name
-             from signoff_exports e join users u on u.id = e.exported_by_user_id left join user_profiles p on p.user_id = e.exported_by_user_id
-            where e.version_id = $1 order by e.real_at desc`,
-          [row.version_id],
-        )
-      ).rows.map((e) => ({ format: e.format, at: e.real_at, byName: e.by_name }))
-    : []
   return {
     versionId: row.version_id,
     packageId: row.package_id,
@@ -1822,10 +1990,10 @@ async function toDetail(db: Queryable, row: VersionRow, actor: Extract<ResolvedA
     isCurrent,
     createdAt: row.created_real_at,
     createdByName: row.created_by_name,
-    history: history.rows.map((h) => ({ versionId: h.version_id, versionNo: h.version_no, state: h.state, cause: h.cause, createdAt: h.created_real_at })),
+    history: prefetched.historyOf.get(row.package_id) ?? [],
     progress,
     viewer: { userId: actor.userId, role, eligible, voted, canRespond },
-    lastRemindedAt: isAdmin ? await lastRemindedAt(db, row.version_id) : null,
-    exports,
+    lastRemindedAt: extras.lastRemindedAt,
+    exports: extras.exports,
   }
 }

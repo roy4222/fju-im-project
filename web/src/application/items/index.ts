@@ -103,6 +103,7 @@ export type {
   RecipientPreview,
   RecipientQueryInput,
   ResponsePresence,
+  RuleOrderReceipt,
   SaveReceipt,
   StartItemUploadInput,
   UpdateChange,

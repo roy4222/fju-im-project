@@ -13,9 +13,24 @@ export type RateLimitVerdict =
   | { readonly allowed: true; readonly remaining: number }
   | { readonly allowed: false; readonly retryAfterMs: number }
 
+/**
+ * `claim` 的結果：放行時多一個占位 token（這個鍵**這一個視窗**的版本號），給 `release` 用。
+ * 被擋的沒有 token——沒占到位就沒有東西可以放。
+ */
+export type RateLimitClaim =
+  | { readonly allowed: true; readonly remaining: number; readonly token: number }
+  | { readonly allowed: false; readonly retryAfterMs: number }
+
 export type RateLimiter = {
   /** 記一次嘗試並回答放不放行。**達到上限之後連正確的請求也會被擋**（契約 03 §6）。 */
   hit(key: string): RateLimitVerdict
+  /**
+   * 跟 `hit` 一樣記一次，但放行時附上占位 token：之後只能用 `release(key, token)` 放掉**自己占到的那個視窗**。
+   *
+   * 給「先占位再過關、沒過關要放掉」的規則用（VB-2 的 120 秒寄碼冷卻）。token 是視窗版本號：每開一個新視窗就遞增
+   * （不用時間——測試會凍住 `Date`，同一瞬間開的兩個視窗要分得出來），同一個視窗裡後續的 `hit`／`claim` 不會換版本。
+   */
+  claim(key: string): RateLimitClaim
   /**
    * 只看不計：這個視窗裡已經記了幾次。視窗過了就當 0（不動桶，下一次 `hit` 自己會換新視窗）。
    * 給「先檢查、事後才決定要不要記」的規則用（例如只算失敗的登入）。
@@ -23,6 +38,13 @@ export type RateLimiter = {
   count(key: string): number
   /** 成功之後把計數清掉（例如登入成功）。 */
   reset(key: string): void
+  /**
+   * compare-and-delete：只有這個鍵的視窗**仍是** `token` 那一個才清掉（VB-14 Review 第 2 輪）。
+   *
+   * 視窗已經換過（別人在中間 `reset` 後重開、或視窗過期後別人重開）就不動——那已經是別人占的位，
+   * 不是自己的。回傳有沒有真的清掉。
+   */
+  release(key: string, token: number): boolean
   /** 測試用：清空全部。 */
   clear(): void
 }
@@ -34,7 +56,9 @@ export function createRateLimiter(options: {
 }): RateLimiter {
   const { max, windowMs } = options
   const now = options.now ?? (() => Date.now())
-  const windows = new Map<string, { count: number; startedAt: number }>()
+  const windows = new Map<string, { count: number; startedAt: number; token: number }>()
+  /** 視窗版本號：每開一個新視窗就 +1（整個 limiter 共用一個序號，不同鍵也不會撞）。 */
+  let lastToken = 0
 
   /** 順手清掉過期的桶，免得記憶體隨著不同的 IP 一直長。 */
   function sweep(current: number): void {
@@ -43,23 +67,30 @@ export function createRateLimiter(options: {
     }
   }
 
+  function claim(key: string): RateLimitClaim {
+    const current = now()
+    if (windows.size > 1_000) sweep(current)
+
+    const bucket = windows.get(key)
+    if (!bucket || current - bucket.startedAt >= windowMs) {
+      lastToken += 1
+      windows.set(key, { count: 1, startedAt: current, token: lastToken })
+      return { allowed: true, remaining: max - 1, token: lastToken }
+    }
+
+    bucket.count += 1
+    if (bucket.count > max) {
+      return { allowed: false, retryAfterMs: bucket.startedAt + windowMs - current }
+    }
+    return { allowed: true, remaining: max - bucket.count, token: bucket.token }
+  }
+
   return {
     hit(key) {
-      const current = now()
-      if (windows.size > 1_000) sweep(current)
-
-      const bucket = windows.get(key)
-      if (!bucket || current - bucket.startedAt >= windowMs) {
-        windows.set(key, { count: 1, startedAt: current })
-        return { allowed: true, remaining: max - 1 }
-      }
-
-      bucket.count += 1
-      if (bucket.count > max) {
-        return { allowed: false, retryAfterMs: bucket.startedAt + windowMs - current }
-      }
-      return { allowed: true, remaining: max - bucket.count }
+      const verdict = claim(key)
+      return verdict.allowed ? { allowed: true, remaining: verdict.remaining } : verdict
     },
+    claim,
     count(key) {
       const bucket = windows.get(key)
       if (!bucket || now() - bucket.startedAt >= windowMs) return 0
@@ -67,6 +98,11 @@ export function createRateLimiter(options: {
     },
     reset(key) {
       windows.delete(key)
+    },
+    release(key, token) {
+      if (windows.get(key)?.token !== token) return false
+      windows.delete(key)
+      return true
     },
     clear() {
       windows.clear()
@@ -132,4 +168,29 @@ export const RATE_LIMITS = {
    * 跨帳號的密碼猜測由 `signInFailuresPerIp` 擋（票 T3）。
    */
   signInSocial: { max: 120, windowMs: 60 * 60 * 1000 },
+  /**
+   * 寄 Email 驗證碼（B 階段 VB-2；visitor-r3 設計方案 §3.2）：同一個 Email 10 分鐘 5 封、同一個 IP 每小時 20 封。
+   * 套用在 `/email-otp/send-verification-otp`（HTTP、Server Action、內部入口都經 `hooks.before`）
+   * 與註冊成功後伺服器自己寄的第一封（sign-up 分支扣 email 桶一次）。
+   */
+  otpSend: {
+    email: { max: 5, windowMs: 10 * 60 * 1000 },
+    ip: { max: 20, windowMs: 60 * 60 * 1000 },
+  },
+  /** 重寄冷卻：同一個 Email 120 秒內只能寄一封（前端倒數只是顯示，擋在伺服器）。 */
+  otpResendCooldown: { max: 1, windowMs: 120 * 1000 },
+  /**
+   * 送驗證碼：同一個 Email 10 分鐘 10 次、同一個 IP 每小時 60 次。`/email-otp/verify-email` 與
+   * `/email-otp/check-verification-otp` 共用這一組桶（check 不能拿來繞過 verify 的上限）。
+   * 單一驗證碼另有「錯 5 次作廢」（套件的 `allowedAttempts`），跟這裡無關。
+   */
+  otpVerify: {
+    email: { max: 10, windowMs: 10 * 60 * 1000 },
+    ip: { max: 60, windowMs: 60 * 60 * 1000 },
+  },
+  /** 忘記密碼寄重設連結：同一個 Email 每小時 5 封、同一個 IP 每小時 20 封。 */
+  passwordReset: {
+    email: { max: 5, windowMs: 60 * 60 * 1000 },
+    ip: { max: 20, windowMs: 60 * 60 * 1000 },
+  },
 } as const
