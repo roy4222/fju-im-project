@@ -138,11 +138,10 @@ export const businessClockOverrides = pgTable(
     setByUserId: uuid('set_by_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
-    reason: text('reason').notNull(),
+    reason: text('reason'),
   },
   (t) => [
     check('business_clock_overrides_environment_check', sql`${t.environment} in ('local','staging')`),
-    check('business_clock_overrides_reason_check', sql`length(btrim(${t.reason})) > 0`),
     index('business_clock_overrides_real_at_idx').on(t.realAt),
   ],
 )
@@ -150,8 +149,8 @@ export const businessClockOverrides = pgTable(
 /**
  * 屆別狀態的每一次變化（附錄 A `cohort_status_events`；不可變）。
  *
- * `from_status` 為 NULL 代表「建立」。附錄 A 寫 `reason NOT NULL`（封存與解封必填），
- * 但轉進行中沒有理由可填，所以這裡改成：只有進出「已封存」時理由必填（CHECK 把關）。
+ * `from_status` 為 NULL 代表「建立」。附錄 A 寫 `reason NOT NULL`，但 C 階段起理由一律選填
+ * （C2 設計方案 X2；0020 拿掉封存／解封理由 CHECK），所以 `reason` 可為 NULL。
  */
 export const cohortStatusEvents = pgTable(
   'cohort_status_events',
@@ -176,10 +175,6 @@ export const cohortStatusEvents = pgTable(
       sql`${t.fromStatus} is null or ${t.fromStatus} in ('preparing','active','archived')`,
     ),
     check('cohort_status_events_to_status_check', sql`${t.toStatus} in ('preparing','active','archived')`),
-    check(
-      'cohort_status_events_archive_reason_check',
-      sql`(${t.toStatus} <> 'archived' and ${t.fromStatus} is distinct from 'archived') or ${t.reason} is not null`,
-    ),
     index('cohort_status_events_cohort_real_at_idx').on(t.cohortId, t.realAt),
   ],
 )

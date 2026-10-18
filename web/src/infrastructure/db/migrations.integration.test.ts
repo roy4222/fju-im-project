@@ -18,7 +18,8 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * 第三波 W0：第十三支新增首頁設定、個別補交兩表，並給舊表加刪除標記與輪播順序（細節在 wave3-schema.integration.test.ts）。
  * 第三波 W15：第十四支只改精選「一組一屆一個條目」的唯一索引，改成只算未刪除的（刪掉後同組可以再建草稿；下面倒數第二組）。
  * B 階段 A-01：0017 新增系辦結算表 `grade_settlements`、0018 給 `evaluations` 加評語欄；已套 0016、有資料的庫升上來（下面倒數第二組）。
- * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面最後一組）。
+ * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面倒數第二組）。
+ * C 階段 C2-21：0020 只放寬約束（理由選填、核實方式加 office_review／email_roster_match；仍七十張表）；已套 0019、有資料的庫升上來（下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -146,7 +147,7 @@ const EXPECTED_TABLES = [
   ...A01_TABLES,
 ].sort()
 
-const LATEST = '0019_rules_position'
+const LATEST = '0020_c2_verification_office_review'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -569,6 +570,111 @@ describe('0019（A-14）：已套 0018、有資料的庫升到 0019：回填順�
         db.schemaName,
       ])
       expect(String(index.rows[0]!.indexdef)).toMatch(/\(cohort_id, rules_position\) WHERE .*placement = 'rules'.*deleted_at IS NULL/)
+    })
+  })
+})
+
+describe('0020（C2-21）：已套 0019、有資料的庫升到 0020：理由選填、核實方式新值', () => {
+  it('舊列不受影響；理由可存 NULL；核准可不帶核實方式；三表收 office_review／email_roster_match、亂填照擋', async () => {
+    await withIsolatedDatabase({ label: 'm0020' }, async (db) => {
+      await applyMigrations(db, '0019_rules_position')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0020@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), '113', '113', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      const clock = (reason: string | null) =>
+        db.sql(
+          `insert into business_clock_overrides (id, environment, business_at, real_at, set_by_user_id, reason)
+           values (gen_random_uuid(), 'local', now(), now(), $1, $2) returning id`,
+          [userId, reason],
+        )
+      const status = (from: string | null, to: string, reason: string | null) =>
+        db.sql(
+          `insert into cohort_status_events (id, cohort_id, from_status, to_status, reason, actor_user_id, real_at, business_at)
+           values (gen_random_uuid(), $1, $2, $3, $4, $5, now(), now()) returning id`,
+          [cohortId, from, to, reason, userId],
+        )
+      let studentNo = 410000100
+      const application = (state: string, method: string | null) =>
+        db.sql(
+          `insert into registration_applications
+             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, verification_method,
+              created_by_kind, created_by_user_id)
+           values (gen_random_uuid(), $1, 'X', $2, '09', 'c@example.com', 'c@example.com', $3, $4, 'user', $1) returning id`,
+          [userId, String(studentNo++), state, method],
+        )
+      const userStatus = (method: string) =>
+        db.sql(
+          `insert into user_status_events (id, user_id, from_status, to_status, verification_method, actor_kind, real_at)
+           values (gen_random_uuid(), $1, 'pending', 'active', $2, 'system', now())`,
+          [userId, method],
+        )
+      const audit = (method: string) =>
+        db.sql(
+          `insert into audit_events (id, actor_kind, action, target_type, target_id, scope, verification_method, real_at, business_at)
+           values (gen_random_uuid(), 'system', 'account.approve', 'registration_application', gen_random_uuid(), 'global', $1, now(), now())`,
+          [method],
+        )
+
+      // 0019 時：空理由、封存無理由、核准無核實方式、新值都被擋。
+      await expect(clock(null)).rejects.toThrow(/null value in column "reason"/)
+      await expect(clock('  ')).rejects.toThrow(/business_clock_overrides_reason_check/)
+      await expect(status('active', 'archived', null)).rejects.toThrow(/cohort_status_events_archive_reason_check/)
+      await expect(application('approved', null)).rejects.toThrow(/registration_applications_approved_verification_check/)
+      await expect(audit('office_review')).rejects.toThrow(/audit_events_verification_method_check/)
+      const oldClock = String((await clock('示範')).rows[0]!.id)
+      const oldStatus = String((await status('active', 'archived', '年度結束')).rows[0]!.id)
+      const oldApplication = String((await application('approved', 'id_document')).rows[0]!.id)
+
+      await applyMigration(db, '0020_c2_verification_office_review')
+
+      expect((await db.sql(`select reason from business_clock_overrides where id = $1`, [oldClock])).rows).toEqual([{ reason: '示範' }])
+      expect((await db.sql(`select reason from cohort_status_events where id = $1`, [oldStatus])).rows).toEqual([{ reason: '年度結束' }])
+      expect((await db.sql(`select verification_method from registration_applications where id = $1`, [oldApplication])).rows).toEqual([
+        { verification_method: 'id_document' },
+      ])
+
+      // 理由選填（X2）：測試用時間、封存／解封都可存 NULL。
+      const column = await db.sql(
+        `select is_nullable from information_schema.columns where table_schema = $1 and table_name = 'business_clock_overrides' and column_name = 'reason'`,
+        [db.schemaName],
+      )
+      expect(column.rows).toEqual([{ is_nullable: 'YES' }])
+      await expect(clock(null)).resolves.toBeTruthy()
+      await expect(status('archived', 'active', null)).resolves.toBeTruthy()
+      await expect(status('active', 'archived', null)).resolves.toBeTruthy()
+      // 其他約束沒被一起拿掉。
+      await expect(
+        db.sql(
+          `insert into business_clock_overrides (id, environment, business_at, real_at, set_by_user_id) values (gen_random_uuid(), 'production', now(), now(), $1)`,
+          [userId],
+        ),
+      ).rejects.toThrow(/business_clock_overrides_environment_check/)
+      await expect(status('active', 'gone', null)).rejects.toThrow(/cohort_status_events_to_status_check/)
+
+      // 不再問核實方式（X3）：核准可不帶；三表收兩個新值、舊值照收、亂填照擋；other 仍要說明。
+      await expect(application('approved', null)).resolves.toBeTruthy()
+      await expect(application('approved', 'other')).rejects.toThrow(/registration_applications_other_note_check/)
+      for (const method of ['office_review', 'email_roster_match', 'id_document', 'google_email_match']) {
+        await expect(application('approved', method), `registration_applications 擋了 ${method}`).resolves.toBeTruthy()
+        await expect(userStatus(method), `user_status_events 擋了 ${method}`).resolves.toBeTruthy()
+        await expect(audit(method), `audit_events 擋了 ${method}`).resolves.toBeTruthy()
+      }
+      await expect(application('approved', 'guess')).rejects.toThrow(/registration_applications_verification_method_check/)
+      await expect(userStatus('guess')).rejects.toThrow(/user_status_events_verification_method_check/)
+      await expect(audit('guess')).rejects.toThrow(/audit_events_verification_method_check/)
+
+      const gone = await db.sql(
+        `select conname from pg_constraint c join pg_namespace n on n.oid = c.connamespace
+          where n.nspname = $1 and conname in ('business_clock_overrides_reason_check', 'cohort_status_events_archive_reason_check', 'registration_applications_approved_verification_check')`,
+        [db.schemaName],
+      )
+      expect(gone.rows).toEqual([])
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
     })
   })
 })
