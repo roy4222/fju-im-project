@@ -1,15 +1,19 @@
 'use client'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState, useTransition } from 'react'
 import type { AvatarChoice, AvatarUser } from '@/application/accounts'
 import type { DeclaredUpload } from '@/application/ops'
 import type { Result } from '@/shared/result'
 
+// 裁切視窗是獨立 chunk，選到檔案才載入，`/account` 首載不變（C3-04）。
+const AvatarCropDialog = dynamic(() => import('./avatar-crop-dialog').then((m) => m.AvatarCropDialog), { ssr: false })
+
 /**
  * 換頭像（SH-9；shared-r3 §2.0 `AvatarPicker` 契約，B 設計方案 §2.2.1 改成 `uploadTicketAction(input)`）。
  *
  * 兩種換法：
- * - **上傳**：選檔後先向伺服器要上傳憑證（帶檔名、MIME、大小），再把位元組直接 POST 到 `/api/files/upload`
+ * - **上傳**：選檔後先開裁切視窗（圓形取景框，C3-04），按「儲存」把取景範圍輸出成 512×512 JPEG；再向伺服器要上傳憑證（帶檔名、MIME、大小），再把位元組直接 POST 到 `/api/files/upload`
  *   （不走 Server Action：`bodySizeLimit` 1 MB 不改），伺服器縮成 256×256 WebP、清掉 EXIF；成功再 `submitAction({ fileId })`。
  * - **預設圖**：100 張裡挑一張，`submitAction({ preset })`。
  *
@@ -21,6 +25,8 @@ import type { Result } from '@/shared/result'
 /** 與 `AVATAR_MAX_BYTES`（application/accounts/avatar.ts）相同；client 元件對 application 只能帶型別，伺服器另外再擋一次。 */
 const MAX_BYTES = 2 * 1024 * 1024
 const ACCEPT = ['image/png', 'image/jpeg', 'image/webp']
+/** HEIC／HEIF 讓使用者選得到：進裁切視窗後瀏覽器畫不出來，會顯示「這個格式不能裁切」，不送出任何請求。 */
+const CROP_ONLY = ['image/heic', 'image/heif']
 const PRESETS = Array.from({ length: 100 }, (_, i) => i + 1)
 
 const BUTTON =
@@ -47,6 +53,7 @@ export function AvatarPicker({
   const [status, setStatus] = useState<Status>(null)
   const [showPresets, setShowPresets] = useState(false)
   const [pending, startTransition] = useTransition()
+  const [cropping, setCropping] = useState<File | null>(null)
   const selectedPreset = current.avatarFileId ? null : current.avatarPreset
 
   function submit(choice: AvatarChoice, done: string) {
@@ -61,13 +68,22 @@ export function AvatarPicker({
     })
   }
 
-  function upload(file: File) {
-    if (!ACCEPT.includes(file.type)) {
+  function choose(file: File) {
+    if (!ACCEPT.includes(file.type) && !CROP_ONLY.includes(file.type)) {
       setStatus({ kind: 'error', message: '只收 PNG、JPG、WebP 圖片。' })
       return
     }
     if (file.size > MAX_BYTES) {
       setStatus({ kind: 'error', message: '檔案超過 2 MB，請換一張小一點的圖片。' })
+      return
+    }
+    setStatus(null)
+    setCropping(file)
+  }
+
+  function upload(file: File) {
+    if (file.size > MAX_BYTES) {
+      setStatus({ kind: 'error', message: '裁切後的檔案超過 2 MB，請換一張圖片。' })
       return
     }
     startTransition(async () => {
@@ -113,12 +129,12 @@ export function AvatarPicker({
           <input
             ref={fileInput}
             type="file"
-            accept={ACCEPT.join(',')}
+            accept={[...ACCEPT, ...CROP_ONLY].join(',')}
             className="sr-only"
             disabled={pending}
             onChange={(event) => {
               const file = event.currentTarget.files?.[0]
-              if (file) upload(file)
+              if (file) choose(file)
             }}
           />
         </label>
@@ -132,7 +148,7 @@ export function AvatarPicker({
           選預設圖
         </button>
       </div>
-      <p className="text-xs text-muted-foreground">PNG、JPG、WebP，2 MB 以內；會裁成正方形並移除拍攝位置等資訊。</p>
+      <p className="text-xs text-muted-foreground">PNG、JPG、WebP，2 MB 以內；選圖後可拖動、縮放取景框；會移除拍攝位置等資訊。</p>
       {status ? (
         <p
           role={status.kind === 'error' ? 'alert' : 'status'}
@@ -144,6 +160,24 @@ export function AvatarPicker({
         >
           {status.message}
         </p>
+      ) : null}
+      {cropping ? (
+        <AvatarCropDialog
+          file={cropping}
+          onCancel={() => {
+            setCropping(null)
+            if (fileInput.current) fileInput.current.value = ''
+          }}
+          onReselect={() => {
+            setCropping(null)
+            if (fileInput.current) fileInput.current.value = ''
+            fileInput.current?.click()
+          }}
+          onSave={(cropped) => {
+            setCropping(null)
+            upload(cropped)
+          }}
+        />
       ) : null}
       {showPresets ? (
         <ul id={presetsId} className="grid grid-cols-6 gap-2 sm:grid-cols-10" aria-label="預設頭像">
