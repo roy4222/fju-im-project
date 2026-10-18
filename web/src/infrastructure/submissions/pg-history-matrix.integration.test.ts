@@ -1088,7 +1088,9 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     expect(before.listed).toHaveLength(2)
     expect(before.filesCount).toBe(3)
     expect(before.pageCount).toBe(10)
-    expect(before.page.ok && before.page.receipt.submissions).toEqual([])
+    // 批改頁沒帶 stage＝第一個分給他的項目 s1，只列 s1 連結的作業（期中報告）的版本（C1-04 §3.4）。
+    expect(before.page.ok && before.page.receipt.submissions).toEqual(before.listed.filter((v) => v.itemId === itemA))
+    expect(before.page.ok && before.page.receipt.submissions.map((v) => [v.title, v.versionNo, v.attachments.length])).toEqual([['期中報告', 1, 2]])
     expect(before.page.ok && before.page.receipt.leaderName).toBe('組長小明')
 
     // 每份作業再送兩版、每版附四份檔（原本兩份）：6 版。
@@ -1111,7 +1113,12 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     expect(flatten(after.listed)).toEqual(await attachmentsInDb(g1))
     expect(after.filesCount).toBe(3)
     expect(after.pageCount).toBe(10)
-    expect(after.page.ok && after.page.receipt.submissions).toEqual([])
+    expect(after.page.ok && after.page.receipt.submissions).toEqual(after.listed.filter((v) => v.itemId === itemA))
+    expect(after.page.ok && after.page.receipt.submissions.map((v) => [v.title, v.versionNo])).toEqual([
+      ['期中報告', 3],
+      ['期中報告', 2],
+      ['期中報告', 1],
+    ])
 
     // 沒有評分指派：單組頁 NOT_ASSIGNED（守衛不變）、附件查詢是空陣列（不發附件那一句）。
     counter.reset()
