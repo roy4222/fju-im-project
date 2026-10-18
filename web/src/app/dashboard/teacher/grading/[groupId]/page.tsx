@@ -31,7 +31,7 @@ const BASE = '/dashboard/teacher/grading'
  * A 階段這條支線約 19 句，設計方案 §5 記為已知超出，B 再優化）。
  */
 async function loadBenchPage(actor: ResolvedActor, groupId: string, search: Search) {
-  const page = await getGradingQuery().teacherBenchPage(actor, groupId)
+  const page = await getGradingQuery().teacherBenchPage(actor, groupId, typeof search.stage === 'string' ? search.stage : null)
   if (!page.ok) return null
   const item = typeof search.item === 'string' ? search.item : null
   const version = typeof search.version === 'string' ? Number(search.version) : null

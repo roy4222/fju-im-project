@@ -41,7 +41,7 @@ describe('方案權重（GRD-01）', () => {
       ),
     )
     expect(result).toMatchObject({ ok: false, details: { field: 'stage1.itemWeights' } })
-    if (!result.ok) expect(result.message).toContain('「系統驗收」的項目權重合計是 90%')
+    if (!result.ok) expect(result.message).toContain('「系統驗收」的細項權重合計是 90%')
   })
 
   it('合法：60／40、項目 50／50；沒有 key 的階段與項目補上 s1、i1…', () => {

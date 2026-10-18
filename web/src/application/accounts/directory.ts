@@ -148,6 +148,9 @@ export type AccountRow = {
   readonly cohortId: string | null
   readonly cohortCode: string | null
   readonly cohortName: string | null
+  /** 這個人在自己那屆目前所在的組（`group_memberships` 有效列）；沒分組是 null。帳號列連到分組頁用（C2-07；A16）。 */
+  readonly groupId: string | null
+  readonly groupCode: string | null
   readonly phone: string | null
   readonly loginEmail: string
   readonly contactEmail: string | null

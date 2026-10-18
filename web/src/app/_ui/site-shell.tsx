@@ -10,7 +10,7 @@ import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
 import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
-import { otherWorkbenches, roleSwitchLinks } from '@/app/_ui/role-switch'
+import { roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
 import { SITE_CONTACT } from '@/app/_ui/site-contact'
@@ -77,7 +77,7 @@ function footerLinks(nav: readonly HeaderNavItem[]): FooterLink[] {
 const SIGN_OUT_FORM_ID = 'site-sign-out'
 
 /**
- * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的我的工作、歷屆專題、我的入口）：
+ * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的歷屆專題、我的入口）：
  * 已開通、進得了自己後台的人：過得了 business 狀態閘門（臨時密碼還沒改的不算），而且有角色。
  * 待審核、必須先改密碼的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
  * 導覽與首頁共用這一個判斷。
@@ -86,24 +86,14 @@ export function isMember(actor: ResolvedActor): boolean {
   return actor.kind === 'authenticated' && checkStatus(actor, 'business') === null && homeFor(actor).startsWith('/dashboard/')
 }
 
-/** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
-const WORKBENCH: Record<string, { roleLabel: string; label: string }> = {
-  '/dashboard/admin': { roleLabel: '系辦', label: '我的後台' },
-  '/dashboard/teacher': { roleLabel: '老師', label: '我的後台' },
-  '/dashboard/student': { roleLabel: '學生', label: '我的後台' },
-}
+/** 右上角的「回後台」入口：三個角色都叫「我的後台」，去 `homeFor` 那個後台（兼任的人在後台頭像選單切換）。 */
+const WORKBENCHES: ReadonlySet<string> = new Set(['/dashboard/admin', '/dashboard/teacher', '/dashboard/student'])
 
-type Viewer = {
-  roleLabel: string
-  name?: string
-  workbench: { href: string; label: string }
-  /** 兼任角色的其他後台（票 41）：「回後台」按鈕去預設那個，這裡是其餘的；單一角色是空的。 */
-  otherWorkbenches: { href: string; label: string }[]
-}
+type Viewer = { workbench: { href: string; label: string } }
 
 /**
- * 帳號選單的頭像（SH-8）。頭像欄由身分解析同一句讀出來，不另查；三個外框都是 client，
- * 所以在這裡（server）render 好，當 `ReactNode` 穿過 `SiteHeader`／`DashboardFrame` 交給 `AccountMenu`。
+ * 後台帳號選單的頭像（SH-8）。頭像欄由身分解析同一句讀出來，不另查；外框是 client，
+ * 所以在這裡（server）render 好，當 `ReactNode` 穿過 `DashboardFrame` 交給 `AccountMenu`。
  * 旁邊已經寫姓名，所以 `decorative`（`alt=""`）。
  */
 function accountAvatar(actor: ResolvedActor): ReactNode {
@@ -125,26 +115,18 @@ function accountAvatar(actor: ResolvedActor): ReactNode {
 function viewerOf(actor: ResolvedActor): Viewer | null {
   if (actor.kind !== 'authenticated') return null
   const href = homeFor(actor)
-  const name = actor.displayName
-  const known = WORKBENCH[href]
-  if (!known) return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' }, otherWorkbenches: [] }
-  // 臨時密碼還沒改：後台會被導去改密碼，右上角就直接給「更改密碼」（身分照角色標）。
+  if (!WORKBENCHES.has(href)) return { workbench: { href, label: '申請進度' } }
+  // 臨時密碼還沒改：後台會被導去改密碼，右上角就直接給「更改密碼」。
   if (checkStatus(actor, 'business') === 'PASSWORD_CHANGE_REQUIRED') {
-    return { roleLabel: known.roleLabel, name, workbench: { href: '/account/change-password', label: '更改密碼' }, otherWorkbenches: [] }
+    return { workbench: { href: '/account/change-password', label: '更改密碼' } }
   }
-  // 兼任多個角色時三個後台都叫「我的後台」，後面加身分才分得出來。
-  const others = otherWorkbenches(actor.roles, roleOfBase(href)).map((w) => {
-    const other = WORKBENCH[w.href]
-    return { href: w.href, label: other ? `${other.label}（${other.roleLabel}）` : w.name }
-  })
-  const label = others.length > 0 ? `${known.label}（${known.roleLabel}）` : known.label
-  return { roleLabel: known.roleLabel, name, workbench: { href, label }, otherWorkbenches: others }
+  return { workbench: { href, label: '我的後台' } }
 }
 
 /**
  * 公開頁與登入前頁面的外殼（原型 `(public)/layout.tsx`）：頂部導覽列、內容、深藍頁尾。
  *
- * 右上角看登入狀態：沒登入給橘色「登入」，登入了給「回後台」按鈕與頭像下拉。
+ * 右上角看登入狀態：沒登入給橘色「登入」，登入了只給「我的後台」按鈕（沒有頭像下拉，C2-14）。
  * `current` 是目前所在的前台區塊，導覽會標出來。
  * `bare`：內容自己決定寬度與留白（首頁、登入卡片）；預設是置中的內容欄。
  */
@@ -162,7 +144,6 @@ export async function SiteShell({ children, current, bare = false }: { children:
         viewer={viewer}
         signOutFormId={SIGN_OUT_FORM_ID}
         registrationOpen={registrationOpen}
-        avatar={accountAvatar(actor)}
       />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
@@ -187,7 +168,6 @@ function SiteFooter({
       title: '使用',
       links: viewer
         ? [
-            { href: '/account', label: '我的帳號' },
             { href: viewer.workbench.href, label: viewer.workbench.label },
             { href: '/privacy', label: '隱私權政策' },
           ]

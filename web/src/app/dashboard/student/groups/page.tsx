@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { IconCheck, IconCrown, IconHistory, IconLock, IconMail, IconUserPlus, IconUsers } from '@tabler/icons-react'
-import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
+import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard-primitives'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -69,8 +69,8 @@ type Seat = {
   confirmed: boolean
   leader: boolean
   me: boolean
-  /** 已成組的組員才有；提案邀請（還沒成組）沒有，維持姓名首字占位。 */
-  avatar?: AvatarUser
+  /** 組員與提案邀請都有（C3-02）：有上傳是照片、沒上傳是預設圖，不再有姓名首字占位。 */
+  avatar: AvatarUser
 }
 
 /**
@@ -215,7 +215,19 @@ export default async function StudentGroupsPage({
               <span className="text-xs font-bold tracking-[0.06em] text-muted-foreground">指導老師</span>
               {group.advisor ? (
                 <>
-                  <span className="font-semibold">{group.advisor.teacherName} 老師</span>
+                  <span className="inline-flex items-center gap-2">
+                    <AvatarImg
+                      user={{
+                        id: group.advisor.teacherUserId,
+                        name: group.advisor.teacherName,
+                        avatarPreset: group.advisor.avatarPreset,
+                        avatarFileId: group.advisor.avatarFileId,
+                      }}
+                      size={24}
+                      decorative
+                    />
+                    <span className="font-semibold">{group.advisor.teacherName} 老師</span>
+                  </span>
                   {group.advisor.contactEmail ? (
                     <a
                       href={`mailto:${group.advisor.contactEmail}`}
@@ -436,12 +448,13 @@ function proposalSeats(proposal: ProposalSummary, userId: string): Seat[] {
     confirmed: i.state === 'confirmed',
     leader: false,
     me: i.userId === userId,
+    avatar: { id: i.userId, name: i.name, avatarPreset: i.avatarPreset, avatarFileId: i.avatarFileId },
   }))
 }
 
 /**
  * 一排組員頭像（原型 StudentGroup 的座位）：已確認＝深藍實心＋右下綠勾；待確認＝灰框；組長頭上戴冠冕。
- * 已成組的組員顯示頭像（ST-12），提案邀請還沒成組，先用姓名首字的圓形占位。每一位是 list 的一項（e2e 用「組員」清單找組長）。
+ * 組員與提案邀請都顯示頭像（ST-12、C3-02）。每一位是 list 的一項（e2e 用「組員」清單找組長）。
  */
 function Seats({ seats, label }: { seats: Seat[]; label: string }) {
   return (
@@ -458,11 +471,7 @@ function Seats({ seats, label }: { seats: Seat[]; label: string }) {
               m.confirmed ? 'bg-ink text-ink-foreground' : 'border-2 border-border bg-muted text-muted-foreground',
             )}
           >
-            {m.avatar ? (
-              <UserAvatar user={m.avatar} size={32} decorative />
-            ) : (
-              <span aria-hidden>{m.name.slice(0, 1)}</span>
-            )}
+            <AvatarImg user={m.avatar} size={32} decorative />
             {m.confirmed ? (
               <span
                 className="absolute -right-0.5 -bottom-0.5 inline-flex size-5 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-card"

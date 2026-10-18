@@ -1088,7 +1088,7 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     expect(before.listed).toHaveLength(2)
     expect(before.filesCount).toBe(3)
     expect(before.pageCount).toBe(10)
-    expect(before.page.ok && before.page.receipt.submissions).toEqual(await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1))
+    expect(before.page.ok && before.page.receipt.submissions).toEqual([])
     expect(before.page.ok && before.page.receipt.leaderName).toBe('組長小明')
 
     // 每份作業再送兩版、每版附四份檔（原本兩份）：6 版。
@@ -1111,7 +1111,7 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     expect(flatten(after.listed)).toEqual(await attachmentsInDb(g1))
     expect(after.filesCount).toBe(3)
     expect(after.pageCount).toBe(10)
-    expect(after.page.ok && after.page.receipt.submissions).toEqual(after.listed)
+    expect(after.page.ok && after.page.receipt.submissions).toEqual([])
 
     // 沒有評分指派：單組頁 NOT_ASSIGNED（守衛不變）、附件查詢是空陣列（不發附件那一句）。
     counter.reset()

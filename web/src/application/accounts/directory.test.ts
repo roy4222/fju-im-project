@@ -95,6 +95,8 @@ function row(patch: Partial<AccountRow>): AccountRow {
     cohortId: null,
     cohortCode: '114',
     cohortName: '114 學年度',
+    groupId: null,
+    groupCode: null,
     phone: '0912-345-678',
     loginEmail: 's@example.com',
     contactEmail: 'c@example.com',

@@ -912,6 +912,38 @@ docker stop fju-n1-probe
 
 ---
 
+## Cloudflare（橘雲代理）
+
+先講結論：網站前面可以擋一層 Cloudflare。這個 repo 已經讓 Caddy 兩種情況都對（沒切、切了都行），所以**先合、先部署，再慢慢切**，不必配合時間。切了之後要再跑一支腳本，讓 VM 只接受 Cloudflare 的連線；這一步沒做，別人還是能直接打 VM 的 IP 繞過去。
+
+**Caddy 的兩種模式**（`ops/Caddyfile.vm`，不用手動切）：
+- 灰雲或還沒切：連線就是訪客本人，Caddy 把連線 IP 當成真實 IP 交給 app。
+- 橘雲：連線來自 Cloudflare，Caddy 只在「連線真的來自 Cloudflare 範圍」時才相信 `CF-Connecting-IP`；從其他地方偽造這個標頭一律無效。
+- 兩種都把結果放進 `X-Real-IP`，app 的登入限速照舊讀它。沒這一步的話，切橘雲後所有人共用 Cloudflare 的 IP，登入錯幾次全站就被鎖。
+- Cloudflare 範圍清單寫死在 `ops/Caddyfile.vm` 與 `ops/cloudflare-origin-lock.sh`（抓取日期 2026-10-19，來源 `https://www.cloudflare.com/ips-v4`、`/ips-v6`）。要更新時兩個檔一起改（測試會檢查兩邊一致），改完 Caddy 要 `docker compose -f docker-compose.edge.yml restart caddy`，再重跑 `--execute`。
+
+**Roy 的操作清單（照順序）**
+
+1. 先合這張票並部署到測試站、正式站。
+2. DNS：測試站與正式站的 A／AAAA 記錄打開代理（橘雲）。先測試站，確認後再正式站。
+3. SSL/TLS：加密模式選 **Full (strict)**（來源是 Let's Encrypt 憑證，strict 驗得過）。**關**「Always Use HTTPS」、「Automatic HTTPS Rewrites」，「Opportunistic Encryption」建議也關（轉址交給 Caddy，Let's Encrypt 的 HTTP-01 驗證才不會被打亂）。HSTS 不在 Cloudflare 開。
+4. Speed → Optimization：**關** Rocket Loader 與 Email Address Obfuscation（它們會在 HTML 裡塞 inline script，撞上網站不准 inline script 的安全標頭，頁面功能會壞）。Brotli 可開。
+5. Caching → Cache Rules 新增一條：`URI Path starts with "/api/files/"` → Eligible for cache；Edge TTL 選 **Use cache-control header from origin**；Browser TTL 選 Use cache-control header from origin（不要選 Override origin）。**不要**開 Cache Everything 整站規則（HTML 頁會看登入狀態，整站快取會把登入者的頁面給訪客）。Browser Cache TTL 設「Respect Existing Headers」。驗證：對一個公開 PDF 連打兩次，第二次 `cf-cache-status: HIT`；登入後的私有檔是 `BYPASS` 或沒有該標頭。
+6. Security → WAF：Rate limiting rule 一條（Free 方案 1 條）：路徑 `/api/auth/*` 或 `/login`，同一 IP 10 秒內超過 30 次 → 封鎖 10 秒。這是 app 限速之外的粗網，不取代 app 的規則。**Bot Fight Mode 關**（Free 方案無法放行 Playwright、教學錄影、health-cron 的 curl）；Browser Integrity Check 可開。
+7. 來源限制（切橘雲**之後**）：在 VM 上先 `sudo ops/cloudflare-origin-lock.sh`（只印偵測結果與指令）看一眼，再 `sudo ops/cloudflare-origin-lock.sh --execute`。它不用 ufw（ufw 擋不到 Docker 發布的 80／443），改在 `DOCKER-USER` 鏈第一條 jump 到自建鏈 `FJU-CF-ORIGIN`；`--execute` 可重跑，並寫 `fju-cf-origin-lock.service` 讓重開機後自動補回。驗證：
+   - 從 VM 以外直接對 VM 的 IPv4 打 `:443`、`:80`：被拒或逾時。
+   - VM 有 AAAA 時對 IPv6 位址同樣打，也要被拒；沒有 AAAA 記「無 v6」。有 AAAA 但 Docker 的 ip6tables 沒開，腳本會警告，先在 `/etc/docker/daemon.json` 開或拿掉 AAAA，不能放著不管。
+   - 經網域開首頁仍是 200。
+   - `sudo iptables -S DOCKER-USER | awk '$1=="-A" && $2=="DOCKER-USER" {print; exit}'` 的輸出是 `-A DOCKER-USER -j FJU-CF-ORIGIN`（不要用 `head -1`，`-S` 第一行是 `-N DOCKER-USER`）。
+   - 重開機後同一指令、同一結果。
+   - 來源限制**持續啟用**時，憑證要能成功續期（`docker logs fju-edge-caddy` 看到續期成功，當時第一條規則仍是上面那條）。`--release` 之後的續期不算通過。
+   - 要解除：`sudo ops/cloudflare-origin-lock.sh --release`（拿掉 jump 與自建鏈、停用並刪掉單元）。
+8. 驗證：登入錯 5 次，確認被鎖的是自己、不是全站；`/api/health` 經 Cloudflare 仍 200 且 `cache-control: no-store`。切橘雲後開首頁、登入頁、後台首頁，瀏覽器 console 不該有 CSP 違規。
+9. 上傳上限（**要在切橘雲之前做**）：Cloudflare Free 方案每個請求 body 上限 100 MB，app 的 `FILE_MAX_BYTES` 預設 100 MiB 略大，超過會先被 Cloudflare 回 413，看不到 app 的友善訊息。到 Doppler → 專案 `fju-im-capstone` → config `stg` → 鍵 `FILE_MAX_BYTES` 改成 `99614720`（95 MiB）→ Save；`prd` 同樣；然後兩站各重跑一次 `deploy.sh`（值每次部署重新取）。上傳頁的上限文字由程式算，會自動顯示 95 MB。
+10. 舊的 fju-status 的 Cloudflare Access 應用與 DNS 記錄一併刪。
+
+---
+
 ## 檔案對照
 
 | 檔案 | 做什麼 |
@@ -935,6 +967,7 @@ docker stop fju-n1-probe
 | `ops/lib/site.sh` | 上面幾支共用：站台設定、Doppler 取值 |
 | `docker-compose.vm.yml` | 疊在 `docker-compose.yml` 上的站台設定 |
 | `docker-compose.edge.yml`、`ops/Caddyfile.vm` | 兩站共用的 Caddy |
+| `ops/cloudflare-origin-lock.sh` | 切橘雲後：只讓 Cloudflare 連到 80／443（`DOCKER-USER` 鏈；預設只印，`--execute`／`--release`） |
 | `.github/workflows/image.yml` | main 合併後推 `ghcr.io/roy4222/fju-web:<SHA>` 與 `:main` |
 
 VM 上的目錄：

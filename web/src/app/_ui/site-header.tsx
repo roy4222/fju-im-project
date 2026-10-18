@@ -1,8 +1,7 @@
 'use client'
 import Link from 'next/link'
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { IconChevronDown, IconMenu2 } from '@tabler/icons-react'
-import { AccountMenu } from '@/app/_ui/account-menu'
 import { Button } from '@/app/_ui/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/app/_ui/ui/sheet'
 import { cn } from '@/shared/cn'
@@ -25,8 +24,9 @@ function isActive(item: NavItem, current: string | undefined): boolean {
 
 /**
  * 前台導覽列（原型 `components/public/site-header.tsx`）：
- * 左 logo＋「專題管理平台」，選單靠右（hover 橘線），最右一顆橘色主要按鈕；
- * 登入後多一個頭像下拉（我的帳號、後台、登出）。窄螢幕收成右側抽屜。
+ * 左 logo＋「專題管理平台」，選單靠右（hover 橘線），最右一顆橘色主要按鈕。
+ * 登入後那顆按鈕是「我的後台」，沒有頭像下拉：前台對每個人都一樣，我的帳號、切換後台、登出都在後台（C2-14）。
+ * 窄螢幕收成右側抽屜。
  */
 export function SiteHeader({
   nav,
@@ -34,23 +34,14 @@ export function SiteHeader({
   viewer,
   signOutFormId,
   registrationOpen,
-  avatar,
 }: {
   nav: readonly NavItem[]
   current?: string
-  /** 沒登入是 null；登入了帶角色名與後台入口。 */
-  viewer: {
-    roleLabel: string
-    name?: string
-    workbench: { href: string; label: string }
-    /** 兼任角色的其他後台（票 41）；單一角色是空的。 */
-    otherWorkbenches?: readonly { href: string; label: string }[]
-  } | null
+  /** 沒登入是 null；登入了帶後台入口（待審核是申請進度、臨時密碼沒改是更改密碼）。 */
+  viewer: { workbench: { href: string; label: string } } | null
   signOutFormId: string
   /** 註冊關閉時（設計方案 §5）手機選單不列「註冊」；值由伺服器端的 `SiteShell` 決定。 */
   registrationOpen: boolean
-  /** 帳號選單的頭像（伺服器外殼 render 的 `UserAvatar`）；沒登入是 null。 */
-  avatar?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
 
@@ -102,26 +93,10 @@ export function SiteHeader({
 
         <div className="ml-auto flex shrink-0 items-center gap-3 lg:ml-4 xl:ml-6">
           {viewer ? (
-            // 登入後的「回後台」＋頭像要到 lg 才放得下（跟主導覽同一個斷點）；更窄時都收在右側抽屜裡，
-            // 不然 640–1023px 三樣擠在一起會把漢堡推出畫面（#277 審查建議 1）。
-            <>
-              <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap lg:inline-flex">
-                {viewer.workbench.label}
-              </Link>
-              <span className="hidden lg:inline-flex">
-                <AccountMenu
-                  roleLabel={viewer.roleLabel}
-                  name={viewer.name}
-                  avatar={avatar}
-                  signOutFormId={signOutFormId}
-                  links={[
-                    { href: '/account', label: '我的帳號', icon: 'account' },
-                    { href: viewer.workbench.href, label: viewer.workbench.label, icon: 'workbench' },
-                    ...(viewer.otherWorkbenches ?? []).map((w) => ({ href: w.href, label: w.label, icon: 'workbench' as const })),
-                  ]}
-                />
-              </span>
-            </>
+            // 跟主導覽同一個斷點：更窄時收在右側抽屜裡（#277 審查建議 1）。
+            <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap lg:inline-flex">
+              {viewer.workbench.label}
+            </Link>
           ) : (
             <Link href="/login" className="btn-fju hidden h-10.5 px-5.5 text-[15px] sm:inline-flex">
               登入
@@ -164,14 +139,6 @@ export function SiteHeader({
                   <>
                     <Link href={viewer.workbench.href} onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
                       {viewer.workbench.label}
-                    </Link>
-                    {(viewer.otherWorkbenches ?? []).map((w) => (
-                      <Link key={w.href} href={w.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
-                        {w.label}
-                      </Link>
-                    ))}
-                    <Link href="/account" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
-                      我的帳號
                     </Link>
                     <button type="submit" form={signOutFormId} className="rounded-lg px-3 py-3 text-left text-[15px] text-muted-foreground">
                       登出

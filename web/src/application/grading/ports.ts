@@ -1,7 +1,7 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type { EvaluationState, ScoreInput } from '@/application/grading/evaluation'
 import type { GroupResult, OverrideSummary, RemovalChoice } from '@/application/grading/gradebook'
-import type { SchemeStage, SchemeStageInput, SchemeVersionStatus } from '@/application/grading/scheme'
+import type { SchemeItemType, SchemeStage, SchemeStageInput, SchemeVersionStatus } from '@/application/grading/scheme'
 import type { GroupVersionWithFiles } from '@/application/submissions'
 import type { Result } from '@/shared/result'
 
@@ -27,13 +27,18 @@ export type RequirementReceipt = {
   readonly stageKey: string
   readonly stageName: string
   readonly requiredCount: number
+  /** C1-04：實際一起改到的評分項目（同一評審組的全部項目；不屬於評審組就只有 `stageKey`）。 */
+  readonly appliedStageKeys?: readonly string[]
 }
 
 export type AssignEvaluatorReceipt = {
+  /** 請求的那個評分項目上新建的指派。 */
   readonly assignmentId: string
   readonly groupCode: string
   readonly stageName: string
   readonly teacherName: string
+  /** C1-04：同交易一起指派的評分項目（評審組展開；不屬於評審組就只有請求的那一個）。 */
+  readonly appliedStageKeys?: readonly string[]
 }
 
 export type DraftReceipt = {
@@ -156,6 +161,17 @@ export type TeacherQueueEntry = {
   readonly draftAfterFinal: boolean
   /** B 階段 TE-B2a：這一階段系辦已結算（唯讀）。 */
   readonly settled: boolean
+  /**
+   * C1-04：這個評分項目對應的作業（側表 `item_id`）與本組在那份作業的繳交概況（清單的「附件」欄）；沒有對應作業是 null。
+   * `fileCount` 是最新一版的檔案數。
+   */
+  readonly linkedItem: {
+    readonly itemId: string
+    readonly title: string
+    readonly submitted: boolean
+    readonly lastSubmittedAt: Date | null
+    readonly fileCount: number
+  } | null
 }
 
 /** 系辦退回（票 24）：老師看得到理由與時間，退回前的分數預填回表單。 */
@@ -201,13 +217,23 @@ export type TeacherBench = {
 }
 
 /**
- * 評分單組頁一次讀齊的資料（TE-11）：評閱桌＋組長＋老師自己的整份隊列（算上一組／下一組）＋本組正式繳交與附件。
- * `submissions` 是**作業版本**（不是評分送出紀錄）；評分老師讀得到本組整組正式版本，授權跟 `groupVersions` 相同。
+ * 評分單組頁一次讀齊的資料（TE-11；C1-04 改成一次看一個評分項目）：評閱桌＋組長＋老師自己的整份隊列＋
+ * **這個評分項目對應作業**的本組正式版本與附件。
+ * `submissions` 是**作業版本**（不是評分送出紀錄）：只有側表 `item_id` 那份作業的版本（新到舊）；
+ * 這個評分項目沒有對應作業就是空的，**沒有「本組全部繳交」的退路**（設計方案① §3.4）。
  */
 export type TeacherBenchPage = TeacherBench & {
   readonly leaderName: string | null
   readonly queue: readonly TeacherQueueEntry[]
   readonly submissions: readonly GroupVersionWithFiles[]
+  /** 這一頁看的評分項目（`?stage=`；沒帶就是本組第一個分給我的項目）。 */
+  readonly stageKey: string
+  /** 這個評分項目對應的作業；沒有是 null（畫面顯示說明＋「這個項目不看作業，直接填分」）。 */
+  readonly linkedItem: { readonly itemId: string; readonly title: string } | null
+  /** 側表的說明（給老師看）；沒有是 null。 */
+  readonly stageDescription: string | null
+  /** 同屆同評分項目、照老師清單排序的上一組／下一組（第一組／最後一組那一邊是 null）。 */
+  readonly neighbors: { readonly prev: string | null; readonly next: string | null }
 }
 
 /** 票 19 重派對話框：原老師在本組的評分指派（`groups.GradingAssignmentSummary` 的形狀）。 */
@@ -224,9 +250,12 @@ export interface GradingCommand {
   createSchemeVersion(actor: ResolvedActor, input: CreateSchemeVersionInput, requestId: string): Promise<Result<SchemeVersionReceipt>>
   /** 發布草稿成為目前版本。目前版本已鎖定 → `SCHEME_LOCKED`（改結構要走新版本套用，票 24）。 */
   publishScheme(actor: ResolvedActor, input: { versionId: string }, requestId: string): Promise<Result<SchemeVersionReceipt>>
-  /** 設定某組某階段要幾份評分（0–10）。 */
+  /** 設定某組某階段要幾位老師評（0–10）。屬於評審組時同交易改評審組全部項目（`appliedStageKeys`）。 */
   setRequirement(actor: ResolvedActor, input: SetRequirementInput, requestId: string): Promise<Result<RequirementReceipt>>
-  /** 指派評分老師；老師收到「評分指派」通知。同組同階段同老師重複 → `VALIDATION_FAILED`。 */
+  /**
+   * 指派評分老師；老師收到「評分指派」通知。同組同階段同老師重複 → `VALIDATION_FAILED`。
+   * 屬於評審組時同交易對評審組全部項目各建一筆（任一項目不能指派就整筆不做）。
+   */
   assign(actor: ResolvedActor, input: AssignEvaluatorInput, requestId: string): Promise<Result<AssignEvaluatorReceipt>>
   /**
    * 受指派老師暫存（可以沒填完；正式送出後也可以，B 階段 TE-B1）。不是本人的有效指派 → `NOT_ASSIGNED`；
@@ -247,8 +276,12 @@ export interface GradingQuery {
   teacherQueue(actor: ResolvedActor): Promise<readonly TeacherQueueEntry[]>
   /** 老師的評閱桌：只回本人在這一組的有效指派；沒有 → `NOT_ASSIGNED`。 */
   teacherBench(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBench>>
-  /** 評分單組頁：`teacherBench`、`teacherQueue`、本組正式繳交（含附件）並行一次讀；守衛同 `teacherBench`（沒有指派 → `NOT_ASSIGNED`）。 */
-  teacherBenchPage(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBenchPage>>
+  /**
+   * 評分單組頁：`teacherBench`、`teacherQueue`、本組正式繳交（含附件）並行一次讀。
+   * 先驗本人對 `(groupId, stageKey)` 有有效指派（`stageKey` 沒給＝本組第一個分給我的項目），沒有 → `NOT_ASSIGNED`、不回任何繳交；
+   * 繳交只留這個評分項目對應作業的版本，沒有對應作業是空陣列（C1-04）。
+   */
+  teacherBenchPage(actor: ResolvedActor, groupId: string, stageKey?: string | null): Promise<Result<TeacherBenchPage>>
   /** 系辦首頁（AD-21）：本屆待復核的更正（1 句 SQL；跟成績表的 `pendingReviews` 同一份）。不是管理員 → `FORBIDDEN`。 */
   pendingReviews(actor: ResolvedActor, cohortId: string): Promise<Result<readonly PendingReview[]>>
   /**
@@ -318,7 +351,8 @@ export type PendingReview = {
   readonly groupCode: string
   readonly originalValue: string
   readonly newValue: string
-  readonly reason: string
+  /** 選填（C1-04）；沒填是 null。 */
+  readonly reason: string | null
 }
 
 export type Gradebook = {
@@ -423,7 +457,8 @@ export type RemoveAssignmentInput = {
   readonly choice: RemovalChoice
   /** 替換時可選（不選＝只移除，缺評等之後再指派）；新增時必填；保留時不能給。 */
   readonly newTeacherUserId: string | null
-  readonly reason: string
+  /** 選填（C1-04、X2）；空白當沒填。 */
+  readonly reason?: string | null
   /** 預覽拿到的；執行時在鎖內重算，不同就 `CONFLICT`（預覽過期，要重新預覽）。 */
   readonly basisHash: string
 }
@@ -435,6 +470,8 @@ export type RemoveAssignmentReceipt = {
   readonly newTeacherName: string | null
   readonly choice: RemovalChoice
   readonly requiredCount: number | null
+  /** C1-04：同交易一起移除／改派的評分項目（評審組展開；不屬於評審組就只有被移除的那一個）。 */
+  readonly appliedStageKeys?: readonly string[]
 }
 
 export type ReturnEvaluationInput = { readonly evaluationId: string; readonly reason: string }
@@ -450,7 +487,8 @@ export type OverrideInput = {
   readonly groupId: string
   /** 更正後的最終成績（0–100、最多兩位小數）。 */
   readonly newValue: string
-  readonly reason: string
+  /** 選填（C1-04、X2）；空白當沒填。 */
+  readonly reason?: string | null
   /** 畫面看到的計算基礎；成績剛變動就 `CONFLICT`。 */
   readonly basisHash: string
 }
@@ -497,11 +535,14 @@ export type SchemeApplyPreview = {
 export type ApplySchemeInput = { readonly versionId: string; readonly token: string }
 
 export interface GradingResultsCommand {
-  /** 退回某位老師的正式分數（理由必填）；老師收到通知、可以修改後重送。指派已結束 → `NOT_ASSIGNED`；已不是採計中 → `CONFLICT`。 */
+  /** 退回某位老師的正式分數（理由**必填**，C 階段 X2 也不放寬）；老師收到通知、可以修改後重送。指派已結束 → `NOT_ASSIGNED`；已不是採計中 → `CONFLICT`。 */
   returnEvaluation(actor: ResolvedActor, input: ReturnEvaluationInput, requestId: string): Promise<Result<ReturnReceipt>>
-  /** 移除或改派評分老師（三選一）。預覽後採計集合變了 → `CONFLICT`（要重新預覽）。 */
+  /**
+   * 移除或改派評分老師（三選一；理由選填）。預覽後採計集合變了 → `CONFLICT`（要重新預覽）。
+   * 被移除的項目屬於評審組時，同交易對評審組其他項目上同一位老師的指派做同一件事（各自套既有規則，任一不行整筆不做）。
+   */
   removeAssignment(actor: ResolvedActor, input: RemoveAssignmentInput, requestId: string): Promise<Result<RemoveAssignmentReceipt>>
-  /** 更正最終結果（保留原值、理由）。最終還沒完成 → `FINAL_INCOMPLETE`。 */
+  /** 更正最終結果（保留原值；理由選填）。最終還沒完成 → `FINAL_INCOMPLETE`。 */
   override(actor: ResolvedActor, input: OverrideInput, requestId: string): Promise<Result<OverrideReceipt>>
   /** 處理待復核的更正。 */
   resolveReview(actor: ResolvedActor, input: ResolveReviewInput, requestId: string): Promise<Result<OverrideReceipt>>
@@ -532,7 +573,8 @@ export type Settlement = {
   readonly stageName: string
   readonly settledAt: Date
   readonly settledBy: { readonly userId: string; readonly name: string }
-  readonly reason: string
+  /** 選填（C1-04、X2）；沒填是 null。 */
+  readonly reason: string | null
   readonly countedEvaluations: number
 }
 
@@ -559,12 +601,12 @@ export type ReleaseReceipt = {
 
 export interface GradingSettlementCommand {
   /**
-   * 系辦結算一個階段。FORBIDDEN → VALIDATION_FAILED（理由 1–500 字、階段不在目前版本）→ COHORT_ARCHIVED →
+   * 系辦結算一個階段。FORBIDDEN → VALIDATION_FAILED（理由選填、有填 ≤ 500 字；階段不在目前版本）→ COHORT_ARCHIVED →
    * CONFLICT「{階段名}已於 {時間} 結算」。不發通知。
    */
   settleStage(
     actor: ResolvedActor,
-    input: { readonly cohortId: string; readonly stageKey: string; readonly reason: string },
+    input: { readonly cohortId: string; readonly stageKey: string; readonly reason?: string | null },
     requestId: string,
   ): Promise<Result<SettlementReceipt>>
   /**
@@ -573,7 +615,7 @@ export interface GradingSettlementCommand {
    */
   releaseSettlement(
     actor: ResolvedActor,
-    input: { readonly settlementId: string; readonly reason: string },
+    input: { readonly settlementId: string; readonly reason?: string | null },
     requestId: string,
   ): Promise<Result<ReleaseReceipt>>
 }
@@ -608,4 +650,56 @@ export interface GradingSnapshotQuery {
    * （設計方案 §4.2 寫 NOT_FOUND，但錯誤碼表沒有 NOT_FOUND，跟 `adminBoard`／`gradebook`／結算一樣用 VALIDATION_FAILED。）
    */
   cohortSnapshot(actor: ResolvedActor, cohortId: string): Promise<Result<CohortGradingSnapshot>>
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// C 階段 C1-04：評分項目側表（對應作業、說明、評審組）與前台評分方式（設計方案① §1.3、§3.4、§7.5）
+// ════════════════════════════════════════════════════════════════════════════
+
+/** 一個評分項目的側表設定；`itemTitle` 是對應作業的標題（沒有對應是 null）。 */
+export type StageSetting = {
+  readonly stageKey: string
+  readonly itemId: string | null
+  readonly itemTitle: string | null
+  readonly description: string | null
+  readonly panelKey: string | null
+}
+
+export type SetStageSettingInput = {
+  readonly cohortId: string
+  readonly stageKey: string
+  readonly itemId: string | null
+  readonly description: string | null
+  readonly panelKey: string | null
+}
+
+export interface GradingStageSettingCommand {
+  /**
+   * 系辦設定評分項目的對應作業、說明、評審組；三者都 null＝刪列。`stageKey` 必須在目前已發布版本裡（還沒發布 → `VALIDATION_FAILED`）；
+   * `itemId` 要同屆、收件、整組、非草稿、非同意書；`panelKey` 非 null 且同屆已有別的項目用同一個 `panelKey` 時，
+   * 先驗每一組這些項目的有效指派老師集合與「要幾位老師評」相同，不同 → `VALIDATION_FAILED` 列組別（`details.groups`），
+   * 不自動補指派、不結束任何指派。不建新版、不鎖方案。
+   */
+  setStageSetting(actor: ResolvedActor, input: SetStageSettingInput, requestId: string): Promise<Result<StageSetting>>
+}
+
+export interface GradingStageSettingQuery {
+  /** 系辦讀一屆的側表；只回目前已發布版本存在的 `stage_key`（依 `stage_key` 排序）。不是系辦 → `FORBIDDEN`。 */
+  stageSettings(actor: ResolvedActor, cohortId: string): Promise<Result<readonly StageSetting[]>>
+}
+
+/** 前台 /rules「評分方式」區塊：一屆目前方案的評分項目、比例、說明、細項。 */
+export type PublicGradingWeights = {
+  readonly cohortName: string
+  readonly stages: readonly {
+    readonly name: string
+    readonly weight: number
+    readonly description: string | null
+    readonly items: readonly { readonly name: string; readonly weight: number; readonly type: SchemeItemType }[]
+  }[]
+}
+
+/** 前台 /rules 用：這一屆已發布方案的評分項目與比例；沒有已發布方案 → `weights: null`。訪客可讀（不帶任何分數）。 */
+export interface PublicGradingQuery {
+  weights(cohortId: string): Promise<Result<{ readonly weights: PublicGradingWeights | null }>>
 }

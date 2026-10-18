@@ -10,6 +10,7 @@ import {
   type AuditLogEntry,
   type AuditWhoFilter,
 } from '@/application/ops'
+import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { personName } from '@/infrastructure/db/person-name'
 
 /**
@@ -38,6 +39,9 @@ type Row = {
   real_at: Date
   actor_kind: AuditLogEntry['actorKind']
   actor_name: string | null
+  actor_user_id: string | null
+  avatar_preset: number | null
+  avatar_file_id: string | null
   role: AuditLogEntry['role']
   action: string
   target_type: string
@@ -70,6 +74,8 @@ export async function readAuditLog(
     select a.id, a.real_at, a.actor_kind, a.role, a.action, a.target_type, a.reason, a.verification_method,
            case when a.action = 'account.approve' then nullif(btrim(a.payload->>'verificationNote'), '') end as verification_note,
            case when a.actor_user_id is null then null else ${personName('ap', 'au')} end as actor_name,
+           -- 操作者頭像（C3 §2.3）：帳號找不到時 id 也是 null，畫面就維持「（已不存在的帳號）」純文字。
+           au.id as actor_user_id, ${personAvatar('ap')},
            case a.target_type
              when 'user' then ${personName('tp', 'tu')}
              when 'registration_application' then ${personName('rp', 'ru')}
@@ -124,7 +130,8 @@ export async function readAuditLog(
   const rows = await db.query<Row>(
     `${ev}
      select a.id, a.real_at, a.actor_kind, a.role, a.action, a.target_type, a.reason, a.verification_method,
-            a.verification_note, a.actor_name, a.target_name, a.cohort_code, a.cohort_name
+            a.verification_note, a.actor_name, a.actor_user_id, a.avatar_preset, a.avatar_file_id,
+            a.target_name, a.cohort_code, a.cohort_name
        from hit a
       where ${WHO_SQL[who]}
       order by a.real_at desc, a.id desc
@@ -137,6 +144,9 @@ export async function readAuditLog(
     realAt: r.real_at,
     actorKind: r.actor_kind,
     actorName: r.actor_name,
+    actorUserId: r.actor_user_id,
+    actorAvatarPreset: r.avatar_preset,
+    actorAvatarFileId: r.avatar_file_id,
     role: r.role,
     action: r.action,
     targetType: r.target_type,
