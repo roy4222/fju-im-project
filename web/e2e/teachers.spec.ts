@@ -58,7 +58,7 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
 
-  await admin.getByRole('button', { name: '新增老師', exact: true }).click()
+  await admin.getByRole('button', { name: '新增成員', exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '新增老師' })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('登入 Email').fill(email)
@@ -78,7 +78,7 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   await dialog.getByRole('button', { name: '關閉' }).click()
 
   // 3. 關掉就拿不回來：重新打開是空白表單，整頁（含 RSC payload）找不到這組密碼。
-  await admin.getByRole('button', { name: '新增老師', exact: true }).click()
+  await admin.getByRole('button', { name: '新增成員', exact: true }).click()
   await expect(dialog.getByTestId('temporary-password')).toHaveCount(0)
   await expect(dialog.getByLabel('登入 Email')).toHaveValue('')
   await dialog.getByRole('button', { name: '取消' }).click()
@@ -122,7 +122,7 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
 
-  await admin.getByRole('button', { name: '新增老師', exact: true }).click()
+  await admin.getByRole('button', { name: '新增成員', exact: true }).click()
   const dialog = admin.getByRole('dialog', { name: '新增老師' })
   await dialog.getByLabel('只用 Email 預先建立').check()
   // 預授權不發密碼，也就不需要核實方式。
@@ -143,11 +143,10 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   await expect(hijacker.getByText('這個 Email 無法用來註冊')).toBeVisible()
   await hijacker.context().close()
 
-  // 系辦用 Email 查到這位老師，核實後發臨時密碼。
-  await admin.getByRole('button', { name: '發臨時密碼', exact: true }).click()
+  // 系辦用 Email 找到這位老師那一列，核實後發臨時密碼（C 階段規格② A15：標題列不再有「發臨時密碼」，改在每一列）。
+  await admin.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(email)}`)
+  await admin.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ hasText: email }).getByRole('button', { name: /^發臨時密碼給/ }).click()
   const temp = admin.getByRole('dialog', { name: '發臨時密碼' })
-  await temp.getByLabel('登入 Email').fill(email)
-  await temp.getByRole('button', { name: '查詢' }).click()
   await expect(temp).toContainText('老師')
   await expect(temp.getByLabel('當面核對身分證件（教職員證、身分證）')).toBeVisible()
   await expect(temp).not.toContainText('學生證')
@@ -191,11 +190,14 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
   await expect(student).toHaveURL(/\/register\/apply$/)
 
   const admin = await adminPage(browser)
-  await admin.goto('/dashboard/admin/accounts')
-  await admin.getByRole('button', { name: '發臨時密碼', exact: true }).click()
+  await admin.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(session.email)}`)
+  await admin
+    .getByRole('table', { name: '帳號列表' })
+    .getByRole('row')
+    .filter({ hasText: session.email })
+    .getByRole('button', { name: /^發臨時密碼給/ })
+    .click()
   const temp = admin.getByRole('dialog', { name: '發臨時密碼' })
-  await temp.getByLabel('登入 Email').fill(session.email)
-  await temp.getByRole('button', { name: '查詢' }).click()
   await expect(temp).toContainText('待審核')
 
   // 沒選核實方式不送。

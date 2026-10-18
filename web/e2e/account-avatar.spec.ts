@@ -69,7 +69,8 @@ test('沒選過：顯示 hash 預設圖；上傳 EXIF 照片後換成自己的�
 
   await page.reload()
   await expect(avatarImg(page)).toHaveAttribute('src', src!)
-  // 帳號選單也是同一張。
+  // 後台的帳號選單也是同一張（前台沒有帳號選單，C2-14）。
+  await page.goto('/dashboard/student')
   await expect(page.getByRole('button', { name: '帳號選單' }).locator('img')).toHaveAttribute('src', src!)
 })
 

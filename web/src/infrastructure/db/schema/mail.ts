@@ -29,7 +29,7 @@ export const mailOutbox = pgTable(
     sentAt: timestamp('sent_at', tz),
   },
   (t) => [
-    check('mail_outbox_template_check', sql`${t.template} in ('email_otp','password_reset','registration_result')`),
+    check('mail_outbox_template_check', sql`${t.template} in ('email_otp','password_reset','registration_result','reminder')`),
     check('mail_outbox_status_check', sql`${t.status} in ('queued','sent','failed','captured')`),
     index('mail_outbox_created_at_idx').on(t.createdAt.desc()),
   ],

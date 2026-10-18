@@ -272,6 +272,9 @@ export type ProposalInvitation = {
   readonly state: InvitationState
   /** 本人最後一次按確認／拒絕／撤回的時間。 */
   readonly decidedRealAt: Date | null
+  /** 頭像兩欄（`AvatarUser`；C3 §2.2），同一句列表查詢帶出。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 export type ProposalSummary = {

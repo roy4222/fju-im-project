@@ -93,12 +93,12 @@ async function signIn(page: Page, email: string) {
 }
 
 function pendingRow(page: Page, name: string) {
-  // 帳號頁下方還有「全部帳號」表格（票 9），待審的人兩邊都有；這裡只看上方的待審核清單。
+  // 待審核清單（C2-07 起在「待審核」分頁；不看帳號列表）。
   return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
 async function openReview(page: Page, name: string) {
-  await page.goto('/dashboard/admin/accounts')
+  await page.goto('/dashboard/admin/accounts/pending')
   await page.getByRole('button', { name: `審核 ${name}` }).click()
   const dialog = page.getByRole('dialog', { name: `審核 ${name}` })
   await expect(dialog).toBeVisible()
@@ -176,11 +176,13 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
 
   // 系辦：待審清單並列比對結果。
   const admin = await adminPage(browser)
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   const row = pendingRow(admin, S01.name)
   await expect(row).toContainText('名單符合')
   await expect(row).toContainText('Email 不同')
-  await expect(row).toContainText('第 2 版')
+  // C 階段規格② A19（AC-C2-20）：列上不寫「第 N 版」，只寫「已重送」。
+  await expect(row).toContainText('已重送')
+  await expect(row).not.toContainText('第 2 版')
 
   const dialog = await openReview(admin, S01.name)
   const evidence = dialog.getByRole('table', { name: '申請資料與名冊並列' })
@@ -231,7 +233,7 @@ test('3＋4：退回必填理由、學生看得到理由並修改重送；未命
   await expect(student).toHaveURL(/\/register\/pending$/)
 
   const admin = await adminPage(browser)
-  await admin.goto('/dashboard/admin/accounts')
+  await admin.goto('/dashboard/admin/accounts/pending')
   await expect(pendingRow(admin, S13.name)).toContainText('不在本屆名單上')
 
   let dialog = await openReview(admin, S13.name)

@@ -828,3 +828,78 @@ describe('讀取邊界（SGN-10 入口）', () => {
     expect(await query.versionDetail(teacher, v1.versionId)).toMatchObject({ ok: true })
   })
 })
+
+describe('0021（C1-01）：同意書連到作業的唯一鍵、理由選填', () => {
+  async function consentItem(s: Scenario, purpose = 'result_confirmation') {
+    const row = await owner.sql(
+      `insert into managed_items (id, cohort_id, placement, audience_kind, receiver_unit, title, created_by_kind, created_by_user_id,
+                                  consent_mode, consent_purpose)
+       values (gen_random_uuid(), $1, 'submission', 'groups', 'group', '期中結果確認', 'user', $2, 'form', $3) returning id`,
+      [s.cohortId, adminId, purpose],
+    )
+    return String(row.rows[0]!.id)
+  }
+  const insertPackage = (s: Scenario, purpose: string, itemId: string | null) =>
+    owner.sql(
+      `insert into signoff_packages (id, group_id, cohort_id, purpose, item_id, created_by_user_id)
+       values (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+      [s.groupId, s.cohortId, purpose, itemId, adminId],
+    )
+
+  it('連作業的包一組一份作業一包；同組同用途可以有多份作業；沒連作業的舊包維持一組一用途一包', async () => {
+    const s = await scenario()
+    const first = await consentItem(s)
+    const second = await consentItem(s)
+    await expect(insertPackage(s, 'result_confirmation', first)).resolves.toBeTruthy()
+    await expect(insertPackage(s, 'result_confirmation', second)).resolves.toBeTruthy()
+    await expect(insertPackage(s, 'final_document', first)).rejects.toThrow(/signoff_packages_group_item_unique/)
+    // 舊包（item_id null）與連作業的包互不影響；舊包同組同用途只能一個。
+    await expect(insertPackage(s, 'result_confirmation', null)).resolves.toBeTruthy()
+    await expect(insertPackage(s, 'result_confirmation', null)).rejects.toThrow(/signoff_packages_legacy_group_purpose_unique/)
+    await expect(insertPackage(s, 'final_document', null)).resolves.toBeTruthy()
+    expect(
+      await count(`select count(*) as n from signoff_packages where group_id = $1 and item_id is not null`, [s.groupId]),
+    ).toBe(2)
+  })
+
+  it('舊 API createVersion 仍只操作沒連作業的包：同組已有連作業的同用途包，照樣建自己的舊包', async () => {
+    const s = await scenario()
+    await insertPackage(s, 'result_confirmation', await consentItem(s))
+    const v1 = await mustCreate(s)
+    const v2 = await mustCreate(s, { content: '修正後的內容' })
+    expect(v2).toMatchObject({ versionNo: 2, supersededVersionNo: 1 })
+    expect(
+      await count(`select count(*) as n from signoff_packages where group_id = $1 and item_id is null`, [s.groupId]),
+    ).toBe(1)
+    expect(await statusOf(v1.versionId)).toEqual({ state: 'superseded', cause: 'content_change' })
+  })
+
+  it('不同意、退回的理由可以留空（AC-22a 的資料庫面）；結果白名單照擋', async () => {
+    const s = await scenario()
+    const { versionId } = await mustCreate(s)
+    const event = await owner.sql(
+      `insert into domain_events (id, type, scope, source_type, source_id, actor_kind, occurred_real_at, occurred_business_at)
+       values (gen_random_uuid(), 'test.notification', 'global', 'test', gen_random_uuid(), 'system', now(), now()) returning id`,
+    )
+    const vote = (userId: string, role: string, result: string, studentNo: string | null) =>
+      owner.sql(
+        `insert into approvals (id, version_id, user_id, role, display_name_at, student_no_at, result, reason, login_method,
+                                button_text, event_id, request_id, real_at, business_at)
+         values (gen_random_uuid(), $1, $2, $3, '某人', $4, $5, null, 'password', '不同意', $6, gen_random_uuid(), now(), now())`,
+        [versionId, userId, role, studentNo, result, event.rows[0]!.id],
+      )
+    await expect(vote(s.members[0]!.id, 'student', 'disagree', '411000001')).resolves.toBeTruthy()
+    await expect(vote(s.teacher.id, 'advisor', 'return', null)).resolves.toBeTruthy()
+    await expect(vote(s.members[1]!.id, 'student', 'return', '411000002')).rejects.toThrow(/approvals_result_check/)
+    expect(
+      await count(`select count(*) as n from approvals where version_id = $1 and reason is null and result <> 'agree'`, [versionId]),
+    ).toBe(2)
+    expect(
+      await count(
+        `select count(*) as n from pg_constraint c join pg_namespace n on n.oid = c.connamespace
+          where n.nspname = $1 and conname = 'approvals_reason_check'`,
+        [owner.schemaName],
+      ),
+    ).toBe(0)
+  })
+})

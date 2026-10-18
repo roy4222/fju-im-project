@@ -344,7 +344,7 @@ test('AC-33：指定 G01 的重要公告通知 G01 的指導老師、點得開�
       { timeout: 30_000, intervals: [1_000, 2_000] },
     )
     .toBe(1)
-  await page.getByTestId('inbox-item').filter({ hasText: GROUP_NEWS }).getByRole('link', { name: GROUP_NEWS }).click()
+  await page.getByTestId('inbox-item').filter({ hasText: GROUP_NEWS }).getByRole('button', { name: GROUP_NEWS }).click()
   await expect(page).toHaveURL(new RegExp(`/news/${itemIds[GROUP_NEWS]}$`))
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(GROUP_NEWS)
 

@@ -18,7 +18,7 @@ import {
   OPPORTUNITY_STATUS_LABEL,
 } from '@/composition/groups'
 
-export const metadata = { title: '合作案｜資管系專題平台' }
+export const metadata = { title: '產學合作｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/industry'
 
@@ -28,7 +28,7 @@ const BASE = '/dashboard/admin/industry'
  * 系辦可以編輯、發布、下架、重新發布任何一案，也可以解除連結（理由必填）。
  * 第三波 W11：系辦也能「新增合作案」並從選單指定負責老師（老師自己建的負責老師仍是登入帳號）；
  * 草稿或已下架、沒連組別的可以刪除——刪除放在頁面底部的「危險操作」區（§9 規則 1），不跟日常按鈕並列。
- * AD-07：標題用側欄名「分組」，下面掛「分組總覽｜合作案」分頁列，「新增合作案」放分頁列右側。
+ * AD-07：標題用側欄名「分組」，下面掛「全部組別｜未分組學生｜產學合作」分頁列（C2-04），「新增合作案」放分頁列右側。
  */
 export default async function AdminIndustryPage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。

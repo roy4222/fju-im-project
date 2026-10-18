@@ -6,6 +6,9 @@ import type { InboxActionState } from '@/app/dashboard/_inbox/inbox-forms'
 import { OUTLINE_BUTTON } from '@/app/dashboard/teacher/_ui/dash'
 import { cn } from '@/shared/cn'
 
+/** 有來源頁的通知標題（C2-15）：三個角色同一顆，點了標已讀並導去來源頁。 */
+export { OpenNotificationButton } from '@/app/dashboard/_inbox/inbox-forms'
+
 /**
  * 老師通知匣的兩顆按鈕（票 37 換成原型外觀；動作與回饋跟三個角色共用的 `_inbox/actions.ts` 同一支）。
  * 都是真的 `<form>` 送 Server Action：沒有 JavaScript 也按得動。

@@ -30,6 +30,9 @@ export type AdvisorInfo = {
   readonly since: Date
   /** 老師自己填的聯絡信箱（`user_profiles.contact_email`，Q122），不是登入 Email；沒有個人資料列時為 null。 */
   readonly contactEmail: string | null
+  /** 老師的頭像兩欄（`AvatarUser`；C3 §2.2），同一句查詢帶出。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 /** 管理員指派對話框的老師選項：有效、目前是老師的帳號。 */
@@ -37,6 +40,9 @@ export type TeacherOption = {
   readonly userId: string
   readonly name: string
   readonly loginEmail: string
+  /** 頭像兩欄（`AvatarUser`；C3 §2.2），同一句查詢帶出。 */
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
 }
 
 /**
