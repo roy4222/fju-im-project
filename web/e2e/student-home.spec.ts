@@ -413,7 +413,7 @@ async function chunksOf(page: Page, path: string): Promise<string[]> {
   return urls
 }
 
-test('AC-ST-24：Pixel Trail 掛在首頁「現在階段」橫幅；滑過後按鈕仍可點；交作業、組別、/timeline 沒有', async ({ browser }) => {
+test('AC-ST-24（規格④ C4-02 改 Pixel Card）：Pixel Card 掛在首頁「現在階段」橫幅；移入後 pulse、按鈕仍可點；交作業、組別、/timeline 沒有', async ({ browser }) => {
   async function freshPage(reducedMotion: 'reduce' | 'no-preference') {
     const context = await browser.newContext()
     await context.addCookies([toPlaywrightCookie(people.a.session.cookie, BASE_URL)])
@@ -421,21 +421,25 @@ test('AC-ST-24：Pixel Trail 掛在首頁「現在階段」橫幅；滑過後按
     await page.emulateMedia({ reducedMotion })
     return page
   }
-  // 拖尾的 chunk＝首頁「會動」比「減少動態」多要的那幾個（chunk 名是雜湊，不寫死）。
+  // Pixel 引擎的 chunk＝首頁「會動」比「減少動態」多要的那幾個（chunk 名是雜湊，不寫死）。
   const still = await freshPage('reduce')
   const withoutTrail = await chunksOf(still, HOME)
+  await expect(still.getByRole('region', { name: '現在階段' }).getByTestId('hero-pixel')).toHaveCount(0)
   await expect(still.getByRole('region', { name: '現在階段' }).locator('canvas')).toHaveCount(0)
   await still.context().close()
 
   const page = await freshPage('no-preference')
   const withTrail = await chunksOf(page, HOME)
   const hero = page.getByRole('region', { name: '現在階段' })
+  const pixel = hero.getByTestId('hero-pixel')
+  await expect(pixel).toHaveAttribute('data-state', 'idle')
   await expect(hero.locator('canvas')).toHaveCount(1)
   const trailChunks = withTrail.filter((url) => !withoutTrail.includes(url))
   expect(trailChunks.length).toBeGreaterThan(0)
 
   const box = (await hero.boundingBox())!
   await page.mouse.move(box.x + 40, box.y + 40)
+  await expect(pixel).toHaveAttribute('data-state', 'pulse')
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 })
   await hero.getByTestId('hero-next').getByRole('link', { name: '繼續填寫' }).click()
   await expect(page).toHaveURL(new RegExp(`${HOME}/affairs/${ids.midterm}$`))
@@ -449,7 +453,7 @@ test('AC-ST-24：Pixel Trail 掛在首頁「現在階段」橫幅；滑過後按
     const other = await freshPage('no-preference')
     const loaded = await chunksOf(other, path)
     await expect(other.locator('canvas')).toHaveCount(0)
-    expect(loaded.filter((url) => trailChunks.includes(url)), `${path} 不該下載拖尾 chunk`).toEqual([])
+    expect(loaded.filter((url) => trailChunks.includes(url)), `${path} 不該下載 Pixel 引擎 chunk`).toEqual([])
     await other.context().close()
   }
 })

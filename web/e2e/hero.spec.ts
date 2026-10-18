@@ -108,26 +108,163 @@ for (const role of ['student', 'teacher', 'admin'] as const) {
   })
 }
 
-test('老師首頁：橫幅有「看完整時程」→ /timeline 與像素拖尾 hero-trail（AC-SH-55①、AC-TE-09）', async ({ page }) => {
-  // 拖尾只在桌機、非觸控、沒開減少動態時掛（預設的 Desktop Chrome 符合）。
+/** 等 Pixel Card 的引擎 chunk 載完、開始畫（`data-state` 由引擎設）。 */
+async function pixelReady(page: Page) {
+  const hero = page.getByRole('region', { name: '現在階段' })
+  const pixel = hero.getByTestId('hero-pixel')
+  await expect(pixel).toHaveAttribute('data-state', 'idle')
+  return { hero, pixel, canvas: hero.locator('canvas') }
+}
+
+const canvasPixels = (page: Page) => page.locator('section.hero canvas').evaluate((c: HTMLCanvasElement) => c.toDataURL())
+
+test('老師首頁：橫幅有「看完整時程」→ /timeline 與 Pixel Card hero-pixel（AC-SH-55①、AC-TE-09、規格④ AC-6、AC-7、AC-64）', async ({ page }) => {
+  // 桌機、非觸控、沒開減少動態（預設的 Desktop Chrome 符合）：常駐閃版。
+  const csp: string[] = []
+  page.on('console', (msg) => {
+    if (/Content Security Policy/i.test(msg.text())) csp.push(msg.text())
+  })
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   const hero = await openHome(page, 'teacher')
   const timeline = hero.getByRole('link', { name: '看完整時程' })
   await expect(timeline).toHaveAttribute('href', '/timeline')
-  await expect(hero.getByTestId('hero-trail')).toHaveCount(1)
-  await expect(hero.locator('canvas')).toHaveCount(1)
+  const { pixel, canvas } = await pixelReady(page)
+  await expect(page.locator('section.hero [data-testid=hero-pixel]')).toHaveCount(1)
+  await expect(canvas).toHaveCount(1)
+  await expect(pixel).toHaveAttribute('data-running', '1')
+  await expect(hero.getByRole('heading', { level: 1, name: /^歡迎回來，/ })).toBeVisible()
+  await expect(hero.getByText('現在', { exact: true })).toBeVisible()
+  await expect(hero.getByTestId('stage-text')).toBeVisible()
+  // 掛上、畫過之後橫幅裡仍然沒有任何 style 屬性；section 本身不搶 Tab。
+  await expect(hero.locator('[style]')).toHaveCount(0)
+  expect(await hero.getAttribute('tabindex')).not.toBe('0')
 
   // 老師側欄與前台導覽都沒有時程入口：從橫幅實際點得到 /timeline。
   await timeline.click()
   await expect(page).toHaveURL(/\/timeline$/)
   await expect(page.getByRole('heading', { level: 1, name: '專題時程' })).toBeVisible()
+  expect(csp).toEqual([])
 })
 
-test('系辦首頁：橫幅有像素拖尾 hero-trail（Roy 10/18 新增）', async ({ page }) => {
+test('三角色首頁都有 Pixel Card（規格④ AC-14）', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  const hero = await openHome(page, 'admin')
-  await expect(hero.getByTestId('hero-trail')).toHaveCount(1)
-  await expect(hero.locator('canvas')).toHaveCount(1)
+  for (const role of ['admin', 'student'] as const) {
+    const hero = await openHome(page, role)
+    await pixelReady(page)
+    await expect(hero.locator('canvas')).toHaveCount(1)
+    await expect(hero.getByRole('heading', { level: 1, name: /^歡迎回來，/ })).toBeVisible()
+    await expect(hero.getByTestId('stage-text')).toBeVisible()
+    await expect(hero.locator('[style]')).toHaveCount(0)
+  }
+})
+
+test('常駐閃：滑鼠不在橫幅上、不點，相隔 1 秒 canvas 像素不同，全程 idle、running（規格④ AC-70）', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.mouse.move(2, 2)
+  await openHome(page, 'teacher')
+  const { pixel } = await pixelReady(page)
+  await expect(pixel).toHaveAttribute('data-running', '1')
+  const first = await canvasPixels(page)
+  await page.waitForTimeout(1000)
+  const second = await canvasPixels(page)
+  expect(second).not.toBe(first)
+  await expect(pixel).toHaveAttribute('data-state', 'idle')
+  await expect(pixel).toHaveAttribute('data-running', '1')
+})
+
+test('滑鼠移入：200 ms 內 pulse、約 1.2 秒回 idle；點橫幅空白處也 pulse，按鈕照樣點得到（規格④ AC-8、AC-9）', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.mouse.move(2, 2)
+  await openHome(page, 'teacher')
+  const { hero, pixel } = await pixelReady(page)
+  const box = (await hero.boundingBox())!
+
+  await page.mouse.move(box.x + box.width * 0.6, box.y + 12)
+  await expect(pixel).toHaveAttribute('data-state', 'pulse', { timeout: 200 })
+  const t0 = await canvasPixels(page)
+  await page.waitForTimeout(300)
+  expect(await canvasPixels(page)).not.toBe(t0)
+  await expect(pixel).toHaveAttribute('data-state', 'idle', { timeout: 2000 })
+  await expect(hero.locator('[style]')).toHaveCount(0)
+
+  // 橫幅右上角附近（不是按鈕）點一下。
+  await page.mouse.click(box.x + box.width * 0.6, box.y + 12)
+  await expect(pixel).toHaveAttribute('data-state', 'pulse', { timeout: 200 })
+  await hero.getByRole('link', { name: '看完整時程' }).click()
+  await expect(page).toHaveURL(/\/timeline$/)
+})
+
+test('鍵盤 Tab 到「看完整時程」：中心漣漪（規格④ AC-10）', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.mouse.move(2, 2)
+  await openHome(page, 'teacher')
+  const { hero, pixel } = await pixelReady(page)
+  const timeline = hero.getByRole('link', { name: '看完整時程' })
+  for (let i = 0; i < 80; i++) {
+    await page.keyboard.press('Tab')
+    if (await timeline.evaluate((el) => el === document.activeElement)) break
+  }
+  await expect(timeline).toBeFocused()
+  await expect(pixel).toHaveAttribute('data-state', 'pulse')
+})
+
+test('減少動態：不掛 Pixel Card，橫幅純色（規格④ AC-11）', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const hero = await openHome(page, 'teacher')
+  await expect(hero.getByTestId('stage-text')).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await expect(hero.getByTestId('hero-pixel')).toHaveCount(0)
+  await expect(hero.locator('canvas')).toHaveCount(0)
+})
+
+test('手機（390×844、觸控）：不常駐閃，點一下才有漣漪（規格④ AC-12）', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'no-preference' })
+  const page = await context.newPage()
+  try {
+    await openHome(page, 'teacher')
+    const { hero, pixel } = await pixelReady(page)
+    await expect(pixel).toHaveAttribute('data-running', '0')
+    const box = (await hero.boundingBox())!
+    await page.touchscreen.tap(box.x + box.width - 16, box.y + 16)
+    await expect(pixel).toHaveAttribute('data-state', 'pulse')
+    await expect(pixel).toHaveAttribute('data-running', '1')
+    // 漣漪畫完就停。
+    await expect(pixel).toHaveAttribute('data-state', 'idle', { timeout: 3000 })
+    await expect(pixel).toHaveAttribute('data-running', '0', { timeout: 3000 })
+  } finally {
+    await context.close()
+  }
+})
+
+test('橫幅捲出畫面或分頁隱藏：停；回來再跑（規格④ AC-13）', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await openHome(page, 'teacher')
+  const { pixel } = await pixelReady(page)
+  await expect(pixel).toHaveAttribute('data-running', '1')
+
+  // 頁尾加一段很高的空白，確定捲得走橫幅（測試自己加的元素，不在橫幅裡）。
+  await page.evaluate(() => {
+    const spacer = document.createElement('div')
+    spacer.id = 'e2e-spacer'
+    spacer.style.height = '4000px'
+    document.body.append(spacer)
+    window.scrollTo(0, document.body.scrollHeight)
+  })
+  await expect(pixel).toHaveAttribute('data-running', '0')
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(pixel).toHaveAttribute('data-running', '1')
+
+  // 分頁隱藏：模擬 visibilitychange。
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect(pixel).toHaveAttribute('data-running', '0')
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect(pixel).toHaveAttribute('data-running', '1')
 })
 
 test('系辦沒有預設屆別：橫幅只說「還沒有設定後台預設查看的屆別。」，不再叫人去「屆別」頁（AC-SH-68）', async ({ page }) => {
