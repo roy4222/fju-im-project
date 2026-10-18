@@ -131,7 +131,7 @@ function MyOpportunities({ items, targets }: { items: readonly ManagedOpportunit
                       <span className="tabular text-xs text-muted-foreground">{formatTaipeiDate(taipeiDateOf(o.publishedAt))} 發布</span>
                     ) : null}
                   </div>
-                  <Link href={`/industry/${o.id}`} className="link-ink mt-1 block truncate text-[15px] font-bold text-foreground">
+                  <Link href={`/industry/${o.id}`} className="link-ink mt-1 block truncate text-[15px] font-bold text-foreground hover:text-primary">
                     {o.fields.companyName}
                   </Link>
                   <p className="truncate text-sm text-muted-foreground">
@@ -198,7 +198,7 @@ function AllOpportunities({ cards, me }: { cards: readonly OpportunityCard[]; me
                     {c.linkedGroupCount > 0 ? <Pill>已連結 {c.linkedGroupCount} 組</Pill> : <Pill tone="brand">尚未連結組別</Pill>}
                     {c.publishedAt ? <span className="tabular text-xs text-muted-foreground">{formatTaipeiDate(taipeiDateOf(c.publishedAt))} 發布</span> : null}
                   </div>
-                  <Link href={`/industry/${c.id}`} className="link-ink mt-1 block truncate text-[15px] font-bold text-foreground">
+                  <Link href={`/industry/${c.id}`} className="link-ink mt-1 block truncate text-[15px] font-bold text-foreground hover:text-primary">
                     {c.companyName}
                   </Link>
                   <p className="truncate text-sm text-muted-foreground">
