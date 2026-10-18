@@ -617,7 +617,8 @@ export class PgAccountCommand implements AccountCommand {
           `insert into user_status_events
              (id, user_id, from_status, to_status, reason, actor_kind, actor_user_id, real_at)
            values ($1, $2, 'pending', 'active', $3, 'user', $4, $5)`,
-          [uuidv7(), target.userId, `補上身分：${repair.value.reason}`, actor.userId, now],
+          // 理由選填（C2 X2）：沒寫存 NULL，有寫才加「補上身分：」前綴。
+          [uuidv7(), target.userId, repair.value.reason === null ? null : `補上身分：${repair.value.reason}`, actor.userId, now],
         )
       }
       await tx.query(

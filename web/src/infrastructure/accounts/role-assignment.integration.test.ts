@@ -329,10 +329,11 @@ describe('孤兒帳號補建角色', () => {
       role: 'teacher',
       granted_by_user_id: a1.userId,
     })
-    expect(await one(`select from_status, to_status, actor_user_id from user_status_events where user_id = $1`, [orphan.userId])).toEqual({
+    expect(await one(`select from_status, to_status, actor_user_id, reason from user_status_events where user_id = $1`, [orphan.userId])).toEqual({
       from_status: 'pending',
       to_status: 'active',
       actor_user_id: a1.userId,
+      reason: '補上身分：新增老師時系統出錯，補建',
     })
     expect(await one(`select reason, payload from audit_events where action = 'account.repair_orphan' and target_id = $1`, [orphan.userId])).toEqual({
       reason: '新增老師時系統出錯，補建',
@@ -352,6 +353,18 @@ describe('孤兒帳號補建角色', () => {
     })
     expect(await one(`select status, role from users where id = $1`, [orphan.userId])).toEqual({ status: 'active', role: 'admin' })
     expect(await validAdmins(orphan.userId)).toEqual({ n: 1 })
+  })
+
+  it('理由選填（C2 X2）：留空補建 → 狀態事件、角色與稽核的理由都是 NULL（不會存成「補上身分：null」）', async () => {
+    const a1 = await account({ roles: ['admin'] })
+    const orphan = await account({ status: 'pending' })
+    expect(await command.repairOrphan(a1.actor, { userId: orphan.userId, role: 'teacher', reason: '  ', requestId: requestId() })).toMatchObject({
+      ok: true,
+      receipt: { activated: true },
+    })
+    expect(await one(`select reason from user_status_events where user_id = $1`, [orphan.userId])).toEqual({ reason: null })
+    expect(await one(`select reason from role_assignments where user_id = $1`, [orphan.userId])).toEqual({ reason: null })
+    expect(await one(`select reason from audit_events where action = 'account.repair_orphan' and target_id = $1`, [orphan.userId])).toEqual({ reason: null })
   })
 
   it('不是孤兒（有申請、有角色、有個人資料、已停用）、角色不對、理由超過上限、非管理員 → 拒絕且不改任何東西', async () => {
