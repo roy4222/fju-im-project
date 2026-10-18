@@ -1425,6 +1425,12 @@ async function seedG01Attachments(filesRoot: string): Promise<Record<keyof typeo
     await pool.query(`insert into file_references (id, file_id, ref_type, ref_id) values (gen_random_uuid(), $1, 'submission_version', $2)`, [id, versionId])
     ids[field] = id
   }
+  // C1-04：批改頁只列「這個評分項目對應作業」的版本（沒連結不退回整組全部繳交），所以把這份作業連到 s1（系統驗收）。
+  await pool.query(
+    `insert into grading_stage_settings (cohort_id, stage_key, item_id, updated_by_user_id) values ($1, 's1', $2, $3)
+     on conflict (cohort_id, stage_key) do update set item_id = excluded.item_id`,
+    [cohortId, itemId, adminId],
+  )
   return ids
 }
 

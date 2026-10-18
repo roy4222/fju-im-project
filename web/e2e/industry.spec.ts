@@ -382,9 +382,9 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   // 通知匣看得到（背景工作投影），點進去是合作案頁。
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByRole('link', { name: `組別 G01 與「${COMPANY_B}・資訊部」的連結已解除` })).toBeVisible({ timeout: 1_000 })
+    await expect(page.getByRole('button', { name: `組別 G01 與「${COMPANY_B}・資訊部」的連結已解除` })).toBeVisible({ timeout: 1_000 })
   }).toPass({ timeout: 30_000 })
-  await page.getByRole('link', { name: `組別 G01 與「${COMPANY_B}・資訊部」的連結已解除` }).click()
+  await page.getByRole('button', { name: `組別 G01 與「${COMPANY_B}・資訊部」的連結已解除` }).click()
   await expect(page).toHaveURL(new RegExp(`/industry/${await opportunityId(COMPANY_B)}$`))
 })
 

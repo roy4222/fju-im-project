@@ -176,13 +176,17 @@ describe('名單比對（student_no＋正規化姓名）', () => {
 })
 
 describe('核准與退回的欄位', () => {
-  it('核實方式必選；三種以外的值一律擋', () => {
-    expect(normalizeApproval({ verificationMethod: '', verificationNote: '', reason: '' })).toMatchObject({
+  it('核實方式不用選：沒帶就是 office_review；不認得的值一律擋', () => {
+    expect(normalizeApproval({ verificationMethod: '', verificationNote: '', reason: '' })).toEqual({
+      ok: true,
+      value: { verificationMethod: 'office_review', verificationNote: null, reason: null },
+    })
+    expect(normalizeApproval({ verificationMethod: 'office_review', verificationNote: '', reason: '' }).ok).toBe(true)
+    expect(normalizeApproval({ verificationMethod: 'class_rep', verificationNote: '', reason: '' })).toMatchObject({
       ok: false,
-      message: '請選擇怎麼確認是本人。',
       details: { field: 'verificationMethod' },
     })
-    expect(normalizeApproval({ verificationMethod: 'class_rep', verificationNote: '', reason: '' }).ok).toBe(false)
+    expect(normalizeApproval({ verificationMethod: 'email_roster_match', verificationNote: '', reason: '' }).ok).toBe(false)
   })
 
   it('當面核對證件：說明與理由都選填', () => {
@@ -406,7 +410,7 @@ describe('Q42 自動開通的條件（VB-6，AC-VI-57）', () => {
     expect(VERIFICATION_METHODS).toContain('google_email_match')
     expect(VERIFICATION_LABEL.google_email_match).toBe('Google Email 與名單相同（自動開通）')
     expect(VERIFICATION_NOTE_REQUIRED.google_email_match).toBe(false)
-    expect(MANUAL_VERIFICATION_METHODS).toEqual(['id_document', 'school_channel', 'other'])
+    expect(MANUAL_VERIFICATION_METHODS).toEqual(['id_document', 'school_channel', 'other', 'office_review'])
     expect(normalizeApproval({ verificationMethod: 'google_email_match', verificationNote: '', reason: '' })).toMatchObject({
       ok: false,
       details: { field: 'verificationMethod' },

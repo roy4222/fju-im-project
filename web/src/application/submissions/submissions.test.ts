@@ -4,8 +4,11 @@ import {
   answerFields,
   describeReceipt,
   fileAnswers,
+  formTypeOf,
   isAnswerField,
+  itemKindOf,
   normalizeAnswers,
+  normalizeOptionalReason,
   phaseOf,
   statusOf,
   submitIssues,
@@ -214,5 +217,34 @@ describe('回執句子', () => {
     expect(describeReceipt({ title: '意向調查', versionNo: 2, receivedBusinessAt: '2026-11-15T15:59:59.000Z' })).toBe(
       '「意向調查」已送出：第 2 次正式送出，送出時間 2026/11/15 23:59:59（臺灣時間）。',
     )
+  })
+})
+
+describe('選填理由（C 階段 X2：補交、免繳）', () => {
+  it('沒填、空白、不是字串 → null；有填去頭尾空白；超過上限擋', () => {
+    expect(normalizeOptionalReason(undefined, 200)).toEqual({ ok: true, reason: null })
+    expect(normalizeOptionalReason(null, 200)).toEqual({ ok: true, reason: null })
+    expect(normalizeOptionalReason('   ', 200)).toEqual({ ok: true, reason: null })
+    expect(normalizeOptionalReason('  請假  ', 200)).toEqual({ ok: true, reason: '請假' })
+    expect(normalizeOptionalReason('字'.repeat(200), 200)).toEqual({ ok: true, reason: '字'.repeat(200) })
+    expect(normalizeOptionalReason('字'.repeat(201), 200)).toEqual({ ok: false })
+  })
+})
+
+describe('作業的種類與形式（C 階段規格① §3.2 清單「形式」欄）', () => {
+  it('種類看同意書模式', () => {
+    expect(itemKindOf(null)).toBe('assignment')
+    expect(itemKindOf('form')).toBe('consent_form')
+    expect(itemKindOf('upload')).toBe('consent_upload')
+  })
+
+  it('只有檔案欄＝檔案、沒有檔案欄＝表單、混合＝表單＋檔案；區段標題不算', () => {
+    const file: FormField = { key: 'f', type: 'file', label: '報告', required: true }
+    const text: FormField = { key: 't', type: 'text', label: '題目', required: true }
+    const heading: FormField = { key: 'h', type: 'heading', label: '說明', required: false }
+    expect(formTypeOf([heading, file])).toBe('file')
+    expect(formTypeOf([heading, text])).toBe('form')
+    expect(formTypeOf([text, file])).toBe('mixed')
+    expect(formTypeOf([])).toBe('form')
   })
 })

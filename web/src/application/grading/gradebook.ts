@@ -218,7 +218,8 @@ export type OverrideSummary = {
   readonly id: string
   readonly originalValue: string
   readonly newValue: string
-  readonly reason: string
+  /** 選填（C1-04、X2）；沒填是 null。 */
+  readonly reason: string | null
   readonly state: OverrideState
 }
 
@@ -240,6 +241,6 @@ export function describeOverride(override: OverrideSummary | null): string {
   if (!override || override.state === 'superseded') return ''
   const change = `原 ${formatScore(override.originalValue)} → ${formatScore(override.newValue)}`
   return override.state === 'effective'
-    ? `已更正：${change}（${override.reason}）`
+    ? `已更正：${change}${override.reason ? `（${override.reason}）` : ''}`
     : `更正需要重新確認：${change}（分數來源已改變，目前不套用）`
 }

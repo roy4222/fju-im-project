@@ -317,3 +317,32 @@ export function describeReceipt(receipt: {
   const who = receipt.groupCode ? `代表 ${receipt.groupCode} 組` : ''
   return `「${receipt.title}」已送出：${who}第 ${receipt.versionNo} 次正式送出，送出時間 ${formatTaipeiSecond(new Date(receipt.receivedBusinessAt))}（臺灣時間）。`
 }
+
+// ── 理由（C 階段 X2：補交、免繳的理由選填） ─────────────────────────────────
+
+/**
+ * 選填理由的整理：不是字串、空白 → null（沒填）；有填就去頭尾空白、驗長度（超過回 `{ ok:false }`）。
+ * 存進資料庫的是 null 或 1–`max` 字（DB CHECK 同一條）。
+ */
+export function normalizeOptionalReason(raw: unknown, max: number): { ok: true; reason: string | null } | { ok: false } {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (text === '') return { ok: true, reason: null }
+  if (text.length > max) return { ok: false }
+  return { ok: true, reason: text }
+}
+
+// ── 作業的種類與形式（清單「形式」欄；C 階段規格① §3.2） ─────────────────────
+
+export function itemKindOf(consentMode: string | null): 'assignment' | 'consent_form' | 'consent_upload' {
+  if (consentMode === 'form') return 'consent_form'
+  if (consentMode === 'upload') return 'consent_upload'
+  return 'assignment'
+}
+
+/** 有且只有檔案欄＝檔案、沒有檔案欄＝表單、兩種都有＝表單＋檔案（只看要填的欄位，區段標題與說明不算）。 */
+export function formTypeOf(fields: readonly FormField[]): 'file' | 'form' | 'mixed' {
+  const answers = answerFields(fields)
+  const files = answers.filter(isFileField).length
+  if (files === 0) return 'form'
+  return files === answers.length ? 'file' : 'mixed'
+}

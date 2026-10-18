@@ -63,9 +63,12 @@ test('操作紀錄伺服器端搜尋：Enter 送出網址帶 q、打一次伺服
   await signIn(page, 'admin')
   for (const code of [CODE_A, CODE_B]) {
     await page.goto('/dashboard/admin/cohorts')
-    await page.getByLabel('代碼').fill(code)
-    await page.getByLabel('名稱').fill(`${code} 搜尋測試`)
+    // C2-06：「新增屆別」開視窗填。
     await page.getByRole('button', { name: '新增屆別' }).click()
+    const create = page.getByRole('dialog', { name: '新增屆別' })
+    await create.getByLabel('代碼').fill(code)
+    await create.getByLabel('名稱').fill(`${code} 搜尋測試`)
+    await create.getByRole('button', { name: '確定新增' }).click()
     await expect(page.getByRole('main').getByRole('status')).toContainText(code)
   }
 

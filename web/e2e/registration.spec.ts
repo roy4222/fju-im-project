@@ -7,7 +7,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  *
  * 1. 學生填表註冊 → 等待審核頁；只看得到等待審核與「修改資料」；改了重新比對、仍是待審。
  * 2. 系辦待審清單並列比對結果；學生剛改過資料 → 舊畫面核准被擋、要重新核對。
- * 3. 核准必選核實方式；未命中要指定屆別；退回必填理由。
+ * 3. 核准一鍵、不問核實方式；未命中要指定屆別；退回必填理由。
  * 4. 核准後學生登入進學生首頁；退回的看得到理由。
  * 5. 同一 IP 一小時超過 30 次註冊被擋。
  *
@@ -92,15 +92,30 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 })
 }
 
+/** 這個登入 Email 最新一筆申請的狀態與核實方式（AC-C2-15 證據）。 */
+async function approvedMethod(email: string): Promise<{ state: string; verification_method: string | null }> {
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  try {
+    const row = await pool.query<{ state: string; verification_method: string | null }>(
+      `select state, verification_method from registration_applications where login_email = $1 order by created_at desc limit 1`,
+      [email],
+    )
+    return row.rows[0]!
+  } finally {
+    await pool.end()
+  }
+}
+
 function pendingRow(page: Page, name: string) {
   // 待審核清單（C2-07 起在「待審核」分頁；不看帳號列表）。
   return page.locator('table:not([aria-label="帳號列表"])').getByRole('row').filter({ has: page.getByText(name, { exact: true }) })
 }
 
-async function openReview(page: Page, name: string) {
+/** 開核准（名單沒比對到、有爭議才會開視窗）或退回的視窗。 */
+async function openReview(page: Page, name: string, kind: '核准' | '退回') {
   await page.goto('/dashboard/admin/accounts/pending')
-  await page.getByRole('button', { name: `審核 ${name}` }).click()
-  const dialog = page.getByRole('dialog', { name: `審核 ${name}` })
+  await page.getByRole('button', { name: `${kind} ${name}` }).click()
+  const dialog = page.getByRole('dialog', { name: `${kind} ${name}` })
   await expect(dialog).toBeVisible()
   return dialog
 }
@@ -180,42 +195,30 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   const row = pendingRow(admin, S01.name)
   await expect(row).toContainText('名單符合')
   await expect(row).toContainText('Email 不同')
-  // C 階段規格② A19（AC-C2-20）：列上不寫「第 N 版」，只寫「已重送」。
-  await expect(row).toContainText('已重送')
+  // C 階段規格② A19（AC-C2-20）：列上不寫「第 N 版」；只有被退回後重送的才寫「已重送」，學生只是改過資料不算。
+  await expect(row).not.toContainText('已重送')
   await expect(row).not.toContainText('第 2 版')
 
-  const dialog = await openReview(admin, S01.name)
-  const evidence = dialog.getByRole('table', { name: '申請資料與名冊並列' })
-  await expect(evidence).toContainText(S01.email)
-  await expect(evidence).toContainText('roster-copy@example.com')
-  await expect(evidence).toContainText('不同')
-  // 命中一屆：屆別由名單決定，不能改。
-  await expect(dialog.getByTestId('locked-cohort')).toContainText(cohortName)
-
-  // 核實方式必選。
-  await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('請選擇怎麼確認是本人。')
-
-  // 系辦畫面還開著（第 2 版），學生又改了一次（第 3 版）。
+  // 系辦畫面還開著（第 2 版），學生又改了一次（第 3 版）：舊畫面按「核准」被擋。
   await student.getByLabel('系級').fill('資管二乙')
   await student.getByRole('button', { name: '儲存修改' }).click()
   await expect(student.getByRole('list', { name: '修改紀錄' }).getByText(/・編輯$/)).toHaveCount(2)
 
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
-  await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('學生剛修改過申請資料（現在是第 3 版')
-  await dialog.getByRole('button', { name: '重新載入清單' }).click()
+  await admin.getByRole('button', { name: `核准 ${S01.name}` }).click()
+  const stale = admin.getByRole('dialog', { name: `核准 ${S01.name}` })
+  await expect(stale.getByRole('alert')).toContainText('學生剛修改過申請資料（現在是第 3 版')
+  await stale.getByRole('button', { name: '重新載入清單' }).click()
 
-  // 重新打開、核對新資料後核准。
-  const fresh = await openReview(admin, S01.name)
-  await expect(fresh).toContainText('申請資料第 3 版')
-  await expect(fresh.getByRole('table', { name: '申請資料與名冊並列' })).toContainText('資管二乙')
-  await fresh.getByLabel('當面核對學生證或其他身分證件').check()
-  await fresh.getByRole('button', { name: '核准' }).click()
-  await expect(fresh.getByRole('status')).toContainText('已核准')
-  await expect(fresh.getByRole('status')).toContainText(cohortName)
-  await fresh.getByRole('button', { name: '關閉' }).click()
+  // 重新載入後核對新資料；名單比對到、屆別由名單決定 → 一鍵核准：不開視窗、不問怎麼確認是本人，列直接消失。
+  // 先等清單換成學生改過的資料（系級資管二乙），不然會拿舊版本再核准一次。
+  await expect(pendingRow(admin, S01.name)).toContainText('資管二乙')
+  await expect(pendingRow(admin, S01.name)).toContainText('名單符合')
+  await expect(admin.getByRole('dialog')).toHaveCount(0)
+  await admin.getByRole('button', { name: `核准 ${S01.name}` }).click()
   await expect(pendingRow(admin, S01.name)).toHaveCount(0)
+  await expect(admin.getByRole('dialog', { name: `核准 ${S01.name}` })).toHaveCount(0)
+  await expect(admin.getByText('怎麼確認是本人')).toHaveCount(0)
+  expect(await approvedMethod(S01.email)).toEqual({ state: 'approved', verification_method: 'office_review' })
 
   // 學生：重新整理就進學生首頁；登出再用密碼登入也一樣。
   await student.goto('/register/pending')
@@ -227,7 +230,7 @@ test('1＋2＋3＋4：註冊 → 待審只看得到自己的申請 → 修改重
   await studentCtx.close()
 })
 
-test('3＋4：退回必填理由、學生看得到理由並修改重送；未命中要指定屆別、其他方式要說明', async ({ browser }) => {
+test('3＋4：退回必填理由、學生看得到理由並修改重送（列上標已重送）；未命中只選屆別就核准', async ({ browser }) => {
   const { context: studentCtx, page: student } = await studentContext(browser)
   await fillRegistration(student, S13)
   await expect(student).toHaveURL(/\/register\/pending$/)
@@ -236,13 +239,15 @@ test('3＋4：退回必填理由、學生看得到理由並修改重送；未命
   await admin.goto('/dashboard/admin/accounts/pending')
   await expect(pendingRow(admin, S13.name)).toContainText('不在本屆名單上')
 
-  let dialog = await openReview(admin, S13.name)
-  await expect(dialog.getByRole('table', { name: '申請資料與名冊並列' })).toContainText('不在本屆名單上')
-  // 退回沒寫理由：擋下。
-  await dialog.getByRole('button', { name: '退回' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('退回一定要寫理由')
+  let dialog = await openReview(admin, S13.name, '退回')
+  // 退回的視窗只有一欄理由。
+  await expect(dialog.getByLabel('核准進哪一屆')).toHaveCount(0)
+  await expect(dialog).not.toContainText('怎麼確認')
+  // 退回沒寫理由：擋下（AC-C2-12）。
+  await dialog.getByRole('button', { name: '退回', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('退回一定要寫理由，申請人會看到這段。')
   await dialog.getByLabel(/^理由/).fill('學號與學生證不符，請確認後重新送出')
-  await dialog.getByRole('button', { name: '退回' }).click()
+  await dialog.getByRole('button', { name: '退回', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText('已退回')
   await dialog.getByRole('button', { name: '關閉' }).click()
 
@@ -255,18 +260,22 @@ test('3＋4：退回必填理由、學生看得到理由並修改重送；未命
   await expect(student.getByRole('heading', { name: '等待系辦審核' })).toBeVisible()
   await expect(student.getByRole('status')).toContainText('申請已送出')
 
-  // 未命中：要選屆別；選了「用其他方式確認本人」卻沒寫說明 → 伺服器擋。
-  dialog = await openReview(admin, S13.name)
+  // 退回後重送：列尾「已重送」，沒有「第 N 版」（AC-C2-20）。
+  await admin.goto('/dashboard/admin/accounts/pending')
+  await expect(pendingRow(admin, S13.name)).toContainText('已重送')
+  await expect(pendingRow(admin, S13.name)).not.toContainText('第 1 版')
+
+  // 未命中：小視窗只有屆別（AC-C2-19），選了就核准，不問怎麼確認是本人。
+  dialog = await openReview(admin, S13.name, '核准')
   const cohortSelect = dialog.getByLabel('核准進哪一屆')
   await expect(cohortSelect).toBeVisible()
+  await expect(dialog).not.toContainText('怎麼確認')
+  await expect(dialog.getByLabel(/^理由/)).toHaveCount(0)
   await cohortSelect.selectOption({ label: `${cohortName}（${cohortCode}）` })
-  await dialog.getByLabel('用其他方式確認本人').check()
-  await dialog.getByRole('button', { name: '核准' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('選「用其他方式確認本人」時要說明用了什麼方式。')
-  await dialog.getByLabel(/^怎麼確認的說明/).fill('系主任當面確認為轉學生')
-  await dialog.getByRole('button', { name: '核准' }).click()
+  await dialog.getByRole('button', { name: '核准', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
   await expect(dialog.getByRole('status')).toContainText(cohortName)
+  expect(await approvedMethod(S13.email)).toEqual({ state: 'approved', verification_method: 'office_review' })
 
   await student.reload()
   await expect(student).toHaveURL(/\/dashboard\/student$/)

@@ -127,14 +127,14 @@ export default async function CompetitionsPage({
             clearHref={narrowed ? '/competitions' : undefined}
           />
         ) : (
-          <ul className="grid gap-6 md:grid-cols-2">
+          <ul className="grid gap-6 xl:grid-cols-2">
             {items.map((c) => (
               <li key={c.id} id={c.id} className="scroll-mt-24">
                 <article
                   data-testid="competition-card"
-                  className="grid h-full overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[280px_minmax(0,1fr)]"
+                  className="grid h-full overflow-hidden rounded-xl border border-border bg-card lg:grid-cols-[280px_minmax(0,1fr)]"
                 >
-                  <div className="relative aspect-video overflow-hidden sm:aspect-auto sm:min-h-52">
+                  <div className="relative aspect-video overflow-hidden lg:aspect-auto lg:min-h-52">
                     {/* next/image 會輸出 style 屬性，被正式站 CSP 擋。 */}
                     {/* 寬高只是 16:9 的比例提示（先留好版位）；實際大小照 CSS。 */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -102,6 +102,9 @@ export async function importRosterAction(input: {
 // 授權、欄位規則、版本檢查都在用例裡（只有狀態正常的管理員；核實方式必選；
 // 學生改過資料就 CONFLICT）。這裡只把輸入收成正確的型別。
 
+/** 系辦核准不再問怎麼確認是本人（C2-10）：固定寫 `office_review`，port 的簽名不變。 */
+const OFFICE_REVIEW = 'office_review'
+
 function revisionOf(value: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : NaN
 }
@@ -109,29 +112,23 @@ function revisionOf(value: unknown): number {
 export async function approveRegistrationAction(input: {
   applicationId: string
   revision: number
-  verificationMethod: string
-  verificationNote: string
   reason: string
   cohortId: string | null
   requestId: string
 }): Promise<ActionOutcome<DecisionReceipt>> {
   const applicationId = text(input?.applicationId, 100) ?? ''
   const requestId = text(input?.requestId, 100) ?? ''
-  const verificationMethod = text(input?.verificationMethod ?? '', 50) ?? ''
-  const verificationNote = text(input?.verificationNote ?? '', 2000)
   const reason = text(input?.reason ?? '', 2000)
   const cohortId = input?.cohortId === null || input?.cohortId === '' ? null : text(input?.cohortId, 100)
-  if (verificationNote === null || reason === null) {
-    return { ok: false, code: 'VALIDATION_FAILED', message: '說明或理由太長了。' }
-  }
+  if (reason === null) return { ok: false, code: 'VALIDATION_FAILED', message: '理由太長了。' }
 
   const actor = await resolveActor(await headers())
   const outcome = toOutcome(
     await getRegistrationCommand().approve(actor, {
       applicationId,
       revision: revisionOf(input?.revision),
-      verificationMethod,
-      verificationNote,
+      verificationMethod: OFFICE_REVIEW,
+      verificationNote: '',
       reason,
       cohortId: cohortId ?? null,
       requestId,
@@ -187,8 +184,6 @@ export async function bulkApproveAction(input: {
   items: { applicationId: string; revision: number; requestId: string }[]
   /** 預覽時就略過的人：只回報原因、不核准（第三波 W6 審查修正）。 */
   previewSkipped: string[]
-  verificationMethod: string
-  verificationNote: string
   reason: string
 }): Promise<ActionOutcome<BulkApprovalReceipt>> {
   const items = Array.isArray(input?.items)
@@ -198,18 +193,14 @@ export async function bulkApproveAction(input: {
         requestId: text(i?.requestId, 100) ?? '',
       }))
     : []
-  const verificationMethod = text(input?.verificationMethod ?? '', 50) ?? ''
-  const verificationNote = text(input?.verificationNote ?? '', 2000)
   const reason = text(input?.reason ?? '', 2000)
-  if (verificationNote === null || reason === null) {
-    return { ok: false, code: 'VALIDATION_FAILED', message: '說明或理由太長了。' }
-  }
+  if (reason === null) return { ok: false, code: 'VALIDATION_FAILED', message: '理由太長了。' }
   const actor = await resolveActor(await headers())
   return toOutcome(await getRegistrationCommand().approveMany(actor, {
       items,
       previewSkipped: idList(input?.previewSkipped),
-      verificationMethod,
-      verificationNote,
+      verificationMethod: OFFICE_REVIEW,
+      verificationNote: '',
       reason,
     }))
 }
@@ -385,26 +376,23 @@ type TemporaryPasswordOutcome = { temporaryPassword: string | null; issuedAt: st
 
 export async function issueTemporaryPasswordAction(input: {
   userId: string
-  verificationMethod: string
-  verificationNote: string
+  /** 畫面還在問的欄位（C2-11 才拿掉）；伺服器一律當 `office_review`，這兩個值不會用到。 */
+  verificationMethod?: string
+  verificationNote?: string
   reason: string
   requestId: string
 }): Promise<ActionOutcome<TemporaryPasswordOutcome>> {
   const userId = text(input?.userId, 100) ?? ''
   const requestId = text(input?.requestId, 100) ?? ''
-  const verificationMethod = text(input?.verificationMethod ?? '', 50) ?? ''
-  const verificationNote = text(input?.verificationNote ?? '', 2000)
   const reason = text(input?.reason ?? '', 2000)
-  if (verificationNote === null || reason === null) {
-    return { ok: false, code: 'VALIDATION_FAILED', message: '說明或理由太長了。' }
-  }
+  if (reason === null) return { ok: false, code: 'VALIDATION_FAILED', message: '理由太長了。' }
 
   const incoming = await headers()
   const actor = await resolveActor(incoming)
   const result = await getAccountCommand().issueTemporaryPassword(actor, new Headers(incoming), {
     userId,
-    verificationMethod,
-    verificationNote,
+    verificationMethod: OFFICE_REVIEW,
+    verificationNote: '',
     reason,
     requestId,
   })

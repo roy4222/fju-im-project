@@ -113,6 +113,9 @@ export function inboxCohortText(item: { readonly cohortCode: string | null; read
 
 export type MarkReadReceipt = { readonly changed: number }
 
+/** 點開通知（C2-15）：點進去的地方；沒有來源頁（無法存取、撤回、或來源本來就沒有頁面）時是 null。 */
+export type OpenNotificationReceipt = { readonly href: string | null }
+
 /** 管理端「發一則測試通知」（模組 08 §6；只在測試站）。 */
 export type TestNotificationInput = {
   readonly recipientUserId: string

@@ -65,8 +65,10 @@ export {
   normalizeGradeExportFilter,
   normalizeGradeExportRequest,
   selectExportGroups,
+  unassignedSlotDetails,
   unassignedSlots,
 } from '@/application/grading/export'
+export type { UnassignedSlot } from '@/application/grading/export'
 export type {
   ApplySchemeInput,
   AssignmentHistoryEntry,
@@ -122,6 +124,24 @@ export type {
   TeacherGroupAssignment,
   TeacherQueueEntry,
 } from '@/application/grading/ports'
+export type {
+  GradingStageSettingCommand,
+  GradingStageSettingQuery,
+  PublicGradingQuery,
+  PublicGradingWeights,
+  SetStageSettingInput,
+  StageSetting,
+} from '@/application/grading/ports'
+export type { PanelGroupFacts, StageSettingFields } from '@/application/grading/stage-settings'
+export {
+  describePanelMismatch,
+  MAX_PANEL_KEY_LENGTH,
+  MAX_STAGE_DESCRIPTION_LENGTH,
+  normalizeStageSetting,
+  optionalReason,
+  panelMismatches,
+  panelStageKeys,
+} from '@/application/grading/stage-settings'
 export type { StageProgressRow } from '@/application/grading/snapshot'
 export { deriveStageRows } from '@/application/grading/snapshot'
 export type { GroupVersionWithFiles } from '@/application/submissions'
