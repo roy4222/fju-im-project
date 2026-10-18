@@ -189,7 +189,15 @@ async function publishedNews(title: string, adminId: string): Promise<string> {
      values (gen_random_uuid(), $1, 1, $2, '摘要', '<p>內容</p>', $3) returning id`,
     [itemId, title, adminId],
   )
-  await pool.query(`update managed_items set status = 'published', current_content_version_id = $2 where id = $1`, [itemId, content.rows[0]!.id])
+  const schema = await pool.query<{ id: string }>(
+    `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id) values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
+    [itemId, adminId],
+  )
+  await pool.query(`update managed_items set status = 'published', current_content_version_id = $2, current_schema_version_id = $3 where id = $1`, [
+    itemId,
+    content.rows[0]!.id,
+    schema.rows[0]!.id,
+  ])
   return itemId
 }
 
@@ -259,7 +267,7 @@ test('C2-15（AC-C2-36）：有來源的通知點標題就算已讀並導去來�
   await expect(rowA.getByRole('button', { name: titleA, exact: true })).not.toHaveClass(/font-bold/)
   await expect(rowB).toHaveAttribute('data-read', 'false')
   const sql = await pool.query<{ id: string; read_at: Date | null }>(`select id, read_at from notifications where id in ($1, $2)`, [noteA, noteB])
-  writeFileSync(test.info().outputPath('C2-15-sql-1.json'), JSON.stringify(sql.rows, null, 2))
+  writeFileSync(test.info().outputPath('C2-15-sql-1.json'), JSON.stringify(sql.rows.map((r) => ({ note: r.id === noteA ? 'A（點過）' : 'B（沒點）', ...r })), null, 2))
   const evidence = Object.fromEntries(sql.rows.map((r) => [r.id, r.read_at]))
   expect(evidence[noteA]).not.toBeNull()
   expect(evidence[noteB]).toBeNull()
