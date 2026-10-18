@@ -98,7 +98,7 @@ test('AC-59（共用框）：390 寬帳號頁，表格有捲動提示、表頭�
   await asAdmin(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/dashboard/admin/accounts')
-  const head = page.locator('thead').first()
+  const head = page.getByRole('table', { name: '帳號列表', exact: true }).locator('thead')
   await expect(head).toBeVisible()
   const container = page.locator('[data-slot="table-container"]').filter({ has: head })
   await expect(container).toHaveAttribute('data-scroll', 'start')
