@@ -1,4 +1,16 @@
+import { cookies } from 'next/headers'
 import { signOutAction } from '@/app/account/actions'
+import { OFFICE_COOKIE } from '@/proxy'
+
+/**
+ * 登出時順便清掉前台編輯提示 cookie（C2-16；規格② 設計方案 §6.2 第 4 點），再走原本的登出。
+ * 不清也不會越權（`/office-edit/*` 自己判身分），只是下一個在這台登入的人會多下載一支編輯層。
+ */
+async function signOutAndForgetOffice() {
+  'use server'
+  ;(await cookies()).delete(OFFICE_COOKIE)
+  await signOutAction()
+}
 
 /**
  * 登出按鈕。
@@ -8,7 +20,7 @@ import { signOutAction } from '@/app/account/actions'
  */
 export function SignOutButton({ className }: { className?: string }) {
   return (
-    <form action={signOutAction}>
+    <form action={signOutAndForgetOffice}>
       <button type="submit" className={className}>
         登出
       </button>
@@ -23,5 +35,5 @@ export function SignOutButton({ className }: { className?: string }) {
  * 所以登出仍然是同一支 Server Action 的 POST，不是連結。
  */
 export function SignOutForm({ id }: { id: string }) {
-  return <form id={id} action={signOutAction} hidden />
+  return <form id={id} action={signOutAndForgetOffice} hidden />
 }
