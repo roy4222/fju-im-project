@@ -188,7 +188,7 @@ const affairsBadge = (page: Page) => page.getByTestId('nav-badge-/dashboard/stud
 
 test('名單頁三類分開；完成率＝已正式送出／應交數（免填與已移出不算）', async ({ page }) => {
   await signIn(page, admin)
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+  await page.goto(`/dashboard/admin/affairs/assignments?cohort=${cohortId}`)
   // 工作台的「收件名單」欄是應交數（不含免填與已移出，跟名單頁「目前名單」、完成率分母同一個口徑），點得進名單頁。
   await page.getByTestId('affair-row').filter({ hasText: TITLE }).getByRole('link', { name: /需要繳交 2 位/ }).click()
   await expect(page).toHaveURL(new RegExp(`${rosterPath()}$`))
