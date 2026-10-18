@@ -1,5 +1,5 @@
 {
-  "$comment": "B15：/timeline 的 admin 視角（staff 多 1 句 ItemQuery.list）。stage-b 0baeb17＋B15 隔離庫 normal 實測。sql-expect.json 一條路由只能配一個 as（sql.mjs 先比 expect.as），所以老師、系辦各一檔；SH-B1 已重基準（身分快取開著：identity 0）。",
+  "$comment": "B15：/timeline 的 admin 視角（staff 多 1 句 ItemQuery.list）。stage-b 0baeb17＋B15 隔離庫 normal 實測。sql-expect.json 一條路由只能配一個 as（sql.mjs 先比 expect.as），所以老師、系辦各一檔；SH-B1 已重基準（身分快取開著：identity 0）。SH-B1b 在 stage-b fda2766（含 VB-6）＋本票重量四角色與 /timeline 兩條：實測與下列值完全相同、identity 全 0。",
   "/timeline": {
     "as": "admin",
     "baseline": 5,

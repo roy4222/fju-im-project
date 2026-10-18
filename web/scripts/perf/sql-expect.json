@@ -1,5 +1,5 @@
 {
-  "$comment": "perf:sql --expect 的預期（隔離庫 normal 實測，見 README）。SH-B1 全表重基準（身分快取開著，預設 60 秒）：baseline＝max＝實測 total；identity 全部 0（第二次抓取命中身分快取，老師頁的 needsSetup 也併進身分快照）。noDuplicate＝具名 workload 查詢（AC-SH-37）的簽名前綴，出現在 duplicates 就失敗。新路由加自己的列，不改既有列。",
+  "$comment": "perf:sql --expect 的預期（隔離庫 normal 實測，見 README）。SH-B1 全表重基準（身分快取開著，預設 60 秒）：baseline＝max＝實測 total；identity 全部 0（第二次抓取命中身分快取，老師頁的 needsSetup 也併進身分快照）。noDuplicate＝具名 workload 查詢（AC-SH-37）的簽名前綴，出現在 duplicates 就失敗。新路由加自己的列，不改既有列。SH-B1b 在 stage-b fda2766（含 VB-6）＋本票重量四角色與 /timeline 兩條：實測與下列值完全相同、identity 全 0。",
   "/dashboard/student": {
     "as": "student",
     "baseline": 14,
