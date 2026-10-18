@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   IDLE_ALPHA,
   PULSE_MS,
@@ -9,6 +9,7 @@ import {
   isPulsing,
   livePulses,
   makePulse,
+  mountPixelCanvas,
   paint,
   pulseGlow,
   pulseRadius,
@@ -117,5 +118,136 @@ describe('pixel-canvas：像素格子引擎（規格④ §2.2、§2.4）', () =>
   it('data-* 參數：照給的讀，格式不對用「疏」那組預設', () => {
     expect(readParams({ colors: '#8DB6E6, #F59A3C', gap: '10', speed: '35' })).toEqual({ colors: ['#8DB6E6', '#F59A3C'], gap: 10, speed: 35 })
     expect(readParams({ colors: 'red;background:url(x)', gap: 'x', speed: '-1' })).toEqual({ colors: ['#8DB6E6'], gap: 10, speed: 35 })
+  })
+})
+
+/**
+ * 假的瀏覽器，給 `mountPixelCanvas`：手動推進 rAF、切分頁隱藏、切畫面內外；
+ * 記錄每一幀畫出的最大透明度（idle 最多 0.3，超過代表漣漪還在畫）。
+ */
+function fakeBrowser() {
+  const t = { now: 1000, hidden: false, maxAlpha: 0 }
+  const frames = new Map<number, (now: number) => void>()
+  const timers = new Map<number, () => void>()
+  const hero = new Map<string, (event: unknown) => void>()
+  let nextId = 1
+  let visibility: () => void = () => {}
+  let intersect: (visible: boolean) => void = () => {}
+  vi.stubGlobal('performance', { now: () => t.now })
+  vi.stubGlobal('document', {
+    get hidden() {
+      return t.hidden
+    },
+    addEventListener: (_type: string, cb: () => void) => (visibility = cb),
+    removeEventListener() {},
+  })
+  vi.stubGlobal('window', {
+    devicePixelRatio: 1,
+    requestAnimationFrame: (cb: (now: number) => void) => (frames.set(nextId, cb), nextId++),
+    cancelAnimationFrame: (id: number) => frames.delete(id),
+    setTimeout: (cb: () => void) => (timers.set(nextId, cb), nextId++),
+    clearTimeout: (id: number) => timers.delete(id),
+  })
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
+        intersect = (visible) => cb([{ isIntersecting: visible }])
+      }
+      observe() {
+        intersect(true)
+      }
+      disconnect() {}
+    },
+  )
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const ctx = {
+    globalAlpha: 1,
+    fillStyle: '',
+    clearRect: () => (t.maxAlpha = 0),
+    fillRect(this: { globalAlpha: number }) {
+      t.maxAlpha = Math.max(t.maxAlpha, this.globalAlpha)
+    },
+    setTransform() {},
+  }
+  const root = {
+    dataset: { gap: '10', speed: '35', colors: '#8DB6E6' } as Record<string, string>,
+    clientWidth: 1000,
+    clientHeight: 300,
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+    parentElement: { addEventListener: (n: string, cb: (e: unknown) => void) => hero.set(n, cb), removeEventListener() {} },
+  }
+  const canvas = { width: 0, height: 0, getContext: () => ctx }
+  return {
+    t,
+    root,
+    mount: (mode: 'always' | 'tap') => mountPixelCanvas(root as unknown as HTMLElement, canvas as unknown as HTMLCanvasElement, mode),
+    tap: (x: number, y: number) => hero.get('pointerdown')?.({ clientX: x, clientY: y }),
+    setHidden(v: boolean) {
+      t.hidden = v
+      visibility()
+    },
+    setOnScreen: (v: boolean) => intersect(v),
+    /** 推進時間並跑一輪排著的 rAF。 */
+    frame(ms: number) {
+      t.now += ms
+      const pending = [...frames.entries()]
+      frames.clear()
+      for (const [, cb] of pending) cb(t.now)
+    },
+  }
+}
+
+describe('mountPixelCanvas：暫停後從 idle 重起、不續播漣漪（規格④ §9.5、AC-13；Review #721 P2）', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  for (const kind of ['分頁隱藏', '捲出畫面'] as const) {
+    it(`桌機：點擊後${kind} 200 ms 再回來 → data-state idle、畫面只有 idle 呼吸（≤ 30%）`, () => {
+      const b = fakeBrowser()
+      const stop = b.mount('always')
+      b.tap(20, 20)
+      expect(b.root.dataset.state).toBe('pulse')
+      if (kind === '分頁隱藏') b.setHidden(true)
+      else b.setOnScreen(false)
+      expect(b.root.dataset.running).toBe('0')
+      expect(b.root.dataset.state).toBe('idle')
+      b.t.now += 200
+      if (kind === '分頁隱藏') b.setHidden(false)
+      else b.setOnScreen(true)
+      b.frame(0)
+      expect(b.root.dataset.running).toBe('1')
+      expect(b.root.dataset.state).toBe('idle')
+      expect(b.t.maxAlpha).toBeGreaterThan(0)
+      expect(b.t.maxAlpha).toBeLessThanOrEqual(IDLE_ALPHA)
+      stop()
+    })
+  }
+
+  it('手機：點擊後分頁隱藏再回來 → 不續播，回到不跑（data-running 0）', () => {
+    const b = fakeBrowser()
+    const stop = b.mount('tap')
+    expect(b.root.dataset.running).toBe('0')
+    b.tap(20, 20)
+    expect(b.root.dataset.running).toBe('1')
+    b.setHidden(true)
+    b.t.now += 200
+    b.setHidden(false)
+    b.frame(0)
+    expect(b.root.dataset.state).toBe('idle')
+    expect(b.root.dataset.running).toBe('0')
+    expect(b.t.maxAlpha).toBe(0)
+    stop()
+  })
+
+  it('暫停期間的觸發（例如焦點）不排漣漪', () => {
+    const b = fakeBrowser()
+    const stop = b.mount('always')
+    b.setHidden(true)
+    b.tap(20, 20)
+    expect(b.root.dataset.state).toBe('idle')
+    b.setHidden(false)
+    b.frame(0)
+    expect(b.t.maxAlpha).toBeLessThanOrEqual(IDLE_ALPHA)
+    stop()
   })
 })

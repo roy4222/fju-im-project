@@ -19,6 +19,11 @@ export type FrameLoopOptions = {
   active?: boolean
   /** 實際在跑（想跑＋在畫面上＋分頁可見）與否改變時通知，給 `data-running` 用。 */
   onRunningChange?: (running: boolean) => void
+  /**
+   * 分頁隱藏或離開視窗（暫停）與回來（恢復）時通知，跟 `active` 無關。
+   * 暫停時在 `onRunningChange` 之前呼叫、恢復時在第一幀之前呼叫：引擎在這裡丟掉進行中的漣漪，回來從 idle 重起。
+   */
+  onPauseChange?: (paused: boolean) => void
   env?: LoopEnv
 }
 
@@ -58,6 +63,7 @@ export function startFrameLoop(el: Element, tick: (dt: number, now: number) => v
   let raf = 0
   let last = 0
   let running = false
+  let paused = false
 
   const frame = (now: number) => {
     raf = 0
@@ -74,7 +80,12 @@ export function startFrameLoop(el: Element, tick: (dt: number, now: number) => v
   }
 
   const update = () => {
-    const next = alive && active && onScreen && !env.isHidden()
+    const nextPaused = alive && (!onScreen || env.isHidden())
+    if (nextPaused !== paused) {
+      paused = nextPaused
+      options.onPauseChange?.(paused)
+    }
+    const next = alive && active && !paused
     if (next === running) return
     running = next
     if (running) {

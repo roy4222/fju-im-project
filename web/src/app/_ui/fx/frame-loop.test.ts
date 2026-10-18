@@ -132,4 +132,15 @@ describe('frame-loop：共用 rAF 迴圈（規格④ §9.5）', () => {
     loop.setActive(true)
     expect(loop.isRunning()).toBe(false)
   })
+
+  it('onPauseChange：分頁隱藏或離開視窗時回報暫停，回來回報恢復；跟 active 無關', () => {
+    const fake = fakeEnv()
+    const paused: boolean[] = []
+    startFrameLoop(el, () => {}, { active: false, env: fake.env, onPauseChange: (p) => paused.push(p) })
+    fake.setHidden(true)
+    fake.setOnScreen(false)
+    fake.setHidden(false)
+    fake.setOnScreen(true)
+    expect(paused).toEqual([true, false])
+  })
 })

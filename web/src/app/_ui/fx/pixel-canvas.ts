@@ -154,6 +154,7 @@ export function mountPixelCanvas(root: HTMLElement, canvas: HTMLCanvasElement, m
   let cells: Cell[] = []
   let pulses: Pulse[] = []
   let stateTimer = 0
+  let paused = false
 
   const painter: Painter = {
     clear: () => ctx.clearRect(0, 0, width, height),
@@ -177,7 +178,19 @@ export function mountPixelCanvas(root: HTMLElement, canvas: HTMLCanvasElement, m
       // 手機沒有常駐閃：漣漪畫完（最後一幀已清空）就停。
       if (mode === 'tap' && pulses.length === 0) loop.setActive(false)
     },
-    { fps: loopOptions.fps ?? 30, active: mode === 'always', onRunningChange: (running) => (root.dataset.running = running ? '1' : '0') },
+    {
+      fps: loopOptions.fps ?? 30,
+      active: mode === 'always',
+      onRunningChange: (running) => (root.dataset.running = running ? '1' : '0'),
+      // 分頁隱藏或捲出畫面：丟掉進行中的漣漪，回來從 idle 重起（§9.5，不續播）；手機回來畫一幀空的就停。
+      onPauseChange(next) {
+        paused = next
+        if (!paused) return
+        pulses = []
+        window.clearTimeout(stateTimer)
+        root.dataset.state = 'idle'
+      },
+    },
   )
 
   const resize = () => {
@@ -192,6 +205,7 @@ export function mountPixelCanvas(root: HTMLElement, canvas: HTMLCanvasElement, m
   }
 
   const pulseAt = (x: number, y: number) => {
+    if (paused) return
     const now = performance.now()
     pulses = addPulse(livePulses(pulses, now), makePulse(x, y, width, height, now))
     root.dataset.state = 'pulse'
