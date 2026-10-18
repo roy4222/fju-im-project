@@ -7,7 +7,6 @@ import { Donut, SegmentCells } from '@/app/_ui/dashboard/charts'
 import { CohortPills, PageTitle, Panel, PanelEmpty, QuietState } from '@/app/_ui/dashboard/primitives'
 import { StateBadge } from '@/app/dashboard/_signoff/version-view'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { NewVersionDialog } from '@/app/dashboard/admin/signoff/new-version-dialog'
 import { CreateVersionForm, type GroupOption } from '@/app/dashboard/admin/signoff/signoff-forms'
 import type { AdminGroupRow, SignoffPurpose, VersionSummary } from '@/application/signoff'
@@ -115,12 +114,6 @@ const COLUMN_LABEL: Record<SignoffPurpose, string> = { result_confirmation: '期
 
 const BASE = '/dashboard/admin/signoff'
 
-/** 「成績」側欄項底下的分頁（設計方案 §3.4），與 `grading/page.tsx` 同一組。 */
-const TABS = [
-  { href: '/dashboard/admin/grading', label: '成績管理' },
-  { href: BASE, label: '同意書' },
-] as const
-
 export default async function AdminSignoffPage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[]; purpose?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole(BASE, 'admin')
@@ -131,16 +124,14 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
   const board = cohort ? await getSignoffQuery().adminBoard(actor, cohort.id) : null
   const groups = board?.ok ? board.receipt.groups : []
 
-  // 「新增站內同意書」常駐在分頁列右側（沒有屆別或讀不到資料時對話框裡說明原因）；pages.spec 指紋用這顆按鈕。
+  // 「新增站內同意書」常駐在標題列右側（沒有屆別或讀不到資料時對話框裡說明原因）；pages.spec 指紋用這顆按鈕。
   const shell = (children: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
       <div className="flex flex-col gap-5">
         <div>
-          <PageTitle title="成績" />
-          <AdminTabs
-            label="成績分頁"
-            current={BASE}
-            items={TABS}
+          {/* 同意書不在「成績」分頁列上（C 階段規格② §2.2）；之後併進「作業」分頁，這頁再改成轉址。 */}
+          <PageTitle
+            title="成績"
             actions={
               <NewVersionDialog>
                 {groups.length === 0 ? (
@@ -152,6 +143,9 @@ export default async function AdminSignoffPage({ searchParams }: { searchParams:
             }
           />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          站內同意書的版本與簽署進度；這一頁不在分頁列上，之後會併進「作業」分頁。
+        </p>
         {cohort ? (
           <CohortPills cohorts={cohorts.map((c) => ({ id: c.id, code: cohortLabel(c) }))} currentId={cohort.id} hrefFor={(id) => `${BASE}?cohort=${id}`} />
         ) : null}

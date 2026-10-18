@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ADMIN_NAV, NAV_ICON_NAMES, STUDENT_NAV, TEACHER_NAV, isNavActive, navTitle, type NavItem } from './_nav'
+import { ADMIN_NAV, NAV_ICON_NAMES, PROTECTED_ROUTES, STUDENT_NAV, TEACHER_NAV, isNavActive, navTitle, type NavItem } from './_nav'
 
 const LISTS = { ADMIN_NAV, TEACHER_NAV, STUDENT_NAV }
 /** 已經換成新側欄的清單（各角色切換票把自己加進來）：它們照設計方案 §3.1 會有 `activeFor`。 */
@@ -42,6 +42,26 @@ describe('isNavActive', () => {
 describe('navTitle', () => {
   it('亮著那一項的名字', () => {
     expect(navTitle(ADMIN_NAV, '/dashboard/admin/cohorts', '系辦')).toBe('設定')
+  })
+
+  it('C 階段的新分頁亮所屬那一項（C2-01）', () => {
+    const cases: [string, string][] = [
+      ['/dashboard/admin/affairs/assignments', '公告與作業'],
+      ['/dashboard/admin/affairs/resources', '公告與作業'],
+      ['/dashboard/admin/affairs/rules', '公告與作業'],
+      ['/dashboard/admin/groups/unassigned', '分組'],
+      ['/dashboard/admin/grading/teachers', '成績'],
+      ['/dashboard/admin/accounts/pending', '帳號'],
+      ['/dashboard/admin/accounts/disabled', '帳號'],
+      ['/dashboard/admin/accounts/roster', '帳號'],
+    ]
+    for (const [path, label] of cases) expect(navTitle(ADMIN_NAV, path, '系辦')).toBe(label)
+  })
+
+  it('側欄「設定」直接連到屆別；舊入口頁 /settings 不再是側欄的頁', () => {
+    expect(ADMIN_NAV.find((item) => item.label === '設定')?.href).toBe('/dashboard/admin/cohorts')
+    expect(navTitle(ADMIN_NAV, '/dashboard/admin/settings', '系辦')).toBe('系辦')
+    expect(PROTECTED_ROUTES.map((r) => r.path)).not.toContain('/dashboard/admin/settings')
   })
 
   it('沒有命中時回角色名', () => {

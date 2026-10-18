@@ -189,13 +189,13 @@ test('逐人同意：勾已閱讀才按得下去、確認框只代表自己一�
   await expect(cell.getByTestId('missing-details')).not.toContainText(`${T1_NAME}（指導老師）`)
 })
 
-test('AC-AD-19 同意書分頁：h1「成績」、分頁列右側「新增站內同意書」、用途膠囊、每組一張卡寫還沒回覆的人、頁首沒有長說明', async ({ page }) => {
+test('AC-AD-19 同意書頁：h1「成績」、標題列右側「新增站內同意書」、用途膠囊、每組一張卡寫還沒回覆的人、頁首沒有長說明', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('成績')
-  const tabs = page.getByRole('navigation', { name: '成績分頁' })
-  await expect(tabs.getByRole('link', { name: '同意書' })).toHaveAttribute('aria-current', 'page')
-  await expect(tabs.getByRole('link', { name: '成績管理' })).toHaveAttribute('href', '/dashboard/admin/grading')
+  // 同意書不在「成績」分頁列上（C 階段規格② §2.2、AC-C2-07）：這頁沒有分頁列，側欄「成績」仍亮。
+  await expect(page.getByRole('navigation', { name: '成績分頁' })).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '成績', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('button', { name: '新增站內同意書' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: '選擇用途' }).getByRole('link', { name: /期中結果確認/ })).toHaveAttribute('aria-current', 'page')
   const region = page.getByRole('region', { name: '各組同意書' })

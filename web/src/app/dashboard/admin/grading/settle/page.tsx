@@ -6,6 +6,7 @@ import { DataTableFrame, DT, EmptyRow } from '@/app/_ui/data-table'
 import { CohortPills, PageTitle, Panel, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { GRADING_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { ReleaseForm, SettleForm } from '@/app/dashboard/admin/grading/settle/settle-forms'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getGradebookQuery, getGradingSettlementQuery } from '@/composition/grading'
@@ -15,13 +16,6 @@ export const metadata = { title: '成績結算｜資管系專題平台' }
 
 const GRADING = '/dashboard/admin/grading'
 const BASE = `${GRADING}/settle`
-
-/** 與成績管理頁同一組分頁（設計方案 §2.5：TABS 加「結算」）。 */
-const TABS = [
-  { href: GRADING, label: '成績管理' },
-  { href: BASE, label: '結算' },
-  { href: '/dashboard/admin/signoff', label: '同意書' },
-] as const
 
 /**
  * 系辦成績結算頁（B 階段 AD-B1；設計方案 §2.5）。
@@ -51,8 +45,11 @@ export default async function AdminGradingSettlePage({ searchParams }: { searchP
       <div className="flex flex-col gap-5">
         <div>
           <PageTitle title="成績" />
-          <AdminTabs label="成績分頁" current={BASE} items={TABS} />
+          <AdminTabs label="成績分頁" current={BASE} items={GRADING_TABS} />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          把老師送出的評分結算成各階段的正式成績。
+        </p>
         {cohort ? (
           <CohortPills
             cohorts={cohorts.map((c) => ({ id: c.id, code: c.status === 'archived' ? `${cohortLabel(c)}・已封存` : cohortLabel(c) }))}

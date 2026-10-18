@@ -5,6 +5,8 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { HBar } from '@/app/_ui/dashboard/charts'
 import { CohortPills, PageTitle, Panel, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { GRADING_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { AssignEvaluatorForm, PublishButton, RequirementForm, SchemeEditor } from '@/app/dashboard/admin/grading/grading-forms'
 import type { AdminAssignmentView, SchemeVersionView } from '@/application/grading'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
@@ -27,7 +29,7 @@ const BASE = `${GRADING}/rules`
 
 /**
  * 系辦「評分規則」子頁（AD-08；設計方案 §3.4）：一年用一兩次的設定，從成績頁搬出來。
- * 不是分頁，所以沒有分頁列（AC-AD-29），只有「← 回成績」。三個區塊：
+ * C 階段規格② §2.2 起它是「成績」的第二個分頁：掛成績分頁列（C2-01），「← 回成績」先留著。三個區塊：
  *
  * 1. 目前版本：`scheme-status`、建立新版評分規則（成功訊息在區塊內，不在標題列）、階段與項目權重、公式。
  * 2. 版本紀錄：每版一張卡；草稿卡有「發布第 N 版」，評分規則鎖定後的草稿卡改成「查看第 N 版重算影響（尚不套用）」→ `apply/<版本>`。
@@ -101,6 +103,12 @@ export default async function AdminGradingRulesPage({
             ← 回成績
           </Link>
           <PageTitle title="評分規則" />
+          <div className="mt-4">
+            <AdminTabs label="成績分頁" current={BASE} items={GRADING_TABS} />
+          </div>
+          <p data-testid="tab-intro" className="-mt-2 text-sm text-muted-foreground">
+            各階段的評分項目、配分與版本紀錄，以及每組的評分指派。
+          </p>
         </div>
         {/* 屆別膠囊獨立一列：測試站屆別多，放標題列右邊會把標題擠成直排（網站問題 #8）。 */}
         {cohort ? (

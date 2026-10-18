@@ -4,8 +4,8 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 /**
  * AD-15：設定分頁（首頁設定、操作紀錄兩頁）與操作紀錄姓名搜尋。
  *
- * 1. AC-AD-24（本票兩頁）：`h1`「設定」；分頁列四項（屆別｜時間軸｜首頁設定｜操作紀錄），目前頁 `aria-current`；
- *    從首頁設定點「操作紀錄」分頁到 `/audit`。屆別、時間軸兩頁的分頁列歸 AD-12，各自的 spec 驗。
+ * 1. AC-AD-24（本票兩頁）：`h1`「設定」；分頁列三項（屆別｜專題時程｜操作紀錄；C 階段規格② §2.2 拿掉首頁設定），
+ *    目前頁 `aria-current`；首頁設定頁仍掛這條分頁列但沒有一項是目前頁；從首頁設定點「操作紀錄」分頁到 `/audit`。
  * 2. AC-A-32／AC-A-33（A-11 反轉 AC-AD-26）：搜尋由伺服器做——Enter 送出後網址帶 `q=`、打一次伺服器；比對「誰」「對象」；
  *    分頁籤數字隨結果；清除回全部；搜尋框下一句「只搜近 7 天、最多 200 筆（在伺服器搜尋）」；欄位擋在 50 字；角色膠囊與搜尋可同時用。
  * 種資料走畫面新增兩屆（跟 `audit.spec.ts` 同一招），「對象」欄是屆別「名稱（代碼）」。
@@ -18,8 +18,7 @@ const CODE_B = `E2E-AS-${stamp}-B`
 const AUDIT = '/dashboard/admin/audit'
 const TABS = [
   { label: '屆別', href: '/dashboard/admin/cohorts' },
-  { label: '時間軸', href: '/dashboard/admin/timeline' },
-  { label: '首頁設定', href: '/dashboard/admin/home-settings' },
+  { label: '專題時程', href: '/dashboard/admin/timeline' },
   { label: '操作紀錄', href: AUDIT },
 ]
 
@@ -41,7 +40,7 @@ async function expectSettingsTabs(page: Page, current: string) {
   }
 }
 
-test('首頁設定與操作紀錄：h1「設定」、四個分頁、目前頁標 aria-current，點分頁切頁（AC-AD-24）', async ({ page }) => {
+test('首頁設定與操作紀錄：h1「設定」、三個分頁、目前頁標 aria-current，點分頁切頁（AC-AD-24）', async ({ page }) => {
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/home-settings')
   await expectSettingsTabs(page, '/dashboard/admin/home-settings')
@@ -55,9 +54,9 @@ test('首頁設定與操作紀錄：h1「設定」、四個分頁、目前頁標
   // 舊頁首說明（含舊指紋句）拿掉。
   await expect(page.getByRole('main')).not.toContainText('誰、何時、對哪個對象、做了什麼、為什麼')
 
-  await page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '首頁設定', exact: true }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/home-settings$/)
-  await expectSettingsTabs(page, '/dashboard/admin/home-settings')
+  await page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '屆別', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/cohorts$/)
+  await expectSettingsTabs(page, '/dashboard/admin/cohorts')
 })
 
 test('操作紀錄伺服器端搜尋：Enter 送出網址帶 q、打一次伺服器；籤數字隨結果；清除全回來；可與角色膠囊同時用（AC-A-32）', async ({ page }) => {

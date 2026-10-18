@@ -42,8 +42,17 @@ export const FINGERPRINTS: Record<string, string> = {
   '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
   // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
   '/dashboard/admin/grading/rules': '每組要幾份評分、指派哪位老師評',
-  // 設定總頁（AD-20）：時間軸卡的說明句。
-  '/dashboard/admin/settings': '四個階段與活動日期',
+  // C 階段規格② 的新分頁（C2-01）：指紋是分頁列下的說明句（`[data-testid="tab-intro"]`），改句子要一起改。
+  // 舊設定入口頁 `/dashboard/admin/settings` 改成轉址，驗法在 `admin-redirects.spec.ts`。
+  '/dashboard/admin/affairs/assignments': '要學生或組別繳交的作業與專題需求',
+  '/dashboard/admin/affairs/resources': '給學生下載的範本、表單與參考資料',
+  '/dashboard/admin/affairs/rules': '前台「專題規則」照這裡的順序顯示',
+  '/dashboard/admin/groups/unassigned': '這一屆還沒有加入任何組別的學生。',
+  '/dashboard/admin/grading/teachers': '每一組由哪幾位老師評分，以及指派與改派。',
+  '/dashboard/admin/grading/settle': '把老師送出的評分結算成各階段的正式成績。',
+  '/dashboard/admin/accounts/pending': '註冊後等系辦確認身分的申請',
+  '/dashboard/admin/accounts/disabled': '已停用、不能登入的帳號',
+  '/dashboard/admin/accounts/roster': '匯入系上提供的學生名單',
 }
 
 /** 三種角色的後台首頁指紋（`identity-per-request.spec.ts` 用）。 */

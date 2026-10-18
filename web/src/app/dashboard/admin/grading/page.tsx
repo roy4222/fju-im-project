@@ -7,6 +7,7 @@ import { FacetMenu } from '@/app/_ui/data-table-facet'
 import { CohortPills, PageTitle, Panel, PanelEmpty, Pill, QuietState } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { GRADING_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { teacherProgress } from '@/app/dashboard/admin/grading/progress'
 import { GradeExportButtons } from '@/app/dashboard/admin/grading/results-forms'
 import type { Gradebook } from '@/application/grading'
@@ -28,13 +29,6 @@ export const metadata = { title: '成績｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/grading'
 const RULES = `${BASE}/rules`
-
-/** 「成績」側欄項底下的分頁（設計方案 §3.4）；評分規則是子頁連結，不是分頁。 */
-const TABS = [
-  { href: BASE, label: '成績管理' },
-  { href: `${BASE}/settle`, label: '結算' },
-  { href: '/dashboard/admin/signoff', label: '同意書' },
-] as const
 
 /**
  * 系辦「成績」分頁（AD-08；設計方案 §3.4）：只留三件事——評分進度卡片、成績表（篩選與匯出）、需要重新確認的更正。
@@ -78,7 +72,7 @@ export default async function AdminGradingPage({
           <AdminTabs
             label="成績分頁"
             current={BASE}
-            items={TABS}
+            items={GRADING_TABS}
             actions={
               <Link
                 href={cohort ? `${RULES}?cohort=${cohort.id}` : RULES}
@@ -89,6 +83,9 @@ export default async function AdminGradingPage({
             }
           />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          每一組各階段的成績與老師的評分進度。
+        </p>
         {/* 屆別膠囊獨立一列：測試站屆別多，跟分頁擠同一列會把分頁推亂（網站問題 #8）。 */}
         {cohort ? (
           <CohortPills

@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * AD-08：成績頁瘦身＋評分規則子頁 `/dashboard/admin/grading/rules`。
  *
- * - AC-AD-15：`/grading` 的 h1「成績」、分頁「成績管理」「同意書」、右端「評分規則」連結；評分規則、版本紀錄、
+ * - AC-AD-15：`/grading` 的 h1「成績」、分頁「成績表」「評分規則」「評分老師」「結算」（C 階段規格② §2.2）、右端「評分規則 ↗」連結；評分規則、版本紀錄、
  *   評分要求與指派都不在這頁；評分進度是卡片（階段一張、老師一張），除了成績表沒有 `<table>`。
  * - AC-AD-03（成績頁段）：老師卡預設「全部階段」，已解散的組不算進分母；選某階段只算那一階段。
  * - AC-AD-16、17、29：子頁 h1「評分規則」＋「← 回成績」、沒有分頁列；版本紀錄每版一張卡；每組一張指派卡。
@@ -124,6 +124,11 @@ test.afterAll(async () => {
   await pool?.end()
 })
 
+/** 成績頁右端帶屆別的「評分規則 ↗」小連結（分頁列另有一個同名分頁，不帶屆別）。 */
+function rulesLink(page: Page) {
+  return page.getByRole('main').getByRole('link', { name: '評分規則' }).filter({ hasText: '↗' })
+}
+
 async function asAdmin(page: Page) {
   const session = await sharedTestSession(page.request, 'admin')
   await page.context().clearCookies()
@@ -145,9 +150,10 @@ test('成績頁：h1「成績」、分頁與「評分規則」連結；設定都
 
   await expect(page.getByRole('heading', { level: 1, name: '成績', exact: true })).toBeVisible()
   const tabs = page.getByRole('navigation', { name: '成績分頁' })
-  await expect(tabs.getByRole('link', { name: '成績管理' })).toHaveAttribute('aria-current', 'page')
-  await expect(tabs.getByRole('link', { name: '同意書' })).toHaveAttribute('href', '/dashboard/admin/signoff')
-  await expect(page.getByRole('link', { name: '評分規則' })).toHaveAttribute('href', `/dashboard/admin/grading/rules?cohort=${cohortId}`)
+  await expect(tabs.getByRole('link', { name: '成績表' })).toHaveAttribute('aria-current', 'page')
+  await expect(tabs.getByRole('link', { name: '評分規則' })).toHaveAttribute('href', '/dashboard/admin/grading/rules')
+  // 分頁列也有「評分規則」：右端那個帶屆別的小連結用「↗」認。
+  await expect(rulesLink(page)).toHaveAttribute('href', `/dashboard/admin/grading/rules?cohort=${cohortId}`)
 
   // 搬到子頁的東西都不在這頁。
   for (const name of ['建立新版評分規則', '評分要求與指派']) await expect(page.getByRole('button', { name })).toHaveCount(0)
@@ -175,16 +181,19 @@ test('成績頁：h1「成績」、分頁與「評分規則」連結；設定都
   await expect(progress.getByTestId('stage-progress-final')).toHaveCount(0)
 })
 
-test('評分規則子頁：h1、← 回成績、沒有分頁列；目前版本、版本卡；每組一張指派卡，改派連到 reassign', async ({ page }) => {
+test('評分規則子頁：h1、← 回成績、成績分頁列；目前版本、版本卡；每組一張指派卡，改派連到 reassign', async ({ page }) => {
   await asAdmin(page)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
-  await page.getByRole('link', { name: '評分規則' }).click()
+  await rulesLink(page).click()
   await expect(page).toHaveURL(new RegExp(`/dashboard/admin/grading/rules\\?cohort=${cohortId}$`))
 
   await expect(page.getByRole('heading', { level: 1, name: '評分規則', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: '← 回成績' })).toHaveAttribute('href', `/dashboard/admin/grading?cohort=${cohortId}`)
-  await expect(page.locator('nav[aria-label$="分頁"]')).toHaveCount(0)
+  // C 階段規格② §2.2：評分規則升成「成績」的第二個分頁（AC-C2-07）。
+  const tabs = page.getByRole('navigation', { name: '成績分頁' })
+  await expect(tabs.getByRole('link')).toHaveText(['成績表', '評分規則', '評分老師', '結算'])
+  await expect(tabs.getByRole('link', { name: '評分規則' })).toHaveAttribute('aria-current', 'page')
 
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
   const versions = page.getByRole('region', { name: '版本紀錄' })

@@ -387,14 +387,14 @@ test.describe('AD-05 系辦分組頁', () => {
     await openAd05(page)
     await expect(page).toHaveTitle('分組｜資管系專題平台')
     const tabs = page.getByRole('navigation', { name: '分組分頁' })
-    await expect(tabs.getByRole('link')).toHaveText(['分組總覽', '合作案'])
-    await expect(tabs.getByRole('link', { name: '分組總覽' })).toHaveAttribute('aria-current', 'page')
-    await expect(tabs.getByRole('link', { name: '合作案' })).not.toHaveAttribute('aria-current', 'page')
+    await expect(tabs.getByRole('link')).toHaveText(['全部組別', '未分組學生', '產學合作'])
+    await expect(tabs.getByRole('link', { name: '全部組別' })).toHaveAttribute('aria-current', 'page')
+    await expect(tabs.getByRole('link', { name: '產學合作' })).not.toHaveAttribute('aria-current', 'page')
 
     // 「分組設定」跟分頁列同一列（右側），不在標題那一列：按鈕在 h1 下面、跟分頁連結同一條水平帶。
     const settings = page.getByRole('button', { name: '分組設定' })
     const h1 = (await page.getByRole('heading', { name: '分組', exact: true, level: 1 }).boundingBox())!
-    const tab = (await tabs.getByRole('link', { name: '分組總覽' }).boundingBox())!
+    const tab = (await tabs.getByRole('link', { name: '全部組別' }).boundingBox())!
     const button = (await settings.boundingBox())!
     expect(button.y).toBeGreaterThanOrEqual(h1.y + h1.height)
     expect(button.x).toBeGreaterThan(tab.x + tab.width)
@@ -425,7 +425,7 @@ test.describe('AD-05 系辦分組頁', () => {
     await dialog.getByRole('button', { name: '關閉' }).click()
     await expect(page.getByTestId('grouping-settings')).toContainText('提案 6 天內要全員確認')
 
-    await tabs.getByRole('link', { name: '合作案' }).click()
+    await tabs.getByRole('link', { name: '產學合作' }).click()
     await expect(page).toHaveURL(/\/dashboard\/admin\/industry$/)
   })
 
