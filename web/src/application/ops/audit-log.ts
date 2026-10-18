@@ -8,6 +8,7 @@
  * 而系辦要能查「這次核准是怎麼核實的」（2026-10-08 系2，Roy 同意）。只取這一個鍵、只對這一個動作。
  */
 
+import type { AvatarUser } from '@/application/accounts'
 import type { VerificationMethod } from '@/application/ops/records'
 
 /**
@@ -69,6 +70,11 @@ export type AuditLogEntry = {
   readonly actorKind: 'user' | 'system' | 'worker'
   /** 操作者顯示名稱；系統與背景工作沒有人。 */
   readonly actorName: string | null
+  /** 操作者帳號 id；系統、背景工作、找不到帳號時為 null（畫面只對有 id 的列畫頭像，C3 §2.3）。 */
+  readonly actorUserId: string | null
+  /** 操作者頭像兩欄（`AvatarUser`）；同一句查詢帶出，沒有個人資料列時為 null。 */
+  readonly actorAvatarPreset: number | null
+  readonly actorAvatarFileId: string | null
   /** 操作當下的角色（學生／老師／管理員）；本人動作（改密碼、補資料）與系統為 null。 */
   readonly role: 'student' | 'teacher' | 'admin' | null
   readonly action: string
@@ -100,6 +106,21 @@ export type AuditLog = {
   readonly withReason: number
   /** 目前分頁的筆數多於上限、只列了最近的 `AUDIT_PAGE_LIMIT` 筆。 */
   readonly truncated: boolean
+}
+
+/**
+ * 操作者的頭像資料（C3 §2.3）：`actor_kind='user'` 且找得到帳號才有；系統、背景工作、已不存在的帳號回 null，畫面維持純文字。
+ */
+export function auditActorAvatar(
+  entry: Pick<AuditLogEntry, 'actorKind' | 'actorUserId' | 'actorName' | 'actorAvatarPreset' | 'actorAvatarFileId'>,
+): AvatarUser | null {
+  if (entry.actorKind !== 'user' || !entry.actorUserId) return null
+  return {
+    id: entry.actorUserId,
+    name: entry.actorName?.trim() ?? '',
+    avatarPreset: entry.actorAvatarPreset,
+    avatarFileId: entry.actorAvatarFileId,
+  }
 }
 
 /** 這一筆算哪個分頁（與 `pg-audit-log.ts` 的分頁 SQL 一一對應）。 */

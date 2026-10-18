@@ -75,6 +75,7 @@ import {
   type PoolSource,
 } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { personName } from '@/infrastructure/db/person-name'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
@@ -1887,6 +1888,8 @@ type InvitationListRow = {
   student_no: string | null
   state: InvitationState
   decided_real_at: Date | null
+  avatar_preset: number | null
+  avatar_file_id: string | null
 }
 
 const PROPOSAL_SELECT = `
@@ -2110,8 +2113,14 @@ export class PgGroupQuery implements GroupQuery {
   }
 
   async teacherOptions(): Promise<TeacherOption[]> {
-    const rows = await this.#reader().query<{ user_id: string; name: string; email: string }>(
-      `select u.id as user_id, ${personName('p', 'u')} as name, u.email
+    const rows = await this.#reader().query<{
+      user_id: string
+      name: string
+      email: string
+      avatar_preset: number | null
+      avatar_file_id: string | null
+    }>(
+      `select u.id as user_id, ${personName('p', 'u')} as name, u.email, ${personAvatar('p')}
          from users u
          left join user_profiles p on p.user_id = u.id
         where u.status = 'active' and u.deidentified_at is null
@@ -2119,7 +2128,13 @@ export class PgGroupQuery implements GroupQuery {
                        where r.user_id = u.id and r.role = 'teacher' and r.revoked_real_at is null)
         order by name, u.email`,
     )
-    return rows.rows.map((r) => ({ userId: r.user_id, name: r.name, loginEmail: r.email }))
+    return rows.rows.map((r) => ({
+      userId: r.user_id,
+      name: r.name,
+      loginEmail: r.email,
+      avatarPreset: r.avatar_preset,
+      avatarFileId: r.avatar_file_id,
+    }))
   }
 
   async advisedGroupCount(teacherUserId: string): Promise<number> {
@@ -2187,9 +2202,11 @@ export class PgGroupQuery implements GroupQuery {
         source: AdvisorSource
         valid_from: Date
         contact_email: string | null
+        avatar_preset: number | null
+        avatar_file_id: string | null
       }>(
         `select a.group_id, a.teacher_user_id, ${personName('p', 'u')} as teacher_name,
-                a.source, a.valid_from, p.contact_email
+                a.source, a.valid_from, p.contact_email, ${personAvatar('p')}
            from advisor_assignments a
            join users u on u.id = a.teacher_user_id
            left join user_profiles p on p.user_id = a.teacher_user_id
@@ -2222,6 +2239,8 @@ export class PgGroupQuery implements GroupQuery {
           source: a.source,
           since: a.valid_from,
           contactEmail: a.contact_email,
+          avatarPreset: a.avatar_preset,
+          avatarFileId: a.avatar_file_id,
         },
       ]),
     )
@@ -2544,7 +2563,8 @@ export class PgGroupQuery implements GroupQuery {
     const proposals = await db.query<ProposalListRow>(`${PROPOSAL_SELECT} ${tail}`, values)
     if (proposals.rows.length === 0) return []
     const invitations = await db.query<InvitationListRow>(
-      `select i.proposal_id, i.user_id, ${personName('p', 'u')} as name, p.student_no, i.state, i.decided_real_at
+      `select i.proposal_id, i.user_id, ${personName('p', 'u')} as name, p.student_no, i.state, i.decided_real_at,
+              ${personAvatar('p')}
          from proposal_invitations i
          join users u on u.id = i.user_id
          left join user_profiles p on p.user_id = i.user_id
@@ -2568,7 +2588,15 @@ export class PgGroupQuery implements GroupQuery {
       establishedGroupCode: p.group_code,
       invitations: invitations.rows
         .filter((i) => i.proposal_id === p.id)
-        .map((i) => ({ userId: i.user_id, name: i.name, studentNo: i.student_no, state: i.state, decidedRealAt: i.decided_real_at })),
+        .map((i) => ({
+          userId: i.user_id,
+          name: i.name,
+          studentNo: i.student_no,
+          state: i.state,
+          decidedRealAt: i.decided_real_at,
+          avatarPreset: i.avatar_preset,
+          avatarFileId: i.avatar_file_id,
+        })),
     }))
   }
 }
