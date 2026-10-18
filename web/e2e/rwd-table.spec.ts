@@ -93,3 +93,18 @@ test('AC-59：390 寬檔案表，右緣有捲動提示、首欄固定', async ({
   await expect(container).toHaveAttribute('data-scroll', 'end')
   expect((await first.boundingBox())!.x).toBeCloseTo(left0, 0)
 })
+
+test('AC-59（共用框）：390 寬帳號頁，表格有捲動提示、表頭仍 sticky', async ({ page }) => {
+  await asAdmin(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/dashboard/admin/accounts')
+  const head = page.locator('thead').first()
+  await expect(head).toBeVisible()
+  const container = page.locator('[data-slot="table-container"]').filter({ has: head })
+  await expect(container).toHaveAttribute('data-scroll', 'start')
+  const scroller = container.locator('> div')
+  expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  expect(await head.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+  await scroller.evaluate((el) => (el.scrollLeft = el.scrollWidth))
+  await expect(container).toHaveAttribute('data-scroll', 'end')
+})
