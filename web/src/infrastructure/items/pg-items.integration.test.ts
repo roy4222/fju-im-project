@@ -22,7 +22,7 @@ import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
-import { PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
+import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
 /**
  * 票 15：專題事務建立與發布（模組實作設計 04 §3、§6、§10；模組 05 §5 `buildRoster`；
@@ -776,6 +776,68 @@ describe('發布更新（小幅修改自選通知；PUB-06 收件單位鎖定）
       randomUUID(),
     )
     expect(title.ok && title.receipt.changes).toEqual(['content', 'deadline'])
+  })
+
+  it('有人交件後：只改欄名與說明可以存，學生看到新欄名、舊答案還在；改 key／型別／必填／選項／檔案規則／順序／加刪欄位仍被拒（AC-5）', async () => {
+    const { cohortId } = await newCohort()
+    const s = await newStudent(cohortId)
+    const fields: ItemInput['fields'] = [
+      { key: 'topic', type: 'text', label: '題目', required: true, help: '一句話' },
+      { key: 'kind', type: 'select', label: '類型', required: false, options: ['系統', '研究'] },
+      { key: 'report', type: 'file', label: '報告', required: false, fileRules: { allowedTypes: ['pdf'], maxMiB: 20 } },
+    ]
+    const item = await mustCreate(cohortId, { fields })
+    const published = await mustPublish(item.itemId, 1, false)
+    const submissions = new PgSubmissionCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      businessClock,
+      files: storage,
+      events: new PgEventPublisher(),
+      pool: () => app,
+    })
+    const saved = await submissions.saveDraft(studentActor(s), item.itemId, 0, { topic: '校園導覽 App', kind: '系統' }, randomUUID())
+    if (!saved.ok) throw new Error(`${saved.code} ${saved.message}`)
+    const submitted = await submissions.submit(studentActor(s), item.itemId, saved.receipt.revision, randomUUID())
+    expect(submitted.ok).toBe(true)
+
+    // (i) 只改欄名與說明：存得了，切新的欄位版本；學生端是新欄名，交過的那一版答案不變。
+    const relabeled: ItemInput['fields'] = [
+      { key: 'topic', type: 'text', label: '專題題目', required: true, help: '寫完整題目' },
+      { key: 'kind', type: 'select', label: '專題類型', required: false, options: ['系統', '研究'] },
+      { key: 'report', type: 'file', label: '期中報告', required: false, fileRules: { allowedTypes: ['pdf'], maxMiB: 20 } },
+    ]
+    const labels = await items.updatePublished(adminActor(), item.itemId, published.revision, input(cohortId, { fields: relabeled }), { notify: false }, randomUUID())
+    if (!labels.ok) throw new Error(`${labels.code} ${labels.message}`)
+    expect(labels.receipt.changes).toEqual(['schema'])
+    const studentQuery = new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app))
+    const mine = await studentQuery.myItem(s.id, item.itemId)
+    expect(mine?.fields.map((f) => [f.key, f.label, f.help ?? null])).toEqual([
+      ['topic', '專題題目', '寫完整題目'],
+      ['kind', '專題類型', null],
+      ['report', '期中報告', null],
+    ])
+    expect(mine?.versions).toHaveLength(1)
+    expect((await studentQuery.myVersion(s.id, item.itemId, 1))?.answers).toMatchObject({ topic: '校園導覽 App', kind: '系統' })
+
+    // (ii) 動到結構：一律 ITEM_HAS_RESPONSES，欄位版本不再增加。
+    const versionsBefore = await count('select count(*) as n from form_schema_versions where item_id = $1', [item.itemId])
+    const [topic, kind, report] = relabeled
+    const structural: Record<string, ItemInput['fields']> = {
+      key: [{ ...topic!, key: 'title' }, kind!, report!],
+      type: [{ ...topic!, type: 'textarea' }, kind!, report!],
+      required: [{ ...topic!, required: false }, kind!, report!],
+      options: [topic!, { ...kind!, options: ['系統', '研究', '其他'] }, report!],
+      fileRules: [topic!, kind!, { ...report!, fileRules: { allowedTypes: ['pdf'], maxMiB: 50 } }],
+      order: [kind!, topic!, report!],
+      added: [topic!, kind!, report!, { key: 'note', type: 'textarea', label: '備註', required: false }],
+      removed: [topic!, kind!],
+    }
+    for (const [what, next] of Object.entries(structural)) {
+      const refused = await items.updatePublished(adminActor(), item.itemId, labels.receipt.revision, input(cohortId, { fields: next }), { notify: false }, randomUUID())
+      expect([what, refused.ok || refused.code]).toEqual([what, 'ITEM_HAS_RESPONSES'])
+    }
+    expect(await count('select count(*) as n from form_schema_versions where item_id = $1', [item.itemId])).toBe(versionsBefore)
   })
 
   it('改截止：期限版本 +1，舊的到期工作取消、新的排上', async () => {

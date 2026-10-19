@@ -459,7 +459,7 @@ test('AC-4：表單產生器加三欄，拖曳＋上移排成 B、C、A；預覽
   await expect(page.getByTestId('receipt')).toBeVisible()
 })
 
-test('AC-5：已有一組交件的整組作業：欄位區寫「已有 1 組交過，欄位結構不能改」，型別與刪除停用、欄名仍可改；繳交方式鎖住', async ({ page }) => {
+test('AC-5：已有一組交件的整組作業：欄位區寫「已有 1 組交過，欄位結構不能改」，型別與刪除停用、欄名仍可改；繳交方式鎖住；改欄名與說明按「儲存更新」存得起來', async ({ page }) => {
   const item = await itemByTitle(`${CODE} 欄位排序`)
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/${item.id}`)
@@ -475,6 +475,19 @@ test('AC-5：已有一組交件的整組作業：欄位區寫「已有 1 組交�
   await expect(form.getByRole('button', { name: '新增欄位' })).toHaveCount(0)
   await expect(form.getByRole('radio', { name: '整組一份', exact: true })).toBeDisabled()
   await expect(form.getByText('已經有人作答，繳交方式鎖定、不能再切換。')).toBeVisible()
+
+  // 只改欄名與說明（不動結構）：按「儲存更新」成功回清單；重開是新欄名與說明。
+  await first.getByLabel(/欄位的欄名$/).fill('期中報告 PDF')
+  await first.getByRole('button', { name: '編輯欄位：期中報告 PDF' }).click()
+  await first.getByLabel('說明', { exact: true }).fill('一組交一份 PDF')
+  await form.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  await expect(page.getByTestId('item-toast')).toHaveText('已更新')
+  await page.goto(`/dashboard/admin/editor/${item.id}`)
+  const reopened = (await formReady(page)).locator('section[aria-labelledby="sec-fields"]').locator('li[data-field-type]').first()
+  await expect(reopened.getByLabel(/欄位的欄名$/)).toHaveValue('期中報告 PDF')
+  await reopened.getByRole('button', { name: '編輯欄位：期中報告 PDF' }).click()
+  await expect(reopened.getByLabel('說明', { exact: true })).toHaveValue('一組交一份 PDF')
 })
 
 test('AC-24（表單面）：新增 › 同意書（下載 PDF 再上傳）預設一個不能刪的「簽好的同意書」檔案欄；發布後學生看到形式「同意書」', async ({ page }) => {
