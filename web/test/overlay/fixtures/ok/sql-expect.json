@@ -1,0 +1,6 @@
+{
+  "$comment": "fixture 基底",
+  "/a": { "as": "admin", "baseline": 1, "max": 1, "identity": 0 },
+  "/b": { "as": "teacher", "baseline": 2, "max": 2, "identity": 0 },
+  "/c": { "as": "student", "baseline": 3, "max": 3, "identity": 0 }
+}

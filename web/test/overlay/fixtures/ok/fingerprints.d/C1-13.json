@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-13",
+  "set": { "/d": "D1" },
+  "override": { "/a": { "from": "base", "value": "A1" } },
+  "delete": [{ "key": "/b", "from": "base" }]
+}

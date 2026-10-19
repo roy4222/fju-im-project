@@ -1,0 +1,5 @@
+{
+  "ticket": "C5-12a",
+  "set": { "/b": { "from": "C1-13", "value": { "as": "teacher", "baseline": 6, "max": 6, "identity": 0 } } },
+  "override": { "/a": { "from": "C1-13", "value": { "as": "admin", "baseline": 7, "max": 7, "identity": 0 } } }
+}
