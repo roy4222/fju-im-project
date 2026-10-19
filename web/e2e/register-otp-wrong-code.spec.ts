@@ -90,7 +90,9 @@ const RESUME_COOKIE = 'fju_signup_resume'
  * AC-6／AC-6a 測的是「票不在」那條路，這張假票在送碼前就被刪掉，不會被拿去驗證。
  */
 function placeholderResumeCookie(baseURL: string, email: string) {
-  return { name: RESUME_COOKIE, value: `placeholder.${Buffer.from(email, 'utf8').toString('base64url')}`, url: `${baseURL}/register` }
+  // 跟伺服器設的一樣是 path=/register，伺服器的 `jar.delete({ path: '/register' })` 才刪得到。
+  const value = `placeholder.${Buffer.from(email, 'utf8').toString('base64url')}`
+  return { name: RESUME_COOKIE, value, domain: new URL(baseURL).hostname, path: '/register', httpOnly: true, sameSite: 'Lax' as const }
 }
 
 async function mailCount(email: string): Promise<number> {
