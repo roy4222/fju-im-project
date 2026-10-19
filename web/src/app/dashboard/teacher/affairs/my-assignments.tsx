@@ -16,11 +16,11 @@ export function MyAssignments({ rows, now }: { rows: readonly MyItemRow[]; now: 
     if (row.consent) {
       return {
         testId: `consent-${row.consent.versionId}`,
-        title: row.title,
+        title: row.groupCode ? `${row.title}（${row.groupCode}）` : row.title,
         form: '同意書',
         group: false,
         status: { label: '等你同意', tone: toneOf({ kind: 'consent', status: 'open' }) },
-        due: row.groupCode ?? '',
+        due: dueText({ due: row.dueAt, status: 'open', late: false }, now),
         href: `${BASE}?tab=signoff`,
         action: '交作業',
       }

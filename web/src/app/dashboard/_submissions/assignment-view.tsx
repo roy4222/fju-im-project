@@ -60,7 +60,8 @@ export async function AssignmentView({
     phase,
     opensAt: item.opensAt,
     latestVersionNo: latest?.versionNo ?? null,
-    hasDraft: item.draft !== null,
+    // 草稿是隱形的（§5.2）：上傳過檔案也還是「未繳」，橫幅不寫「草稿已存」。
+    hasDraft: false,
     exempt: item.exempt,
     reopenUntil,
   })
