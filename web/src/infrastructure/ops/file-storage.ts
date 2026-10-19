@@ -14,6 +14,7 @@ import {
   effectiveMaxBytes,
   extensionOf,
   FILE_TYPES,
+  fileInUseMessage,
   formatBytes,
   isUuid,
   sanitizeDisplayName,
@@ -22,6 +23,8 @@ import {
   type AttachExpectation,
   type AuditWriter,
   type DeclaredUpload,
+  type FileAdminCommand,
+  type FileDeleteReceipt,
   type DownloadPolicies,
   type FileDownload,
   type FileFacts,
@@ -35,7 +38,6 @@ import {
   type UploadRules,
   type UploadTicket,
 } from '@/application/ops'
-import { fileInUseMessage, type FileAdminCommand, type FileDeleteReceipt } from '@/application/ops/files'
 import { err, ok, type Receipt, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
