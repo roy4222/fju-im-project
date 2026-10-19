@@ -6,7 +6,8 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
 /**
  * C1-16（#640；AC-15）：公告與作業 › 檔案分頁，「用在哪裡」是連結、刪掉沒人用的檔。
  *
- * - 被公告引用的檔：刪除鈕 disabled、寫「還有 1 處在用（公告「X」附件）」；硬把 disabled 拿掉再按，命令回 `CONFLICT`、檔案不動。
+ * - 被公告引用的檔：刪除鈕 disabled、寫「還有 1 處在用（公告「X」附件）」。
+ * - 畫面顯示可刪、按確認前別處剛把檔用上：命令重查引用回 `CONFLICT`，檔案不動（直接打 action 的情境）。
  * - 沒被引用的檔：按「刪除」→ 確認一句 → 列消失；DB `soft_deleted`＋`soft_deleted_at`、稽核 `file.delete` 一筆、下載與預覽網址被拒。
  * - 首頁大圖（不寫 `file_references`）也算一處在用，不會出現在「可刪」裡。
  *
@@ -23,6 +24,7 @@ const CODE = `C116-${stamp}`
 const TITLE = `${CODE} 說明會`
 const USED_NAME = `c116-${stamp.toLowerCase()}-簡章.pdf`
 const UNUSED_NAME = `c116-${stamp.toLowerCase()}-沒人用.pdf`
+const RACE_NAME = `c116-${stamp.toLowerCase()}-剛被用上.pdf`
 const HERO_NAME = `c116-${stamp.toLowerCase()}-首頁.png`
 const PDF = Buffer.from('%PDF-1.4\n% e2e C1-16 檔案分頁\n')
 
@@ -30,7 +32,6 @@ let pool: Pool
 let cohortId: string
 let adminId: string
 let itemId: string
-let usedId: string
 let unusedId: string
 
 function ymd(date: Date): string {
@@ -77,12 +78,11 @@ async function asAdmin(page: Page) {
 
 const fileRow = (page: Page, name: string) => page.getByTestId('file-row').filter({ hasText: name })
 
-test('AC-15：被公告引用的檔不能刪（按鈕寫原因、硬按也回「還有 1 處在用」）；「用在哪裡」是連結', async ({ page }) => {
+test('AC-15：被公告引用的檔不能刪（按鈕寫原因）；剛被用上的檔按刪除回「還有 1 處在用」；「用在哪裡」是連結', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   await createItemInDialog(page, { kind: /公告/, title: TITLE, audience: 'signed_in', file: { name: USED_NAME, buffer: PDF } })
   itemId = (await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, TITLE])).rows[0]!.id
-  usedId = (await pool.query<{ file_id: string }>('select file_id from item_attachments where item_id = $1', [itemId])).rows[0]!.file_id
 
   await page.goto('/dashboard/admin/files')
   const row = fileRow(page, USED_NAME)
@@ -92,15 +92,22 @@ test('AC-15：被公告引用的檔不能刪（按鈕寫原因、硬按也回「
   await expect(blocked).toBeDisabled()
   await expect(row.getByRole('button', { name: `刪除 ${USED_NAME}` })).toHaveCount(0)
 
-  // 直接打刪除：把 disabled 拿掉硬按、確認 → 命令在交易裡重查引用，回 CONFLICT，檔案不動、不寫稽核。
-  await blocked.evaluate((el) => el.removeAttribute('disabled'))
-  await blocked.click()
+  // 直接打刪除：畫面還顯示「可刪」（舊畫面）時，別處把這個檔用上了 → 確認刪除，命令在交易裡重查引用，
+  // 回 CONFLICT「還有 1 處在用」，檔案不動、不寫稽核。（React 不會對 disabled 按鈕觸發 onClick，硬拿掉屬性打不到 action。）
+  const raceId = await insertStoredFile(RACE_NAME, 'attachment', 'cohort')
+  await page.reload()
+  await fileRow(page, RACE_NAME).getByRole('button', { name: `刪除 ${RACE_NAME}` }).click()
   const dialog = page.getByRole('dialog', { name: '刪除檔案' })
+  await expect(dialog).toBeVisible()
+  await pool.query(`insert into file_references (id, file_id, ref_type, ref_id) values (gen_random_uuid(), $1, 'item_attachment', $2)`, [
+    raceId,
+    itemId,
+  ])
   await dialog.getByRole('button', { name: '刪除', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('還有 1 處在用')
-  const after = await pool.query('select status, soft_deleted_at from stored_files where id = $1', [usedId])
+  const after = await pool.query('select status, soft_deleted_at from stored_files where id = $1', [raceId])
   expect(after.rows[0]).toMatchObject({ status: 'stored', soft_deleted_at: null })
-  const audits = await pool.query(`select 1 from audit_events where action = 'file.delete' and target_id = $1`, [usedId])
+  const audits = await pool.query(`select 1 from audit_events where action = 'file.delete' and target_id = $1`, [raceId])
   expect(audits.rowCount).toBe(0)
   await dialog.getByRole('button', { name: '取消' }).click()
   await expect(dialog).toBeHidden()
