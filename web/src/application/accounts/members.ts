@@ -15,6 +15,7 @@ import type {
   RoleChangeReceipt,
 } from '@/application/accounts/roles'
 import type { ErrorCode } from '@/shared/errors'
+import { STUDENT_NO_PATTERN } from '@/application/accounts/roster'
 import { err, type Err, type Result, type SecretOnce } from '@/shared/result'
 
 /**
@@ -98,6 +99,90 @@ export function normalizeTeacherAccountInput(
   })
   if (!verification.ok) return verification
   return { ok: true, value: { mode: 'direct', email, name, verification: verification.value } }
+}
+
+// ── 新增成員（C 階段規格② §3.7；老師、管理員、學生三選一） ─────────────────────
+
+export type NewMemberKind = 'student' | 'teacher' | 'admin'
+
+export const NEW_MEMBER_KINDS: readonly NewMemberKind[] = ['student', 'teacher', 'admin']
+
+/**
+ * 新增成員的欄位。學號、屆別只有學生用；老師與管理員只要姓名與 Email。
+ * 不問核實方式：系辦親手加的人不需要再審，也不發臨時密碼，改寄「請設定密碼」信（Q-C2-9）。
+ */
+export type NewMemberInput = {
+  readonly kind: string
+  readonly name: string
+  readonly email: string
+  readonly studentNo: string
+  readonly cohortId: string
+}
+
+export type NormalizedNewMember =
+  | { readonly kind: 'teacher' | 'admin'; readonly name: string; readonly email: string }
+  | {
+      readonly kind: 'student'
+      readonly name: string
+      readonly email: string
+      readonly studentNo: string
+      readonly cohortId: string
+    }
+
+export const NEW_STUDENT_FIELDS_REQUIRED = '學生要有學號和屆別'
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function normalizeNewMember(input: NewMemberInput): { ok: true; value: NormalizedNewMember } | Err {
+  const kind = NEW_MEMBER_KINDS.find((k) => k === input.kind)
+  if (!kind) return invalid('kind', '請選擇要新增學生、老師或管理員。')
+
+  const email = input.email.trim().toLowerCase()
+  if (!email) return invalid('email', '請填登入 Email。')
+  if (!isValidEmail(email)) return invalid('email', '登入 Email 的格式不對。')
+
+  const name = input.name.trim().replace(/\s+/g, ' ')
+  const nameProblem = checkName(name, true)
+  if (nameProblem) return nameProblem
+
+  if (kind !== 'student') return { ok: true, value: { kind, name, email } }
+
+  const studentNo = input.studentNo.trim()
+  const cohortId = input.cohortId.trim()
+  if (!studentNo || !cohortId) {
+    return err('VALIDATION_FAILED', NEW_STUDENT_FIELDS_REQUIRED, { details: { field: studentNo ? 'cohortId' : 'studentNo' } })
+  }
+  if (!STUDENT_NO_PATTERN.test(studentNo)) return invalid('studentNo', '學號只能有英文字母和數字。')
+  if (!UUID_SHAPE.test(cohortId)) return invalid('cohortId', '請重新選屆別。')
+  return { ok: true, value: { kind, name, email, studentNo, cohortId } }
+}
+
+/**
+ * 「新增成員」整件事的回執（帳本存的就是這個；**不含秘密**）。
+ * 建帳號、授權管理員、寄「請設定密碼」信三步共用一個請求編號與一把帳本：重送同一個請求只回這份，
+ * 不會再寄信、不會再授權。
+ */
+export type MemberReceipt = {
+  readonly kind: NewMemberKind
+  readonly userId: string
+  readonly name: string
+  readonly email: string
+  /** 信有沒有交給寄信那一層；重播時不知道，是 `null`。 */
+  readonly setupMailRequested: boolean | null
+  /** 帳號建好、但後面某一步沒完成時要告訴系辦的那句話。 */
+  readonly notice: string | null
+}
+
+/** 新增學生的回執（**不含秘密**；帳本存的就是這個）。直接開通，所以沒有密碼，也沒有臨時密碼。 */
+export type StudentAccountReceipt = {
+  readonly userId: string
+  readonly email: string
+  readonly name: string
+  readonly studentNo: string
+  readonly cohortId: string
+  readonly createdAt: string
+  /** 「請設定密碼」信有沒有交出去：帳本重播時不知道，是 `null`。 */
+  readonly setupMailRequested: boolean | null
 }
 
 /** 核發臨時密碼的欄位：核實方式必選、校方管道與其他方式要寫說明、理由選填（契約 03 §3）。 */
@@ -205,6 +290,30 @@ export interface AccountCommand {
     authHeaders: Headers,
     input: TeacherAccountInput & { requestId: string },
   ): Promise<Result<TeacherAccountReceipt> | TeacherCreatedWithSecret>
+  /**
+   * 新增成員（C2-09）：學生、老師、管理員三選一，整件事一個請求編號、一筆帳本
+   * （身分也算進指紋：同編號換身分 → `REQUEST_MISMATCH`）。
+   * 學生＝`createStudent`；老師＝預授權建帳號；管理員＝老師再設為管理員。最後寄「請設定密碼」信。
+   */
+  createMember(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: NewMemberInput & { requestId: string },
+  ): Promise<Result<MemberReceipt>>
+  /**
+   * 新增學生（C2-09）：系辦親手加的人直接開通（不走申請），同一個交易建個人資料、占用學號、
+   * 給學生角色，然後寄「請設定密碼」信。同屆同學號已有人 → `STUDENT_NO_TAKEN`。
+   */
+  createStudent(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: { name: string; email: string; studentNo: string; cohortId: string; requestId: string },
+  ): Promise<Result<StudentAccountReceipt>>
+  /**
+   * 替已開通、有 Email 的帳號寄「請設定密碼」信（新增老師、管理員時用；學生由 `createStudent` 自己寄）。
+   * 信只代表「已交給寄信那一層」；收不到的人再用列上的臨時密碼。
+   */
+  sendSetupMail(actor: ResolvedActor, authHeaders: Headers, input: { userId: string }): Promise<Result<{ readonly requested: boolean }>>
   /** 用登入 Email 找帳號（發臨時密碼之前先確認是誰）。 */
   lookupByEmail(actor: ResolvedActor, email: string): Promise<Result<AccountLookup>>
   /** 替任一帳號核發一次性臨時密碼：舊密碼立刻失效、舊登入撤銷、本人下次登入必須改密碼。 */

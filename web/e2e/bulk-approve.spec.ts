@@ -3,12 +3,12 @@ import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
- * 第三波 W6：待審註冊一次核准多位（AC-24）；操作紀錄新增老師那筆用老師的核實文字（AC-25）。
+ * 第三波 W6：待審註冊一次核准多位（AC-24）；新增成員（老師）後操作紀錄那筆不帶核實文字（AC-25）。
  *
  * 1. 名單上 3 位，其中第 3 位的學號已被別人（先核准的同學號申請）占用：
  *    勾 3 位 →「核准勾選的 3 位」→ 預覽標出第 3 位會略過及原因 → 確認（不問怎麼確認是本人）
  *    → 結果「成功 2、略過 1」（學號已被使用）；2 位可以登入進學生首頁；操作紀錄 2 筆核准。
- * 2. 新增一位老師後，操作紀錄那筆的確認本人方式寫「教職員證、身分證」，不提學生證。
+ * 2. 「新增成員」建一位老師後，操作紀錄那筆是「預先建立老師帳號」，不問、也不寫確認本人方式（C2-09）。
  *
  * 待審清單是全站共用的（別的 e2e 檔平行跑時也會有待審的人），所以逐一勾這一輪的人，不按「全選」。
  */
@@ -255,23 +255,23 @@ test('預覽後才補齊名單：按「核准 1 位」只核准預覽時那一�
   }
 })
 
-test('AC-25：新增老師後，操作紀錄那筆寫老師的核實文字，不提學生證', async ({ browser }) => {
+test('AC-25：新增成員（老師）後，操作紀錄那筆是「預先建立老師帳號」，不問、也不寫怎麼確認是本人', async ({ browser }) => {
   const admin = await adminPage(browser)
   const teacher = { name: `批次老師${prefix}`, email: `w6-t-${run}@example.com` }
   await admin.goto('/dashboard/admin/accounts')
   await admin.getByRole('button', { name: '新增成員', exact: true }).click()
-  const dialog = admin.getByRole('dialog', { name: '新增老師' })
+  const dialog = admin.getByRole('dialog', { name: '新增成員' })
+  await dialog.getByRole('radio', { name: /^老師/ }).check()
   await dialog.getByLabel('登入 Email').fill(teacher.email)
   await dialog.getByLabel('姓名').fill(teacher.name)
-  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
-  await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
-  await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
+  await dialog.getByRole('button', { name: '新增老師' }).click()
+  await expect(dialog.getByRole('status')).toContainText('已新增老師')
   await dialog.getByRole('button', { name: '關閉' }).click()
 
   await admin.goto('/dashboard/admin/audit')
-  const entry = admin.getByTestId('audit-entry').filter({ hasText: '新增老師' }).filter({ hasText: teacher.name })
+  const entry = admin.getByTestId('audit-entry').filter({ hasText: '預先建立老師帳號' }).filter({ hasText: teacher.name })
   await expect(entry).toHaveCount(1)
-  await expect(entry).toContainText('怎麼確認是本人：當面核對身分證件（教職員證、身分證）')
+  await expect(entry).not.toContainText('怎麼確認是本人')
   await expect(entry).not.toContainText('學生證')
 })
 

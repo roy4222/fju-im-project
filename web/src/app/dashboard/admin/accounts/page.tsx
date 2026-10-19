@@ -114,7 +114,7 @@ export default async function AdminAccountsPage({
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
       {/* C 階段規格② §3.1：這一頁只剩帳號列表；待審核、已停用、名單匯入各有自己的分頁。 */}
       {/* 標題列只有一顆「新增成員」（A18）；「發臨時密碼」在每一列（A15）。 */}
-      <PageTitle title="帳號" actions={<NewMemberDialog labels={VERIFICATION_LABELS} />} />
+      <PageTitle title="帳號" actions={<NewMemberDialog cohorts={directory?.cohorts ?? []} />} />
       <div className="mt-4">
         <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} />
       </div>
