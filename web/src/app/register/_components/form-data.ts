@@ -86,7 +86,12 @@ export type SignupFormState =
   | { error: string; field?: 'email' | 'password' | 'passwordConfirm'; email: string; attempt: number }
   | undefined
 
-/** 第 2 步填碼、重寄兩個表單的狀態。 */
-export type VerifyFormState = { error: string; attempt: number } | undefined
+/**
+ * 第 2 步填碼、重寄兩個表單的狀態。
+ * `nextHref`：Email 其實已經驗證（另一個分頁先填了）時給「到第 3 步」連結。
+ */
+export type VerifyFormState = { error: string; nextHref?: string; attempt: number } | undefined
 /** `restartHref`：續辦已過絕對截止時給「重新開始」連結（回第 1 步、Email 帶著）。 */
-export type ResendFormState = { error?: string; restartHref?: string; sentAt?: number; attempt: number } | undefined
+export type ResendFormState =
+  | { error?: string; restartHref?: string; nextHref?: string; sentAt?: number; attempt: number }
+  | undefined
