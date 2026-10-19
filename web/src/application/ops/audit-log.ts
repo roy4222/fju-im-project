@@ -145,6 +145,7 @@ const ACTION_LABEL: Record<string, string> = {
   'account.create_member': '新增成員',
   'account.issue_temporary_password': '核發臨時密碼',
   'account.issue_temporary_password_failed': '臨時密碼核發失敗',
+  'account.reset_mail_sent': '寄重設密碼信',
   'account.complete_teacher_profile': '老師補完資料',
   'account.update_contact': '更新聯絡資料',
   'account.change_password': '變更密碼',

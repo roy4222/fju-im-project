@@ -50,6 +50,10 @@ import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { sendAdminResetMail } from '@/infrastructure/auth/wrapper'
+
+/** 等寄信結果的上限：要比 `brevo-mailer.ts` 的 `TIMEOUT_MS`（10 秒）長，Brevo 卡住時才等得到它判逾時。改那邊的逾時要一起對齊。 */
+const MAIL_SETTLE_TIMEOUT_MS = 12_000
 import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { occupyStudentNo, studentNoHolder } from '@/infrastructure/accounts/student-identities'
 import { isEffectiveAdmin, lockAdmins } from '@/infrastructure/accounts/admin-guard'
@@ -82,6 +86,8 @@ export type AccountDirectoryCommandDeps = {
    * 正式組裝一定有（`composition/accounts.ts`）；不給時不檢查組長（票 9 的舊測試不需要分組）。
    */
   readonly leaders?: LeaderSuccessionHook<PoolClient>
+  /** 寄重設密碼信（預設走 `sendAdminResetMail`；測試可以換掉來模擬失敗）。 */
+  readonly requestPasswordReset?: (headers: Headers, input: { email: string }) => Promise<unknown>
 }
 
 /** 停用時帶來的接任：陣列、每筆都是兩個 uuid、數量合理；其他形狀一律當成格式錯誤。 */
@@ -157,7 +163,8 @@ const DIRECTORY_BASE = `
              where r.user_id = u.id and r.revoked_real_at is null),
            '{}'::text[]
          ) as roles,
-         ${orphanCondition('u')} as is_orphan
+         ${orphanCondition('u')} as is_orphan,
+         exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'credential') as has_password
     from users u
     left join user_profiles up on up.user_id = u.id
     left join lateral (
@@ -205,6 +212,7 @@ type DirectoryRow = {
   application_state: 'pending' | 'approved' | 'rejected' | null
   roles: Role[]
   is_orphan: boolean
+  has_password: boolean
   total?: string
 }
 
@@ -229,6 +237,7 @@ function toAccountRow(r: DirectoryRow): AccountRow {
     orphan: r.is_orphan,
     avatarPreset: r.avatar_preset,
     avatarFileId: r.avatar_file_id,
+    hasPassword: r.has_password,
   }
 }
 
@@ -404,6 +413,98 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
       tx.release()
     }
     return ok({ csv: buildAccountsCsv(rows.map(toAccountRow)), count: rows.length }, meta(now))
+  }
+
+  // ── 寄重設密碼信（C2-11） ────────────────────────────────────────────────
+
+  /**
+   * 系辦寄重設密碼信：走內部呼叫（略過每 IP 限流與 Turnstile，Email 桶照扣）。
+   *
+   * 套件的 `sendResetPassword` 回呼是背景寄送、結果不會傳回呼叫端（也不進 `withMailOutcome` 的盒子），
+   * 所以寄完後看這封信在 `mail_outbox` 的結果：失敗就丟錯，畫面才不會說「已寄出」。
+   */
+  async #sendAndSettle(headers: Headers, input: { email: string }): Promise<void> {
+    const db = this.#deps.db()
+    const since = (await db.query<{ now: Date }>('select clock_timestamp() as now')).rows[0]!.now
+    await sendAdminResetMail(input, headers)
+    const deadline = Date.now() + MAIL_SETTLE_TIMEOUT_MS
+    for (;;) {
+      const row = (
+        await db.query<{ status: string }>(
+          `select status from mail_outbox
+            where to_email = $1 and template = 'password_reset' and created_at >= $2
+            order by created_at desc limit 1`,
+          [input.email, since],
+        )
+      ).rows[0]
+      if (row && row.status !== 'queued') {
+        if (row.status === 'failed') throw new Error('mail_failed')
+        return
+      }
+      // 到上限還沒有結果（沒有這封信，或還在排隊）：不能說已寄出。
+      if (Date.now() >= deadline) throw new Error(row ? 'mail_unsettled' : 'mail_missing')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
+  async sendResetMail(actor: ResolvedActor, input: { userId: string }, context: AdminRequestContext): ReturnType<AccountDirectoryCommand['sendResetMail']> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!isUserId(input?.userId)) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+
+    const db = this.#deps.db()
+    const target = (
+      await db.query<{ email: string; status: string; deidentified_at: Date | null; has_password: boolean; has_google: boolean }>(
+        `select u.email, u.status, u.deidentified_at,
+                exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'google') as has_google,
+                exists (select 1 from accounts a where a.user_id = u.id and a.provider_id = 'credential') as has_password
+           from users u where u.id = $1`,
+        [input.userId],
+      )
+    ).rows[0]
+    if (!target) return err('VALIDATION_FAILED', '找不到這個帳號，請重新整理頁面。')
+    if (target.deidentified_at || target.status === 'disabled') {
+      return err('VALIDATION_FAILED', '這個帳號已停用，登不進來；要寄重設密碼信請先恢復帳號。')
+    }
+    if (!target.has_password) {
+      return err(
+        'VALIDATION_FAILED',
+        target.has_google ? '這個帳號用 Google 登入，沒有密碼，不能寄重設密碼信。' : '這個帳號尚未設定密碼，不能寄重設密碼信；請改發臨時密碼。',
+      )
+    }
+
+    try {
+      await (this.#deps.requestPasswordReset ?? ((h, i) => this.#sendAndSettle(h, i)))(context.headers, { email: target.email })
+    } catch (error) {
+      console.error('[accounts] 寄重設密碼信失敗', (error as { body?: { code?: unknown } } | null)?.body?.code ?? 'unknown')
+      return err('INTERNAL', '信寄不出去，請稍後再試；或改發臨時密碼給本人。')
+    }
+
+    const now = this.#clock.now()
+    const tx = await db.connect()
+    try {
+      await tx.query('begin')
+      await this.#deps.audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actor.userId,
+        role: 'admin',
+        action: 'account.reset_mail_sent',
+        targetType: 'user',
+        targetId: input.userId,
+        scope: 'global',
+        realAt: now,
+        businessAt: now,
+        // 不含連結與 token。
+        payload: { template: 'password_reset' },
+      })
+      await tx.query('commit')
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+    return ok({ userId: input.userId, email: target.email, validMinutes: 30, sentAt: now.toISOString() }, meta(now))
   }
 
   // ── 停用與恢復 ────────────────────────────────────────────────────────────

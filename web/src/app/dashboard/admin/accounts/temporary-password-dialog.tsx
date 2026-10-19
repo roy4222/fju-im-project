@@ -9,8 +9,8 @@ import { issueTemporaryPasswordAction, lookupAccountAction } from './actions'
  * 發臨時密碼對話框（票 8；原型 `/dashboard/admin/accounts` 的「重設臨時密碼」），以及它跟「新增成員」
  * （`new-member-dialog.tsx`）共用的核實欄位、臨時密碼框、對話框外觀（C2-07 從 `teacher-dialogs.tsx` 拆出）。
  *
- * 規則都在伺服器（核實方式必選、Email 不能重複、不能替自己發、停用的帳號不能發）；
- * 這裡只做「還沒選核實方式就不送」這種省一次來回的提示。
+ * 規則都在伺服器（Email 不能重複、不能替自己發、停用的帳號不能發）。系辦發臨時密碼不再問「怎麼確認是本人」（C2-11；
+ * 伺服器一律記 `office_review`）；理由選填。核實欄位只剩「新增成員」那邊還在用。
  *
  * **臨時密碼只顯示一次**：它只活在這個對話框的 state 裡，關掉就清掉；不寫進網址、
  * 不寫進 localStorage、頁面重新整理也拿不回來（伺服器沒有存可讀的版本）。
@@ -27,11 +27,6 @@ export type VerificationLabels = {
 }
 
 type VerificationKind = 'student' | 'teacher'
-
-/** 對象有老師或管理員角色、而且不是學生，就用老師那套文字；其他（學生、待審、孤兒）沿用註冊核准那套。 */
-function verificationKind(target: Pick<AccountLookup, 'roles'>): VerificationKind {
-  return !target.roles.includes('student') && (target.roles.includes('teacher') || target.roles.includes('admin')) ? 'teacher' : 'student'
-}
 
 export const BUTTON =
   // 外觀照原型（票 36）：h-10、圓角、粗一點的字；主要動作系網橘、次要白底細框、危險淡紅。
@@ -158,17 +153,16 @@ const STATUS_LABEL = { pending: '待審核', active: '正常', disabled: '已停
  * 傳 `target` 就會跳過查詢那一步。
  */
 export function TemporaryPasswordDialog({
-  labels,
   target: presetTarget,
+  triggerLabel,
 }: {
-  labels: VerificationLabels
   target?: AccountLookup
+  /** 觸發鈕的字；預設「發臨時密碼」。寄重設密碼信的視窗裡用「收不到信？改發臨時密碼」。 */
+  triggerLabel?: string
 }) {
   const dialog = useDialog()
   const [lookupEmail, setLookupEmail] = useState('')
   const [target, setTarget] = useState<AccountLookup | null>(presetTarget ?? null)
-  const [method, setMethod] = useState<VerificationMethod | ''>('')
-  const [note, setNote] = useState('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<FieldError>(null)
   const [busy, setBusy] = useState(false)
@@ -178,8 +172,6 @@ export function TemporaryPasswordDialog({
   function open() {
     setLookupEmail('')
     setTarget(presetTarget ?? null)
-    setMethod('')
-    setNote('')
     setReason('')
     setError(null)
     setDone(null)
@@ -195,8 +187,6 @@ export function TemporaryPasswordDialog({
   /** 「重新核發」：換一個請求編號，舊的那組就不能再登入。 */
   function reissue() {
     setDone(null)
-    setMethod('')
-    setNote('')
     setReason('')
     setError(null)
     setRequestId(crypto.randomUUID())
@@ -220,17 +210,11 @@ export function TemporaryPasswordDialog({
   async function issue(e: React.FormEvent) {
     e.preventDefault()
     if (!target) return
-    if (!method) {
-      setError({ message: '請選擇怎麼確認是本人。發臨時密碼前一定要核實本人。', field: 'verificationMethod' })
-      return
-    }
     setBusy(true)
     setError(null)
     try {
       const result = await issueTemporaryPasswordAction({
         userId: target.userId,
-        verificationMethod: method,
-        verificationNote: note,
         reason,
         requestId,
       })
@@ -255,10 +239,10 @@ export function TemporaryPasswordDialog({
           SECONDARY,
           presetTarget ? 'h-7 border-transparent bg-transparent px-2.5 text-[0.8rem] font-medium hover:bg-muted' : undefined,
         )}
-        aria-label={presetTarget ? `發臨時密碼給 ${presetTarget.name}` : undefined}
+        aria-label={presetTarget && !triggerLabel ? `發臨時密碼給 ${presetTarget.name}` : undefined}
       >
         <IconKey aria-hidden />
-        發臨時密碼
+        {triggerLabel ?? '發臨時密碼'}
       </button>
       <dialog ref={dialog.ref} onClose={onClosed} aria-label="發臨時密碼" className={DIALOG}>
         <div className="max-h-[85vh] overflow-y-auto p-5">
@@ -272,7 +256,7 @@ export function TemporaryPasswordDialog({
                 <>
                   <p className="text-sm text-muted-foreground">
                     <strong className="text-foreground">只顯示這一次</strong>，關掉就查不到。舊密碼不能再登入，舊的登入也會被登出；
-                    本人用這組登入後必須先改密碼。怎麼確認本人的、操作者與時間都已寫入紀錄。
+                    本人用這組登入後必須先改密碼。操作者與時間都已寫入紀錄。
                   </p>
                   <SecretBox secret={done.temporaryPassword} />
                 </>
@@ -346,22 +330,6 @@ export function TemporaryPasswordDialog({
                 </p>
               ) : (
                 <>
-                  <VerificationFields
-                    name="temp-method"
-                    kind={verificationKind(target)}
-                    labels={labels}
-                    method={method}
-                    note={note}
-                    onMethod={(m) => {
-                      setMethod(m)
-                      setError(null)
-                    }}
-                    onNote={(v) => {
-                      setNote(v)
-                      setError(null)
-                    }}
-                    error={error}
-                  />
                   <label className="block text-sm font-medium text-foreground">
                     理由 <span className="font-normal text-muted-foreground">・選填，例如「忘記密碼，9/24 到系辦」</span>
                     <textarea

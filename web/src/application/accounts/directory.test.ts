@@ -107,6 +107,7 @@ function row(patch: Partial<AccountRow>): AccountRow {
     orphan: false,
     avatarPreset: null,
     avatarFileId: null,
+    hasPassword: true,
     ...patch,
   }
 }
