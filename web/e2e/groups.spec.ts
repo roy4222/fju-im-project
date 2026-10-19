@@ -8,8 +8,8 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 1. 學生打開「公開找組員」，同屆同學在名單看到姓名、學號、聯絡 Email（電話不公開）；關掉就消失。
  * 2. 學生輸入四位同學學號發起五人提案（人數照屆別設定，預設 5）；五人都被占住、收到邀請，頁面顯示到期時間。
  * 3. 五人各自確認，最後一位確認的瞬間組別成立、占用釋放、全員收到成立事件；提案人是組長。
- * 4. 拒絕、管理員作廢（理由必填）就整份終止並釋放；重新發起是新提案。
- *    （成員撤回、提案人撤回、到期由整合測試逐一證明：pg-groups.integration.test.ts。）
+ * 4. 拒絕、系辦終止（理由選填，C3-05）就整份終止並釋放；重新發起是新提案。
+ *    （成員撤回、發起人撤回、到期由整合測試逐一證明：pg-groups.integration.test.ts。）
  * 5. 同一人同時只能在一個進行中提案、並發確認不會雙重成員：由整合測試的並發案例證明。
  * 另外：管理員在分組總覽改每組人數。
  *
@@ -191,7 +191,7 @@ test('發起五人提案：五人都被占住、各有邀請；頁面顯示到�
   await expect(page.getByRole('button', { name: '確認加入' })).toBeVisible()
 })
 
-test('管理員作廢：理由留空被拒；填理由後終止並釋放，學生的紀錄只寫「管理員作廢」', async ({ page }) => {
+test('系辦終止：填理由後終止並釋放，學生的紀錄只寫「系辦終止」', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
   const open = page.getByRole('region', { name: '組隊中（等全員確認）' })
@@ -199,13 +199,10 @@ test('管理員作廢：理由留空被拒；填理由後終止並釋放，學�
 
   await open.getByRole('button', { name: `作廢：${students[0]!.name}的提案` }).click()
   const dialog = page.getByRole('dialog', { name: `作廢${students[0]!.name}的提案？` })
-  await dialog.getByRole('button', { name: '確定作廢' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('作廢一定要填理由')
-
   await dialog.getByLabel('理由（必填）').fill('名單有誤，請重新發起（系辦內部）')
   await dialog.getByRole('button', { name: '確定作廢' }).click()
   const closed = page.getByRole('region', { name: '最近終止的提案' })
-  await expect(closed).toContainText('管理員作廢')
+  await expect(closed).toContainText('系辦終止')
   await expect(closed).toContainText('名單有誤，請重新發起（系辦內部）')
   await expect(open).toContainText('沒有組隊中的提案')
 
@@ -214,7 +211,7 @@ test('管理員作廢：理由留空被拒；填理由後終止並釋放，學�
   await openStudentPage(page, 2)
   await page.goto('/dashboard/student/groups?tab=log')
   const history = page.getByRole('region', { name: '提案紀錄' })
-  await expect(history).toContainText('沒有成立：管理員作廢')
+  await expect(history).toContainText('沒有成立：系辦終止')
   await expect(history).not.toContainText('系辦內部')
 })
 
@@ -223,7 +220,7 @@ test('拒絕：整份終止、全員釋放；重新發起是新提案，所有�
   await openStudentPage(page, 2)
   await page.getByRole('button', { name: '拒絕' }).click()
   await page.getByRole('dialog', { name: '拒絕這份提案？' }).getByRole('button', { name: '確定拒絕' }).click()
-  await expect(feedback(page, 'status')).toContainText('這次組隊沒有成立（被拒絕）')
+  await expect(feedback(page, 'status')).toContainText('這次建立組別沒有成立（被拒絕）')
   // 提案紀錄在「紀錄」分頁（AC-ST-18）；重新發起在「找隊員」。
   await page.goto('/dashboard/student/groups?tab=log')
   await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：被拒絕')
