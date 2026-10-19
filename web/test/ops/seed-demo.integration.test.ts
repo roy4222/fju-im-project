@@ -414,6 +414,106 @@ describe('seed-demo.mjs', () => {
     expect(Number(drafts.rows[0]!.n)).toBe(9)
   })
 
+  it('C1-17（AC-36、AC-33）：老師作業、同意書作業連 6 包、系統驗收文件＋評分項目設定；規則第八節不寫死比例', async () => {
+    const items = await db.sql(
+      `select m.title, m.placement, m.status, m.audience_kind, m.receiver_unit, m.consent_mode, m.consent_purpose,
+              m.stage_id, m.due_at is not null and m.due_at > $2::timestamptz as due_after_anchor,
+              (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id where a.item_id = m.id) as groups,
+              (select count(*) from response_rosters r where r.item_id = m.id)::int as roster,
+              (select count(*) from submission_versions s where s.item_id = m.id)::int as submissions,
+              (select count(*) from submission_files f join submission_versions s on s.id = f.submission_version_id where s.item_id = m.id)::int as files
+         from managed_items m join cohorts c on c.id = m.cohort_id
+        where c.code = 'DEMO-114' and m.title = any($1::text[])
+        order by m.title`,
+      [['指導意願調查表（老師）', '專題成果授權同意書', '系統驗收文件'], `${ANCHOR}T12:00:00+08:00`],
+    )
+    const byTitle = Object.fromEntries(items.rows.map((r) => [String(r.title), r]))
+    expect(Object.keys(byTitle)).toHaveLength(3)
+    // 給老師的作業（T3）：每位老師一份，4 位裡 2 位已交。
+    expect(byTitle['指導意願調查表（老師）']).toMatchObject({
+      placement: 'submission',
+      status: 'published',
+      audience_kind: 'teachers',
+      receiver_unit: 'individual',
+      consent_mode: null,
+      consent_purpose: null,
+      stage_id: null,
+      roster: 4,
+      submissions: 2,
+    })
+    // 站內同意書作業：最終文件授權、整組收件，對象＝有主指導的 6 組；不收繳交（「已交」看簽核包）。
+    expect(byTitle['專題成果授權同意書']).toMatchObject({
+      placement: 'submission',
+      status: 'published',
+      audience_kind: 'groups',
+      receiver_unit: 'group',
+      consent_mode: 'form',
+      consent_purpose: 'final_document',
+      stage_id: null,
+      groups: ['G01', 'G02', 'G04', 'G05', 'G07', 'G08'],
+      roster: 6,
+      submissions: 0,
+    })
+    // 系統驗收文件（T2-2）：整組一份、截止在今天之後，3 組已交而且都附 PDF。
+    expect(byTitle['系統驗收文件']).toMatchObject({
+      placement: 'submission',
+      status: 'published',
+      audience_kind: 'cohort_students',
+      receiver_unit: 'group',
+      consent_mode: null,
+      consent_purpose: null,
+      stage_id: null,
+      due_after_anchor: true,
+      roster: 9,
+      submissions: 3,
+      files: 3,
+    })
+    const pdfs = await db.sql(
+      `select f.mime_detected, f.purpose, f.status,
+              (select array_agg(r.ref_type order by r.ref_type) from file_references r where r.file_id = f.id and r.released_at is null) as refs
+         from submission_files sf join stored_files f on f.id = sf.file_id
+         join submission_versions s on s.id = sf.submission_version_id join managed_items m on m.id = s.item_id
+        where m.title = '系統驗收文件'`,
+    )
+    for (const row of pdfs.rows) {
+      expect(row).toMatchObject({ mime_detected: 'application/pdf', purpose: 'submission', status: 'stored', refs: ['draft', 'submission_version'] })
+    }
+
+    // 6 包都掛在同意書作業底下、用途仍是最終文件授權、授權範圍照原樣；逐人同意仍 28 筆。
+    const packages = await db.sql(
+      `select g.code, p.purpose, m.title as item, v.authorization_scope -> 'usages' as usages, v.authorization_scope ->> 'title' as scope_title,
+              (select d.title from showcase_drafts d join showcase_entries e on e.id = d.entry_id where e.group_id = p.group_id) as draft_title
+         from signoff_packages p join groups g on g.id = p.group_id
+         left join managed_items m on m.id = p.item_id
+         join signoff_package_versions v on v.id = p.current_version_id
+        order by g.code`,
+    )
+    expect(packages.rows.map((r) => r.code)).toEqual(['G01', 'G02', 'G04', 'G05', 'G07', 'G08'])
+    for (const row of packages.rows) {
+      expect(row, String(row.code)).toMatchObject({ purpose: 'final_document', item: '專題成果授權同意書', usages: ['public_showcase'] })
+      expect(row.scope_title).toBe(row.draft_title)
+    }
+    const approvals = await db.sql(`select count(*)::int as n from approvals`)
+    expect(Number(approvals.rows[0]!.n)).toBe(28)
+
+    // 評分項目的對應作業與說明：系統驗收→系統驗收文件；專題發表只有說明；示範不設評審組。
+    const settings = await db.sql(
+      `select s.stage_key, m.title as item, s.description, s.panel_key
+         from grading_stage_settings s join cohorts c on c.id = s.cohort_id left join managed_items m on m.id = s.item_id
+        where c.code = 'DEMO-114' order by s.stage_key`,
+    )
+    expect(settings.rows).toEqual([
+      { stage_key: 's1', item: '系統驗收文件', description: null, panel_key: null },
+      { stage_key: 's2', item: null, description: '依發表當天表現評分', panel_key: null },
+    ])
+
+    // AC-33（正文）：第八節不寫死 60%／40%，改指到評分規則。
+    const query = new PgPublicItemQuery(clock, () => db.pool)
+    const eighth = (await query.fullText(ANONYMOUS, 'rules')).find((r) => r.title.startsWith('八、'))!
+    expect(eighth.bodyHtml).not.toMatch(/60\s*%|40\s*%/)
+    expect(eighth.bodyHtml).toContain('評分方式與比例以本站「評分規則」為準')
+  })
+
   it('C2-12：示範有一位 email_roster_match 自動開通的學生，已核准、有學號占用、不在待審', async () => {
     const row = await db.sql(
       `select ra.state, ra.verification_method, u.status,
