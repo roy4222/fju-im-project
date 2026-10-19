@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pixel Trail 的主執行緒成本（共用 SH-0，設計方案 §3.5、§7.4.5、§7.5；照 perf-out 的 proto.mjs 改寫）。
+ * 「現在」橫幅 Pixel Card 的主執行緒成本（共用 SH-0 §7.5；規格④ C4-02 從 Pixel Trail 換成 Pixel Card，預算不變）。
  *
  *   PERF_PASSWORD=… pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seconds 5] [--json out.json]
  *
@@ -8,9 +8,10 @@
  *   - scriptPct：CDP `Performance.getMetrics` 的 ScriptDuration 增量 ÷ 掃動經過的時間；
  *   - longTasks／longTaskMs：`PerformanceObserver('longtask')`（> 50 ms）次數與總時長；
  *   - worstFrameMs：掃動期間 requestAnimationFrame 兩幀的最大間隔。
- * 跑兩組：Trail 開（`[data-testid=hero-trail]` 要存在）與對照組（`reducedMotion: 'reduce'`，Trail 不掛）。
- * 判定（§7.5）：Trail 開 `scriptPct ≤ 20` 且 `longTasks === 0`；對照組 `scriptPct ≤ 2`。不合格、或 Trail 開那組
- * 找不到 hero-trail、或頁面沒有 section.hero → exit 1。
+ * 跑兩組：Pixel 開（`[data-testid=hero-pixel]` 要存在、`data-running=1`）與對照組（`reducedMotion: 'reduce'`，Pixel 不掛）。
+ * 量的是常駐閃＋移入漣漪合起來的成本（常駐閃不得關掉來達標，規格④ §2.3）。
+ * 判定（§7.5）：Pixel 開 `scriptPct ≤ 20` 且 `longTasks === 0`；對照組 `scriptPct ≤ 2`。不合格、或 Pixel 開那組
+ * 找不到 hero-pixel／沒在跑、或頁面沒有 section.hero → exit 1。
  */
 /* global URL, window, PerformanceObserver, requestAnimationFrame */ // （window 等是 addInitScript／evaluate 在瀏覽器裡用的）
 import fs from 'node:fs'
@@ -68,9 +69,11 @@ async function sweep(browser, base, route, cookie, { reduced, seconds }) {
     const hero = page.locator('section.hero').first()
     if ((await hero.count()) === 0) throw new Error(`${route} 沒有 section.hero`)
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(1500) // 等 hydration 與 Trail 的 chunk 初始化完，掃動期間只量 Trail 本身
-    const trail = await page.locator('section.hero [data-testid=hero-trail]').count()
-    const state = trail ? await page.locator('section.hero [data-testid=hero-trail]').first().getAttribute('data-state') : null
+    await page.waitForTimeout(1500) // 等 hydration 與 Pixel 引擎 chunk 初始化完，掃動期間只量 Pixel 本身
+    const pixel = page.locator('section.hero [data-testid=hero-pixel]')
+    const trail = await pixel.count()
+    const state = trail ? await pixel.first().getAttribute('data-state') : null
+    const running = trail ? await pixel.first().getAttribute('data-running') : null
     const box = await hero.boundingBox()
     const metric = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]))
 
@@ -92,6 +95,7 @@ async function sweep(browser, base, route, cookie, { reduced, seconds }) {
       route,
       trail: trail > 0,
       dataState: state,
+      dataRunning: running,
       scriptPct: Math.round(((m1.ScriptDuration - m0.ScriptDuration) / wall) * 1000) / 10,
       longTasks: obs.longTasks,
       longTaskMs: Math.round(obs.longTaskMs),
@@ -105,7 +109,7 @@ async function sweep(browser, base, route, cookie, { reduced, seconds }) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2))
   if (!opts.base) fail('缺少 --base <url>')
-  if (!['student', 'teacher'].includes(opts.as)) fail('--as 只能是 student 或 teacher（有 Pixel Trail 的首頁）')
+  if (!['student', 'teacher'].includes(opts.as)) fail('--as 只能是 student 或 teacher（有 Pixel Card 的首頁）')
   const who = resolveAs(opts.as)
   const route = opts.route ?? PERF_ACCOUNTS[who.label].home
   const seconds = Number(opts.seconds ?? 5)
@@ -121,19 +125,20 @@ async function main() {
   }
 
   const problems = []
-  if (!on.trail) problems.push('Trail 開的那組找不到 [data-testid=hero-trail]（首頁沒掛 Trail？）')
-  if (on.scriptPct > BUDGET.scriptPct) problems.push(`Trail 開 scriptPct ${on.scriptPct} > ${BUDGET.scriptPct}`)
+  if (!on.trail) problems.push('Pixel 開的那組找不到 [data-testid=hero-pixel]（首頁沒掛 Pixel Card？）')
+  else if (on.dataRunning !== '1') problems.push(`Pixel 開的那組 data-running=${on.dataRunning}（常駐閃沒在跑）`)
+  if (on.scriptPct > BUDGET.scriptPct) problems.push(`Pixel 開 scriptPct ${on.scriptPct} > ${BUDGET.scriptPct}`)
   if (on.longTasks === null || off.longTasks === null) problems.push('瀏覽器不支援 longtask 觀察')
-  else if (on.longTasks > BUDGET.longTasks) problems.push(`Trail 開 longTasks ${on.longTasks} > ${BUDGET.longTasks}`)
-  if (off.trail) problems.push('對照組（reducedMotion）還有 hero-trail')
+  else if (on.longTasks > BUDGET.longTasks) problems.push(`Pixel 開 longTasks ${on.longTasks} > ${BUDGET.longTasks}`)
+  if (off.trail) problems.push('對照組（reducedMotion）還有 hero-pixel')
   if (off.scriptPct > BUDGET.controlScriptPct) problems.push(`對照組 scriptPct ${off.scriptPct} > ${BUDGET.controlScriptPct}`)
 
   console.log(`perf:trail  as=${who.label}  ${route}  CPU×4  掃 ${seconds} 秒`)
-  console.log(`${'組'.padEnd(10)} trail  data-state   scriptPct  longTasks  longTaskMs  worstFrameMs`)
-  for (const [label, r] of [['Trail 開', on], ['對照組', off]]) {
-    console.log(`${label.padEnd(10)} ${String(r.trail).padEnd(6)} ${String(r.dataState ?? '-').padEnd(12)} ${String(r.scriptPct).padStart(9)} ${String(r.longTasks).padStart(10)} ${String(r.longTaskMs).padStart(11)} ${String(r.worstFrameMs).padStart(13)}`)
+  console.log(`${'組'.padEnd(10)} pixel  data-state running  scriptPct  longTasks  longTaskMs  worstFrameMs`)
+  for (const [label, r] of [['Pixel 開', on], ['對照組', off]]) {
+    console.log(`${label.padEnd(10)} ${String(r.trail).padEnd(6)} ${String(r.dataState ?? '-').padEnd(10)} ${String(r.dataRunning ?? '-').padEnd(7)} ${String(r.scriptPct).padStart(9)} ${String(r.longTasks).padStart(10)} ${String(r.longTaskMs).padStart(11)} ${String(r.worstFrameMs).padStart(13)}`)
   }
-  console.log(`預算（§7.5）：Trail 開 scriptPct ≤ ${BUDGET.scriptPct}、longTasks === 0；對照組 scriptPct ≤ ${BUDGET.controlScriptPct}`)
+  console.log(`預算（§7.5）：Pixel 開 scriptPct ≤ ${BUDGET.scriptPct}、longTasks === 0；對照組 scriptPct ≤ ${BUDGET.controlScriptPct}`)
   if (opts.json) fs.writeFileSync(path.resolve(opts.json), `${JSON.stringify({ on, off, problems }, null, 2)}\n`)
   if (problems.length > 0) {
     for (const p of problems) console.log(`✗ ${p}`)

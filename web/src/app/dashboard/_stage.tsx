@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { isValidElement, type ReactNode } from 'react'
 import { IconArrowRight, IconCalendarEvent } from '@tabler/icons-react'
-import { HeroTrail } from '@/app/_ui/fx/hero-trail'
+import { HeroPixel } from '@/app/_ui/fx/hero-pixel'
 import type { ResolvedActor } from '@/application/accounts'
 import type { Cohort, CohortSchedule, StagePosition } from '@/application/cohorts'
 import {
@@ -171,7 +171,7 @@ function NextCard({ next, perspective }: { next: HeroNext; perspective: 'student
  * 三角色首頁頂端的「現在」橫幅（共用 SH-4；原型 v4 home-student／home-teacher-v2）。
  * 左欄：歡迎（h1）、小字「現在」＋角色自己的一句、大字階段、日期與剩幾天、「看完整時程」＋主要動作（只一顆）。
  * 右欄：`next` 白卡（`hero-next`）；沒有 `next` 時左欄佔滿。
- * `trail`（學生、老師、系辦）在橫幅底下掛金屬像素拖尾；手機、觸控、減少動態不載入。
+ * `trail`（學生、老師、系辦）在橫幅底下掛 Pixel Card 像素閃動（桌機常駐閃；手機只有點擊漣漪；減少動態不載入）。
  * 舊版的進度條、階段四格、小格、插圖、compact 都拿掉了：那幾個 props 只為了三角色首頁還沒改前能編譯，傳了會被忽略。
  */
 export function HomeHero({
@@ -219,8 +219,8 @@ export function HomeHero({
 
   return (
     <section aria-label="現在階段" className="hero">
-      {trail ? <HeroTrail /> : null}
-      <div className={cn('grid gap-6 p-6 md:p-8', hasNext && 'md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center')}>
+      {trail ? <HeroPixel /> : null}
+      <div className={cn('grid gap-6 p-6 md:p-8', hasNext && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-center')}>
         <div className="min-w-0">
           <h1 className="text-[15px] font-bold text-white/85">歡迎回來，{name}</h1>
           <p className="mt-0.5 text-[12px] font-semibold text-white/70 tabular-nums">

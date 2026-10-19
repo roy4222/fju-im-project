@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { IconBook2 } from '@tabler/icons-react'
+import { feItem, feSection, frontEditScope } from '@/app/_ui/front-edit/mark'
 import { currentActor } from '@/app/_ui/guard'
 import { CleanBody, ListEmpty, PublicPage } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
@@ -29,6 +30,8 @@ export const metadata: Metadata = {
  */
 export default async function RulesPage() {
   const sections = await getPublicItemQuery().fullText(await currentActor(), 'rules')
+  // 前台編輯標記（C2-16）：只有系辦經 /office-edit 改寫進來才有。
+  const fe = await frontEditScope()
 
   return (
     <SiteShell current="/rules" bare>
@@ -55,13 +58,14 @@ export default async function RulesPage() {
                 ))}
               </nav>
             </aside>
-            <article className="flex min-w-0 flex-col gap-9">
+            <article className="flex min-w-0 flex-col gap-9" {...feSection(fe, { label: '專題規則', add: 'rules' })}>
               {sections.map((s, index) => (
                 <section
                   key={s.id}
                   id={`rule-${index + 1}`}
                   aria-labelledby={`rule-${index + 1}-title`}
                   className="flex scroll-mt-28 flex-col gap-3"
+                  {...feItem(fe, { kind: 'rules', id: s.id, fields: { title: s.title }, del: true })}
                 >
                   <h2 id={`rule-${index + 1}-title`} className="border-b-2 border-border pb-2 text-[22px] font-bold text-ink">
                     {s.title}

@@ -351,6 +351,43 @@ describe('白名單路由與 hooks', () => {
     expect(await sessionCount(email)).toBe(1)
   })
 
+  it('前台編輯提示 cookie（C2-16）：已開通的系辦登入才設 fju_office=1；撤了系辦再登入就清掉', async () => {
+    const officeCookie = (response: Response) =>
+      response.headers.getSetCookie().find((c) => c.startsWith('fju_office=')) ?? null
+
+    // 一般帳號（沒有系辦角色）：不設。
+    const plain = await signUp()
+    expect(officeCookie(await call('POST', '/sign-in/email', { email: plain.email, password: plain.password }))).toBeNull()
+
+    // 已開通＋有效 admin 角色：設 HttpOnly、SameSite=Lax、整站的 fju_office=1。
+    const { email, password } = await signUp()
+    const user = await db.sql(`update users set status = 'active' where email = $1 returning id`, [email])
+    const userId = String(user.rows[0]!.id)
+    await db.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at) values (gen_random_uuid(), $1, 'admin', $1, now())`,
+      [userId],
+    )
+    const set = officeCookie(await call('POST', '/sign-in/email', { email, password }))
+    expect(set).toMatch(/^fju_office=1;/)
+    expect(set).toMatch(/HttpOnly/i)
+    expect(set).toMatch(/SameSite=Lax/i)
+    expect(set).toMatch(/Path=\//)
+
+    // 登出（所有入口共用的 /sign-out）：清掉提示。
+    const sessionCookie = (await call('POST', '/sign-in/email', { email, password })).headers.get('set-cookie') ?? ''
+    const signedOut = await call('POST', '/sign-out', {}, { cookie: `${sessionCookie.split(';')[0]}; fju_office=1` })
+    expect(signedOut.status).toBe(200)
+    const gone = officeCookie(signedOut)
+    expect(gone).toMatch(/^fju_office=;/)
+    expect(gone).toMatch(/Max-Age=0/i)
+
+    // 撤掉系辦角色後，帶著舊提示再登入：清掉（Max-Age=0）。
+    await db.sql(`update role_assignments set revoked_real_at = now() where user_id = $1`, [userId])
+    const cleared = officeCookie(await call('POST', '/sign-in/email', { email, password }, { cookie: 'fju_office=1' }))
+    expect(cleared).toMatch(/^fju_office=;/)
+    expect(cleared).toMatch(/Max-Age=0/i)
+  })
+
   it('get-session 拿得到剛登入的 session', async () => {
     const { email, password } = await signUp()
     const signIn = await call('POST', '/sign-in/email', { email, password })

@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-13",
+  "set": { "/d": { "as": "admin", "baseline": 4, "max": 4, "identity": 0 } },
+  "override": { "/a": { "from": "base", "value": { "as": "admin", "baseline": 5, "max": 5, "identity": 0, "noDuplicate": ["select x "] } } },
+  "delete": [{ "key": "/b", "from": "base" }]
+}

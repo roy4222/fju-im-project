@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconArrowRight, IconBriefcase, IconBuilding, IconUser } from '@tabler/icons-react'
 import type { OpportunityCard } from '@/application/groups'
+import { feItem, feSection, frontEditScope } from '@/app/_ui/front-edit/mark'
 import { requireSignedIn } from '@/app/_ui/guard'
 import { ListEmpty, PillLink, PublicPage, SearchField, Tag } from '@/app/_ui/public-content'
 import { SITE_CONTACT } from '@/app/_ui/site-contact'
@@ -91,6 +92,8 @@ export default async function IndustryPage({
     return `/industry${s ? `?${s}` : ''}`
   }
   const filtered = Boolean(linked || q)
+  // 前台編輯標記（C2-16）：只有系辦經 /office-edit 改寫進來才有；合作案表單歸③（C3-10 登錄）。
+  const fe = await frontEditScope()
 
   return (
     <SiteShell current="/industry" bare>
@@ -133,9 +136,9 @@ export default async function IndustryPage({
             clearHref={filtered ? '/industry' : undefined}
           />
         ) : (
-          <ul className="grid gap-5 md:grid-cols-2">
+          <ul className="grid gap-5 md:grid-cols-2" {...feSection(fe, { label: '產學合作', add: 'opportunity' })}>
             {cards.map((card) => (
-              <li key={card.id}>
+              <li key={card.id} {...feItem(fe, { kind: 'opportunity', id: card.id, fields: { title: card.companyName }, del: true })}>
                 <OpportunityCardView card={card} />
               </li>
             ))}

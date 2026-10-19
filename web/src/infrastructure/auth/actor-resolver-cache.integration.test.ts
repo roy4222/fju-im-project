@@ -523,7 +523,8 @@ describe('註冊審核的失效點（AC-SH-74 j，SH-B1b）', () => {
   let studentNoSeq = 0
 
   /**
-   * 待審的申請人：名單上有他（學號＋姓名＋登入 Email 同一列），用密碼登入的 cookie 已送出第 1 版申請。
+   * 待審的申請人：名單上有他（學號＋姓名同一列）。名單 Email 預設跟登入 Email 不同——C2-12 起密碼註冊且 Email 已驗證、
+   * 三欄同列會自動開通，這裡要的是留在待審（姓名不同會被批次核准略過，所以改 Email）；只有 Google 案例名單 Email 相同。用密碼登入的 cookie 已送出第 1 版申請。
    * 回傳前已暖快取並確認命中，快照是 `pending`、沒有角色。
    */
   async function applicant({ google = false } = {}) {
@@ -533,7 +534,7 @@ describe('註冊審核的失效點（AC-SH-74 j，SH-B1b）', () => {
     await db.sql(
       `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
        values (gen_random_uuid(), $1, $2, '快取測試', '快取測試', '資管二甲', $3)`,
-      [rosterVersion, studentNo, p.email],
+      [rosterVersion, studentNo, google ? p.email : `roster-${p.email}`],
     )
     if (google) {
       await db.sql(

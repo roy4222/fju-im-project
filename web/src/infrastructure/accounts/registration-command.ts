@@ -124,7 +124,10 @@ export type RegistrationCommandDeps = {
 }
 
 /** Q42 自動開通寫進狀態流水、稽核與角色授予的理由。 */
-const AUTO_APPROVE_REASON = 'Google Email 與名單相同，自動開通'
+const AUTO_APPROVE_REASON = {
+  google_email_match: 'Google Email 與名單相同，自動開通',
+  email_roster_match: 'Email 註冊已驗證，Email、學號、姓名與名單同一列，自動開通',
+} as const
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** 待審清單一次最多列幾筆（一屆幾百人，不需要分頁）。 */
@@ -331,7 +334,7 @@ export class PgRegistrationCommand implements RegistrationCommand {
       [actor.userId],
     )
     const row = latest.rows[0]
-    return row?.state === 'approved' && row.verification_method === 'google_email_match'
+    return row?.state === 'approved' && (row.verification_method === 'google_email_match' || row.verification_method === 'email_roster_match')
   }
 
   async reviseMine(
@@ -370,16 +373,14 @@ export class PgRegistrationCommand implements RegistrationCommand {
     const tx = await this.#deps.db().connect()
     try {
       await tx.query('begin')
-      // Google 來的人第一次送出可能自動開通（Q42）：開放註冊屆別先 FOR SHARE（鎖序 cohorts → users →
+      // Google 來的人、Email 註冊且已驗證的人第一次送出可能自動開通（Q42、C2-12）：開放註冊屆別先 FOR SHARE（鎖序 cohorts → users →
       // registration_applications → student_identities，同契約 01 §6），交易內「哪一屆開放」不會被換掉。
       const openCohort =
-        actor.loginMethod === 'google'
-          ? ((
-              await tx.query<CohortChoice>(
-                `select id, code, name from cohorts where is_registration_open and status <> 'archived' for share`,
-              )
-            ).rows[0] ?? null)
-          : null
+        (
+          await tx.query<CohortChoice>(
+            `select id, code, name from cohorts where is_registration_open and status <> 'archived' for share`,
+          )
+        ).rows[0] ?? null
       // 先鎖這個人（同一個人兩個分頁同時送出時排隊），再看最新一筆申請。
       const user = await tx.query<{ email: string; status: string; email_verified: boolean; has_google: boolean }>(
         `select u.email, u.status, u.email_verified,
@@ -461,8 +462,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
         loginEmail,
         now,
         latest ? 'registration.resubmit' : 'registration.apply',
-        // 只有 Google 來的人要用鎖住的開放屆別比對；其他人照舊讓 `#match` 自己查。
-        actor.loginMethod === 'google' ? (openCohort?.id ?? null) : undefined,
+        // 用鎖住的開放屆別比對，交易內不會被換掉。
+        openCohort?.id ?? null,
       )
       // Q42 只看第一次送出：被退回後重送不自動開通（系辦的決定不由系統推翻）。
       const autoApproved =
@@ -1164,6 +1165,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
       bulkApprovalSkip: bulkApprovalSkip({ match, duplicates }, [openCohort]),
     })
     if (!eligible) return false
+    const method = input.loginMethod === 'google' ? 'google_email_match' : 'email_roster_match'
+    const reason = AUTO_APPROVE_REASON[method]
 
     await tx.query('savepoint auto_approve')
     try {
@@ -1187,21 +1190,24 @@ export class PgRegistrationCommand implements RegistrationCommand {
       },
       openCohort.id,
       now,
-      { byUserId: userId, roleReason: '自動開通（Google Email 與名單相同）' },
+      {
+        byUserId: userId,
+        roleReason: method === 'google_email_match' ? '自動開通（Google Email 與名單相同）' : '自動開通（Email 註冊已驗證，與名單同一列）',
+      },
     )
     await tx.query(
       `insert into user_status_events
          (id, user_id, from_status, to_status, reason, verification_method, actor_kind, actor_user_id, real_at)
-       values ($1, $2, 'pending', 'active', $3, 'google_email_match', 'system', null, $4)`,
-      [uuidv7(), userId, AUTO_APPROVE_REASON, now],
+       values ($1, $2, 'pending', 'active', $3, $5, 'system', null, $4)`,
+      [uuidv7(), userId, reason, now, method],
     )
     await tx.query(
       `update registration_applications
           set state = 'approved', decided_by_user_id = null, decided_real_at = $2,
-              verification_method = 'google_email_match', verification_note = null, reason = null,
+              verification_method = $4, verification_note = null, reason = null,
               assigned_cohort_id = $3, updated_at = $2
         where id = $1`,
-      [input.applicationId, now, openCohort.id],
+      [input.applicationId, now, openCohort.id, method],
     )
     await this.#deps.audit.append(tx, {
       actorKind: 'system',
@@ -1210,8 +1216,8 @@ export class PgRegistrationCommand implements RegistrationCommand {
       targetId: input.applicationId,
       scope: 'cohort',
       cohortId: openCohort.id,
-      reason: AUTO_APPROVE_REASON,
-      verificationMethod: 'google_email_match',
+      reason,
+      verificationMethod: method,
       realAt: now,
       businessAt: now,
       payload: {

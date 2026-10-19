@@ -29,3 +29,4 @@ e2e 的共用帳號跨 spec 一路上傳，`signoff.spec.ts`、`showcase*.spec.t
 
 「有權限才看得到的一段字」只放在 `fingerprints.ts` 一處：否定斷言（回應裡不該有這一頁的內容）
 與正向斷言（轉過去的頁真的是它）都從那裡拿。頁面文字改了，`pages.spec.ts` 的反向對照會先紅，改那一處就好。
+要加、改、刪指紋不改 `fingerprints.ts` 的基底，放自己的 `fingerprints.d/<票號>.json`（規則見 `fingerprints.d/README.md`）。

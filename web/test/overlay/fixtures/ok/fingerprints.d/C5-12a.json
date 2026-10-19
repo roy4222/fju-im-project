@@ -1,0 +1,5 @@
+{
+  "ticket": "C5-12a",
+  "set": { "/b": { "from": "C1-13", "value": "B2" } },
+  "override": { "/a": { "from": "C1-13", "value": "A2" } }
+}
