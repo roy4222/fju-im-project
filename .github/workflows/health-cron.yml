@@ -11,6 +11,11 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
+    inputs:
+      test_url:
+        description: '測試站巡檢網址（留空＝正式網址；填一個會失敗的網址可用來試通知）'
+        required: false
+        default: ''
 
 concurrency:
   group: health-cron
@@ -28,6 +33,7 @@ env:
     url=$1
     code=$(curl -s -o body.json -w '%{http_code}' --retry 3 --retry-delay 30 --retry-all-errors "$url"); rc=$?
     echo "$url -> HTTP $code (curl exit $rc)"; cat body.json 2>/dev/null; echo
+    echo "detail=HTTP $code（curl 結束碼 $rc）" >> "$GITHUB_OUTPUT"
     [ "$rc" = 0 ] && [ "$code" = 200 ] || exit 1
     jq -e '.ok == true
            and (.commit | type == "string" and length > 0)
@@ -41,45 +47,83 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      detail: ${{ steps.check.outputs.detail }}
     steps:
-      - run: bash -c "$CHECK" check https://test.fju.roy422.dev/api/health
+      - id: check
+        env:
+          TEST_URL: ${{ inputs.test_url }}
+        run: bash -c "$CHECK" check "${TEST_URL:-https://test.fju.roy422.dev/api/health}"
 
   prod:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # job 層的 if 看不到 matrix，所以拆兩個 job。
     if: vars.HEALTH_PROD_ENABLED == 'true'
+    outputs:
+      detail: ${{ steps.check.outputs.detail }}
     steps:
-      - run: bash -c "$CHECK" check https://fju.roy422.dev/api/health
+      - id: check
+        run: bash -c "$CHECK" check https://fju.roy422.dev/api/health
 
-  # 開發者後台（設計方案 §2，票 S-3）：VM 外再確認一次 fju-status.roy422.dev 沒登入會被 Cloudflare Access 擋下
-  # （302 到 <team>.cloudflareaccess.com 的登入頁）。VM 掛掉時 VM 內的 Gatus 也一起掛，所以放在這裡。
-  # 網址查不到（還沒裝或已撤）＝沒有東西外露：印 notice 後略過，不寄失敗通知。隧道壞掉時 DNS 還在、會回 5xx，照樣紅。
-  # Location 的 query 帶 Access 的 meta token，只印 ? 前面。
-  status-guard:
+  # 失敗與恢復通知到 Discord（設計方案 §5.2）。純文字、不帶 @mention。
+  # job 層的 if 讀不到 secrets，所以 secret 沒設（fork、或還沒建）時由第一個 step 判斷，其餘 step 略過，
+  # 巡檢本身的結論不受影響。連續失敗每 10 分鐘各送一則，不做抑制。
+  notify:
+    needs: [test, prod]
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      GH_TOKEN: ${{ github.token }}
+      TEST_RESULT: ${{ needs.test.result }}
+      TEST_DETAIL: ${{ needs.test.outputs.detail }}
+      PROD_RESULT: ${{ needs.prod.result }}
+      PROD_DETAIL: ${{ needs.prod.outputs.detail }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: fju-status.roy422.dev 沒登入要被 Access 擋下
+      - name: 有沒有設 DISCORD_WEBHOOK_URL
+        id: gate
         run: |
-          url=https://fju-status.roy422.dev/
-          if ! getent hosts fju-status.roy422.dev > /dev/null; then
-            echo "::notice::DNS 查不到 fju-status.roy422.dev：開發者後台還沒裝（或網址已撤），沒有東西外露，略過。"
-            exit 0
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::notice::DISCORD_WEBHOOK_URL 未設，略過通知。"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
-          set +e
-          headers=$(curl -sS -o /dev/null -D - --max-time 20 --retry 3 --retry-delay 30 --retry-all-errors "$url"); rc=$?
-          set -e
-          headers=$(printf '%s' "$headers" | tr -d '\r')
-          code=$(printf '%s\n' "$headers" | awk 'toupper($1) ~ /^HTTP\// {c=$2} END {print c}')
-          location=$(printf '%s\n' "$headers" | awk 'tolower($1) == "location:" {l=$2} END {print l}')
-          echo "$url -> HTTP $code (curl exit $rc) Location: ${location%%\?*}"
-          if [ "$rc" != 0 ] || [ "$code" != 302 ]; then
-            echo "::error::fju-status.roy422.dev 沒有回 302（可能沒被 Access 擋住）"
-            exit 1
+
+      - name: 失敗或恢復就送 Discord
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -u
+          now_utc=$(TZ=UTC date '+%Y-%m-%d %H:%M UTC')
+          now_tw=$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M 台灣時間')
+          lines=""
+          add() { # 站名 結論 細節
+            case "$2" in
+              success|skipped) ;;
+              *) lines="${lines}- $1：$3（job 結論：$2）"$'\n' ;;
+            esac
+          }
+          add 測試站 "$TEST_RESULT" "${TEST_DETAIL:-沒有回應（逾時或 job 被取消）}"
+          add 正式站 "$PROD_RESULT" "${PROD_DETAIL:-沒有回應（逾時或 job 被取消）}"
+
+          if [ -n "$lines" ]; then
+            msg=$(printf '🔴 健康檢查失敗\n%s時間：%s／%s\nrun：%s' "$lines" "$now_utc" "$now_tw" "$RUN_URL")
+          else
+            # 這次全綠：看同一 workflow 上一次「已完成的排程 run」是不是失敗。
+            prev=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/health-cron.yml/runs?event=schedule&status=completed&per_page=5" \
+              --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID})][0].conclusion // \"\"")
+            echo "上一次排程 run 結論：${prev:-（查不到）}"
+            if [ "$prev" != failure ]; then
+              echo "沒有要通知的事。"; exit 0
+            fi
+            msg=$(printf '🟢 健康檢查已恢復\n時間：%s／%s\nrun：%s' "$now_utc" "$now_tw" "$RUN_URL")
           fi
-          if ! [[ "$location" =~ ^https://[A-Za-z0-9-]+\.cloudflareaccess\.com/cdn-cgi/access/login ]]; then
-            echo "::error::302 但不是導到 Cloudflare Access 登入頁"
-            exit 1
-          fi
-          echo "✓ 有被 Access 擋住"
+
+          jq -n --arg content "$msg" '{content: $content, allowed_mentions: {parse: []}}' \
+            | curl -sS --fail-with-body --retry 3 --max-time 20 -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK_URL" > /dev/null
+          echo "已送出 Discord 通知"
