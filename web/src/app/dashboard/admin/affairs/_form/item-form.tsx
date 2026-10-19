@@ -169,7 +169,8 @@ export function ItemForm(props: ItemFormProps) {
   const live = useLiveReview(state, itemId, !inline)
   const notifyCount = live.review ? live.review.recipients.notifyCount : null
   // 公告／資源第一次發布：「重要公告」預設依對象（公開、所有登入者不勾），發布過再發布不勾；沒有人可以通知也不勾（§14-3）。
-  const importantDefault = !broadAudience(state.audienceKind) && !publishedBefore && (notifyCount ?? 0) > 0
+  // 人數還沒算回來時先當作有人（不然在預覽回來前按「發布」，本屆學生公告會默默不通知）。
+  const importantDefault = !broadAudience(state.audienceKind) && !publishedBefore && (notifyCount ?? 1) > 0
   const important = importantChoice ?? importantDefault
   const offersImportant = !published && !collects && !honor
 
