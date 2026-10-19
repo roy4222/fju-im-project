@@ -1,5 +1,5 @@
 'use client'
-import { Suspense, use, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { use, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { IconAlertCircle, IconCheck, IconCopy, IconDeviceFloppy, IconRefresh, IconSend } from '@tabler/icons-react'
 import { saveGradingDraftAction, submitGradingAction } from './actions'
@@ -65,8 +65,11 @@ const subscribeNothing = () => () => {}
 
 /**
  * 算分與規則（`rules.ts`＋`@/shared/score` 的 decimal.js）另一包載入（C1-12a）：`[groupId]` 路由的首載 JS 很緊（上限 250 KB），
- * 這一包不算進首載。模組一載入就開始抓；`GradingBench` 用 `use()` 等它到了才畫評分卡（伺服器一樣先畫好整張卡，
- * 瀏覽器接手前保留伺服器的畫面），所以下面的函式被呼叫時 `scoring` 一定已經有值。算式仍是伺服器同一份。
+ * 這一包不算進首載。模組一載入就開始抓；`GradingBench` 第一行 `use()` 等它到了才往下畫，所以下面的函式被呼叫時
+ * `scoring` 一定已經有值。算式仍是伺服器同一份。
+ *
+ * 刻意不在評分卡外面包 `<Suspense>`：伺服器照樣先畫好整張卡；瀏覽器接手時保留伺服器的畫面等這一包；站內換頁（總覽的
+ * 「批改」連結）時停在舊頁等它到再換——包了的話換頁會先露出空白的右欄再補上。
  */
 let scoring: typeof Scoring
 const scoringReady = import('@/app/dashboard/teacher/grading/[groupId]/bench-scoring').then((m) => {
@@ -341,16 +344,7 @@ type BenchProps = {
   children?: ReactNode
 }
 
-/** 評分卡：等算分那一包到了才畫（見 `scoringReady`）；只有評分卡這一格等，頁面其他部分照常接手。 */
-export function GradingBench(props: BenchProps) {
-  return (
-    <Suspense>
-      <Bench {...props} />
-    </Suspense>
-  )
-}
-
-function Bench({ assignmentId, groupCode, stage, snapshot, eyebrow, members, children }: BenchProps) {
+export function GradingBench({ assignmentId, groupCode, stage, snapshot, eyebrow, members, children }: BenchProps) {
   use(scoringReady)
   const router = useRouter()
   // hydration 完成前按鈕還沒掛上事件，而且 React 接手 textarea 時會把已設好的選取重設到開頭（Playwright 的 fill 在那一瞬間會變成前置貼入）。
