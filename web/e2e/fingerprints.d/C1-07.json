@@ -1,0 +1,4 @@
+{
+  "ticket": "C1-07",
+  "override": { "/dashboard/admin/affairs": { "from": "base", "value": "全部狀態" } }
+}

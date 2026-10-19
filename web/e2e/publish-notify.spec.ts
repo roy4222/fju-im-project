@@ -91,13 +91,10 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-/** 清單「新增公告」→ 選「公告」→ 一頁式共用表單（C1-06），回傳表單。 */
+/** 清單「新增公告」→ 一頁式共用表單（C1-06；C1-07 起直接開公告表單、不先選類型），回傳表單。 */
 async function openNewsDialog(page: Page, cohort: string) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohort}`)
   await page.getByRole('button', { name: '新增公告' }).click()
-  const picker = page.getByRole('dialog', { name: '新增公告' })
-  await picker.getByRole('radio', { name: /公告/ }).check()
-  await picker.getByRole('button', { name: '下一步' }).click()
   const dialog = page.getByRole('dialog', { name: '新增公告' })
   return { dialog, form: await formReady(dialog) }
 }

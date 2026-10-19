@@ -8,7 +8,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 票 20（#231）：合作案與組別名單匯出（含複製本組信箱）。「做完的樣子」逐條走：
  *
  * 1. 老師建立、發布、下架、重新發布合作案；登入者看公開欄位，聯絡資訊只有案主與系辦看得到（連 HTML 原始碼裡都沒有）。
- * 2. 系辦把產學組連結到合作案、換案（換案理由必填）；案主解除連結並通知。學生側沒有連結與改類型的入口（Q73）。
+ * 2. 系辦把產學組連結到合作案、換案（理由選填，C3-05）；案主解除連結並通知。學生側沒有連結與改類型的入口（Q73）。
  * 3. 系辦改組別類型（保留既有關聯）。
  * 4. 管理員篩選、排序本屆組別名單；每組有組員信箱欄與「複製本組信箱」；匯出 CSV／XLSX 帶登入信箱。
  * 查詢層的欄位白名單、並發與版本衝突由整合測試 pg-opportunities.integration.test.ts 證明。
@@ -305,7 +305,7 @@ async function linkAsAdmin(page: Page, title: string, company: string, reason: s
   return { groups, dialog }
 }
 
-test('系辦把產學組連結到合作案、換案（換案理由必填，全組與兩位案主收到通知）；學生側沒有連結與改類型的入口，一般組沒有連結按鈕', async ({ page }) => {
+test('系辦把產學組連結到合作案、換案（全組與兩位案主收到通知）；學生側沒有連結與改類型的入口，一般組沒有連結按鈕', async ({ page }) => {
   await createOpportunity(page, ownerB, COMPANY_B, true)
   const a = await opportunityId(COMPANY)
   const b = await opportunityId(COMPANY_B)
@@ -336,11 +336,8 @@ test('系辦把產學組連結到合作案、換案（換案理由必填，全�
   await page.goto(`/industry/${a}`)
   await expect(page.getByRole('region', { name: '連結的組別' })).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
 
-  // 換案：沒填理由被擋，填了才換。
-  const blocked = await linkAsAdmin(page, '把 G01 改連到別的合作案', COMPANY_B, null)
-  await expect(blocked.dialog.getByRole('alert')).toContainText('換案一定要填理由')
-  await blocked.dialog.getByLabel('理由').fill('和企業討論後改做物流題目')
-  await blocked.dialog.getByRole('button', { name: '連結', exact: true }).click()
+  // 換案：填理由換成。
+  const blocked = await linkAsAdmin(page, '把 G01 改連到別的合作案', COMPANY_B, '和企業討論後改做物流題目')
   await expect(blocked.dialog).toBeHidden()
   await expect(blocked.groups.getByRole('status')).toContainText(`G01 已從「${COMPANY}・資訊部」換到「${COMPANY_B}・資訊部」`)
   expect(await recipientsOf('opportunity.switched', 'G01')).toEqual([sorted(...memberIds.get('G01')!, owner.userId, ownerB.userId)])
@@ -361,7 +358,7 @@ test('系辦把產學組連結到合作案、換案（換案理由必填，全�
   await expect(page.getByRole('main')).not.toContainText('和企業討論後')
 })
 
-test('案主解除連結：理由必填，該組與案主收到通知；組員在「紀錄」看到解除', async ({ page }) => {
+test('案主解除連結：該組與案主收到通知；組員在「紀錄」看到解除', async ({ page }) => {
   await signIn(page, ownerB)
   await page.goto('/dashboard/teacher/industry')
   const item = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY_B })
@@ -369,8 +366,6 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   await expect(item).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
   await item.getByRole('button', { name: '解除連結：G01' }).click()
   const dialog = page.getByRole('dialog', { name: '解除 G01 的連結' })
-  await dialog.getByRole('button', { name: '確認解除' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('解除連結一定要填理由')
   await dialog.getByLabel('理由（必填）').fill('企業暫停這個題目')
   await dialog.getByRole('button', { name: '確認解除' }).click()
   await expect(item.getByRole('status')).toContainText(`已解除 G01 與「${COMPANY_B}・資訊部」的連結`)
@@ -388,7 +383,7 @@ test('案主解除連結：理由必填，該組與案主收到通知；組員�
   await expect(page).toHaveURL(new RegExp(`/industry/${await opportunityId(COMPANY_B)}$`))
 })
 
-test('系辦改組別類型：先把 G02 改成產學合作、組員看得到異動；有指導老師後改回一般專題，對話框列出保留的關聯，理由必填', async ({ page }) => {
+test('系辦改組別類型：先把 G02 改成產學合作、組員看得到異動；有指導老師後改回一般專題，對話框列出保留的關聯', async ({ page }) => {
   await signInAdmin(page)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
   const toIndustry = page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G02' })
@@ -407,15 +402,13 @@ test('系辦改組別類型：先把 G02 改成產學合作、組員看得到異
     [groupIds.get('G02'), owner.userId, adminId],
   )
 
-  // 系辦處理：對話框列出保留的關聯，理由必填。
+  // 系辦處理：對話框列出保留的關聯。
   await signInAdmin(page)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
   const row = page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G02' })
   await row.getByRole('button', { name: '改組別類型：G02' }).click()
   const dialog = page.getByRole('dialog', { name: '改 G02 的組別類型' })
   await expect(dialog.getByRole('region', { name: '改類型的影響' })).toContainText('指導老師：案主甲')
-  await dialog.getByRole('button', { name: '確認改成一般專題' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('一定要填理由')
   await dialog.getByLabel('理由（必填）').fill('組長申請改回一般專題')
   await dialog.getByRole('button', { name: '確認改成一般專題' }).click()
   await expect(row.getByRole('status')).toContainText('保留：指導老師 案主甲')

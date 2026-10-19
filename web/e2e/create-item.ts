@@ -7,7 +7,7 @@ import { fillItemBody, rawHtml } from './item-body'
  * 舊的三步驟精靈與「完整編輯器」都拿掉了，各 spec 的建立步驟一律走這裡：
  * - `createItemOnPage`：全頁 `/dashboard/admin/editor/new?placement=…`。先「儲存（先不發布）」拿到 id（網址換成 `/editor/<id>`），
  *   要發布就再按「發布」，成功後回到清單。
- * - `createItemInDialog`：清單頁右上「新增…」→ 選類型 → 下一步 → 對話框裡的同一張表單 → 「發布」或「儲存（先不發布）」，對話框關掉。
+ * - `createItemInDialog`：那一類分頁右上「新增」→ 對話框裡的同一張表單 → 「發布」或「儲存（先不發布）」，對話框關掉（C1-07 起不先選類型）。
  *
  * 表單根元素有 `data-hydrated`（hydration 完才填，免得填進去的字被 hydration 洗掉）。
  */
@@ -116,20 +116,34 @@ export async function createItemOnPage(page: Page, cohortId: string, item: NewIt
   return itemId
 }
 
+/** 類型卡片的名稱 → 哪個分頁、新增鈕與對話框叫什麼（C1-07：各分頁的「新增」直接開那一類，不再先選類型）。 */
+const TABS: readonly { label: string; path: string; button: string }[] = [
+  { label: '公告', path: '/dashboard/admin/affairs', button: '新增公告' },
+  { label: '資源下載', path: '/dashboard/admin/affairs/resources', button: '新增資源' },
+  { label: '專題規則', path: '/dashboard/admin/affairs/rules', button: '新增規則' },
+]
+
 /**
- * 清單頁的「新增」（相容包裝）：選類型 → 下一步 → 對話框表單 → 送出。對話框關掉、清單刷新。
- * `kind` 是類型卡片的名稱（例：`/公告/`、`/專題規則/`、`'同意書（下載 PDF 再上傳）'`）。
+ * 清單頁的「新增」：到那一類的分頁按「新增」→ 對話框表單 → 送出。對話框關掉、清單刷新。
+ * `kind` 是類型的名稱（例：`/公告/`、`/專題規則/`、`/資源下載/`）；屆別取目前網址的 `?cohort=`。
+ * 榮譽（`/榮譽／競賽/`）在 C1-09 搬到成果展示前沒有對話框入口，走全頁表單（`createItemOnPage`），回到清單看提示。
  */
 export async function createItemInDialog(
   page: Page,
   item: NewItem & { kind?: string | RegExp },
   button: string | RegExp = '新增公告',
 ): Promise<void> {
-  await page.getByRole('button', { name: button }).click()
-  const picker = page.getByRole('dialog', { name: button })
-  if (item.kind) await picker.getByRole('radio', { name: item.kind }).check()
-  await picker.getByRole('button', { name: '下一步' }).click()
-  const dialog = page.getByRole('dialog', { name: button })
+  const cohortId = new URL(page.url()).searchParams.get('cohort') ?? ''
+  const matches = (label: string) => (item.kind instanceof RegExp ? item.kind.test(label) : item.kind === label)
+  if (item.kind && matches('榮譽／競賽')) {
+    await createItemOnPage(page, cohortId, { ...item, placement: 'honor' })
+    return
+  }
+  const tab = item.kind ? TABS.find((t) => matches(t.label)) : undefined
+  if (tab) await page.goto(`${tab.path}?cohort=${cohortId}`)
+  const name = tab?.button ?? button
+  await page.getByRole('button', { name }).click()
+  const dialog = page.getByRole('dialog', { name })
   const form = await formReady(dialog)
   await fillItemForm(page, form, item)
   if (item.publish === false) await form.getByRole('button', { name: '儲存（先不發布）' }).click()

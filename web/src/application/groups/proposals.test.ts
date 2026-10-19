@@ -3,9 +3,11 @@ import type { ResolvedActor } from '@/application/accounts'
 import {
   canViewTeammates,
   describeConfirmReceipt,
+  describeTerminateReceipt,
   nextGroupCode,
   normalizeProposeInput,
   normalizeVoidReason,
+  PROPOSAL_STATE_LABEL,
   proposalExpiry,
   studentCohortOf,
   TERMINATION_KIND_LABEL,
@@ -86,8 +88,8 @@ describe('其他純規則', () => {
     expect(nextGroupCode(['G01', 'G09', 'X99'])).toBe('G10')
   })
 
-  it('作廢理由必填、去空白、有上限', () => {
-    expect(normalizeVoidReason('  ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  it('終止建立的理由選填、去空白、有上限', () => {
+    expect(normalizeVoidReason('  ')).toEqual({ ok: true, value: '' })
     expect(normalizeVoidReason(' 名單有誤 ')).toEqual({ ok: true, value: '名單有誤' })
     expect(normalizeVoidReason('字'.repeat(201)).ok).toBe(false)
   })
@@ -106,7 +108,18 @@ describe('其他純規則', () => {
   })
 
   it('五種終止加上衝突都有產品文件用的名稱', () => {
-    expect(Object.values(TERMINATION_KIND_LABEL)).toEqual(['被拒絕', '成員撤回同意', '提案人撤回', '逾期', '管理員作廢', '成員已在其他組'])
+    expect(Object.values(TERMINATION_KIND_LABEL)).toEqual(['被拒絕', '成員撤回同意', '發起人撤回', '逾期', '系辦終止', '成員已在其他組'])
+  })
+
+  it('用詞：建立組別、發起人、系辦終止；沒有「提案」「組隊中」', () => {
+    expect(PROPOSAL_STATE_LABEL.open).toBe('建立中（等全員確認）')
+    const sentence = describeTerminateReceipt({ proposalId: COHORT, terminationKind: 'declined' })
+    expect(sentence).toContain('這次建立組別沒有成立（被拒絕）')
+    expect(describeTerminateReceipt({ proposalId: COHORT, terminationKind: 'admin_voided' })).toContain('（系辦終止）')
+    const conflict = describeConfirmReceipt({ proposalId: COHORT, confirmedCount: 5, memberCount: 5, groupCode: null, outcome: 'conflict' })
+    for (const text of [sentence, conflict, ...Object.values(PROPOSAL_STATE_LABEL), ...Object.values(TERMINATION_KIND_LABEL)]) {
+      expect(text).not.toMatch(/提案|組隊中/)
+    }
   })
 
   it('確認回執的句子', () => {

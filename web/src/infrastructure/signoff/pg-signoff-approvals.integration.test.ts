@@ -26,10 +26,10 @@ import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submiss
  *
  * - 逐人表態（SGN-02）：每人一票、紀錄帶當時姓名學號、這次登入方式、按鈕原文、事件 ID、雙時間；最後一位學生同意才輪到老師。
  * - **不可代簽**（SGN-08）：管理員、別組學生、別的老師、帶著別人的請求編號重放、塞「替誰」的欄位，一律投不到別人頭上。
- * - 老師提前按（SGN-03）被拒；老師最後同意完成（SGN-04）；不同意／退回理由必填（SGN-05）；三人組 3／3（SGN-07）。
+ * - 老師提前按（SGN-03）被拒；老師最後同意完成（SGN-04）；不同意／退回理由選填（SGN-05；C 階段規格① §1.4 改選填）；三人組 3／3（SGN-07）。
  * - 並發：最後兩位學生同時按只轉一次；同一人連按只記一票；表態與成員異動、改主指導同時只會一先一後。
  * - 失效（SGN-09）：成員或主指導變更同交易失效、不自動建新版、失效通知只給系辦；舊老師不能再投、新老師接新版。
- * - 重置、重開（＝建新版本）、作廢：理由必填、舊同意留歷史不計入新版、已完成的保留為歷史。
+ * - 重置、重開（＝建新版本）、作廢：理由選填（C 階段規格① §1.4）、作廢 cause 固定 `void`、舊同意留歷史不計入新版、已完成的保留為歷史。
  * - 提醒：收件人＝還沒表態的人（含還沒輪到的老師），24 小時內不重複。
  * - 匯出：CSV 明細欄位齊全、防公式注入、沒有 IP／瀏覽器欄；可列印頁逸出；每次匯出存檔並留一筆紀錄。
  * - 附件下載：被簽核版本引用的附件，該版參與學生可下載；換掉的快照主指導不行。
@@ -385,11 +385,11 @@ describe('逐人表態與老師最後同意（SGN-02、03、04、07）', () => {
 })
 
 describe('不同意與退回（SGN-05）', () => {
-  it('不同意沒填理由被拒；有理由就回到修正中，理由記在狀態與紀錄上；之後誰都不能再投；退回通知給系辦與主指導', async () => {
+  it('不同意理由選填（C 階段規格① §1.4）：太長被拒；有理由就回到修正中，理由記在狀態與紀錄上；之後誰都不能再投；退回通知給系辦與主指導', async () => {
     const s = await scenario()
     const v = await mustCreate(s)
     await mustVote(student(s.members[0]!), v.versionId)
-    expect(await vote(student(s.members[1]!), v.versionId, 'reject', '   ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await vote(student(s.members[1]!), v.versionId, 'reject', 'x'.repeat(501))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await approvalsOf(v.versionId)).toBe(1)
 
     const r = await mustVote(student(s.members[1]!), v.versionId, 'reject', '第三章數據有誤')
@@ -401,12 +401,14 @@ describe('不同意與退回（SGN-05）', () => {
     expect(await vote(student(s.members[2]!), v.versionId)).toMatchObject({ ok: false, code: 'CONFLICT' })
   })
 
-  it('老師退回（理由必填）→ 修正中，紀錄 result=return', async () => {
+  it('老師退回理由留空也成功（AC-22a）→ 修正中，紀錄 result=return、reason null、狀態 cause 固定代碼 return', async () => {
     const s = await scenario({ size: 3 })
     const v = await mustCreate(s)
     for (const m of s.members) await mustVote(student(m), v.versionId)
-    expect(await vote(teacherOf(s), v.versionId, 'reject', '')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    expect(await mustVote(teacherOf(s), v.versionId, 'reject', '結論要補實驗')).toMatchObject({ state: 'revision', result: 'return' })
+    expect(await mustVote(teacherOf(s), v.versionId, 'reject', '')).toMatchObject({ state: 'revision', result: 'return' })
+    expect(await statusOf(v.versionId)).toMatchObject({ state: 'revision', cause: 'return' })
+    const row = (await owner.sql(`select result, reason from approvals where version_id = $1 and user_id = $2`, [v.versionId, s.teacher.id])).rows[0]!
+    expect(row).toEqual({ result: 'return', reason: null })
     expect(await recipientsOf('signoff.returned', v.versionId)).toEqual([adminId])
   })
 })
@@ -601,13 +603,13 @@ describe('成員或主指導改變 → 目前版本失效（S11-08、SGN-09）',
 })
 
 describe('重置、重開（建新版本）、作廢（S11-07、S11-12）', () => {
-  it('重置收集中的版本：理由必填；建新版（原因＝系辦重置）、參與者依此刻重算、附件轉綁；舊版已失效、舊票留著不計入新版；同請求編號只建一版', async () => {
+  it('重置收集中的版本：理由選填（太長才拒）；建新版（原因＝系辦重置）、參與者依此刻重算、附件轉綁；舊版已失效、舊票留著不計入新版；同請求編號只建一版', async () => {
     const s = await scenario()
     const fileId = await submittedFile(s)
     const v = await mustCreate(s, { attachmentFileIds: [fileId] })
     await mustVote(student(s.members[0]!), v.versionId)
     await mustVote(student(s.members[1]!), v.versionId)
-    expect(await signoff.reset(admin(), { versionId: v.versionId, reason: ' ' }, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await signoff.reset(admin(), { versionId: v.versionId, reason: 'x'.repeat(501) }, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await signoff.reopen(admin(), { versionId: v.versionId, reason: '想重開' }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
     expect(await signoff.reset(student(s.members[0]!), { versionId: v.versionId, reason: '學生重置' }, randomUUID())).toMatchObject({
       ok: false,
@@ -676,12 +678,13 @@ describe('重置、重開（建新版本）、作廢（S11-07、S11-12）', () =
     expect(await statusOf(r.receipt.versionId)).toMatchObject({ state: 'superseded', cause: 'member_change' })
   })
 
-  it('作廢：理由必填、之後誰都不能投（CONFLICT）；已作廢不能再作廢；重開後又能收集', async () => {
+  it('作廢：理由選填、狀態 cause 固定代碼 void、理由進稽核；之後誰都不能投（CONFLICT）；已作廢不能再作廢；重開後又能收集', async () => {
     const s = await scenario({ size: 3 })
     const v = await mustCreate(s)
-    expect(await signoff.voidVersion(admin(), { versionId: v.versionId, reason: '' }, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await signoff.voidVersion(admin(), { versionId: v.versionId, reason: 'x'.repeat(501) }, randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await signoff.voidVersion(admin(), { versionId: v.versionId, reason: '這組改期' }, randomUUID())).toMatchObject({ ok: true })
-    expect(await statusOf(v.versionId)).toMatchObject({ state: 'void', cause: '這組改期' })
+    expect(await statusOf(v.versionId)).toMatchObject({ state: 'void', cause: 'void' })
+    expect((await owner.sql(`select reason from audit_events where action = 'signoff.version_void' and target_id = $1`, [v.versionId])).rows[0]!.reason).toBe('這組改期')
     expect(await vote(student(s.members[0]!), v.versionId)).toMatchObject({ ok: false, code: 'CONFLICT' })
     expect(await signoff.voidVersion(admin(), { versionId: v.versionId, reason: '再一次' }, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
     const r = await signoff.reopen(admin(), { versionId: v.versionId, reason: '恢復' }, randomUUID())

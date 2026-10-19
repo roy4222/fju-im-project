@@ -1,14 +1,14 @@
 import Link from 'next/link'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle, pillClass } from '@/app/_ui/dashboard-kit'
-import { EmptyState, LinkButton } from '@/app/_ui/primitives'
+import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { AFFAIRS_TABS } from '@/app/dashboard/admin/_tabs.consts'
+import { NewItemButton } from '@/app/dashboard/admin/affairs/_content/list-actions'
 import { AffairsList } from '@/app/dashboard/admin/affairs/affairs-list'
 import { AFFAIRS_TAB_PLACEMENTS, affairsView, byRulesPosition, toAffairRow } from '@/app/dashboard/admin/affairs/affairs-view'
-import { QuickCreateDialog } from '@/app/dashboard/admin/affairs/quick-create-dialog'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery } from '@/composition/items'
@@ -79,13 +79,10 @@ export default async function AffairsRulesPage({ searchParams }: { searchParams:
           ))}
         </nav>
       ) : null}
-      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有專題規則。按「新增規則」建立第一筆。" />
+      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有專題規則。按「新增」建立第一筆。" />
     </>,
     <>
-      <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
-        完整編輯器
-      </LinkButton>
-      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} label="新增規則" placement="rules" />
+      <NewItemButton cohortId={cohort.id} vocabulary={vocabulary} placement="rules" noun="規則" />
     </>,
   )
 }

@@ -61,18 +61,13 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-test('清單「新增公告」選「榮譽／競賽」：對象鎖公開、沒有收件與通知、可填得獎日期；發布後出現在 /honors', async ({ page, browser }) => {
+test('清單「榮譽」篩選的「新增榮譽」：對象鎖公開、沒有收件與通知、可填得獎日期；發布後出現在 /honors', async ({ page, browser }) => {
   const title = `${CODE} 校內專題競賽第一名`
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const picker = page.getByRole('dialog', { name: '新增公告' })
-  const honor = picker.getByRole('radio', { name: /榮譽／競賽/ })
-  await expect(picker).toContainText('前台「榮譽榜」的一則得獎消息，可附照片')
-  await honor.check()
-  await picker.getByRole('button', { name: '下一步' }).click()
-  // C1-06：下一步就是一頁式共用表單。
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
+  // C1-07：公告分頁的「新增」直接開公告表單（不再選類型）；榮譽從「榮譽」篩選的「新增榮譽」進一頁式共用表單（C1-09 搬到成果展示）。
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}&placement=honor`)
+  await page.getByRole('link', { name: '新增榮譽' }).click()
+  const dialog = page.getByRole('main')
   const form = await formReady(dialog)
   await expect(form.getByLabel('誰看得到')).toBeDisabled()
   await expect(form.getByLabel('誰看得到')).toHaveValue('public')
@@ -83,7 +78,7 @@ test('清單「新增公告」選「榮譽／競賽」：對象鎖公開、沒�
   await expect(form.getByRole('checkbox', { name: /重要公告/ })).toHaveCount(0)
   await expect(dialog.getByTestId('recipient-preview')).toHaveCount(0)
   await form.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
   await expect(page.getByTestId('item-toast')).toHaveText('已發布')
 
   const found = await pool.query<{ awarded_on: string; audience_kind: string; receiver_unit: string }>(
