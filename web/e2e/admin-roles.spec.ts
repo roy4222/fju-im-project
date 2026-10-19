@@ -96,8 +96,8 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await expect(row).toBeVisible()
   // 還不是管理員：只有「設為管理員」，沒有「取消管理員」。
   await expect(row.getByRole('button', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  // C 階段規格② §3.2（A23）：列上有「發臨時密碼」「停用」；「更多」沒有「危險操作」群組，「刪除個人資料」是最後一項。
-  await expect(row.getByRole('button', { name: `發臨時密碼給 ${teacher.name}` })).toBeVisible()
+  // C 階段規格② §3.2（A23）：列上有「寄重設密碼信」「停用」；「更多」沒有「危險操作」群組，「刪除個人資料」是最後一項。
+  await expect(row.getByRole('button', { name: `寄重設密碼信給 ${teacher.name}` })).toBeVisible()
   await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toBeVisible()
   await expect(row.getByRole('button', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
   await expect(row.getByRole('button', { name: `刪除 ${teacher.name} 的個人資料` })).toHaveCount(0)

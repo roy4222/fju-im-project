@@ -172,6 +172,8 @@ describe('逐欄對照模組 01 v2.4 附錄 A 與模組 10 附錄 A', () => {
       'open_to_join',
       // SH-8（0016）加的頭像欄。
       'avatar_preset', 'avatar_file_id',
+      // C3-01（0023）加的名片欄。
+      'bio', 'skills',
     ],
     student_identities: ['cohort_id', 'student_no', 'user_id', 'created_at'],
     registration_applications: [

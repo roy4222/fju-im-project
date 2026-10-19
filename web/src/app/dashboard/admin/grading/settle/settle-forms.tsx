@@ -5,8 +5,8 @@ import type { ResultsActionState } from '@/app/dashboard/admin/grading/results-f
 import { DIALOG, Feedback, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
 
 /**
- * 系辦結算頁的兩個動作（B 階段 AD-B1；設計方案 §2.5）：「結算」「解除結算」，按下開理由對話框（必填）。
- * 規則全在用例裡判（理由 1–500 字、已封存、已有人結算、已解除）；畫面只收表單、顯示伺服器回來的句子。
+ * 系辦結算分頁的兩個動作（B 階段 AD-B1；設計方案 §2.5）：「結算」「解除結算」，按下開確認對話框，理由選填（C 階段規格① §1.4、X2）。
+ * 規則全在用例裡判（理由有填就 ≤500 字、已封存、已有人結算、已解除）；畫面只收表單、顯示伺服器回來的句子。
  */
 
 const TEXTAREA = 'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm'
@@ -43,7 +43,7 @@ function ReasonDialog({ title, hint, label, submit, trigger, triggerLabel, hidde
           ))}
           <label className={LABEL}>
             {label}
-            <textarea name="reason" required maxLength={500} rows={3} className={TEXTAREA} />
+            <textarea name="reason" maxLength={500} rows={3} className={TEXTAREA} />
           </label>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">
@@ -64,8 +64,8 @@ export function SettleForm({ cohortId, stageKey, stageName, requestId }: { cohor
   return (
     <ReasonDialog
       title={`結算「${stageName}」`}
-      hint="結算後，老師不能再暫存、送出或重新送出這個階段的分數，系辦也不能退回；要修改請先解除結算。採計份數以按下的當下為準。"
-      label="結算理由（必填）"
+      hint="結算後，老師不能再暫存、送出或重新送出這個評分項目的分數，系辦也不能退回；要修改請先解除結算。採計份數以按下的當下為準。"
+      label="結算理由（選填）"
       submit="確認結算"
       trigger="結算"
       triggerLabel={`結算「${stageName}」`}
@@ -79,8 +79,8 @@ export function ReleaseForm({ settlementId, stageName, requestId }: { settlement
   return (
     <ReasonDialog
       title={`解除「${stageName}」的結算`}
-      hint="解除後，老師又可以修改與重新送出這個階段的分數。這筆結算與解除理由會留在結算紀錄。"
-      label="解除理由（必填）"
+      hint="解除後，老師又可以修改與重新送出這個評分項目的分數。這筆結算與解除理由會留在結算紀錄。"
+      label="解除理由（選填）"
       submit="確認解除"
       trigger="解除結算"
       triggerLabel={`解除「${stageName}」的結算`}

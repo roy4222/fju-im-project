@@ -107,8 +107,9 @@ test('做完的樣子 1：三個磚、搜尋、篩選、排序', async ({ browse
   // 搜尋 Email。
   await searchFor(page, students[1]!.email)
   await expect(rowOf(page, students[1]!.name)).toBeVisible()
-  // 每一列都掛著票 8 的「發臨時密碼」，打開就是這個人，不用再用 Email 查。
-  await rowOf(page, students[1]!.name).getByRole('button', { name: `發臨時密碼給 ${students[1]!.name}` }).click()
+  // 有密碼的人每一列掛「寄重設密碼信」（C2-11）；視窗裡「改發臨時密碼」打開就是這個人，不用再用 Email 查。
+  await rowOf(page, students[1]!.name).getByRole('button', { name: `寄重設密碼信給 ${students[1]!.name}` }).click()
+  await page.getByRole('dialog', { name: '寄重設密碼信' }).getByRole('button', { name: '改發臨時密碼' }).click()
   const temp = page.getByRole('dialog', { name: '發臨時密碼' })
   await expect(temp.getByRole('heading', { name: `發臨時密碼給 ${students[1]!.name}` })).toBeVisible()
   await page.keyboard.press('Escape')

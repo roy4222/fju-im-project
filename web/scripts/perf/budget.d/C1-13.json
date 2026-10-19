@@ -1,0 +1,9 @@
+{
+  "ticket": "C1-13",
+  "override": {
+    "/dashboard/admin/grading": { "from": "base", "value": { "baseline": 232.1, "limit": 250 } },
+    "/dashboard/admin/grading/rules": { "from": "base", "value": { "baseline": 244.2, "limit": 250 } },
+    "/dashboard/admin/grading/teachers": { "from": "base", "value": { "baseline": 243.6, "limit": 250 } },
+    "/dashboard/admin/grading/settle": { "from": "base", "value": { "baseline": 228.4, "limit": 250 } }
+  }
+}

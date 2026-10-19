@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-13",
+  "override": {
+    "/dashboard/admin/grading/rules": { "from": "base", "value": "對應作業、說明、評審組隨時可改，不用建新版" }
+  }
+}

@@ -244,10 +244,15 @@ const mailOutcome = new AsyncLocalStorage<{ failed: boolean }>()
  * 這一次 `requestPasswordReset` 寄的是不是系辦新增成員後的「請設定密碼」信（C2-09）。
  * 套件的 `sendResetPassword` 回呼拿不到呼叫端的意圖，所以用這個盒子帶過去（只有 wrapper 的 `sendSetupPasswordMail` 會開）。
  */
-const resetMailVariant = new AsyncLocalStorage<'setup'>()
+const resetMailVariant = new AsyncLocalStorage<'setup' | 'reset'>()
 
 export function withSetupMailVariant<T>(fn: () => Promise<T>): Promise<T> {
   return resetMailVariant.run('setup', fn)
+}
+
+/** 系辦在帳號列替人寄「重設密碼」信（C2-11）：信的內容跟忘記密碼同一封，只是發動的是已授權的管理員，所以走內部呼叫。 */
+export function withAdminResetMailVariant<T>(fn: () => Promise<T>): Promise<T> {
+  return resetMailVariant.run('reset', fn)
 }
 
 export function withMailOutcome<T>(fn: () => Promise<T>): Promise<T> {
@@ -382,7 +387,7 @@ function createAuth() {
        */
       sendResetPassword: async ({ user, token }) => {
         void mailer
-          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token), resetMailVariant.getStore()) })
+          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token), resetMailVariant.getStore() === 'setup' ? 'setup' : undefined) })
           .then((result) => {
             if (!result.ok) console.error('[auth] 重設密碼信寄不出去', { outboxId: result.outboxId, code: result.code })
           })
@@ -756,9 +761,9 @@ function createAuth() {
           if (!otpLimiters.resetEmail.hit(email).allowed) {
             throw tooMany(`寄太多次了，請${inWords(RATE_LIMITS.passwordReset.email.windowMs)}後再試。`)
           }
-          // 系辦在後台替人寄「請設定密碼」信（內部呼叫，不是訪客的表單）：不受每 IP 桶與人機驗證限制，
-          // 每個 Email 的桶照扣（系辦連加幾十個人，不該被同一個出口 IP 的桶擋住）。
-          if (!(!ctx.request && isInternalCall() && resetMailVariant.getStore() === 'setup')) {
+          // 系辦在後台替人寄「請設定密碼」或「重設密碼」信（內部呼叫，不是訪客的表單）：不受每 IP 桶與人機驗證限制，
+          // 每個 Email 的桶照扣（系辦連寄幾十個人，不該被同一個出口 IP 的桶擋住）。
+          if (!(!ctx.request && isInternalCall() && resetMailVariant.getStore() !== undefined)) {
             if (!otpLimiters.resetIp.hit(clientIpFrom(headers)).allowed) {
               throw tooMany(`這個網路寄重設連結的次數已達上限，請${inWords(RATE_LIMITS.passwordReset.ip.windowMs)}後再試。`)
             }
