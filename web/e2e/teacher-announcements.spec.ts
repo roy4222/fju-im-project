@@ -188,22 +188,22 @@ async function quickPublish(
   await page.getByRole('button', { name: '新增公告' }).click()
   const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: options.placement }).check()
-  await dialog.getByLabel('標題').fill(options.title)
+  // C1-06：下一步就是一頁式共用表單（對象、標題、內容、附件同一頁；「重要公告」在進階設定）。
+  await dialog.getByRole('button', { name: '下一步' }).click()
+  await dialog.getByLabel('標題', { exact: true }).fill(options.title)
   await dialog.getByLabel('誰看得到').selectOption(options.audience)
   if (options.group) await dialog.getByRole('checkbox', { name: new RegExp(options.group) }).check()
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('第三波 W4 驗收用。')
+  await fillItemBody(page, '第三波 W4 驗收用。')
   if (options.file) {
-    await dialog.locator('input[type=file]').setInputFiles({ name: '報告範本.pdf', mimeType: 'application/pdf', buffer: options.file })
-    await expect(dialog.getByRole('link', { name: '報告範本.pdf' })).toBeVisible()
+    await dialog.getByLabel('加入附件').setInputFiles({ name: '報告範本.pdf', mimeType: 'application/pdf', buffer: options.file })
+    await expect(dialog.getByRole('list', { name: '附件' }).getByRole('link', { name: '報告範本.pdf' })).toBeVisible()
   }
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
+  await dialog.getByTestId('advanced-settings').locator('summary').first().click()
   const important = dialog.getByRole('checkbox', { name: /重要公告/ })
-  if (await important.count()) await important.setChecked(options.important)
+  await expect(important.locator('xpath=..')).toContainText('勾選後將通知')
+  await important.setChecked(options.important)
   await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${options.title}」已發布`)
+  await expect(page.getByTestId('item-toast')).toHaveText('已發布')
   const row = await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, options.title])
   itemIds[options.title] = row.rows[0]!.id
 }
@@ -237,15 +237,12 @@ test('系辦發布五種對象的公告（組別與本屆勾「重要」）、�
   await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
   await page.getByRole('radio', { name: '個人一份', exact: true }).check()
   await page.getByLabel('誰看得到').selectOption('cohort_students')
-  await page.getByLabel('所屬階段').selectOption({ index: 2 })
   await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(new Date(Date.now() + 20 * 86_400_000)))
   await page.getByLabel('要新增的欄位類型').selectOption('file')
   await page.getByRole('button', { name: '新增欄位' }).click()
+  // C1-06：沒有所屬階段；按「發布」直接發布，成功回到清單。
   await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toBeVisible()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
   itemIds[SUBMISSION] = (await pool.query<{ id: string }>('select id from managed_items where title = $1', [SUBMISSION])).rows[0]!.id
 })
 

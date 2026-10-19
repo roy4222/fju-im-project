@@ -79,19 +79,18 @@ test('後台深淺色：頂列按鈕切換、重新整理後保留；前台維�
 test('檔案管理：專題事務的附件列在清單上，有引用位置、下載與「去解除引用」；搜尋檔名篩得到', async ({ page }) => {
   await asAdmin(page)
 
-  // 用三步驟快速建立一則資源，附上一個 PDF（票 15 的流程）。
+  // 清單「新增公告」選「資源下載」→ 下一步就是一頁式共用表單（C1-06），附上一個 PDF 後發布。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   await page.getByRole('button', { name: '新增公告' }).click()
   const dialog = page.getByRole('dialog', { name: '新增公告' })
   await dialog.getByRole('radio', { name: /資源下載/ }).check()
-  await dialog.getByLabel('標題').fill(TITLE)
+  await dialog.getByRole('button', { name: '下一步' }).click()
+  await dialog.getByLabel('標題', { exact: true }).fill(TITLE)
   await dialog.getByLabel('誰看得到').selectOption('signed_in')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.locator('input[type=file]').setInputFiles({ name: FILE_NAME, mimeType: 'application/pdf', buffer: PDF })
-  await expect(dialog.getByRole('link', { name: FILE_NAME })).toBeVisible()
-  await dialog.getByRole('button', { name: '下一步' }).click()
+  await dialog.getByLabel('加入附件').setInputFiles({ name: FILE_NAME, mimeType: 'application/pdf', buffer: PDF })
+  await expect(dialog.getByRole('list', { name: '附件' }).getByRole('link', { name: FILE_NAME })).toBeVisible()
   await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText('已發布')
+  await expect(page.getByTestId('item-toast')).toHaveText('已發布')
   const itemId = (
     await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, TITLE])
   ).rows[0]!.id
