@@ -2137,6 +2137,23 @@ export class PgSignoffQuery implements SignoffQuery {
     })
   }
 
+  /** 舊網址 `/dashboard/admin/signoff/[versionId]` 轉址用（C1-11、§3.3）：這一版所屬的包連到哪份作業；舊包或找不到是 null。 */
+  async itemOfVersion(actor: ResolvedActor, versionId: string): Promise<Result<{ readonly itemId: string | null }>> {
+    const blocked = authorizeAdmin(actor, '查看同意書')
+    if (blocked) return blocked
+    const receipt = { requestId: uuidv7(), serverTime: new Date().toISOString() }
+    if (!isUuid(versionId)) return ok({ itemId: null }, receipt)
+    return this.#withClient(async (db) => {
+      const row = (
+        await db.query<{ item_id: string | null }>(
+          `select p.item_id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where v.id = $1`,
+          [versionId],
+        )
+      ).rows[0]
+      return ok({ itemId: row?.item_id ?? null }, receipt)
+    })
+  }
+
   /**
    * 系辦「繳交狀況」（C 階段規格① §3.3 `itemBoard`）：這份同意書作業名單上（`response_rosters` 目前有效的整組收件者）的每一組一列。
    * 有包的帶目前版本的狀態與逐人表態（照那一版的參與者快照、名字與頭像取此刻）；沒包的說此刻缺老師還是缺組員。

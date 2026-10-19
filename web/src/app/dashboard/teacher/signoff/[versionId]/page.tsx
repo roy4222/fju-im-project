@@ -6,6 +6,7 @@ import { RespondForm } from '@/app/dashboard/_signoff/respond-form'
 import { MyResponse, VersionView } from '@/app/dashboard/_signoff/version-view'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { BackLink, PageTitle } from '@/app/dashboard/teacher/_ui/dash'
+import { ConsentStatus } from '@/app/dashboard/student/affairs/[id]/consent-status'
 import { BUTTON_TEXT, getSignoffQuery, MAX_REASON_CHARS } from '@/composition/signoff'
 
 export const metadata = { title: '同意書內容｜資管系專題平台' }
@@ -19,17 +20,38 @@ export const metadata = { title: '同意書內容｜資管系專題平台' }
  *
  * 票 37：原型沒有這一頁（原型在列表上直接表態）；頁首與返回連結照原型子頁的樣子，版本內容與表態表單沿用三個角色共用的元件。
  */
-export default async function TeacherSignoffVersionPage({ params }: { params: Promise<{ versionId: string }> }) {
+export default async function TeacherSignoffVersionPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ versionId: string }>
+  searchParams: Promise<{ tab?: string | string[] }>
+}) {
   const { versionId } = await params
   const actor = await requireRole(`/dashboard/teacher/signoff/${versionId}`, 'teacher')
   const detail = await getSignoffQuery().versionDetail(actor, versionId)
   if (!detail.ok) redirect('/403')
 
+  // 連到同意書作業的版本（C1-11、§6.2）：跟學生一樣是「說明｜狀態」兩個分頁，不顯示版本號、檢查碼與版本歷史。
+  if (detail.receipt.itemId) {
+    const { tab } = await searchParams
+    return (
+      <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/affairs">
+        <ConsentStatus
+          v={detail.receipt}
+          tab={tab === 'status' ? 'status' : 'about'}
+          href={`/dashboard/teacher/signoff/${versionId}`}
+          back={{ href: '/dashboard/teacher/affairs', label: '作業區' }}
+        />
+      </DashboardShell>
+    )
+  }
+
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/signoff">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-3">
-          <BackLink href="/dashboard/teacher/affairs?tab=signoff">回同意書</BackLink>
+          <BackLink href="/dashboard/teacher/affairs">回作業區</BackLink>
           <PageTitle title="同意書內容" description="全文、附件、授權範圍與參與者；全部學生同意後才輪到你。" />
         </div>
         <VersionView

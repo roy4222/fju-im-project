@@ -230,7 +230,7 @@ test('重置：對話框列出將失效的簽署、理由選填（C1-03）；舊
   await expect(facts).toContainText('不能復原')
   await expect(dialog.getByTestId('restart-affected')).toContainText(`${names.get(g1[0]!.userId)}（同意）`)
   // C1-03：理由改選填，不再有「沒填被擋」那一步；這裡照舊填理由驗它進紀錄。
-  await dialog.getByLabel('理由（必填）').fill('附件放錯版本')
+  await dialog.getByLabel('理由（選填）').fill('附件放錯版本')
   await dialog.getByRole('button', { name: '確定重新收集' }).click()
   // 成功後直接帶到新版，上方是回執。
   await expect(adminPage.getByRole('status').filter({ hasText: '已重新收集' })).toContainText('這是新建的第 2 版（內容與第 1 版相同）')
@@ -266,10 +266,8 @@ test('全員同意後輪到老師（通知「輪到你」）、老師同意即�
     await page.goto('/dashboard/teacher/inbox')
     await expect(page.getByText('G01「期中結果確認」第 2 版：3 位學生都已同意，輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
-  await page.goto('/dashboard/teacher/signoff')
-  const card = page.getByTestId('teacher-signoff-card').filter({ hasText: 'G01・期中結果確認' })
-  await expect(card.getByTestId('teacher-card-status')).toHaveText('輪到你')
-  await card.getByRole('link', { name: '閱讀全文並回覆' }).click()
+  // C1-11：作業區的「同意書」卡片分頁拿掉（等你同意的併進「我的作業」）；舊 API 建的包直接開版本頁。
+  await page.goto(`/dashboard/teacher/signoff/${g1v2}`)
   const form = page.getByTestId('respond-form')
   await form.getByRole('checkbox').check()
   await form.getByRole('button', { name: '以指導老師身分同意' }).click()
@@ -374,7 +372,7 @@ test('不同意：理由選填（C1-03）、送出後退回修正中，其他組
   await page.getByTestId('respond-form').getByRole('button', { name: '不同意並退回修正' }).click()
   const dialog = page.getByRole('dialog', { name: '不同意並退回修正' })
   // C1-03：理由改選填，不再有「沒填被擋」那一步；有填理由時其他組員仍看得到。
-  await dialog.getByLabel('理由（必填）').fill('第三章的數據要更新')
+  await dialog.getByLabel('理由（選填）').fill('第三章的數據要更新')
   await dialog.getByRole('button', { name: '確定不同意並退回修正' }).click()
   await expect(page.getByTestId('signoff-state').first()).toHaveText('退回修正中')
 
@@ -387,7 +385,7 @@ test('不同意：理由選填（C1-03）、送出後退回修正中，其他組
   await page.goto(`/dashboard/admin/signoff/${g2v1}`)
   await page.getByRole('button', { name: '重開新版' }).click()
   const reopen = page.getByRole('dialog', { name: '重開新版？' })
-  await reopen.getByLabel('理由（必填）').fill('第三章已更新，重新簽核')
+  await reopen.getByLabel('理由（選填）').fill('第三章已更新，重新簽核')
   await reopen.getByRole('button', { name: '確定重開新版' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已重開新版' })).toContainText('這是新建的第 2 版')
   await expect(page.getByTestId('signoff-state').first()).toHaveText('收集學生同意中')
@@ -440,7 +438,7 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
   await current.getByRole('link', { name: '第 2 版' }).click()
   await page.getByRole('button', { name: '重開新版' }).click()
   const reopen = page.getByRole('dialog', { name: '重開新版？' })
-  await reopen.getByLabel('理由（必填）').fill('換老師後重新簽核')
+  await reopen.getByLabel('理由（選填）').fill('換老師後重新簽核')
   await reopen.getByRole('button', { name: '確定重開新版' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已重開新版' })).toContainText('這是新建的第 3 版')
   await expect(page.getByTestId('progress-advisor')).toContainText(T2_NAME)
@@ -457,7 +455,7 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
   const voidDialog = page.getByRole('dialog', { name: '作廢這一版？' })
   for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(voidDialog.getByTestId('danger-facts')).toContainText(k)
   await expect(voidDialog.getByTestId('danger-facts')).toContainText('作廢不能取消')
-  await voidDialog.getByLabel('理由（必填）').fill('本學期不做期中確認')
+  await voidDialog.getByLabel('理由（選填）').fill('本學期不做期中確認')
   await voidDialog.getByRole('button', { name: '確定作廢' }).click()
   await expect(page.getByTestId('signoff-state').first()).toHaveText('已作廢')
 

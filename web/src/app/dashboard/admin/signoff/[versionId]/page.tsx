@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { IconAlertTriangle } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -25,6 +26,8 @@ export const metadata = { title: '同意書內容｜資管系專題平台' }
  * 管理員的簽核版本頁（票 25、26）：全文、附件、授權範圍、逐人進度與缺誰、版本歷史，以及系辦能做的事——
  * 提醒未同意者（24 小時一次）、重新收集同意或重開新版、作廢（理由必填）、匯出可列印頁與 CSV（每次匯出都留紀錄）。
  * 版本內容寫了就不能改；**沒有任何替人表態的入口**。
+ *
+ * C1-11 起只剩舊 API 建的包（沒連作業）會留在這一頁；連到同意書作業的版本一律轉到該作業的繳交狀況（同意書看板）。
  */
 
 const FORMAT_LABEL = { printable: '可列印頁', csv: 'CSV 明細' } as const
@@ -165,6 +168,10 @@ export default async function AdminSignoffVersionPage({
   const { versionId } = await params
   const { restarted, from } = await searchParams
   const actor = await requireRole(`/dashboard/admin/signoff/${versionId}`, 'admin')
+  // 舊網址轉址（C1-11、§6.3、AC-21c）：連到同意書作業的版本 → 那份作業的繳交狀況（同意書看板）；
+  // 舊 API 建的包（`item_id is null`）或找不到 → 留在這一頁。
+  const linked = await getSignoffQuery().itemOfVersion(actor, versionId)
+  if (linked.ok && linked.receipt.itemId) redirect(`/dashboard/admin/affairs/${linked.receipt.itemId}`)
   const detail = await getSignoffQuery().versionDetail(actor, versionId)
 
   return (

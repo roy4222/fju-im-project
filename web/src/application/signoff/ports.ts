@@ -339,4 +339,10 @@ export interface SignoffQuery {
    * 沒包的說為什麼還沒建）。不是管理員 → `FORBIDDEN`；不是站內同意書作業 → `VALIDATION_FAILED`。
    */
   itemBoard(actor: ResolvedActor, itemId: string): Promise<Result<ConsentItemBoard>>
+  /**
+   * 舊網址 `/dashboard/admin/signoff/[versionId]` 轉址用（C 階段規格① §3.3、§6.3）：這一版所屬簽核包連到哪份同意書作業。
+   * 只給系辦（其他人 `FORBIDDEN`）；版本不存在、或包沒連結作業（舊 API 建的 `item_id is null`）時 `itemId` 是 `null`
+   * （設計寫 `Result<{ itemId } | null>`；`Result` 的回執要能展開，所以把 null 放進欄位裡）。
+   */
+  itemOfVersion(actor: ResolvedActor, versionId: string): Promise<Result<{ readonly itemId: string | null }>>
 }
