@@ -84,11 +84,12 @@ export const EVENT_CATALOG = {
   },
   /**
    * 提案終止（票 13；產品模組 08 §4「提案終止→提案人與全部被邀請者，按使用者去重」）。
-   * payload 帶終止種類，**不帶管理員作廢的理由**（S03-07：學生看到的通知不含內部備註）。
+   * payload 帶終止種類，**不帶系辦終止的理由**（S03-07：學生看到的通知不含內部備註）。
+   * C3-05 用詞：畫面與通知叫「建立組別」，系辦作廢叫「系辦終止」（標籤在 `TERMINATION_KIND_LABEL`）。
    */
   'proposal.terminated': {
     consumers: ['notifications'],
-    notification: { kind: 'group', defaultTitle: '這次組隊沒有成立' },
+    notification: { kind: 'group', defaultTitle: '這次建立組別沒有成立' },
   },
   /**
    * 管理員加入或移出組員（票 14；產品模組 08 §4「成員加入／移出→異動前後成員的聯集與目前主指導」）。
@@ -345,6 +346,33 @@ export const EVENT_CATALOG = {
   'opportunity.unlinked': {
     consumers: ['notifications'],
     notification: { kind: 'group', defaultTitle: '組別與合作案的連結已解除' },
+  },
+  /**
+   * 產學組選了合作案、等負責老師確認指導（C 階段規格③ §7.2、AC-C3-12）。收件人＝那個合作案的負責老師。
+   * C3-05 只登記型別與消費者（照 `group.members_changed`）；發送與標題內文在 C3-11（成立交易）與 C3-09。
+   */
+  'opportunity.link_requested': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '有組別選了你的合作案，請確認是否指導' },
+  },
+  /**
+   * 負責老師婉拒待確認的合作案連結（C 階段規格③ §7.2、AC-C3-26）。收件人＝該組全體成員。不帶理由。
+   * C3-05 只登記；發送在 C3-09。
+   */
+  'opportunity.link_declined': {
+    consumers: ['notifications'],
+    notification: { kind: 'group', defaultTitle: '老師婉拒了你們選的合作案，請重新選合作案' },
+  },
+
+  // ── 專題時程 ──
+  /**
+   * 系辦改了階段日期（C 階段規格③ §9.2、AC-C3-39）。收件人＝變動後該階段內有整組作業的組的現任組員（去重）；
+   * 只改名稱不發。標題由發送端帶（「專題時程更新：第 2 階段『…』改為 11/12–5/1」），連到 `/timeline`。
+   * C3-05 只登記型別與消費者（照 `group.members_changed`）；發送與收件匣來源在 C3-13。
+   */
+  'timeline.stage_changed': {
+    consumers: ['notifications'],
+    notification: { kind: 'due', defaultTitle: '專題時程有更新' },
   },
 } as const satisfies Record<string, CatalogEntry>
 

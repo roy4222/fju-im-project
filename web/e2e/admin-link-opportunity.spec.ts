@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie } from './sess
 /**
  * AD-06（設計方案 §3.3.1、Q73）：系辦在「全部組別」把產學組連到合作案。
  *
- * - AC-AD-11：首次連結理由選填、換案理由必填（後端原字）、過期版本照後端 `staleRevision()` 的字；
+ * - AC-AD-11：首次連結與換案理由都選填（C3-05）、過期版本照後端 `staleRevision()` 的字；
  *   下拉只有已發布的案（草稿、下架不出現）。
  * - AC-AD-12：一般組那一列與詳情都沒有連結入口。
  * - AC-AD-37：合作案超過 50 筆時，搜尋與「下一頁」選得到第 51 筆。
@@ -170,7 +170,7 @@ test('AC-AD-11 首次連結：下拉只有已發布的案、理由可留空；�
   expect(await audits('opportunity.link', groupIds.get('G03')!)).toEqual([{ reason: null }])
 })
 
-test('AC-AD-11 換案：理由空白照後端原字擋下；填了理由才換成，稽核 opportunity.switch 帶理由', async ({ page }) => {
+test('AC-AD-11 換案：填了理由換成，稽核 opportunity.switch 帶理由', async ({ page }) => {
   const groups = await openGroups(page, cohortId)
   await groups.getByRole('button', { name: '改連結 G03' }).click()
   const dialog = page.getByRole('dialog', { name: '把 G03 改連到別的合作案' })
@@ -179,9 +179,6 @@ test('AC-AD-11 換案：理由空白照後端原字擋下；填了理由才換�
 
   await narrowTo(dialog, TAG, 2)
   await dialog.getByLabel('合作案').selectOption({ label: `${丙}・資訊部・王老師` })
-  await dialog.getByRole('button', { name: '連結', exact: true }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('換案一定要填理由。')
-
   await dialog.getByLabel('理由').fill('業師更換')
   await dialog.getByRole('button', { name: '連結', exact: true }).click()
   await expect(dialog).toBeHidden()

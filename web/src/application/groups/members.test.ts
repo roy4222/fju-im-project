@@ -15,11 +15,16 @@ import {
 
 const [A, B, C] = ['aaaaaaaa-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000003']
 
-describe('理由：必填、去空白、有上限', () => {
-  it('空白被拒並說是哪個動作；前後空白去掉；超過上限被拒', () => {
-    expect(normalizeReason('   ', '加入組員')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: '加入組員一定要填理由。' })
+describe('理由：選填、去空白、有上限', () => {
+  it('空白當作沒填（空字串）；前後空白去掉；超過上限被拒', () => {
+    expect(normalizeReason('   ', '加入組員')).toEqual({ ok: true, value: '' })
+    expect(normalizeReason('', '加入組員')).toEqual({ ok: true, value: '' })
     expect(normalizeReason('  休學  ', '移出組員')).toEqual({ ok: true, value: '休學' })
-    expect(normalizeReason('字'.repeat(CHANGE_REASON_MAX_LENGTH + 1), '換組長')).toMatchObject({ ok: false })
+    expect(normalizeReason('字'.repeat(CHANGE_REASON_MAX_LENGTH + 1), '換組長')).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: `換組長的理由最多 ${CHANGE_REASON_MAX_LENGTH} 個字。`,
+    })
     expect(normalizeReason('字'.repeat(CHANGE_REASON_MAX_LENGTH), '換組長')).toMatchObject({ ok: true })
   })
 })

@@ -535,7 +535,7 @@ describe('終止與釋放', () => {
     expect(await count('select count(*) as n from proposal_occupancy where proposal_id = $1', [proposalId])).toBe(0)
   })
 
-  it('管理員作廢：非管理員被拒、理由必填；作廢後理由存在提案上，但通知事件不帶理由', async () => {
+  it('管理員作廢（系辦終止）：非管理員被拒；理由選填；作廢後理由存在提案上，但通知事件不帶理由', async () => {
     const cohortId = await newCohort()
     const members = await students(cohortId, 5)
     const proposalId = await mustPropose(members[0]!, members.slice(1))
@@ -543,11 +543,18 @@ describe('終止與釋放', () => {
       ok: false,
       code: 'FORBIDDEN',
     })
-    expect(await groups.voidProposal(staffActor(adminId, 'admin'), proposalId, '   ', randomUUID())).toMatchObject({
-      ok: false,
-      code: 'VALIDATION_FAILED',
-    })
     expect((await proposalRow(proposalId)).state).toBe('open')
+
+    // 理由留空也成功（C3-05）：reason 為 NULL 或空字串，畫面均視為未填。
+    const others = await students(cohortId, 5)
+    const blankId = await mustPropose(others[0]!, others.slice(1))
+    expect(await groups.voidProposal(staffActor(adminId, 'admin'), blankId, '   ', randomUUID())).toMatchObject({
+      ok: true,
+      receipt: { terminationKind: 'admin_voided' },
+    })
+    const blank = await proposalRow(blankId)
+    expect(blank).toMatchObject({ state: 'terminated', termination_kind: 'admin_voided' })
+    expect([null, '']).toContain(blank.reason)
 
     const voided = await groups.voidProposal(staffActor(adminId, 'admin'), proposalId, '組員名單有誤（系辦內部備註）', randomUUID())
     expect(voided).toMatchObject({ ok: true, receipt: { terminationKind: 'admin_voided' } })
@@ -877,12 +884,18 @@ describe('管理員分組總覽', () => {
     await mustPropose(c!, [d!])
     const voided = await mustPropose(e!, [(await newStudent(cohortId))])
     await groups.voidProposal(staffActor(adminId, 'admin'), voided, '測試作廢', randomUUID())
+    // 理由留空的系辦終止（C3-05）：總覽的 reason 為 null 或空字串，畫面均視為未填。
+    const blank = await mustPropose(await newStudent(cohortId), [await newStudent(cohortId)])
+    await groups.voidProposal(staffActor(adminId, 'admin'), blank, '', randomUUID())
 
     const overview = await query.overview(cohortId)
     expect(overview.groups.map((g) => [g.code, g.members.length])).toEqual([['G01', 2]])
     expect(overview.openProposals).toHaveLength(1)
     expect(overview.openProposals[0]!.invitations.map((i) => i.state)).toEqual(['pending', 'pending'])
-    expect(overview.closedProposals[0]).toMatchObject({ terminationKind: 'admin_voided', reason: '測試作廢' })
+    const closed = new Map(overview.closedProposals.map((p) => [p.id, p]))
+    expect(closed.get(voided)).toMatchObject({ terminationKind: 'admin_voided', reason: '測試作廢' })
+    expect(closed.get(blank)).toMatchObject({ terminationKind: 'admin_voided' })
+    expect([null, '']).toContain(closed.get(blank)!.reason)
     const ungrouped = overview.ungrouped.map((u) => [u.studentNo, u.inProposal])
     expect(ungrouped).toContainEqual([c!.studentNo, true])
     expect(ungrouped).toContainEqual([e!.studentNo, false])
