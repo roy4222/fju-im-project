@@ -213,7 +213,7 @@ async function count(sql: string, values: unknown[] = []): Promise<number> {
   return Number((await owner.sql(sql, values)).rows[0]!.n)
 }
 
-type Pkg = { id: string; version_id: string; version_no: number; state: string; cause: string | null; content_checksum: string; authorization_scope: unknown; attachment_file_versions: { fileId: string }[]; supersede_cause: string | null; participants: { students: { userId: string }[]; advisor: { userId: string } } }
+type Pkg = { id: string; version_id: string; version_no: number; state: string; cause: string | null; content_checksum: string; authorization_scope: unknown; attachment_file_versions: { fileId: string; source?: unknown }[]; supersede_cause: string | null; participants: { students: { userId: string }[]; advisor: { userId: string } } }
 /** 這一組連到這份作業的包、目前版本。 */
 async function packageOf(itemId: string, groupId: string): Promise<Pkg | null> {
   const row = (
@@ -401,7 +401,7 @@ describe('最終文件授權（AC-21b）', () => {
     const pkg = (await packageOf(item.itemId, g2.groupId))!
     expect(pkg.authorization_scope).toMatchObject({ title: '智慧校園導覽', summary: '用室內定位帶新生認識校園。', usages: ['public_showcase'] })
     expect(pkg.attachment_file_versions.map((a) => a.fileId)).toEqual([fileId])
-    expect((pkg.attachment_file_versions[0] as { source: unknown }).source).toMatchObject({ itemTitle: '最終文件授權書', kind: 'item_attachment' })
+    expect(pkg.attachment_file_versions[0]!.source).toMatchObject({ itemTitle: '最終文件授權書', kind: 'item_attachment' })
     // 同一個檔同時有 item_attachment 引用與三個版本的 signoff_version 引用。
     expect(await refs(fileId, 'item_attachment')).toEqual([item.itemId])
     expect(await refs(fileId, 'signoff_version')).toHaveLength(3)
