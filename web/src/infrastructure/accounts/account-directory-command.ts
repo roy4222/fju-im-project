@@ -50,7 +50,7 @@ import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
-import { requestPasswordReset } from '@/infrastructure/auth/wrapper'
+import { sendAdminResetMail } from '@/infrastructure/auth/wrapper'
 
 /** 等寄信結果的上限：要比 `brevo-mailer.ts` 的 `TIMEOUT_MS`（10 秒）長，Brevo 卡住時才等得到它判逾時。改那邊的逾時要一起對齊。 */
 const MAIL_SETTLE_TIMEOUT_MS = 12_000
@@ -86,7 +86,7 @@ export type AccountDirectoryCommandDeps = {
    * 正式組裝一定有（`composition/accounts.ts`）；不給時不檢查組長（票 9 的舊測試不需要分組）。
    */
   readonly leaders?: LeaderSuccessionHook<PoolClient>
-  /** 寄重設密碼信（預設走 `sendResetMailViaPublicPath`；測試可以換掉來模擬失敗）。 */
+  /** 寄重設密碼信（預設走 `sendAdminResetMail`；測試可以換掉來模擬失敗）。 */
   readonly requestPasswordReset?: (headers: Headers, input: { email: string }) => Promise<unknown>
 }
 
@@ -418,16 +418,15 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
   // ── 寄重設密碼信（C2-11） ────────────────────────────────────────────────
 
   /**
-   * TODO(C2-11 第二步)：目前走公開的忘記密碼入口（吃每 IP／每 Email 限流；正式站還要 Turnstile，系辦會被擋）。
-   * 等 C2-09、C2-16 合併後，改用系辦內部呼叫的寄信函式（略過限流與 Turnstile），這裡的「等寄送結果」照用。
+   * 系辦寄重設密碼信：走內部呼叫（略過每 IP 限流與 Turnstile，Email 桶照扣）。
    *
    * 套件的 `sendResetPassword` 回呼是背景寄送、結果不會傳回呼叫端（也不進 `withMailOutcome` 的盒子），
    * 所以寄完後看這封信在 `mail_outbox` 的結果：失敗就丟錯，畫面才不會說「已寄出」。
    */
-  async #sendViaPublicPath(headers: Headers, input: { email: string }): Promise<void> {
+  async #sendAndSettle(headers: Headers, input: { email: string }): Promise<void> {
     const db = this.#deps.db()
     const since = (await db.query<{ now: Date }>('select clock_timestamp() as now')).rows[0]!.now
-    await requestPasswordReset(input, headers)
+    await sendAdminResetMail(input, headers)
     const deadline = Date.now() + MAIL_SETTLE_TIMEOUT_MS
     for (;;) {
       const row = (
@@ -475,7 +474,7 @@ export class PgAccountDirectoryCommand implements AccountDirectoryCommand {
     }
 
     try {
-      await (this.#deps.requestPasswordReset ?? ((h, i) => this.#sendViaPublicPath(h, i)))(context.headers, { email: target.email })
+      await (this.#deps.requestPasswordReset ?? ((h, i) => this.#sendAndSettle(h, i)))(context.headers, { email: target.email })
     } catch (error) {
       console.error('[accounts] 寄重設密碼信失敗', (error as { body?: { code?: unknown } } | null)?.body?.code ?? 'unknown')
       return err('INTERNAL', '信寄不出去，請稍後再試；或改發臨時密碼給本人。')
