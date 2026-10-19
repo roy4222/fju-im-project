@@ -1,7 +1,7 @@
 import { startFrameLoop } from './frame-loop'
 
 /**
- * 404／403「壞掉」頁的特效引擎（規格④ §6）：只有沒開「減少動態」時由 `fuzzy-text.tsx` 的載入器 `import()`，
+ * 404／403「壞掉」頁的特效引擎（規格④ §6）：只有沒開「減少動態」、頁面有 `[data-broken-fx]` 時由 `fuzzy-text.tsx` 的載入器（掛在 `SiteHeader`）`import()`，
  * 另切一個 chunk——根層 not-found 的 client 程式會進每條路由的首載，引擎不能跟著進去（C4-05 主腦裁定）。
  * 標記全由伺服器輸出（`broken-page.tsx`）：`[data-fuzzy]` 是一段字（真文字是它的第一個子元素），
  * 參數走 `data-*`（`data-gradient`、`data-intensity`、`data-max-shift`、`data-fps`）；`.broken-glitch` 是要抖的按鈕。

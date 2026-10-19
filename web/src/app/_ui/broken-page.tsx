@@ -1,6 +1,5 @@
 import './broken-page.css'
 import Link from 'next/link'
-import { BrokenFx } from '@/app/_ui/fx/fuzzy-text'
 import { SiteShell } from '@/app/_ui/site-shell'
 
 /** 輔大三色（規格④ §6）：橘 → 黃 → 淺藍，由左到右。canvas 讀 `data-gradient`，不輸出 `style=`。 */
@@ -34,7 +33,7 @@ function Fuzzy({
 
 /**
  * 404／403 共用的「壞掉」頁（規格④ §6）：頂列、頁尾照舊，只有 `main` 整塊深藍、上緣一條輔大三色線；
- * 「404」、標題、說明三段抖動三色字，按鈕偶爾跟著抖（特效在 `fx/fuzzy-engine.ts`，由 `BrokenFx` 按需載入）。
+ * 「404」、標題、說明三段抖動三色字，按鈕偶爾跟著抖（特效在 `fx/fuzzy-engine.ts`，由 `SiteHeader` 裡的載入器看到 `data-broken-fx` 才載；這裡不帶 client 元件，見 `fx/fuzzy-text.tsx`）。
  * 兩頁的三段文字完全相同（沒權限就不要出現，Q35）；只差按鈕：404「回首頁」、403「回到自己的首頁」。
  * 真文字固定，所以同一角色不同拒絕原因的 `main` 文字相同（deny-not-found.spec）。
  * `staticFooter` 照傳給 `SiteShell`：根層 not-found 不讀 `site_texts`（C2-17）。
@@ -48,7 +47,7 @@ export async function BrokenPage({
 }) {
   return (
     <SiteShell bare staticFooter={staticFooter}>
-      <div className="broken-page" data-testid="not-found">
+      <div className="broken-page" data-testid="not-found" data-broken-fx="">
         <div className="broken-stripe" data-testid="broken-stripe" aria-hidden="true" />
         <div className="broken-body">
           <Fuzzy as="span" text="404" className="broken-code" intensity={0.35} />
@@ -60,7 +59,6 @@ export async function BrokenPage({
             </Link>
           </div>
         </div>
-        <BrokenFx />
       </div>
     </SiteShell>
   )
