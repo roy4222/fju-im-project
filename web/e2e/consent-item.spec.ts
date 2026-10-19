@@ -231,6 +231,24 @@ test('AC-22：學生「交作業」→ 說明｜狀態 → 全組狀態表 → �
   await expect(page.getByTestId('signoff-content')).toContainText(BODY)
 })
 
+test('看板「提醒未同意者」：收件人是還沒表態的組員（從舊版本頁搬過來，舊包唯讀）', async ({ page }) => {
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/affairs/${itemId}`)
+  const row = boardRow(page, 'G01')
+  await row.getByRole('button', { name: '提醒未同意者' }).click()
+  await expect(row.getByRole('status').filter({ hasText: '已提醒' })).toContainText('已提醒 G01')
+
+  await signIn(page, g1[2]!)
+  await expect(async () => {
+    await page.goto('/dashboard/student/inbox')
+    await expect(page.getByText(/提醒：G01「期中結果確認」第 1 版同意書還有人沒回覆/)).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 45_000 })
+  // 已經同意的人不在收件人裡。
+  await signIn(page, g1[0]!)
+  await page.goto('/dashboard/student/inbox')
+  await expect(page.getByText(/提醒：G01「期中結果確認」/)).toHaveCount(0)
+})
+
 test('AC-22a：學生不同意、主指導退回，理由都留空也成功；理由欄標「選填」', async ({ page }) => {
   await openStatus(page, g1[1]!)
   const form = page.getByTestId('respond-form')
@@ -255,8 +273,11 @@ test('AC-22a：學生不同意、主指導退回，理由都留空也成功；�
   expect(g2v.state).toBe('teacher_pending')
   await signIn(page, teacher)
   await page.goto('/dashboard/teacher/affairs')
-  await expect(page.getByTestId(`consent-${g2v.id}`)).toContainText('等你同意')
-  await page.goto(`/dashboard/teacher/signoff/${g2v.id}?tab=status`)
+  const row = page.getByTestId(`consent-${g2v.id}`)
+  await expect(row).toContainText('等你同意')
+  await row.getByRole('link').first().click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/teacher/signoff/${g2v.id}\\?tab=status$`))
+  await expect(page.getByRole('navigation', { name: '同意書分頁' }).getByRole('link', { name: '狀態', exact: true })).toHaveAttribute('aria-current', 'page')
   const advisorForm = page.getByTestId('respond-form')
   await advisorForm.getByRole('checkbox').check()
   await advisorForm.getByRole('button', { name: '不同意並退回修正' }).click()
