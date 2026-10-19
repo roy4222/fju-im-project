@@ -1,0 +1,1573 @@
+{
+ "note": "D-23 檢查資料：files＝各票可改檔案的簡寫鍵（同鍵＝同一個檔；fp／sqlx／budget 是三個共用檔）；blocked_by＝放寬後 issue 上的前置；merged＝10/19 已合（含後來合進的 C3-04）。",
+ "tickets": {
+  "C1-01": {
+   "files": [
+    "journal",
+    "matrix",
+    "migtest",
+    "pg-grading-it",
+    "pg-signoff-it",
+    "s04-it",
+    "schema-c1"
+   ],
+   "blocked_by": [
+    "C2-21"
+   ],
+   "merged": true
+  },
+  "C1-02": {
+   "files": [
+    "approvals-it",
+    "composition-items",
+    "items-app",
+    "pg-items",
+    "pg-subs",
+    "placements",
+    "subs-app",
+    "version-access"
+   ],
+   "blocked_by": [
+    "C1-01"
+   ],
+   "merged": true
+  },
+  "C1-03": {
+   "files": [
+    "approvals-it",
+    "attachment-policy",
+    "composition-items",
+    "composition-signoff",
+    "consent-bridge",
+    "pg-signoff",
+    "signoff-app",
+    "signoff-ports"
+   ],
+   "blocked_by": [
+    "C1-01",
+    "C1-02",
+    "C1-05"
+   ],
+   "merged": false
+  },
+  "C1-04": {
+   "files": [
+    "composition-grading",
+    "grading-app",
+    "grading-infra",
+    "pg-grading-it",
+    "teacher-grading-gid"
+   ],
+   "blocked_by": [
+    "C1-01"
+   ],
+   "merged": true
+  },
+  "C1-05": {
+   "files": [
+    "events",
+    "reminders",
+    "templates"
+   ],
+   "blocked_by": [
+    "C1-01",
+    "C2-09"
+   ],
+   "merged": false
+  },
+  "C1-06": {
+   "files": [
+    "admin-editor-preview",
+    "affairs-form",
+    "affairs-spec",
+    "budget",
+    "editor",
+    "file-download-pages",
+    "forms",
+    "fp",
+    "front-edit-adapters",
+    "front-edit-items-spec",
+    "honor-admin",
+    "item-delete",
+    "item-form-model",
+    "item-pin",
+    "items-app",
+    "pg-items",
+    "public-pages",
+    "publish-notify",
+    "quick-create",
+    "requirement-template",
+    "rules-order",
+    "timeline-page-spec"
+   ],
+   "blocked_by": [
+    "C1-02",
+    "C1-10",
+    "C2-03",
+    "C2-14",
+    "C2-17",
+    "C3-02",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-07": {
+   "files": [
+    "affairs-assign-page",
+    "affairs-id",
+    "affairs-list",
+    "affairs-page",
+    "affairs-remind",
+    "affairs-res-page",
+    "affairs-rules-page",
+    "affairs-spec",
+    "affairs-view",
+    "assignment-list",
+    "forms",
+    "fp",
+    "front-edit-rescat",
+    "list-actions",
+    "news-list",
+    "quick-create",
+    "rename-cat",
+    "resource-list",
+    "sqlx",
+    "student-affairs-spec"
+   ],
+   "blocked_by": [
+    "C1-02",
+    "C1-05",
+    "C1-06",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-08": {
+   "files": [
+    "affairs-rules-page",
+    "rules-actions",
+    "rules-content",
+    "rules-order",
+    "sqlx"
+   ],
+   "blocked_by": [
+    "C1-02",
+    "C1-06",
+    "C1-07",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-09": {
+   "files": [
+    "adminredir",
+    "forms",
+    "honor-admin",
+    "legacy",
+    "news-list",
+    "showcase-admin",
+    "showcase-page",
+    "showcase-specs",
+    "sqlx"
+   ],
+   "blocked_by": [
+    "C1-06",
+    "C1-07",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-10": {
+   "files": [
+    "fp",
+    "group-submit",
+    "history-matrix",
+    "personal-submit",
+    "requirement-template",
+    "sqlx",
+    "student-affairs",
+    "student-affairs-id",
+    "student-affairs-spec",
+    "student-page",
+    "student-todo",
+    "submissions-shared",
+    "teacher-affairs-id",
+    "teacher-affairs-page",
+    "teacher-assignment"
+   ],
+   "blocked_by": [
+    "C1-02",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-11": {
+   "files": [
+    "admin-signoff-forms",
+    "affairs-id",
+    "consent-item",
+    "consent-status",
+    "fp",
+    "list-actions",
+    "pg-signoff",
+    "pg-signoff-it",
+    "signoff-ports",
+    "signoff-specs",
+    "signoff-ui",
+    "signoff-versionid",
+    "sqlx",
+    "student-affairs-id",
+    "student-signoff",
+    "teacher-affairs-page",
+    "teacher-signoff"
+   ],
+   "blocked_by": [
+    "C1-03",
+    "C1-07",
+    "C1-10",
+    "C2-05",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-12": {
+   "files": [
+    "budget",
+    "fp",
+    "grading-spec",
+    "sqlx",
+    "teacher-grading",
+    "teacher-grading-gid"
+   ],
+   "blocked_by": [
+    "C1-04",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-13": {
+   "files": [
+    "admin-grading-content",
+    "admin-grading-rules",
+    "budget",
+    "fp",
+    "grading-pages",
+    "grading-results",
+    "grading-settlement",
+    "home-data-test",
+    "sqlx"
+   ],
+   "blocked_by": [
+    "C1-04",
+    "C2-05",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-14": {
+   "files": [
+    "front-rules",
+    "rules-weights",
+    "sqlx"
+   ],
+   "blocked_by": [
+    "C1-04",
+    "C2-16",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-15": {
+   "files": [
+    "admin-daily",
+    "admin-home-tiles",
+    "admin-page",
+    "home-data",
+    "home-data-test",
+    "remind"
+   ],
+   "blocked_by": [
+    "C1-05",
+    "C1-13",
+    "C1-16",
+    "C3-17"
+   ],
+   "merged": false
+  },
+  "C1-16": {
+   "files": [
+    "admin-home-tiles",
+    "audit-log",
+    "composition-files",
+    "file-storage",
+    "files-admin",
+    "files-page",
+    "files-tab-spec",
+    "fp",
+    "ops-app"
+   ],
+   "blocked_by": [
+    "C1-01",
+    "C2-03",
+    "C2-11",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C1-17": {
+   "files": [
+    "seed",
+    "seed-sh"
+   ],
+   "blocked_by": [
+    "C1-01",
+    "C2-12"
+   ],
+   "merged": false
+  },
+  "C1-18": {
+   "files": [
+    "c1-result"
+   ],
+   "blocked_by": [
+    "C1-01",
+    "C1-02",
+    "C1-03",
+    "C1-04",
+    "C1-05",
+    "C1-06",
+    "C1-07",
+    "C1-08",
+    "C1-09",
+    "C1-10",
+    "C1-11",
+    "C1-12",
+    "C1-13",
+    "C1-14",
+    "C1-15",
+    "C1-16",
+    "C1-17",
+    "C2-22"
+   ],
+   "merged": false
+  },
+  "C2-01": {
+   "files": [
+    "admin-affairs-overdue",
+    "admin-home-tiles",
+    "adminredir",
+    "affairs-assign-page",
+    "affairs-page",
+    "affairs-res-page",
+    "affairs-rules-page",
+    "affairs-view",
+    "audit-page",
+    "audit-spec",
+    "budget",
+    "cohorts-page",
+    "dash-pages",
+    "files-page",
+    "fp",
+    "grading-pages",
+    "groups-page",
+    "home-settings-page",
+    "industry-page",
+    "legacy",
+    "nav",
+    "pages",
+    "public-projects",
+    "rules-order",
+    "settings-page",
+    "showcase-page",
+    "signoff-page",
+    "timeline-admin-page"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C2-02": {
+   "files": [
+    "accounts-app",
+    "acct-dialogs",
+    "acct-dir-cmd",
+    "admin-roles-spec",
+    "audit-log",
+    "avatar-reset-spec",
+    "clock",
+    "cohort-forms",
+    "cohorts-app",
+    "cohorts-spec",
+    "deidentify-spec",
+    "module01",
+    "pg-cohorts",
+    "timeline-spec"
+   ],
+   "blocked_by": [
+    "C2-21"
+   ],
+   "merged": true
+  },
+  "C2-03": {
+   "files": [
+    "admin-affairs-specs",
+    "affairs-assign-page",
+    "affairs-page",
+    "affairs-res-page",
+    "affairs-rules-page",
+    "file-download-pages",
+    "files-page",
+    "showcase-page"
+   ],
+   "blocked_by": [
+    "C2-01"
+   ],
+   "merged": true
+  },
+  "C2-04": {
+   "files": [
+    "admin-link-opp",
+    "group-admin-spec",
+    "groups-page",
+    "industry-page",
+    "unassigned-page"
+   ],
+   "blocked_by": [
+    "C2-01"
+   ],
+   "merged": true
+  },
+  "C2-05": {
+   "files": [
+    "admin-grading-rules",
+    "grading-pages",
+    "grading-results",
+    "grading-settlement",
+    "signoff-page",
+    "signoff-specs"
+   ],
+   "blocked_by": [
+    "C2-01"
+   ],
+   "merged": true
+  },
+  "C2-06": {
+   "files": [
+    "admin-audit-search",
+    "audit-page",
+    "cohort-forms",
+    "cohorts-page",
+    "cohorts-spec",
+    "home-settings-page",
+    "timeline-admin-page",
+    "timeline-spec"
+   ],
+   "blocked_by": [
+    "C2-01",
+    "C2-02"
+   ],
+   "merged": true
+  },
+  "C2-07": {
+   "files": [
+    "accounts-pages",
+    "accounts-spec",
+    "accounts-table",
+    "accounts-tabs-spec",
+    "acct-dialogs-split",
+    "acct-dir-cmd",
+    "admin-roles-spec",
+    "adminredir",
+    "bulk-approve",
+    "deidentify-spec",
+    "directory",
+    "leader-succ",
+    "legacy"
+   ],
+   "blocked_by": [
+    "C2-01",
+    "C2-02"
+   ],
+   "merged": true
+  },
+  "C2-08": {
+   "files": [
+    "account-edit-spec",
+    "accounts-index",
+    "accounts-table",
+    "composition-accounts",
+    "edit-dialog",
+    "profile-edit"
+   ],
+   "blocked_by": [
+    "C2-07"
+   ],
+   "merged": true
+  },
+  "C2-09": {
+   "files": [
+    "account-cmd",
+    "accounts-index",
+    "accounts-pages",
+    "bulk-approve",
+    "composition-accounts",
+    "members",
+    "new-member",
+    "new-member-spec",
+    "templates"
+   ],
+   "blocked_by": [
+    "C2-07",
+    "C2-08",
+    "C2-10"
+   ],
+   "merged": false
+  },
+  "C2-10": {
+   "files": [
+    "accounts-actions",
+    "accounts-spec",
+    "bulk-approve",
+    "bulk-dialog",
+    "reg-cmd",
+    "registration",
+    "review-dialog"
+   ],
+   "blocked_by": [
+    "C2-07",
+    "C2-21"
+   ],
+   "merged": true
+  },
+  "C2-11": {
+   "files": [
+    "accounts-spec",
+    "accounts-table",
+    "acct-dir-cmd",
+    "audit-log",
+    "directory",
+    "reset-mail",
+    "reset-mail-spec",
+    "temp-pw"
+   ],
+   "blocked_by": [
+    "C2-07",
+    "C2-08",
+    "C2-10",
+    "C3-02"
+   ],
+   "merged": false
+  },
+  "C2-12": {
+   "files": [
+    "context",
+    "module01",
+    "reg-cmd",
+    "register",
+    "register-steps",
+    "registration",
+    "seed",
+    "seed-samples"
+   ],
+   "blocked_by": [
+    "C2-10"
+   ],
+   "merged": false
+  },
+  "C2-13": {
+   "files": [
+    "account-page",
+    "pages",
+    "student-zero"
+   ],
+   "blocked_by": [
+    "C2-01",
+    "C2-14"
+   ],
+   "merged": true
+  },
+  "C2-14": {
+   "files": [
+    "a1-first-login",
+    "acceptance",
+    "account-avatar",
+    "avatar-download",
+    "footer-privacy",
+    "front-page",
+    "ga",
+    "home-deadlines",
+    "pages",
+    "public-pages",
+    "role-switch",
+    "site-header",
+    "site-shell"
+   ],
+   "blocked_by": [
+    "C2-01",
+    "C2-19"
+   ],
+   "merged": true
+  },
+  "C2-15": {
+   "files": [
+    "inbox",
+    "inbox-spec",
+    "inbox-ui",
+    "notif-ports",
+    "pg-inbox",
+    "student-inbox",
+    "teacher-inbox"
+   ],
+   "blocked_by": [
+    "C2-01"
+   ],
+   "merged": true
+  },
+  "C2-16": {
+   "files": [
+    "auth-instance",
+    "budget",
+    "dash-pages",
+    "forms",
+    "front-edit-spec",
+    "front-edit-ui",
+    "front-files",
+    "front-industry",
+    "front-page",
+    "front-rules",
+    "office-edit",
+    "privacy",
+    "proxy",
+    "sign-out",
+    "site-shell"
+   ],
+   "blocked_by": [
+    "C2-14"
+   ],
+   "merged": false
+  },
+  "C2-17": {
+   "files": [
+    "adminredir",
+    "budget",
+    "composition-site",
+    "footer-privacy",
+    "forms",
+    "fp",
+    "front-page",
+    "home-settings-page",
+    "home-settings-spec",
+    "journal",
+    "legacy",
+    "matrix",
+    "migtest",
+    "nav",
+    "pages",
+    "pg-site",
+    "privacy",
+    "schema-site",
+    "site-app",
+    "site-contact",
+    "site-shell"
+   ],
+   "blocked_by": [
+    "C1-01",
+    "C2-06",
+    "C2-07",
+    "C2-13",
+    "C2-16",
+    "C2-21",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C2-18": {
+   "files": [
+    "teacher-page",
+    "todo-panels"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C2-19": {
+   "files": [
+    "featured",
+    "featured-filters",
+    "front-page",
+    "primitives",
+    "public-content",
+    "showcase-public"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C2-20": {
+   "files": [
+    "dash-pages",
+    "tutorial"
+   ],
+   "blocked_by": [
+    "C2-01",
+    "C2-02",
+    "C2-03",
+    "C2-04",
+    "C2-05",
+    "C2-06",
+    "C2-07",
+    "C2-08",
+    "C2-09",
+    "C2-10",
+    "C2-11",
+    "C2-12",
+    "C2-13",
+    "C2-14",
+    "C2-15",
+    "C2-16",
+    "C2-17",
+    "C2-18",
+    "C2-19",
+    "C2-21"
+   ],
+   "merged": false
+  },
+  "C2-21": {
+   "files": [
+    "journal",
+    "migtest",
+    "schema-tac"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C2-22": {
+   "files": [
+    "adminredir",
+    "budget",
+    "fp",
+    "legacy",
+    "nav",
+    "pages",
+    "signoff-page",
+    "signoff-specs"
+   ],
+   "blocked_by": [
+    "C1-09",
+    "C1-11",
+    "C2-05",
+    "C2-17",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C3-01": {
+   "files": [
+    "journal",
+    "matrix",
+    "migtest",
+    "s03-it",
+    "s06-it",
+    "schema-c3-1",
+    "seed",
+    "seed-samples"
+   ],
+   "blocked_by": [
+    "C1-17",
+    "C2-17"
+   ],
+   "merged": false
+  },
+  "C3-02": {
+   "files": [
+    "audit-log",
+    "avatar-img",
+    "groups-advisors-app",
+    "groups-ports",
+    "person-avatar",
+    "pg-audit-log",
+    "pg-audit-log-it",
+    "pg-groups",
+    "pg-groups-it",
+    "student-groups-page",
+    "ui-avatar",
+    "user-avatar"
+   ],
+   "blocked_by": [
+    "C2-02"
+   ],
+   "merged": true
+  },
+  "C3-03": {
+   "files": [
+    "gantt-core",
+    "gantt-dialogs"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C3-04": {
+   "files": [
+    "account-avatar",
+    "avatar-crop",
+    "avatar-picker",
+    "e2e-fixtures"
+   ],
+   "blocked_by": [
+    "C2-14"
+   ],
+   "merged": true
+  },
+  "C3-05": {
+   "files": [
+    "admin-link-opp",
+    "advisors-spec",
+    "composition-groups",
+    "events",
+    "events-due-it",
+    "group-admin-spec",
+    "groups-advisors-app",
+    "groups-members-app",
+    "groups-opps-app",
+    "groups-proposals-app",
+    "groups-spec",
+    "industry-spec",
+    "pg-advisors-it",
+    "pg-group-dissolve-it",
+    "pg-group-members-it",
+    "pg-groups-it",
+    "pg-opps-it",
+    "templates"
+   ],
+   "blocked_by": [
+    "C1-05",
+    "C2-04",
+    "C3-01",
+    "C3-02"
+   ],
+   "merged": false
+  },
+  "C3-06": {
+   "files": [
+    "cohorts-activities",
+    "cohorts-index",
+    "cohorts-ports",
+    "composition-cohorts",
+    "content-delete-misc",
+    "fp",
+    "journal",
+    "migtest",
+    "pg-timeline",
+    "pg-timeline-af-it",
+    "pg-timeline-it",
+    "s02-it",
+    "schema-timeline",
+    "teacher-home-load",
+    "timeline-actions",
+    "timeline-admin-page",
+    "timeline-forms",
+    "timeline-spec"
+   ],
+   "blocked_by": [
+    "C3-01",
+    "C3-10",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C3-07": {
+   "files": [
+    "account-profile-card",
+    "accounts-index",
+    "accounts-ports",
+    "cohorts-spec",
+    "composition-accounts",
+    "group-forms",
+    "groups-ports",
+    "groups-proposals-app",
+    "groups-spec",
+    "pg-groups",
+    "pg-groups-it",
+    "profile-card-app",
+    "profile-card-cmd",
+    "profile-card-spec",
+    "profile-card-ui",
+    "student-groups-actions",
+    "student-groups-page",
+    "student-groups-spec"
+   ],
+   "blocked_by": [
+    "C3-02",
+    "C3-05"
+   ],
+   "merged": false
+  },
+  "C3-08": {
+   "files": [
+    "admin-gantt-spec",
+    "forms",
+    "front-edit-activity-spec",
+    "gantt-dialogs",
+    "gantt-mount",
+    "timeline-actions",
+    "timeline-admin-page",
+    "timeline-forms",
+    "timeline-front-edit",
+    "timeline-spec",
+    "timeline-zigzag"
+   ],
+   "blocked_by": [
+    "C2-06",
+    "C2-16",
+    "C3-03",
+    "C3-06"
+   ],
+   "merged": false
+  },
+  "C3-09": {
+   "files": [
+    "advisors-spec",
+    "composition-groups",
+    "fp",
+    "groups-advisors-app",
+    "groups-opps-app",
+    "groups-ports",
+    "industry-spec",
+    "pg-advisors",
+    "pg-advisors-it",
+    "pg-opps",
+    "pg-opps-it",
+    "teacher-groups",
+    "teacher-industry-link",
+    "teacher-industry-page",
+    "teacher-industry-spec"
+   ],
+   "blocked_by": [
+    "C3-02",
+    "C3-05",
+    "C3-07",
+    "C3-10",
+    "C3-16",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C3-10": {
+   "files": [
+    "content-delete-misc",
+    "forms",
+    "groups-opps-app",
+    "industry-actions",
+    "industry-front-edit",
+    "industry-manage-list",
+    "industry-opp-forms",
+    "industry-page",
+    "industry-spec",
+    "pg-opps",
+    "pg-opps-it",
+    "teacher-industry-opp-forms",
+    "teacher-industry-spec"
+   ],
+   "blocked_by": [
+    "C1-09",
+    "C2-04",
+    "C2-16",
+    "C3-02",
+    "C3-05"
+   ],
+   "merged": false
+  },
+  "C3-11": {
+   "files": [
+    "cohorts-spec",
+    "group-forms",
+    "groups-ports",
+    "groups-proposals-app",
+    "groups-spec",
+    "milestones",
+    "pg-groups",
+    "pg-groups-it",
+    "student-groups-actions",
+    "student-groups-page",
+    "student-groups-spec"
+   ],
+   "blocked_by": [
+    "C3-07",
+    "C3-09"
+   ],
+   "merged": false
+  },
+  "C3-12": {
+   "files": [
+    "admin-link-opp",
+    "advisors-spec",
+    "budget",
+    "fp",
+    "group-admin-spec",
+    "group-dissolve-spec",
+    "groupid-pages",
+    "groups-admin-ui",
+    "groups-page",
+    "groups-spec",
+    "industry-spec",
+    "leader-succ",
+    "nav",
+    "pages",
+    "sqlx"
+   ],
+   "blocked_by": [
+    "C2-22",
+    "C3-02",
+    "C3-05",
+    "C3-11",
+    "C3-15",
+    "C3-16",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C3-13": {
+   "files": [
+    "admin-gantt-spec",
+    "cohorts-stages",
+    "composition-cohorts",
+    "events-due-it",
+    "gantt-dialogs",
+    "gantt-mount",
+    "pg-inbox",
+    "pg-timeline",
+    "pg-timeline-it",
+    "timeline-actions"
+   ],
+   "blocked_by": [
+    "C2-15",
+    "C3-08"
+   ],
+   "merged": false
+  },
+  "C3-14": {
+   "files": [
+    "front-timeline",
+    "public-pages",
+    "timeline-page-spec"
+   ],
+   "blocked_by": [
+    "C3-03",
+    "C3-06",
+    "C3-17"
+   ],
+   "merged": false
+  },
+  "C3-15": {
+   "files": [
+    "budget",
+    "composition-unassigned",
+    "group-unassigned-spec",
+    "groups-index",
+    "groups-unassigned",
+    "pg-unassigned",
+    "sqlx",
+    "unassigned-page",
+    "unassigned-ui"
+   ],
+   "blocked_by": [
+    "C2-04",
+    "C3-02",
+    "C3-05",
+    "C3-16",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C3-16": {
+   "files": [
+    "composition-group-roster",
+    "composition-groups",
+    "group-import-spec",
+    "groups-import",
+    "groups-import-ui",
+    "groups-index",
+    "groups-page",
+    "pg-group-import",
+    "samples-csv",
+    "seed-samples"
+   ],
+   "blocked_by": [
+    "C3-05"
+   ],
+   "merged": false
+  },
+  "C3-17": {
+   "files": [
+    "account-page",
+    "admin-page",
+    "audit-page",
+    "audit-spec",
+    "hero-spec",
+    "profile-card-spec",
+    "site-shell",
+    "timeline-page-spec"
+   ],
+   "blocked_by": [
+    "C1-06",
+    "C2-06",
+    "C2-13",
+    "C2-14",
+    "C3-02",
+    "C3-07",
+    "C4-02"
+   ],
+   "merged": false
+  },
+  "C4-01": {
+   "files": [
+    "globals-css"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C4-02": {
+   "files": [
+    "fx-core",
+    "hero-pixel",
+    "hero-spec",
+    "hero-trail",
+    "perf-readme",
+    "stage-css",
+    "stage-tsx",
+    "student-home-spec",
+    "trail-mjs"
+   ],
+   "blocked_by": [],
+   "merged": false
+  },
+  "C4-03": {
+   "files": [
+    "account-menu",
+    "dash-theme",
+    "dashboard-frame",
+    "globals-css",
+    "inbox-bell",
+    "public-content",
+    "rwd-breakpoints-spec",
+    "stage-tsx",
+    "ui-button",
+    "ui-sidebar",
+    "use-mobile"
+   ],
+   "blocked_by": [
+    "C4-01",
+    "C4-02"
+   ],
+   "merged": false
+  },
+  "C4-04": {
+   "files": [
+    "competitions-page",
+    "data-table",
+    "rwd-table-spec",
+    "ui-table"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "C4-05": {
+   "files": [
+    "broken-page",
+    "broken-page-spec",
+    "budget",
+    "bundle-mjs",
+    "fuzzy-text",
+    "not-found",
+    "page-403",
+    "perf-readme"
+   ],
+   "blocked_by": [
+    "C2-17",
+    "C4-02",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C4-06": {
+   "files": [
+    "nav-pending",
+    "nav-skeleton-spec",
+    "root-layout"
+   ],
+   "blocked_by": [
+    "C4-12"
+   ],
+   "merged": false
+  },
+  "C4-07": {
+   "files": [
+    "auth-glitch",
+    "auth-look-spec",
+    "auth-split",
+    "auth-stage",
+    "letter-glitch",
+    "login-card",
+    "login-layout",
+    "login-modes-spec",
+    "login-page",
+    "register",
+    "register-actions",
+    "register-layout",
+    "reset-layout",
+    "reset-page",
+    "signup-checks-test",
+    "site-shell"
+   ],
+   "blocked_by": [
+    "C2-12",
+    "C2-17",
+    "C3-17",
+    "⑤-01"
+   ],
+   "merged": false
+  },
+  "C4-08": {
+   "files": [
+    "front-page",
+    "home-hero-pixel",
+    "home-hero-pixel-spec"
+   ],
+   "blocked_by": [
+    "C2-17",
+    "C4-02"
+   ],
+   "merged": false
+  },
+  "C4-09": {
+   "files": [
+    "easter-egg",
+    "flying-button",
+    "site-header",
+    "site-menu-spec",
+    "staggered-menu"
+   ],
+   "blocked_by": [
+    "C2-14",
+    "C3-17"
+   ],
+   "merged": false
+  },
+  "C4-10": {
+   "files": [
+    "dash-pages",
+    "engineering-docs",
+    "frontend-pages",
+    "perf-readme"
+   ],
+   "blocked_by": [
+    "C2-20",
+    "C4-01",
+    "C4-02",
+    "C4-03",
+    "C4-04",
+    "C4-05",
+    "C4-06",
+    "C4-07",
+    "C4-08",
+    "C4-09",
+    "⑤-07",
+    "⑤-11"
+   ],
+   "merged": false
+  },
+  "C4-11": {
+   "files": [
+    "budget",
+    "lab-routes",
+    "rwd-overflow-spec"
+   ],
+   "blocked_by": [
+    "C1-07",
+    "C1-10",
+    "C1-13",
+    "C3-12",
+    "C4-01",
+    "C4-02",
+    "C4-03",
+    "C4-04",
+    "C4-05",
+    "C4-06",
+    "C4-07",
+    "C4-08",
+    "C4-09",
+    "C4-12",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "C4-12": {
+   "files": [
+    "accounts-lazy-spec",
+    "accounts-table",
+    "acct-dialogs",
+    "acct-dialogs-split",
+    "bulk-dialog",
+    "new-member",
+    "reset-mail",
+    "review-dialog",
+    "temp-pw"
+   ],
+   "blocked_by": [
+    "C2-09",
+    "C2-11"
+   ],
+   "merged": false
+  },
+  "INFRA-2": {
+   "files": [],
+   "blocked_by": [],
+   "merged": false
+  },
+  "⑤-01": {
+   "files": [
+    "account-actions",
+    "account-forms",
+    "register",
+    "register-otp-spec",
+    "register-verify"
+   ],
+   "blocked_by": [
+    "C2-12"
+   ],
+   "merged": false
+  },
+  "⑤-02": {
+   "files": [
+    "composition-ops",
+    "file-public-read-spec",
+    "file-storage",
+    "pg-home-settings-it"
+   ],
+   "blocked_by": [
+    "C1-16"
+   ],
+   "merged": false
+  },
+  "⑤-03": {
+   "files": [
+    "composition-files",
+    "file-download-pages",
+    "ops-app"
+   ],
+   "blocked_by": [
+    "C1-06",
+    "C1-16",
+    "⑤-02"
+   ],
+   "merged": false
+  },
+  "⑤-04": {
+   "files": [
+    "caddyfile",
+    "cf-lock",
+    "ops-guards-test",
+    "ops-readme"
+   ],
+   "blocked_by": [],
+   "merged": true
+  },
+  "⑤-05": {
+   "files": [
+    "gh-health-cron",
+    "gh-status"
+   ],
+   "blocked_by": [],
+   "merged": false
+  },
+  "⑤-06": {
+   "files": [
+    "auto-deploy",
+    "backup-daily",
+    "compose-it",
+    "compose-vm",
+    "env-example",
+    "hc-lib",
+    "healthchecks-ping",
+    "ops-docs-02",
+    "ops-guards-test",
+    "ops-readme",
+    "vm-setup",
+    "worker-composition"
+   ],
+   "blocked_by": [
+    "⑤-04",
+    "⑤-05"
+   ],
+   "merged": false
+  },
+  "⑤-07": {
+   "files": [
+    "acceptance-night",
+    "context",
+    "dash-pages",
+    "ops-readme",
+    "ssh-config",
+    "status-files",
+    "summarize-night",
+    "tutorial"
+   ],
+   "blocked_by": [
+    "C2-12",
+    "C2-20",
+    "⑤-05",
+    "⑤-06"
+   ],
+   "merged": false
+  },
+  "⑤-08": {
+   "files": [
+    "ops-docs-05",
+    "ops-docs-06"
+   ],
+   "blocked_by": [
+    "⑤-06",
+    "⑤-07"
+   ],
+   "merged": false
+  },
+  "⑤-09": {
+   "files": [
+    "ops-guards-test",
+    "tutorial"
+   ],
+   "blocked_by": [
+    "C2-20",
+    "⑤-06",
+    "⑤-07"
+   ],
+   "merged": false
+  },
+  "⑤-10": {
+   "files": [
+    "gh-ci"
+   ],
+   "blocked_by": [
+    "⑤-09"
+   ],
+   "merged": false
+  },
+  "⑤-11": {
+   "files": [
+    "engineering-docs",
+    "tutorial"
+   ],
+   "blocked_by": [
+    "⑤-09"
+   ],
+   "merged": false
+  },
+  "⑤-12": {
+   "files": [
+    "archived-readonly-it"
+   ],
+   "blocked_by": [
+    "C3-12"
+   ],
+   "merged": false
+  },
+  "⑤-13": {
+   "files": [
+    "docs-reviews"
+   ],
+   "blocked_by": [
+    "C1-18",
+    "C3-04",
+    "C3-14",
+    "C4-10",
+    "C4-11",
+    "C4-12",
+    "⑤-03",
+    "⑤-08",
+    "⑤-10",
+    "⑤-12",
+    "⑤-14",
+    "⑤-15",
+    "⑤-16",
+    "⑤-17",
+    "⑤-18"
+   ],
+   "merged": false
+  },
+  "⑤-14": {
+   "files": [
+    "codex-e2e",
+    "e2e-clock",
+    "ga",
+    "gitignore",
+    "item-pin",
+    "session-revocation-it"
+   ],
+   "blocked_by": [
+    "C1-06",
+    "C2-14"
+   ],
+   "merged": false
+  },
+  "⑤-15": {
+   "files": [
+    "pg-items",
+    "pg-public-items",
+    "sqlx"
+   ],
+   "blocked_by": [
+    "C1-02",
+    "C1-06",
+    "INFRA-2"
+   ],
+   "merged": false
+  },
+  "⑤-16": {
+   "files": [
+    "accounts-app",
+    "cohorts-stages",
+    "grading-app",
+    "grading-infra",
+    "groups-members-app",
+    "shared-text",
+    "signoff-app",
+    "teacher-grading"
+   ],
+   "blocked_by": [
+    "C1-03",
+    "C1-04",
+    "C1-12",
+    "C2-02",
+    "C3-05",
+    "C3-13"
+   ],
+   "merged": false
+  },
+  "⑤-17": {
+   "files": [
+    "acceptance"
+   ],
+   "blocked_by": [
+    "C1-06",
+    "C2-06",
+    "C2-14"
+   ],
+   "merged": false
+  },
+  "⑤-18": {
+   "files": [
+    "ops-docs-02",
+    "ops-guards-test",
+    "seed",
+    "seed-samples",
+    "seed-sh"
+   ],
+   "blocked_by": [
+    "C1-17",
+    "C2-12",
+    "C3-01",
+    "C3-16",
+    "⑤-06",
+    "⑤-09"
+   ],
+   "merged": false
+  }
+ }
+}
