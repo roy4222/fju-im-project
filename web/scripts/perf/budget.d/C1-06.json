@@ -1,7 +1,16 @@
 {
   "ticket": "C1-06",
   "override": {
-    "/dashboard/admin/editor/[id]": { "from": "base", "value": { "baseline": 228.4, "limit": 250 } },
-    "/dashboard/admin/editor/new": { "from": "base", "value": { "baseline": 228.4, "limit": 250 } }
+    "/dashboard/admin/affairs": { "from": "base", "value": { "baseline": 239.2, "limit": 250 } },
+    "/dashboard/admin/affairs/assignments": { "from": "base", "value": { "baseline": 239.2, "limit": 250 } },
+    "/dashboard/admin/affairs/resources": { "from": "base", "value": { "baseline": 239.2, "limit": 250 } },
+    "/dashboard/admin/affairs/rules": { "from": "base", "value": { "baseline": 239.2, "limit": 250 } },
+    "/dashboard/admin/editor/[id]": { "from": "base", "value": { "baseline": 232.6, "limit": 250 } },
+    "/dashboard/admin/editor/new": { "from": "base", "value": { "baseline": 232.6, "limit": 250 } },
+    "/office-edit": { "from": "base", "value": { "baseline": 237.6, "limit": 250 } },
+    "/office-edit/files": { "from": "base", "value": { "baseline": 237.6, "limit": 250 } },
+    "/office-edit/industry": { "from": "base", "value": { "baseline": 237.8, "limit": 250 } },
+    "/office-edit/privacy": { "from": "base", "value": { "baseline": 237.6, "limit": 250 } },
+    "/office-edit/rules": { "from": "base", "value": { "baseline": 237.6, "limit": 250 } }
   }
 }

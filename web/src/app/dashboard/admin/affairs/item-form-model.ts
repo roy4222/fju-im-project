@@ -1,3 +1,6 @@
+import type { SubmissionFields } from '@/app/dashboard/_submissions/submission-fields'
+import type * as ItemActions from '@/app/dashboard/admin/affairs/actions'
+import type { frontEditContextAction } from '@/app/dashboard/admin/affairs/front-edit-context-action'
 import type { FormField, ItemDetail } from '@/application/items'
 import { formatBytes } from '@/shared/format-bytes'
 import { toTaipeiDateTimeInput } from '@/shared/time'
@@ -527,4 +530,37 @@ export function notifyPreviewText(count: number, when: NotifyWhen): string {
 /** 公開與所有登入者＝全站有效帳號：重要公告預設不勾（Roy 2026-09-25）；其他對象預設勾。 */
 export function broadAudience(audienceKind: string): boolean {
   return audienceKind === 'public' || audienceKind === 'signed_in'
+}
+
+// ── 延遲表單拿 Server Function 與 `SubmissionFields` 的地方（同 C2-17 `_ui/front-edit/forms/registry.ts`） ──────────
+
+/**
+ * 表單本體（`_form/*`、`item-form-parts.tsx`、前台 adapter）是按需載入的 async chunk：只要它靜態引用到 Server Function
+ * （客戶端接線 `callServer` 等）或 `SubmissionFields`（它用 `@/shared/cn`），Turbopack 就把那幾個模組從「每頁都載」的共用 chunk
+ * 拆成另一塊，所有路由的 gzip 都變大（C1-06 實測 `$shared` +0.7 KB）。所以由首載就在的父層在模組初始化時放進來：
+ * 清單與全頁是 `_form/item-form-dialog.tsx`，前台編輯是 `_ui/front-edit/forms.ts`（主腦 10/19 放行那兩行）。這裡只有型別 import。
+ */
+export type ItemFormDeps = {
+  readonly createItemAction: typeof ItemActions.createItemAction
+  readonly saveDraftAction: typeof ItemActions.saveDraftAction
+  readonly publishItemAction: typeof ItemActions.publishItemAction
+  readonly updatePublishedAction: typeof ItemActions.updatePublishedAction
+  readonly changeItemStatusAction: typeof ItemActions.changeItemStatusAction
+  readonly deleteItemAction: typeof ItemActions.deleteItemAction
+  readonly reviewItemAction: typeof ItemActions.reviewItemAction
+  readonly startItemUploadAction: typeof ItemActions.startItemUploadAction
+  readonly frontEditContextAction: typeof frontEditContextAction
+  readonly SubmissionFields: typeof SubmissionFields
+}
+
+let provided: ItemFormDeps | null = null
+
+export function provideItemFormDeps(deps: ItemFormDeps): void {
+  provided = deps
+}
+
+/** 一定在父層載入之後才會被叫到（表單只能經 `item-form-dialog.tsx` 或 `forms.ts` 的 `FE_FORMS` 載入）。 */
+export function itemFormDeps(): ItemFormDeps {
+  if (!provided) throw new Error('表單的 Server Function 還沒登錄（item-form-dialog.tsx 或 forms.ts 要先載入）。')
+  return provided
 }

@@ -1,7 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { startItemUploadAction } from './actions'
-import { formatSize, notifyPreviewText, type FileChip, type NotifyWhen } from './item-form-model'
+import { formatSize, itemFormDeps, notifyPreviewText, type FileChip, type NotifyWhen } from './item-form-model'
 import { createReactComponent, IconPhoto } from '@tabler/icons-react'
 import type { RecipientPreview } from '@/application/items'
 
@@ -116,7 +115,7 @@ export async function uploadItemFile(
   kind: 'attachment' | 'cover',
 ): Promise<{ ok: true; chip: FileChip } | { ok: false; message: string }> {
   try {
-    const ticket = await startItemUploadAction({
+    const ticket = await itemFormDeps().startItemUploadAction({
       cohortId,
       kind,
       fileName: file.name,

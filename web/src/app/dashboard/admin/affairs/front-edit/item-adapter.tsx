@@ -2,9 +2,8 @@
 import { useEffect, useState } from 'react'
 import type { FeFormProps } from '@/app/_ui/front-edit/forms'
 import { ItemForm } from '@/app/dashboard/admin/affairs/_form/item-form'
-import { deleteItemAction } from '@/app/dashboard/admin/affairs/actions'
-import { frontEditContextAction, type FrontEditContext } from '@/app/dashboard/admin/affairs/front-edit-context-action'
-import { formPlacementOf, toInitial, type ItemFormPlacement } from '@/app/dashboard/admin/affairs/item-form-model'
+import type { FrontEditContext } from '@/app/dashboard/admin/affairs/front-edit-context-action'
+import { formPlacementOf, itemFormDeps, toInitial, type ItemFormPlacement } from '@/app/dashboard/admin/affairs/item-form-model'
 
 /**
  * 前台直接編輯（A8）的①表單 adapter（C 階段規格① §11.3；②§6.3.1 `FeFormProps`／`FeFormModule`）。
@@ -24,7 +23,7 @@ export function ItemAdapter({ placement, ...props }: FeFormProps & { placement: 
 
   useEffect(() => {
     let alive = true
-    frontEditContextAction({ cohortId, itemId: mode === 'edit' ? id : null }).then(
+    itemFormDeps().frontEditContextAction({ cohortId, itemId: mode === 'edit' ? id : null }).then(
       (result) => alive && setContext(result),
       () => alive && setContext({ ok: false, message: '表單資料載入失敗，請關掉再開一次。' }),
     )
@@ -82,12 +81,12 @@ export async function removeItem(input: { id: string; revision: number | null; r
   try {
     let revision = input.revision
     if (revision === null) {
-      const context = await frontEditContextAction({ cohortId: null, itemId: input.id })
+      const context = await itemFormDeps().frontEditContextAction({ cohortId: null, itemId: input.id })
       if (!context.ok) return { ok: false, message: context.message }
       if (!context.detail) return { ok: false, message: '這一筆已經不在了，請重新整理頁面。' }
       revision = context.detail.revision
     }
-    const result = await deleteItemAction(input.id, revision, input.requestId)
+    const result = await itemFormDeps().deleteItemAction(input.id, revision, input.requestId)
     return result.ok ? { ok: true } : { ok: false, message: result.message }
   } catch {
     return { ok: false, message: '連線中斷；結果尚未確認，請重新整理頁面看狀態。' }

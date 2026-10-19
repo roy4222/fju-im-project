@@ -7,15 +7,6 @@ import { AttachmentDrop } from '@/app/dashboard/admin/affairs/_form/attachment-d
 import { FieldBuilder } from '@/app/dashboard/admin/affairs/_form/field-builder'
 import LivePreview from '@/app/dashboard/admin/affairs/_form/live-preview'
 import {
-  changeItemStatusAction,
-  createItemAction,
-  deleteItemAction,
-  publishItemAction,
-  reviewItemAction,
-  saveDraftAction,
-  updatePublishedAction,
-} from '@/app/dashboard/admin/affairs/actions'
-import {
   cx,
   DANGER_OUTLINE,
   DIALOG_SHELL,
@@ -38,6 +29,7 @@ import {
   HONOR,
   HONOR_AUDIENCE,
   ITEM_FLASH_KEY,
+  itemFormDeps,
   newRequestId,
   stateFromInitial,
   switchPlacement,
@@ -261,8 +253,8 @@ export function ItemForm(props: ItemFormProps) {
   async function persist(): Promise<{ itemId: string; revision: number } | null> {
     const payload = toPayload(state)
     const result = itemId
-      ? await saveDraftAction(itemId, revision, payload, requestIds.current.save)
-      : await createItemAction(payload, requestIds.current.save)
+      ? await itemFormDeps().saveDraftAction(itemId, revision, payload, requestIds.current.save)
+      : await itemFormDeps().createItemAction(payload, requestIds.current.save)
     requestIds.current.save = newRequestId()
     if (!result.ok) {
       showServerError(result)
@@ -305,7 +297,7 @@ export function ItemForm(props: ItemFormProps) {
       if (!saved) return
       // 作業一定通知名單上要交的人；榮譽不發；公告／資源看「重要公告」。
       const notify = collects ? true : honor ? false : important
-      const result = await publishItemAction(saved.itemId, saved.revision, notify, requestIds.current.publish)
+      const result = await itemFormDeps().publishItemAction(saved.itemId, saved.revision, notify, requestIds.current.publish)
       if (!result.ok) return showServerError(result)
       requestIds.current.publish = newRequestId()
       setRevision(result.data.revision)
@@ -325,7 +317,7 @@ export function ItemForm(props: ItemFormProps) {
     if (Object.keys(found).length > 0) return showErrors(found)
     setBusy('update')
     try {
-      const result = await updatePublishedAction(itemId, revision, toPayload(state), notifyUpdate && !honor, requestIds.current.publish)
+      const result = await itemFormDeps().updatePublishedAction(itemId, revision, toPayload(state), notifyUpdate && !honor, requestIds.current.publish)
       if (!result.ok) return showServerError(result)
       requestIds.current.publish = newRequestId()
       setRevision(result.data.revision)
@@ -352,7 +344,7 @@ export function ItemForm(props: ItemFormProps) {
     setConfirmError(null)
     try {
       const notify = action === 'republish' && !collects && !honor && republishNotify
-      const result = await changeItemStatusAction(itemId, revision, action, requestIds.current.lifecycle, notify)
+      const result = await itemFormDeps().changeItemStatusAction(itemId, revision, action, requestIds.current.lifecycle, notify)
       if (!result.ok) {
         setConfirmError(result.message)
         return
@@ -377,7 +369,7 @@ export function ItemForm(props: ItemFormProps) {
     setBusy('delete')
     setConfirmError(null)
     try {
-      const result = await deleteItemAction(itemId, revision, requestIds.current.remove)
+      const result = await itemFormDeps().deleteItemAction(itemId, revision, requestIds.current.remove)
       if (!result.ok) {
         setConfirmError(result.message)
         return
@@ -882,7 +874,7 @@ export function useLiveReview(state: EditorState, itemId: string | null, enabled
     const mine = ++seq.current
     const timer = setTimeout(
       () => {
-        reviewItemAction(payload, itemId)
+        itemFormDeps().reviewItemAction(payload, itemId)
           .then((r) => {
             if (mine !== seq.current) return
             setResult(r.ok ? { review: r.data, error: null } : { review: null, error: r.message })
