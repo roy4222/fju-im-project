@@ -1,8 +1,7 @@
 'use client'
 import { useActionState, useRef, useState } from 'react'
-import { IconEdit, IconX } from '@tabler/icons-react'
+import { IconX } from '@tabler/icons-react'
 import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
-import { BTN_SUBMIT, DIALOG, DIALOG_DESC, DIALOG_TITLE } from '@/app/_ui/dashboard/look'
 import type { ProfileCard } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 
@@ -20,6 +19,14 @@ const INPUT =
   'mt-1.5 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] ' +
   'focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25'
 const LABEL = 'block text-sm font-semibold'
+// 對話框外觀同 `_ui/dashboard/look.ts` 的 DIALOG.lg／DIALOG_TITLE／DIALOG_DESC／BTN_SUBMIT。不 import 那個檔：它在模組層呼叫
+// `buttonVariants`，會把按鈕樣式庫拉進找隊員分頁的首載（C3-07 量過 +2 KB）。
+const DIALOG_LG =
+  'm-auto max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border-0 bg-popover p-0 text-sm text-popover-foreground ring-1 ring-foreground/10 ' +
+  'backdrop:bg-black/10 backdrop:backdrop-blur-xs w-[min(32rem,calc(100vw-2rem))]'
+const DIALOG_TITLE = 'text-lg font-extrabold text-foreground'
+const DIALOG_DESC = 'mt-1 text-sm text-muted-foreground'
+const BTN_SUBMIT = 'btn-fju h-11 px-5 text-sm disabled:pointer-events-none disabled:opacity-60'
 const TRIGGER =
   'press inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-background px-4 ' +
   'text-sm font-semibold text-foreground transition-colors hover:bg-muted'
@@ -84,10 +91,9 @@ export function ProfileCardDialog({
   return (
     <>
       <button type="button" className={TRIGGER} onClick={() => ref.current?.showModal()}>
-        <IconEdit className="size-4" aria-hidden />
         編輯我的名片
       </button>
-      <dialog ref={ref} aria-label="編輯我的名片" className={DIALOG.lg}>
+      <dialog ref={ref} aria-label="編輯我的名片" className={DIALOG_LG}>
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="min-w-0">
             <h2 className={DIALOG_TITLE}>編輯我的名片</h2>
