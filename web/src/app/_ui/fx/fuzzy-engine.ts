@@ -1,5 +1,8 @@
 import { startFrameLoop } from './frame-loop'
 
+/** 每列水平位移的範圍（px），乘上強度（0.35 → ±約 10 px），同 React Bits Fuzzy Text 的 fuzzRange。 */
+const FUZZ_RANGE = 30
+
 /**
  * 404／403「壞掉」頁的特效引擎（規格④ §6）：只有沒開「減少動態」、頁面有 `[data-broken-fx]` 時由 `fuzzy-text.tsx` 的載入器（掛在 `SiteHeader`）`import()`，
  * 另切一個 chunk——根層 not-found 的 client 程式會進每條路由的首載，引擎不能跟著進去（C4-05 主腦裁定）。
@@ -64,7 +67,7 @@ function mountFuzzy(
     const ascent = m.actualBoundingBoxAscent || size * 0.8
     const descent = m.actualBoundingBoxDescent || size * 0.2
     const textW = Math.ceil(m.actualBoundingBoxLeft + m.actualBoundingBoxRight || m.width)
-    shift = Math.min(size * intensity, maxShift ?? Infinity)
+    shift = Math.min(FUZZ_RANGE * intensity, maxShift ?? Infinity)
     const pad = Math.ceil(shift) + 2
     w = textW + pad * 2
     h = Math.ceil(ascent + descent) + 4

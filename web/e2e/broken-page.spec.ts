@@ -142,12 +142,32 @@ test('AC-40 學生開系辦後台（/403）與不存在的網址（404）：標�
 
 test('AC-41 404 頁等 8 秒：回首頁至少抖過一次，抖動中點它會到首頁', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const started = Date.now()
   await page.goto(MISSING)
   const link = page.getByTestId('not-found').getByRole('link', { name: '回首頁' })
   await expect(link).toBeVisible()
-  // 首次抖動在掛上後 4–7 秒、持續 0.4 秒；輪詢比 0.4 秒密，看得到。
-  await expect(link).toHaveClass(/is-glitching/, { timeout: 8_000 })
-  await link.click()
+  // 首次抖動在引擎掛上後 4–7 秒、只持續 0.4 秒：expect 的重試間隔會拉到 1 秒，可能錯過，
+  // 所以用 MutationObserver 在 class 加上的當下回報，並且當下就點（抖動中照樣可點）。
+  const remaining = 8_000 - (Date.now() - started)
+  const glitched = await link.evaluate(
+    (el, ms) =>
+      new Promise<boolean>((resolve) => {
+        if (el.classList.contains('is-glitching')) return resolve(true)
+        const mo = new MutationObserver(() => {
+          if (!el.classList.contains('is-glitching')) return
+          mo.disconnect()
+          ;(el as HTMLAnchorElement).click()
+          resolve(true)
+        })
+        mo.observe(el, { attributes: true, attributeFilter: ['class'] })
+        setTimeout(() => {
+          mo.disconnect()
+          resolve(false)
+        }, ms)
+      }),
+    remaining,
+  )
+  expect(glitched, '8 秒內回首頁要至少抖過一次').toBe(true)
   await expect(page).toHaveURL(`${BASE_URL}/`)
 })
 
