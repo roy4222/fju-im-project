@@ -1,0 +1,34 @@
+/* 換頁載入骨架（C4-06，設計方案 §7.2）：只有 html[data-nav-pending] 時顯示，蓋在頂列之下的內容區。 */
+.nav-skeleton {
+  display: none;
+  position: fixed;
+  inset: 5rem 0 0 0;
+  z-index: 30;
+  padding: 2rem 1.25rem;
+  background: color-mix(in oklab, var(--background) 90%, transparent);
+}
+/* 不用 hidden 屬性：Tailwind 的 [hidden] 在 cascade layer 裡帶 !important，沒分層的規則蓋不過。 */
+html[data-nav-pending] .nav-skeleton { display: block; }
+/* 後台：頂列 3.5rem；側欄（md 起才固定在左邊）露出來，收合時只讓出圖示寬。 */
+html:has(.dash-frame) .nav-skeleton { top: 3.5rem; }
+@media (min-width: 48rem) {
+  html:has(.dash-frame) .nav-skeleton { left: 16.5rem; }
+  html:has(.dash-frame [data-state='collapsed']) .nav-skeleton { left: 3.75rem; }
+}
+.nav-skeleton-bars { display: grid; gap: 1rem; max-width: 56rem; margin: 0 auto; }
+.nav-skeleton-bars > span {
+  display: block;
+  height: 1.25rem;
+  border-radius: 0.5rem;
+  background: var(--muted);
+  animation: nav-skeleton-pulse 1.4s ease-in-out infinite;
+}
+.nav-skeleton-bars > span:first-child { width: 40%; height: 2rem; }
+.nav-skeleton-bars > span:last-child { width: 70%; }
+.dark .nav-skeleton-bars > span { background: var(--card); }
+.nav-skeleton-slow { max-width: 56rem; margin: 1.5rem auto 0; font-size: 0.875rem; color: var(--muted-foreground); }
+.nav-skeleton-slow a { margin-left: 0.5rem; color: var(--primary); text-decoration: underline; }
+@keyframes nav-skeleton-pulse { 50% { opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) {
+  .nav-skeleton-bars > span { animation: none; }
+}
