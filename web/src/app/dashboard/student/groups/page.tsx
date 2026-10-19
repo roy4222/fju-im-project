@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconCheck, IconCrown, IconHistory, IconLock, IconMail, IconUserPlus, IconUsers } from '@tabler/icons-react'
+import { IconCheck, IconCrown, IconHistory, IconLock, IconMail, IconSearch, IconUserPlus, IconUsers } from '@tabler/icons-react'
+import { ProfileCardEditor } from '@/app/account/profile-card/profile-card-section'
 import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
+import { ProfileCard } from '@/app/_ui/profile-card/profile-card'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard-primitives'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -17,6 +19,7 @@ import {
 import { groupMilestones } from '@/app/dashboard/student/groups/milestones'
 import type { AvatarUser } from '@/application/accounts'
 import type { GroupMember, ProposalSummary } from '@/application/groups'
+import { getProfileCardQuery } from '@/composition/accounts'
 import {
   cohortLabel,
   describeGroupSize,
@@ -78,7 +81,7 @@ type Seat = {
  *
  * 頁首一張卡寫「G07・一般專題」與一句摘要，底下三個分頁（`?tab=`，連結、不用 client state）：
  * - 我的組：組員頭像格（組長戴冠冕）、指導老師卡（聯絡 Email 直接列）、里程碑線。
- * - 找隊員：還沒成組時是提案狀態卡或發起提案表單、公開找組員開關與名單；已成組只一行說名單在「我的組」。
+ * - 找隊員：還沒成組時是提案狀態卡或發起提案表單、公開找隊員開關、「編輯我的名片」與名片卡格（搜尋、技能篩選、邀請加入）；已成組只一行說名單在「我的組」。
  * - 紀錄：組別異動與提案紀錄，兩段分開（Q129）。
  *
  * 「我的組別狀態」這一張卡在「我的組」（已成組）與「找隊員」（還沒成組）擺在同一個位置、底下掛同一個動作列：
@@ -87,7 +90,7 @@ type Seat = {
 export default async function StudentGroupsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string | string[] }>
+  searchParams: Promise<{ tab?: string | string[]; q?: string | string[]; skill?: string | string[]; invite?: string | string[] }>
 }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/student/groups', 'student')
@@ -140,11 +143,17 @@ export default async function StudentGroupsPage({
   const tab: Tab = requested ?? (group ? 'mine' : 'team')
   const proposal = view.openProposal
 
-  // 每個分頁只查自己要的：名單只在找隊員（還沒成組）、里程碑只在我的組（已成組）。
-  const [teammates, items, schedule] = await Promise.all([
-    tab === 'team' && !group ? groupQuery.teammates(actor, cohortId) : null,
+  // 找隊員的搜尋與技能篩選在伺服器（`?q=`、`?skill=`，C3 §4.4）；`?invite=` 是已經按過「邀請加入」的學號清單。
+  const q = typeof params.q === 'string' ? params.q.trim() : ''
+  const skill = typeof params.skill === 'string' ? params.skill.trim() : ''
+  const invited = typeof params.invite === 'string' ? params.invite.split(',').map((no) => no.trim()).filter(Boolean) : []
+
+  // 每個分頁只查自己要的：名單與自己的名片只在找隊員（還沒成組）、里程碑只在我的組（已成組）。
+  const [teammates, items, schedule, myCard] = await Promise.all([
+    tab === 'team' && !group ? groupQuery.teammates(actor, cohortId, { q, skill }) : null,
     tab === 'mine' && group ? studentItems(userId) : null,
     tab === 'team' && !group && !proposal ? getTimelineQuery().schedule(cohortId) : null,
+    tab === 'team' && !group ? getProfileCardQuery().mine(actor) : null,
   ])
   // 還沒分組也沒有提案：分組期已過就不給表單，只說「分組期已經結束」（Q69：不寫「請聯絡系辦」）。
   const deadline = schedule ? groupingDeadline(schedule) : null
@@ -348,36 +357,47 @@ export default async function StudentGroupsPage({
       ) : null}
 
       {tab === 'team' && !group && teammates ? (
-        <Panel title="找組員" icon={<IconUsers />} description="只顯示本人開啟公開的同屆未分組學生">
-          <div className="border-b border-border/70 px-5 pb-3">
+        <Panel title="找隊員" icon={<IconUsers />} description="只顯示本人開啟公開的同屆未分組學生">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-5 pb-3">
             <OpenToJoinToggle open={view.openToJoin} requestId={randomUUID()} />
+            {myCard ? <ProfileCardEditor card={myCard} /> : null}
           </div>
-          <section aria-label="找組員名單">
+          <TeammateFilters q={q} skill={skill} skills={teammateSkills(teammates, skill)} invited={invited} />
+          <section aria-label="找隊員名單" className="px-5 py-4">
             {teammates.length === 0 ? (
-              <PanelEmpty icon={<IconUserPlus />} title="目前沒有公開找組員的同學" />
+              <PanelEmpty icon={<IconUserPlus />} title={q || skill ? '沒有符合條件的同學' : '目前沒有公開找隊員的同學'} />
             ) : (
-              <ul className="divide-y divide-border">
-                {teammates.map((t) => (
-                  <li key={t.studentNo} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm">
-                    <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted text-xs font-bold text-foreground" aria-hidden>
-                      {t.name.slice(0, 1)}
-                    </span>
-                    <span className="font-semibold">{t.name}</span>
-                    <span className="tabular text-xs text-muted-foreground">{t.studentNo}</span>
-                    <a
-                      href={`mailto:${t.contactEmail}`}
-                      className="ml-auto inline-flex min-w-0 items-center gap-1 text-xs font-semibold text-ink hover:underline"
-                    >
-                      <IconMail className="size-3.5 shrink-0" aria-hidden />
-                      <span className="truncate">{t.contactEmail}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {teammates.map((t) => {
+                  const reason =
+                    t.inviteDisabledReason ??
+                    (!invited.includes(t.studentNo) && invited.length >= cohort.groupSizeMax - 1 ? '已經到每組人數上限' : null)
+                  return (
+                    <ProfileCard
+                      key={t.studentNo}
+                      card={t}
+                      footer={
+                        reason ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button type="button" disabled className={INVITE_BUTTON}>
+                              邀請加入
+                            </button>
+                            <span className="text-xs text-muted-foreground">{reason}</span>
+                          </div>
+                        ) : (
+                          <Link href={inviteHref(invited, t.studentNo)} className={INVITE_BUTTON}>
+                            邀請加入
+                          </Link>
+                        )
+                      }
+                    />
+                  )
+                })}
+              </div>
             )}
           </section>
           <p className="border-t border-border/70 px-5 py-3 text-xs text-muted-foreground">
-            只列出同屆、還沒分組、本人開啟公開的同學；只顯示姓名、學號與聯絡 Email，電話不公開。完成分組後會自動從名單消失。
+            只列出同屆、還沒分組、本人開啟公開的同學；名片顯示姓名、學號、系級、自介、技能與聯絡 Email，電話不公開。完成分組後會自動從名單消失。
           </p>
         </Panel>
       ) : null}
@@ -423,6 +443,71 @@ export default async function StudentGroupsPage({
         </Panel>
       ) : null}
     </>,
+  )
+}
+
+const INVITE_BUTTON =
+  'btn-fju inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm disabled:pointer-events-none disabled:opacity-60'
+/** 技能膠囊最多幾個（C3 §4.4）。 */
+const SKILL_CHIPS_MAX = 12
+
+/** 「邀請加入」：跳到「我的組」並把學號累加在 `invite=` 逗號清單（建立組別表單的初值；送出後名單凍結，所以不是即時邀請）。 */
+function inviteHref(invited: readonly string[], studentNo: string): string {
+  const list = invited.includes(studentNo) ? invited : [...invited, studentNo]
+  return `${BASE}?tab=mine&invite=${list.map(encodeURIComponent).join(',')}`
+}
+
+/** 技能膠囊：名單裡實際出現過的技能（出現順序），最多 12 個；目前選的那個一定在。 */
+function teammateSkills(teammates: readonly { skills: readonly string[] }[], selected: string): string[] {
+  const seen = new Set<string>(selected ? [selected] : [])
+  for (const t of teammates) for (const s of t.skills) seen.add(s)
+  return [...seen].slice(0, SKILL_CHIPS_MAX)
+}
+
+/** 找隊員的搜尋框（GET 表單，網址帶 `?q=`，保留目前的技能）與技能膠囊（連結，網址帶 `?skill=`；點膠囊換一個篩選、清掉搜尋字）。 */
+function TeammateFilters({ q, skill, skills, invited }: { q: string; skill: string; skills: string[]; invited: string[] }) {
+  const href = (next: { q?: string; skill?: string }) => {
+    const params = new URLSearchParams({ tab: 'team' })
+    if (next.q) params.set('q', next.q)
+    if (next.skill) params.set('skill', next.skill)
+    if (invited.length > 0) params.set('invite', invited.join(','))
+    return `${BASE}?${params.toString()}`
+  }
+  const chip = (active: boolean) =>
+    cn(
+      'inline-flex h-8 items-center rounded-full border px-3 text-xs font-semibold transition-colors',
+      active ? 'border-brand bg-brand text-brand-foreground' : 'border-border bg-background text-foreground hover:bg-muted',
+    )
+  return (
+    <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-3">
+      <form action={BASE} method="get" role="search" className="flex gap-2">
+        <input type="hidden" name="tab" value="team" />
+        {skill ? <input type="hidden" name="skill" value={skill} /> : null}
+        {invited.length > 0 ? <input type="hidden" name="invite" value={invited.join(',')} /> : null}
+        <input
+          type="search"
+          name="q"
+          defaultValue={q}
+          aria-label="搜尋姓名、學號或技能"
+          placeholder="搜尋姓名、學號或技能"
+          className="h-10 w-full max-w-sm rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25"
+        />
+        <button type="submit" className="press inline-flex h-10 items-center gap-1 rounded-lg border border-border bg-background px-3 text-sm font-semibold hover:bg-muted">
+          <IconSearch className="size-4" aria-hidden />
+          搜尋
+        </button>
+      </form>
+      <nav aria-label="技能篩選" className="flex flex-wrap gap-1.5">
+        <Link href={href({})} aria-current={!skill ? 'page' : undefined} className={chip(!skill)}>
+          全部
+        </Link>
+        {skills.map((s) => (
+          <Link key={s} href={href({ skill: s })} aria-current={skill === s ? 'page' : undefined} className={chip(skill === s)}>
+            {s}
+          </Link>
+        ))}
+      </nav>
+    </div>
   )
 }
 

@@ -209,6 +209,13 @@ function proposalOverdue(expiresAt: Date): Err {
 }
 
 /** 學生用例的門：帳號狀態 → 角色 → 屆別。 */
+/** 找隊員名單的篩選（`GroupQuery.teammates` 的 `filter`；型別在 `application/groups/proposals.ts`）。 */
+type TeammateFilterInput = { readonly q?: string; readonly skill?: string }
+/** 搜尋字與技能篩選最多看幾個字（再長也不會有人的名字或技能那麼長）。 */
+const TEAMMATE_FILTER_MAX = 50
+/** 「邀請加入」按不了時寫的原因（C3 設計方案 §4.4；A23：不能做就寫原因）。 */
+const INVITE_BUSY_REASON = '你已送出建立組別，等大家確認後再邀請'
+
 function authorizeStudent(actor: ResolvedActor): { ok: true; userId: string; cohortId: string } | Err {
   const blocked = statusGate(actor, 'business')
   if (blocked) return err(blocked, '請先登入並完成帳號設定。')
@@ -1935,12 +1942,29 @@ export class PgGroupQuery implements GroupQuery {
     }
   }
 
-  async teammates(actor: ResolvedActor, cohortId: string): Promise<TeammateListing[]> {
+  async teammates(actor: ResolvedActor, cohortId: string, filter: TeammateFilterInput = {}): Promise<TeammateListing[]> {
     if (!isUuid(cohortId) || !canViewTeammates(actor, cohortId)) return []
     const viewer = actor.kind === 'authenticated' ? actor.userId : null
-    const rows = await this.#reader().query<{ name: string; student_no: string; contact_email: string }>(
+    const viewerIsStudent = studentCohortOf(actor) === cohortId
+    const q = (filter.q ?? '').trim().slice(0, TEAMMATE_FILTER_MAX)
+    const skill = (filter.skill ?? '').trim().slice(0, TEAMMATE_FILTER_MAX)
+    const rows = await this.#reader().query<{
+      user_id: string
+      name: string
+      avatar_preset: number | null
+      avatar_file_id: string | null
+      student_no: string
+      department_class: string | null
+      bio: string
+      skills: unknown
+      contact_email: string
+      viewer_busy: boolean
+    }>(
       // 人名一律走 `personName`：display_name 是空字串時退回帳號名稱（票 13、14 審查建議），名單不會出現空名字。
-      `select ${personName('p', 'u')} as name, p.student_no, p.contact_email
+      // 一句讀完名片卡（C3-07）：頭像同句多選兩欄（§2.2），「看的人是不是已在建立中的組別」也同句算，查詢數不變。
+      `select u.id as user_id, ${personName('p', 'u')} as name, ${personAvatar('p')}, p.student_no, p.department_class,
+              p.bio, p.skills, p.contact_email,
+              ($2::uuid is not null and exists (select 1 from proposal_occupancy o where o.user_id = $2)) as viewer_busy
          from user_profiles p
          join users u on u.id = p.user_id
         where p.cohort_id = $1 and p.open_to_join and p.student_no is not null
@@ -1950,11 +1974,34 @@ export class PgGroupQuery implements GroupQuery {
                        where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
           and not exists (select 1 from group_memberships m
                            where m.user_id = u.id and m.cohort_id = $1 and m.valid_to is null)
+          and ($3 = '' or ${personName('p', 'u')} ilike $4 escape '\\' or p.student_no ilike $4 escape '\\'
+               or exists (select 1 from jsonb_array_elements_text(p.skills) s(v) where s.v ilike $4 escape '\\'))
+          and ($5 = '' or p.skills ? $5)
         order by p.student_no`,
-      [cohortId, viewer],
+      [cohortId, viewer, q, `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, skill],
     )
-    // 白名單三欄：就算上面的 SQL 被改成多選幾欄，也不會流到畫面。
-    return rows.rows.map((r) => ({ name: r.name, studentNo: r.student_no, contactEmail: r.contact_email }))
+    // 白名單欄位：就算上面的 SQL 被改成多選幾欄（例如電話），也不會流到畫面。
+    const cards = rows.rows.map(
+      (r): TeammateListing => ({
+        id: r.user_id,
+        name: r.name,
+        avatarPreset: r.avatar_preset,
+        avatarFileId: r.avatar_file_id,
+        studentNo: r.student_no,
+        departmentClass: r.department_class || null,
+        bio: r.bio,
+        skills: Array.isArray(r.skills) ? r.skills.filter((v): v is string => typeof v === 'string') : [],
+        contactEmail: r.contact_email,
+        openToJoin: true,
+        // 只有同屆學生能邀請；已經在建立中的組別裡（發起或受邀）就先不能邀請別人。
+        inviteDisabledReason: !viewerIsStudent ? '只有同屆學生可以邀請' : r.viewer_busy ? INVITE_BUSY_REASON : null,
+      }),
+    )
+    // 排序（§4.4）：有自介的在前，其次姓名筆畫（`zh-Hant`），同名再看學號。
+    return cards.sort(
+      (a, b) =>
+        Number(b.bio !== '') - Number(a.bio !== '') || a.name.localeCompare(b.name, 'zh-Hant') || a.studentNo.localeCompare(b.studentNo),
+    )
   }
 
   async overview(cohortId: string, opts?: { readonly history?: boolean }): Promise<CohortGroupingOverview> {

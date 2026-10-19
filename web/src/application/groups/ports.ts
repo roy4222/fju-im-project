@@ -33,7 +33,8 @@ import type {
   ProposeInput,
   ProposeReceipt,
   SetOpenToJoinReceipt,
-  TeammateListing,
+  TeammateCard,
+  TeammateFilter,
   TerminateReceipt,
   TerminationKind,
 } from '@/application/groups/proposals'
@@ -357,10 +358,11 @@ export interface GroupQuery {
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
   studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView>
   /**
-   * 找組員名單：同屆、已核准、未停用、沒有有效組、本人開啟公開的學生，只回姓名、學號、聯絡 Email。
-   * 看的人不是同屆學生、老師或管理員就回空的。自己不列在自己的名單裡。
+   * 找隊員名單（名片卡）：同屆、已核准、未停用、沒有有效組、本人開啟公開的學生。
+   * 帶頭像、系級、自介、技能、聯絡 Email；`filter` 在伺服器端篩（姓名／學號／技能、技能完全符合）。
+   * 排序：有自介的在前，其次姓名。看的人不是同屆學生、老師或管理員就回空的。自己不列在自己的名單裡。
    */
-  teammates(actor: ResolvedActor, cohortId: string): Promise<TeammateListing[]>
+  teammates(actor: ResolvedActor, cohortId: string, filter?: TeammateFilter): Promise<TeammateCard[]>
   /** 管理員分組總覽（呼叫端守門）。 */
   overview(cohortId: string, opts?: { readonly history?: boolean }): Promise<CohortGroupingOverview>
   /**

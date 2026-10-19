@@ -781,7 +781,21 @@ describe('公開找組員', () => {
     expect(await groups.setOpenToJoin(studentActor(seeker!), true, randomUUID())).toMatchObject({ ok: true })
 
     const seen = await query.teammates(studentActor(viewer!), cohortId)
-    expect(seen).toEqual([{ name: seeker!.name, studentNo: seeker!.studentNo, contactEmail: seeker!.email }])
+    expect(seen).toEqual([
+      {
+        id: seeker!.id,
+        name: seeker!.name,
+        avatarPreset: null,
+        avatarFileId: null,
+        studentNo: seeker!.studentNo,
+        departmentClass: null,
+        bio: '',
+        skills: [],
+        contactEmail: seeker!.email,
+        openToJoin: true,
+        inviteDisabledReason: null,
+      },
+    ])
     expect(JSON.stringify(seen)).not.toContain('0912345678')
     expect(await query.teammates(staffActor(teacherId, 'teacher'), cohortId)).toHaveLength(1)
     expect(await query.teammates(studentActor(outsider), cohortId)).toEqual([])
@@ -791,6 +805,52 @@ describe('公開找組員', () => {
 
     expect(await groups.setOpenToJoin(studentActor(seeker!), false, randomUUID())).toMatchObject({ ok: true })
     expect(await query.teammates(studentActor(viewer!), cohortId)).toEqual([])
+  })
+
+  it('C3-07 名片卡：帶頭像、系級、自介、技能；有自介的排前面；?q= 比對姓名／學號／技能、?skill= 完全符合；建立中的組別不能再邀請', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b, c, viewer, partner] = await students(cohortId, 5)
+    for (const s of [a!, b!, c!]) await groups.setOpenToJoin(studentActor(s), true, randomUUID())
+    await owner.sql(
+      `update user_profiles set bio = '做過三個 Next.js 專案', skills = '["前端","資料庫"]', department_class = '資管三甲', avatar_preset = 7
+        where user_id = $1`,
+      [a!.id],
+    )
+    await owner.sql(`update user_profiles set skills = '["後端","100%_確定"]' where user_id = $1`, [b!.id])
+
+    const all = await query.teammates(studentActor(viewer!), cohortId)
+    // A 有自介排第一；B、C 都沒自介，照姓名。
+    expect(all.map((t) => t.studentNo)).toEqual([a!.studentNo, ...[b!, c!].sort((x, y) => x.name.localeCompare(y.name, 'zh-Hant')).map((s) => s.studentNo)])
+    expect(all[0]).toMatchObject({
+      id: a!.id,
+      avatarPreset: 7,
+      departmentClass: '資管三甲',
+      bio: '做過三個 Next.js 專案',
+      skills: ['前端', '資料庫'],
+      inviteDisabledReason: null,
+    })
+
+    const studentNos = async (filter: { q?: string; skill?: string }) =>
+      (await query.teammates(studentActor(viewer!), cohortId, filter)).map((t) => t.studentNo)
+    expect(await studentNos({ q: a!.studentNo })).toEqual([a!.studentNo])
+    expect(await studentNos({ q: b!.name })).toEqual([b!.studentNo])
+    expect(await studentNos({ q: 'next' })).toEqual([]) // 自介不在搜尋範圍
+    expect(await studentNos({ q: '資料' })).toEqual([a!.studentNo]) // 技能部分符合
+    expect(await studentNos({ skill: '前端' })).toEqual([a!.studentNo])
+    expect(await studentNos({ skill: '前' })).toEqual([]) // 技能篩選要完全符合
+    // `%`、`_` 照字面比對，不是萬用字元。
+    expect(await studentNos({ q: '%' })).toEqual([b!.studentNo])
+    expect(await studentNos({ q: '_' })).toEqual([b!.studentNo])
+    expect(await studentNos({ q: '  ' })).toHaveLength(3)
+
+    // 看的人已經在建立中的組別裡：每張卡的「邀請加入」都寫原因。老師看得到名單但不能邀請。
+    await mustPropose(viewer!, [partner!])
+    const busy = await query.teammates(studentActor(viewer!), cohortId)
+    expect(new Set(busy.map((t) => t.inviteDisabledReason))).toEqual(new Set(['你已送出建立組別，等大家確認後再邀請']))
+    const byTeacher = await query.teammates(staffActor(teacherId, 'teacher'), cohortId)
+    expect(byTeacher).toHaveLength(3)
+    expect(byTeacher.every((t) => t.inviteDisabledReason !== null)).toBe(true)
+    expect(JSON.stringify(busy)).not.toContain('0912345678')
   })
 
   it('成組或停用後自動不列，即使開關還開著；別人不能替他開（用例只改本人）', async () => {
