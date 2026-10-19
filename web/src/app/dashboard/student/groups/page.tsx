@@ -148,12 +148,12 @@ export default async function StudentGroupsPage({
   const skill = typeof params.skill === 'string' ? params.skill.trim() : ''
   const invited = typeof params.invite === 'string' ? params.invite.split(',').map((no) => no.trim()).filter(Boolean) : []
 
-  // 每個分頁只查自己要的：名單與自己的名片只在找隊員（還沒成組）、里程碑只在我的組（已成組）。
+  // 每個分頁只查自己要的：名單只在找隊員（還沒成組）、自己的名片只在找隊員、里程碑只在我的組（已成組）。
   const [teammates, items, schedule, myCard] = await Promise.all([
     tab === 'team' && !group ? groupQuery.teammates(actor, cohortId, { q, skill }) : null,
     tab === 'mine' && group ? studentItems(userId) : null,
     tab === 'team' && !group && !proposal ? getTimelineQuery().schedule(cohortId) : null,
-    tab === 'team' && !group ? getProfileCardQuery().mine(actor) : null,
+    tab === 'team' ? getProfileCardQuery().mine(actor) : null,
   ])
   // 還沒分組也沒有提案：分組期已過就不給表單，只說「分組期已經結束」（Q69：不寫「請聯絡系辦」）。
   const deadline = schedule ? groupingDeadline(schedule) : null
@@ -348,9 +348,13 @@ export default async function StudentGroupsPage({
             icon={<IconUsers />}
             title="組別已成立，名單在「我的組」"
             action={
-              <Link href={`${BASE}?tab=mine`} className="text-sm font-semibold text-ink hover:underline">
-                看我的組
-              </Link>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Link href={`${BASE}?tab=mine`} className="text-sm font-semibold text-ink hover:underline">
+                  看我的組
+                </Link>
+                {/* 已成組也能改名片（之後的年度或換組用得到）；視窗裡的「公開找隊員」是 disabled（C3 §4.3）。 */}
+                {myCard ? <ProfileCardEditor card={myCard} /> : null}
+              </div>
             }
           />
         </div>

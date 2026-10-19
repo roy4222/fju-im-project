@@ -144,28 +144,29 @@ test('學生從側欄進「我的組別」；老師與管理員打不開學生�
   await expect(page).toHaveURL(/\/403$/)
 })
 
-test('找組員：打開公開後同屆同學看到姓名、學號、聯絡 Email（沒有電話）；關掉就消失', async ({ page }) => {
+test('找隊員：打開公開後同屆同學看到名片卡（學號、mailto:、邀請加入，沒有電話）；關掉就消失', async ({ page }) => {
   await openStudentPage(page, 1)
-  await page.getByRole('button', { name: '公開找組員' }).click()
-  await expect(feedback(page, 'status')).toContainText('已公開找組員')
+  await page.getByRole('button', { name: '公開找隊員' }).click()
+  await expect(feedback(page, 'status')).toContainText('已公開找隊員')
 
   await openStudentPage(page, 0)
-  const list = page.getByRole('region', { name: '找組員名單' })
-  // 票 38：名單照原型改成一人一列的清單（不是表格）。
-  const row = list.getByRole('listitem').filter({ hasText: students[1]!.name })
+  const list = page.getByRole('region', { name: '找隊員名單' })
+  // C3-07：名單是名片卡（`article`），每張有學號、`mailto:` Email、「邀請加入」。
+  const row = list.getByRole('article', { name: students[1]!.name })
   await expect(row).toContainText(students[1]!.studentNo)
-  await expect(row).toContainText(students[1]!.contactEmail)
+  await expect(row.getByRole('link', { name: students[1]!.contactEmail })).toHaveAttribute('href', `mailto:${students[1]!.contactEmail}`)
+  await expect(row.getByRole('link', { name: '邀請加入' })).toBeVisible()
   expect(await page.content()).not.toContain(PHONE)
 
   await openStudentPage(page, 1)
   await page.getByRole('button', { name: '關閉公開' }).click()
-  await expect(feedback(page, 'status')).toContainText('已關閉公開找組員')
+  await expect(feedback(page, 'status')).toContainText('已關閉公開找隊員')
 
   await openStudentPage(page, 0)
-  await expect(page.getByRole('region', { name: '找組員名單' })).not.toContainText(students[1]!.name)
+  await expect(page.getByRole('region', { name: '找隊員名單' })).not.toContainText(students[1]!.name)
   // 名單空了只寫一句（Q69、Q73）：不叫人洽系辦、不連產學合作案。
-  const empty = page.getByRole('region', { name: '找組員名單' })
-  await expect(empty).toContainText('目前沒有公開找組員的同學')
+  const empty = page.getByRole('region', { name: '找隊員名單' })
+  await expect(empty).toContainText('目前沒有公開找隊員的同學')
   await expect(empty).not.toContainText('或洽系辦')
   await expect(empty.getByRole('link')).toHaveCount(0)
 })
@@ -250,7 +251,7 @@ test('五人各自確認：1／5…4／5，最後一位確認的瞬間成立；�
   // 重新整理仍在；另一位組員看到的一樣。
   await openStudentPage(page, 2)
   await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('組別 G01')
-  await expect(page.getByRole('button', { name: '公開找組員' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '公開找隊員' })).toHaveCount(0)
 
   const occupied = await pool.query('select count(*)::int as n from proposal_occupancy where proposal_id = $1', [proposalId])
   expect(occupied.rows[0].n).toBe(0)
