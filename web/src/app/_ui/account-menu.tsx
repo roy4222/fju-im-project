@@ -52,7 +52,7 @@ export function AccountMenu({
             type="button"
             aria-label="帳號選單"
             className={cn(
-              'inline-flex items-center gap-2 rounded-lg py-1 pr-2 pl-1 transition-colors hover:bg-accent',
+              'inline-flex items-center gap-2 rounded-lg py-1 pr-2 pl-1 transition-colors hover:bg-accent pointer-coarse:min-h-11 pointer-coarse:min-w-11',
               compact ? 'h-9' : '',
             )}
           >

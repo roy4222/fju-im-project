@@ -229,7 +229,7 @@ export function DashboardFrame({
 
       <SidebarInset className="dash-surface min-w-0">
         <header className="dash-header sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 px-3 md:px-5">
-          <SidebarTrigger className="size-9 rounded-lg" />
+          <SidebarTrigger className="size-9 rounded-lg pointer-coarse:size-11" />
           <p className="ml-1 truncate text-[15px] font-bold">{title}</p>
           <div className="ml-auto flex items-center gap-1.5">
             {/* 深淺色切換（票 35；原型頂列在鈴鐺左邊）。 */}

@@ -42,17 +42,17 @@ type Crumb = { href?: string; label: string }
 export function Crumbs({ items }: { items: readonly Crumb[] }) {
   return (
     <nav aria-label="麵包屑" className="text-[13px] text-muted-foreground">
-      <ol className="flex flex-wrap items-center gap-1.5">
+      <ol className="flex flex-wrap items-center gap-1.5 pointer-coarse:gap-3">
         <li>
-          <Link href="/" className="hover:text-foreground">
+          <Link href="/" className="relative hover:text-foreground pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2.5 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']">
             首頁
           </Link>
         </li>
         {items.map((c) => (
-          <li key={c.label} className="flex min-w-0 items-center gap-1.5">
+          <li key={c.label} className="flex min-w-0 items-center gap-1.5 pointer-coarse:gap-3">
             <span aria-hidden>›</span>
             {c.href ? (
-              <Link href={c.href} className="hover:text-foreground">
+              <Link href={c.href} className="relative hover:text-foreground pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2.5 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']">
                 {c.label}
               </Link>
             ) : (
@@ -171,7 +171,7 @@ export function PillLink({
       scroll={false}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'press inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition-[background-color,border-color,color] duration-200',
+        'press inline-flex h-9 items-center rounded-full pointer-coarse:h-11 border px-4 text-sm font-semibold transition-[background-color,border-color,color] duration-200',
         active ? `${on} shadow-[0_2px_8px_rgba(0,51,102,0.18)]` : off,
       )}
     >
@@ -304,7 +304,7 @@ export function coverSrc(card: Pick<PublicItemCard, 'id' | 'cover'>): string {
 export function ListItem({ href, title, meta }: { href: string; title: string; meta: ReactNode }) {
   return (
     <li className="fju-list-item flex flex-col gap-1.5 py-1.5">
-      <Link href={href} className="text-[17px] leading-snug font-bold text-foreground transition-colors hover:text-primary focus-visible:text-primary">
+      <Link href={href} className="text-[17px] leading-snug font-bold text-foreground transition-colors pointer-coarse:inline-block pointer-coarse:min-h-11 pointer-coarse:py-2.5 hover:text-primary focus-visible:text-primary">
         {title}
       </Link>
       <div className="flex flex-wrap items-center gap-2.5">{meta}</div>
