@@ -6,12 +6,15 @@ import type { SignoffActionState } from '@/app/dashboard/admin/signoff/signoff-f
 import {
   describeCreateVersionReceipt,
   describeRemindReceipt,
+  describeRestartReceipt,
   describeVoidReceipt,
+  getConsentPublishHook,
   getSignoffCommand,
 } from '@/composition/signoff'
 
 /**
  * 管理員「簽核」頁的動作（票 25：建立簽核版本；票 26：重置、重開、作廢、提醒未同意者）。
+ * C1-11：同意書作業的繳交狀況看板（`admin/affairs/[id]/consent-board.tsx`）也用這幾個，另加「建立」（替尚未建包的組補建）。
  * 規則全在用例裡判（全文必填、附件屬本組、用途與精選草稿、參與者快照、舊版失效、理由必填、24 小時提醒一次、帳本冪等）；
  * 這裡只把表單收斂成用例要的形狀、把結果翻成一句話。**沒有任何一個動作能替別人表態。**
  */
@@ -52,6 +55,11 @@ export async function restartAction(_state: SignoffActionState, formData: FormDa
   const result =
     text(formData, 'kind', 20) === 'reopen' ? await command.reopen(actor, input, requestId) : await command.reset(actor, input, requestId)
   if (!result.ok) return { ok: false, message: result.message }
+  // 看板上按的（`stay`）：留在看板、重新整理那一列。
+  if (text(formData, 'stay', 5) === '1') {
+    refresh()
+    return { ok: true, message: describeRestartReceipt(result.receipt) }
+  }
   // 舊版已經不是目前版本（這一頁不再有管理按鈕），直接帶到新版，那一頁上方顯示回執。
   redirect(`/dashboard/admin/signoff/${result.receipt.versionId}?restarted=${result.receipt.kind}&from=${result.receipt.fromVersionNo}`)
 }
@@ -72,4 +80,16 @@ export async function remindAction(_state: SignoffActionState, formData: FormDat
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeRemindReceipt(result.receipt) }
+}
+
+/** 看板「建立」（AC-25）：替尚未建包的組（剛指派好主指導）補建包＋第 1 版，組員收到「輪到你同意」。 */
+export async function createPackageAction(_state: SignoffActionState, formData: FormData): Promise<SignoffActionState> {
+  const result = await getConsentPublishHook().createForGroup(
+    await currentActor(),
+    { itemId: text(formData, 'itemId', 100), groupId: text(formData, 'groupId', 100) },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: '已建立，組員會收到「輪到你同意」。', versionId: result.receipt.versionId }
 }
