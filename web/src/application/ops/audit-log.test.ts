@@ -79,6 +79,7 @@ const ALSO_LABELED: readonly string[] = [
  * 用明確清單而不是掃描：掃描樣式抓得寬，刪掉一個對照時可能被「事件型別」或「不是稽核」的排除吃掉。
  */
 const WRITTEN_AUDIT_ACTIONS: readonly string[] = [
+  'file.delete',
   'account.approve',
   'account.bind_google_preauthorized',
   'account.bulk_disable',
@@ -327,6 +328,11 @@ describe('操作紀錄的顯示規則（票 36）', () => {
   it('事件型別與其他票即將寫入的代碼也有中文（對照表是操作紀錄與事件共用的）', () => {
     const missing = ALSO_LABELED.filter((code) => !hasAuditActionLabel(code))
     expect(missing).toEqual([])
+  })
+
+  it('系辦刪檔（C1-16）：動作「刪除檔案」、對象類型「檔案」', () => {
+    expect(auditActionLabel('file.delete')).toBe('刪除檔案')
+    expect(describeAuditTarget({ targetType: 'stored_file', targetName: null, cohortCode: null })).toBe('檔案')
   })
 
   it('對象：類型＋名字＋屆別代碼；屆別本身不重複寫', () => {
