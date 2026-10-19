@@ -344,18 +344,12 @@ describe('並發認領（GRP-10）', () => {
 })
 
 describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
-  it('一般組指派：理由必填、帶版本；指派後學生看到同一位老師；歷程記理由（學生看不到）', async () => {
+  it('一般組指派：理由選填（C3-05）、帶版本；指派後學生看到同一位老師；歷程記理由（學生看不到）', async () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'general')
     const t1 = await newTeacher('陳老師')
     const revision = await revisionOf(group.id)
 
-    const noReason = await advisors.assign(
-      adminActor(),
-      { groupId: group.id, revision, teacherUserId: t1.id, reason: ' ', gradingSelections: [] },
-      randomUUID(),
-    )
-    expect(noReason).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     const notAdmin = await advisors.assign(
       actor(t1.id, ['teacher']),
       { groupId: group.id, revision, teacherUserId: t1.id, reason: '抽籤', gradingSelections: [] },
@@ -451,9 +445,6 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
       { groupId: group.id, revision: await revisionOf(group.id), teacherUserId: t1.id, reason: '抽籤', gradingSelections: [] },
       randomUUID(),
     )
-    const none = await advisors.unassign(adminActor(), { groupId: group.id, revision: await revisionOf(group.id), reason: '' }, randomUUID())
-    expect(none).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-
     const done = await advisors.unassign(
       adminActor(),
       { groupId: group.id, revision: await revisionOf(group.id), reason: '抽籤更正' },
@@ -482,6 +473,54 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
       ['advisor_removed', '陳老師', null, '抽籤更正'],
       ['advisor_assigned', '王老師', null, '重新抽籤'],
     ])
+  })
+
+  it('空理由重派、空理由解除（C3-05、AC-C3-45）：都成功；end_reason／reason 為 NULL 或空字串，ended_by_user_id 有值', async () => {
+    const cohortId = await newCohort()
+    const group = await newGroup(cohortId, 'G01', 'general')
+    const t1 = await newTeacher('陳老師')
+    const t2 = await newTeacher('王老師')
+    const blank = ['', null]
+    const first = await advisors.assign(
+      adminActor(),
+      { groupId: group.id, revision: await revisionOf(group.id), teacherUserId: t1.id, reason: ' ', gradingSelections: [] },
+      randomUUID(),
+    )
+    expect(first).toMatchObject({ ok: true, receipt: { change: 'assigned' } })
+
+    const reassigned = await advisors.assign(
+      adminActor(),
+      { groupId: group.id, revision: await revisionOf(group.id), teacherUserId: t2.id, reason: '', gradingSelections: [] },
+      randomUUID(),
+    )
+    expect(reassigned).toMatchObject({ ok: true, receipt: { change: 'reassigned', teacherName: '王老師', previousTeacherName: '陳老師' } })
+    const [old, current] = await advisorRows(group.id)
+    expect(old).toMatchObject({ teacher_user_id: t1.id, ended_by_user_id: adminId })
+    expect(old!.valid_to).not.toBeNull()
+    expect(old!.ended_real_at).not.toBeNull()
+    expect(blank).toContain(old!.end_reason)
+    expect(blank).toContain(old!.reason)
+    expect(current).toMatchObject({ teacher_user_id: t2.id, valid_to: null, previous_assignment_id: old!.id })
+    expect(blank).toContain(current!.reason)
+
+    const removed = await advisors.unassign(adminActor(), { groupId: group.id, revision: await revisionOf(group.id), reason: '   ' }, randomUUID())
+    expect(removed).toMatchObject({ ok: true, receipt: { change: 'unassigned', previousTeacherName: '王老師' } })
+    const ended = (await advisorRows(group.id))[1]!
+    expect(ended).toMatchObject({ teacher_user_id: t2.id, ended_by_user_id: adminId })
+    expect(ended.valid_to).not.toBeNull()
+    expect(ended.ended_real_at).not.toBeNull()
+    expect(blank).toContain(ended.end_reason)
+
+    // 全組與老師照舊收通知；異動紀錄理由欄空（畫面視為未填）。
+    expect((await eventsOf('advisor.replaced', group.id))[0]!.recipients).toEqual([t1.id])
+    expect((await eventsOf('advisor.unassigned', group.id))[0]!.recipients).toEqual(ids(group.members, t2))
+    const history = (await query.overview(cohortId)).groups.find((g) => g.id === group.id)!.history
+    expect(history.map((h) => [h.kind, h.userName])).toEqual([
+      ['advisor_assigned', '陳老師'],
+      ['advisor_assigned', '王老師'],
+      ['advisor_removed', '王老師'],
+    ])
+    for (const h of history) expect(blank).toContain(h.reason)
   })
 
   it('停用或不是老師的帳號不能被指派；老師選項只列有效老師', async () => {

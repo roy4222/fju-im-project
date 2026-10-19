@@ -142,9 +142,11 @@ describe('批次指派：執行前的整批判斷', () => {
     expect(plan.ok ? '' : plan.message).toContain('1 列錯誤')
   })
 
-  it('理由必填；有重派要勾確認', () => {
+  it('理由可以不填；有重派要勾確認', () => {
     const analysis = clean()
-    expect(planBatch(analysis, { reason: ' ', confirmReassign: true, revisions: revisions(analysis) }).ok).toBe(false)
+    expect(planBatch(analysis, { reason: ' ', confirmReassign: true, revisions: revisions(analysis) }).ok).toBe(true)
+    const blank = planBatch(analysis, { reason: '', confirmReassign: false, revisions: revisions(analysis) })
+    expect(blank.ok ? '' : blank.message).toContain('確認重派')
     const unconfirmed = planBatch(analysis, { reason: '抽籤', confirmReassign: false, revisions: revisions(analysis) })
     expect(unconfirmed.ok ? '' : unconfirmed.message).toContain('確認重派')
   })

@@ -243,14 +243,21 @@ afterAll(async () => {
 })
 
 describe('權限與拒絕', () => {
-  it('學生、老師不能解散；理由空白、版本過舊被拒；全部不動', async () => {
+  it('學生、老師不能解散；版本過舊被拒；全部不動', async () => {
     const s = await scenario()
     const before = await footprint(s)
     expect(await dissolve(s, { as: actor(s.s1, ['student']) })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await dissolve(s, { as: actor(s.t0, ['teacher']) })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await dissolve(s, { reason: '   ' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
     expect(await dissolve(s, { revision: (await revisionOf(s.groupId)) - 1 })).toMatchObject({ ok: false, code: 'CONFLICT' })
     expect(await footprint(s)).toEqual(before)
+  })
+
+  it('理由留空也能刪除（C3-05）：dissolve_reason 為 NULL 或空字串，畫面均視為未填', async () => {
+    const s = await scenario()
+    expect(await dissolve(s, { reason: '   ' })).toMatchObject({ ok: true })
+    const row = (await owner.sql('select status, dissolve_reason from groups where id = $1', [s.groupId])).rows[0]!
+    expect(row.status).toBe('dissolved')
+    expect([null, '']).toContain(row.dissolve_reason)
   })
 
   it('封存屆別的組不能解散', async () => {
