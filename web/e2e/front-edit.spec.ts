@@ -274,12 +274,23 @@ test.describe('系辦', () => {
     await expect(layer.locator('.fe-item[data-fe-for="quick_card"]')).toHaveCount(3)
     await page.screenshot({ path: test.info().outputPath('on.png'), fullPage: true })
 
-    // 還沒有表單的 kind（①的優秀專題；②的四種 C2-17 已登錄）：開窗說明，不壞。
+    // 優秀專題（①C1-09 登錄 `showcase`）：開窗是只有「精選」勾的小表單，讀到目前的順序後才能勾。
     await layer.locator('.fe-item[data-fe-for="showcase"]').first().getByRole('button', { name: /^編輯/ }).click()
     const dialog = page.getByRole('dialog', { name: '編輯優秀專題' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('alert')).toHaveText('這個區塊還不能在前台改')
-    await dialog.getByRole('button', { name: '關閉' }).first().click()
+    await expect(dialog.getByTestId('fe-showcase-form')).toBeVisible()
+    const featured = dialog.getByRole('checkbox', { name: '精選（排進首頁輪播順序）' })
+    await expect(featured).toBeEnabled()
+    // 切換一次存起來（框架關窗）；再開一次看到存好的狀態，切回原狀。
+    const was = await featured.isChecked()
+    await featured.setChecked(!was)
+    await dialog.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await layer.locator('.fe-item[data-fe-for="showcase"]').first().getByRole('button', { name: /^編輯/ }).click()
+    await expect(featured).toBeEnabled()
+    await expect(featured).toBeChecked({ checked: !was })
+    await featured.setChecked(was)
+    await dialog.getByRole('button', { name: '儲存', exact: true }).click()
     await expect(dialog).toHaveCount(0)
 
     // 重新整理：保持開著（sessionStorage），換頁也是。
