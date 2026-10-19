@@ -49,6 +49,9 @@ function toItemInput(raw: unknown): ItemInput {
     groupIds: ids(r.groupIds),
     receiverUnit: str(r.receiverUnit, 40),
     stageId: typeof r.stageId === 'string' && r.stageId !== '' ? r.stageId.slice(0, 100) : null,
+    // 同意書模式與用途（C 階段規格① §1.1）：規則在用例判，這裡只收斂型別。
+    consentMode: typeof r.consentMode === 'string' && r.consentMode !== '' ? r.consentMode.slice(0, 20) : null,
+    consentPurpose: typeof r.consentPurpose === 'string' && r.consentPurpose !== '' ? r.consentPurpose.slice(0, 40) : null,
     opensAt: str(r.opensAt, 40),
     dueAt: str(r.dueAt, 40),
     registrationDeadline: str(r.registrationDeadline, 20),

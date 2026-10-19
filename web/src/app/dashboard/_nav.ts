@@ -101,7 +101,7 @@ export const ADMIN_NAV: readonly NavItem[] = [
     href: '/dashboard/admin/cohorts',
     label: '設定',
     icon: 'settings',
-    activeFor: ['/dashboard/admin/timeline', '/dashboard/admin/audit', '/dashboard/admin/clock', '/dashboard/admin/home-settings'],
+    activeFor: ['/dashboard/admin/timeline', '/dashboard/admin/audit', '/dashboard/admin/clock'],
   },
 ]
 
@@ -191,8 +191,6 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/showcase', role: 'admin' },
   // 操作紀錄（票 36）：誰、何時、對哪個對象、做了什麼、為什麼；只有管理員讀得到。
   { path: '/dashboard/admin/audit', role: 'admin' },
-  // 首頁設定（第三波 W3）：首頁大圖與兩行標語。
-  { path: '/dashboard/admin/home-settings', role: 'admin' },
   { path: '/dashboard/teacher/signoff', role: 'teacher' },
   { path: '/dashboard/student/signoff', role: 'student' },
 ]

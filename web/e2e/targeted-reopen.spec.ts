@@ -260,18 +260,18 @@ test('2. 只有被開放的學生收到通知、能交，版本標「補交」',
   await page.goto('/dashboard/student/affairs')
   await expect(page.getByTestId(`affair-${itemId}`)).toContainText('補交到')
 
-  await page.goto(`/dashboard/student/affairs/${itemId}`)
+  await page.goto(`/dashboard/student/affairs/${itemId}?tab=history&write=1`)
   await expect(page.getByTestId('affair-banner')).toContainText('系辦已開放你補交到')
   await page.getByLabel('想做的題目').fill('補交的題目')
   await page.getByRole('radio', { name: '一般專題' }).check()
-  await page.getByRole('button', { name: '正式送出' }).click()
+  await page.getByRole('button', { name: '繳交作業' }).click()
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toContainText('已送出')
   await expect(receipt).toContainText('第 1 次')
   await receipt.getByRole('button', { name: '關閉' }).click()
 
   await page.goto(`/dashboard/student/affairs/${itemId}?tab=history`)
-  await expect(page.getByRole('list', { name: '繳交歷史' }).getByTestId('late-badge')).toHaveText('補交')
+  await expect(page.getByRole('table', { name: '繳交歷史' }).getByTestId('late-badge')).toHaveText('補交')
 
   const versions = (await pool.query(`select receiver_id from submission_versions where item_id = $1`, [itemId])).rows
   expect(versions).toEqual([{ receiver_id: s1.userId }])
@@ -284,9 +284,9 @@ test('3. 另一位沒拿到補交期限的學生仍被擋「已截止」；系�
   await signIn(page, s2)
   await page.goto(`/dashboard/student/affairs/${itemId}`)
   await expect(page.getByTestId('affair-banner')).toContainText('逾期未繳')
-  await expect(page.getByText('已截止・唯讀', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('write-button')).toHaveText('已截止')
   await expect(page.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '正式送出' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '繳交作業' })).toHaveCount(0)
 
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/affairs/${itemId}?person=${s1.userId}`)

@@ -9,7 +9,7 @@ import { createTestSession, toPlaywrightCookie, type TestSession } from './sessi
  * - 系辦用登入頁真的登入（`hooks.after` 設提示 cookie）：右下「編輯頁面」開關、虛線框、每則的編輯／刪除、
  *   頁尾只有編輯、完成編輯全部消失、重新整理保持開著、整段沒有 CSP 違規（AC-C2-39）。
  * - `/files`：檔案「刪除」跳「確定刪除『檔名』？」；分類的刪除 disabled 寫「有 3 個檔案，先移走」（AC-C2-41 檔案部分）。
- *   真的刪除要①的 `resource` 表單模組（C1 票登錄進 `forms.ts`）；在那之前框架顯示「這個區塊還不能在前台改」、那則留著。
+ *   真的刪除走①的 `resource` 表單模組（C1-06 登錄進 `forms.ts`）；發布中的檔案照 `deleteCheck` 拒絕，框架把原因顯示在確認框、那則留著。
  * - 系辦的 `/` 回 `cache-control: private, no-store`；直接打 `/office-edit/files` → 307 `/files`（AC-C2-42）。
  */
 
@@ -274,9 +274,9 @@ test.describe('系辦', () => {
     await expect(layer.locator('.fe-item[data-fe-for="quick_card"]')).toHaveCount(3)
     await page.screenshot({ path: test.info().outputPath('on.png'), fullPage: true })
 
-    // 還沒有表單的 kind：開窗說明，不壞。
-    await layer.locator('.fe-item[data-fe-for="hero"]').getByRole('button', { name: /^編輯/ }).click()
-    const dialog = page.getByRole('dialog', { name: '編輯首頁橫幅' })
+    // 還沒有表單的 kind（①的優秀專題；②的四種 C2-17 已登錄）：開窗說明，不壞。
+    await layer.locator('.fe-item[data-fe-for="showcase"]').first().getByRole('button', { name: /^編輯/ }).click()
+    const dialog = page.getByRole('dialog', { name: '編輯優秀專題' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('alert')).toHaveText('這個區塊還不能在前台改')
     await dialog.getByRole('button', { name: '關閉' }).first().click()
@@ -326,10 +326,10 @@ test.describe('系辦', () => {
     await confirm.getByRole('button', { name: '取消' }).click()
     await expect(confirm).toHaveCount(0)
 
-    // 按確定：①的 resource 模組還沒登錄（C1 票），框架說明、不關窗、那則還在。
+    // 按確定：①的 resource 模組（C1-06 登錄）照 `deleteCheck` 拒絕發布中的檔案，框架把原因顯示在確認框、不關窗、那則還在。
     await layer.getByRole('button', { name: `刪除「${FILES[0]}」` }).click()
     await confirm.getByRole('button', { name: '確定刪除' }).click()
-    await expect(confirm.getByRole('alert')).toHaveText('這個區塊還不能在前台改')
+    await expect(confirm.getByRole('alert')).toHaveText('發布中的項目不能刪除；要先撤回或下架才能刪除。')
     await confirm.getByRole('button', { name: '取消' }).click()
     await expect(page.getByTestId('resource').filter({ hasText: FILES[0]! })).toHaveCount(1)
   })

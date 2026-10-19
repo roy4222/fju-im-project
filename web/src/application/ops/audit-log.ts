@@ -245,6 +245,7 @@ const ACTION_LABEL: Record<string, string> = {
   'item.republished': '重新發布公告或作業',
   'item.updated': '修改公告或作業',
   'item.announced': '發出重要公告通知',
+  'item.remind': '催繳作業',
   'submission.submitted': '正式送出繳交',
   'submission.reopen': '開放補交',
   'submission.reopened': '開放補交',
@@ -270,6 +271,7 @@ const ACTION_LABEL: Record<string, string> = {
   'grading.override_resolve': '重新確認更正',
   'grading.override_review': '重新確認更正',
   'grading.export': '匯出成績',
+  'grading.remind': '催繳評分',
   // B 階段 A-01 結算（預先登記）。
   'grading.settle': '結算成績',
   'grading.release': '解除成績結算',
@@ -302,6 +304,7 @@ const ACTION_LABEL: Record<string, string> = {
   'home.update': '更新首頁設定',
   'home.updated': '更新首頁設定',
   'home.reset': '首頁設定恢復預設',
+  'site_text.updated': '更新站內文字',
   // 維運（模組 10）
   'ops.worker_alert': '背景工作警示',
   'notification.test.send': '發送測試通知',
@@ -335,6 +338,7 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   cohort: '屆別',
   business_clock: '測試用時間',
   home_settings: '首頁設定',
+  site_text: '站內文字',
   project_event: '活動',
   group: '組別',
   group_roster: '組別名單',

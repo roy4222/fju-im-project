@@ -149,7 +149,7 @@ describe('逐欄對照模組 03 附錄 A', () => {
     group_proposals: [
       'id', 'cohort_id', 'proposer_user_id', 'group_type', 'expires_business_at', 'state', 'termination_kind', 'reason',
       'established_group_id', 'deadline_version', 'revision', 'created_real_at', 'created_business_at',
-      'closed_real_at', 'closed_business_at', 'closed_by_kind', 'closed_by_user_id', 'updated_at',
+      'closed_real_at', 'closed_business_at', 'closed_by_kind', 'closed_by_user_id', 'updated_at', 'opportunity_id',
     ],
     proposal_invitations: ['id', 'proposal_id', 'user_id', 'state', 'decided_real_at', 'created_at'],
     proposal_occupancy: ['user_id', 'proposal_id', 'created_at'],
@@ -214,16 +214,12 @@ describe('約束反例', () => {
     }
   }
 
-  it('group_proposals：標了終止就要有終止原因；管理員作廢一定要有理由；成立要指向組別', async () => {
+  it('group_proposals：標了終止就要有終止原因；管理員作廢理由選填（③-1）；成立要指向組別', async () => {
     await withIsolatedDatabase({ label: 'proposal-checks', setup: migratedSchema }, async (db) => {
       const { insertProposal } = await seeded(db)
       await expect(insertProposal({ state: 'terminated', closed: true })).rejects.toThrow(/group_proposals_terminated_kind_check/)
-      await expect(insertProposal({ state: 'terminated', kind: 'admin_voided', closed: true })).rejects.toThrow(
-        /group_proposals_admin_voided_reason_check/,
-      )
-      await expect(insertProposal({ state: 'terminated', kind: 'admin_voided', reason: '  ', closed: true })).rejects.toThrow(
-        /group_proposals_admin_voided_reason_check/,
-      )
+      await expect(insertProposal({ state: 'terminated', kind: 'admin_voided', closed: true })).resolves.toBeTruthy()
+      await expect(insertProposal({ state: 'terminated', kind: 'admin_voided', reason: '  ', closed: true })).resolves.toBeTruthy()
       await expect(insertProposal({ state: 'terminated', kind: 'nope', closed: true })).rejects.toThrow(
         /group_proposals_termination_kind_check/,
       )
@@ -291,7 +287,7 @@ describe('約束反例', () => {
     })
   })
 
-  it('groups：同屆代碼不重複；解散一定有時間與理由', async () => {
+  it('groups：同屆代碼不重複；解散一定有時間、理由選填（③-1）', async () => {
     await withIsolatedDatabase({ label: 'group-checks', setup: migratedSchema }, async (db) => {
       const { cohortId, insertGroup } = await seeded(db)
       await insertGroup('G01')
@@ -300,6 +296,13 @@ describe('約束反例', () => {
         db.sql(
           `insert into groups (id, cohort_id, code, group_type, status, established_real_at, established_business_at, dissolved_real_at, created_by_kind)
            values (gen_random_uuid(), $1, 'G02', 'general', 'dissolved', now(), now(), now(), 'system')`,
+          [cohortId],
+        ),
+      ).resolves.toBeTruthy()
+      await expect(
+        db.sql(
+          `insert into groups (id, cohort_id, code, group_type, status, established_real_at, established_business_at, created_by_kind)
+           values (gen_random_uuid(), $1, 'G03', 'general', 'dissolved', now(), now(), 'system')`,
           [cohortId],
         ),
       ).rejects.toThrow(/groups_dissolved_check/)

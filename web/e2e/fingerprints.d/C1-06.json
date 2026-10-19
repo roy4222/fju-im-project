@@ -1,0 +1,4 @@
+{
+  "ticket": "C1-06",
+  "override": { "/dashboard/admin/editor/new": { "from": "base", "value": "儲存之前沒有人看得到" } }
+}
