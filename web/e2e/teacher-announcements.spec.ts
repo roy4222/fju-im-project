@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createItemInDialog } from './create-item'
 import { fillItemBody } from './item-body'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -185,25 +186,16 @@ async function quickPublish(
   options: { placement: RegExp; title: string; audience: string; group?: string; important: boolean; file?: Buffer },
 ) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: options.placement }).check()
-  // C1-06：下一步就是一頁式共用表單（對象、標題、內容、附件同一頁；「重要公告」在進階設定）。
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('標題', { exact: true }).fill(options.title)
-  await dialog.getByLabel('誰看得到').selectOption(options.audience)
-  if (options.group) await dialog.getByRole('checkbox', { name: new RegExp(options.group) }).check()
-  await fillItemBody(page, '第三波 W4 驗收用。')
-  if (options.file) {
-    await dialog.getByLabel('加入附件').setInputFiles({ name: '報告範本.pdf', mimeType: 'application/pdf', buffer: options.file })
-    await expect(dialog.getByRole('list', { name: '附件' }).getByRole('link', { name: '報告範本.pdf' })).toBeVisible()
-  }
-  await dialog.getByTestId('advanced-settings').locator('summary').first().click()
-  const important = dialog.getByRole('checkbox', { name: /重要公告/ })
-  await expect(important.locator('xpath=..')).toContainText('勾選後將通知')
-  await important.setChecked(options.important)
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(page.getByTestId('item-toast')).toHaveText('已發布')
+  // C1-06：選類型 → 下一步 → 一頁式共用表單（對象、標題、內容、附件同一頁；「重要公告」在進階設定）→ 發布（共用步驟 `create-item.ts`）。
+  await createItemInDialog(page, {
+    kind: options.placement,
+    title: options.title,
+    audience: options.audience,
+    groups: options.group ? [options.group] : undefined,
+    body: '第三波 W4 驗收用。',
+    file: options.file ? { name: '報告範本.pdf', buffer: options.file } : undefined,
+    important: options.important,
+  })
   const row = await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, options.title])
   itemIds[options.title] = row.rows[0]!.id
 }
