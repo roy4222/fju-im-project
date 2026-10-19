@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import { requestHeroUploadAction, saveHeroAction, saveSiteTextAction } from './forms/actions'
 import { provideFeActions } from './forms/registry'
 import { ITEM_FORM_DEPS, provideItemFormDeps } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
+import { renameResourceCategoryAction } from '@/app/dashboard/admin/affairs/rename-category-action' // ①（C1-07）：分類改名的 Server Function，載入表單時交給它
 
 /**
  * 前台編輯的表單登錄表（C2-16 建檔並定型別；規格② 設計方案 §6.3.1 是定版）。
@@ -61,7 +62,7 @@ export const FE_FORMS: Record<FeKind, () => Promise<FeFormModule>> = {
   resource: () => import('@/app/dashboard/admin/affairs/front-edit/resource'),
   honor: () => import('@/app/dashboard/admin/affairs/front-edit/honor'),
   showcase: notProvided,
-  resource_category: notProvided,
+  resource_category: () => import('@/app/dashboard/admin/affairs/front-edit/resource-category').then((m) => (m.provideRename(renameResourceCategoryAction), m)),
   // ③（C3-08、C3-10 登錄）
   activity: notProvided,
   opportunity: notProvided,
