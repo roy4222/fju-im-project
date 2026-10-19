@@ -275,7 +275,7 @@ describe('加入組員', () => {
     expect(await count(`select count(*) as n from audit_events where action = 'group.member.add' and target_id = $1`, [g1.groupId])).toBe(0)
   })
 
-  it('授權與輸入：非管理員 FORBIDDEN、理由空白 VALIDATION_FAILED、舊版本 CONFLICT；同一請求編號重送只加一次', async () => {
+  it('授權與輸入：非管理員 FORBIDDEN、舊版本 CONFLICT；理由留空也成功（C3-05）；同一請求編號重送只加一次', async () => {
     const cohortId = await newCohort()
     const members = await students(cohortId, 5)
     const { groupId } = await establishGroup(members)
@@ -285,12 +285,11 @@ describe('加入組員', () => {
     expect(
       await groups.addMember(studentActor(members[0]!), { groupId, revision, studentNo: newcomer.studentNo, reason: '想加' }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await addMember(groupId, revision, newcomer, '  ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await addMember(groupId, revision - 1, newcomer)).toMatchObject({ ok: false, code: 'CONFLICT' })
 
     const requestId = randomUUID()
-    const first = await addMember(groupId, revision, newcomer, '系上安排', requestId)
-    const again = await addMember(groupId, revision, newcomer, '系上安排', requestId)
+    const first = await addMember(groupId, revision, newcomer, '  ', requestId)
+    const again = await addMember(groupId, revision, newcomer, '  ', requestId)
     expect(first.ok && again.ok).toBe(true)
     expect(await count('select count(*) as n from group_memberships where user_id = $1', [newcomer.id])).toBe(1)
   })
@@ -460,7 +459,7 @@ describe('換組長', () => {
     expect(studentHistory).toEqual([expect.objectContaining({ kind: 'leader_changed', userName: members[1]!.name, reason: null, byName: null })])
   })
 
-  it('換成組外的人或現任組長被拒；非管理員 FORBIDDEN；理由必填', async () => {
+  it('換成組外的人或現任組長被拒；非管理員 FORBIDDEN；理由留空也成功（C3-05）', async () => {
     const cohortId = await newCohort()
     const members = await students(cohortId, 5)
     const { groupId } = await establishGroup(members)
@@ -472,8 +471,11 @@ describe('換組長', () => {
     expect(await change(adminActor(), outsider.id)).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await change(adminActor(), members[0]!.id)).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await change(studentActor(members[0]!), members[1]!.id)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await change(adminActor(), members[1]!.id, '')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await expectOneLeaderWhoIsMember(groupId)).toBe(members[0]!.id)
+    expect(await change(adminActor(), members[1]!.id, '')).toMatchObject({ ok: true })
+    expect(await expectOneLeaderWhoIsMember(groupId)).toBe(members[1]!.id)
+    const leader = await owner.sql('select reason from group_leaders where group_id = $1 and valid_to is null', [groupId])
+    expect([null, '']).toContain(leader.rows[0]!.reason)
   })
 })
 

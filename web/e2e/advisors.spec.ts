@@ -227,7 +227,7 @@ test('兩位老師同時認領同一組：只有一位成功，另一位看到�
   }
 })
 
-test('管理員逐組指派 → 重派（先列原老師的評分指派，清單是空的）→ 解除；理由必填；原老師另收通知', async ({ page }) => {
+test('管理員逐組指派 → 重派（先列原老師的評分指派，清單是空的）→ 解除；原老師另收通知', async ({ page }) => {
   await openAdminPage(page)
   const table = page.getByRole('region', { name: '全部組別' })
   const row = () => table.getByRole('row').filter({ hasText: 'G02' })
@@ -236,8 +236,6 @@ test('管理員逐組指派 → 重派（先列原老師的評分指派，清單
   await row().getByRole('button', { name: '指派指導老師：G02' }).click()
   let dialog = page.getByRole('dialog', { name: '指派 G02 的指導老師' })
   await dialog.getByLabel('指導老師').selectOption({ label: `${NAME_A}（${teacherA.email}）` })
-  await dialog.getByRole('button', { name: '確認指派' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('一定要填理由')
   await dialog.getByLabel('理由（必填）').fill('115 抽籤結果')
   await dialog.getByRole('button', { name: '確認指派' }).click()
   await expect(row().getByRole('status')).toContainText(`已指派 ${NAME_A} 老師指導 G02`)

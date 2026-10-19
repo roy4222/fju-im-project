@@ -8,6 +8,7 @@ import {
   describeGroupHistory,
   groupEmailList,
   leaderTypeChangeBlockers,
+  normalizeLinkReason,
   normalizeOpportunityInput,
   normalizeRosterExportRequest,
   normalizeRosterFilter,
@@ -97,6 +98,15 @@ describe('誰看得到', () => {
     expect(canManageOpportunity(actor('t2', ['teacher']), 't1')).toBe(false)
     expect(canManageOpportunity(actor('t1', ['student']), 't1')).toBe(false)
     expect(canManageOpportunity({ kind: 'anonymous' }, 't1')).toBe(false)
+  })
+})
+
+describe('換案、解除連結的理由（C3-05：選填）', () => {
+  it('空白當作沒填；去空白；超過 200 字被拒', () => {
+    expect(normalizeLinkReason('  ', '換案')).toEqual({ ok: true, value: '' })
+    expect(normalizeLinkReason('', '解除連結')).toEqual({ ok: true, value: '' })
+    expect(normalizeLinkReason(' 企業撤案 ', '解除連結')).toEqual({ ok: true, value: '企業撤案' })
+    expect(normalizeLinkReason('字'.repeat(201), '換案')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
   })
 })
 

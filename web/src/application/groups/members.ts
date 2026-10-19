@@ -3,7 +3,7 @@ import { err, type Err } from '@/shared/result'
 /**
  * 管理員調整組員與換組長的型別與純規則（票 14；產品模組 03 §5.2 的 2026-09-24 定案、「組長」、§5.5「換成員」）。
  *
- * 2026-09-24 Roy 定案：沒有「例外組」。特殊情況由管理員直接把學生加入或移出某組（理由必填；
+ * 2026-09-24 Roy 定案：沒有「例外組」。特殊情況由管理員直接把學生加入或移出某組（理由選填，C3-05；
  * 只能選同屆、已核准、未停用、沒有其他有效組別的學生）；人數和設定不符時**提醒但允許**。
  * 移出最後一人要走解散（`dissolveGroup`）；移出組長要同時指定接任。
  * 只換組長不重簽；成員集合改變才重簽（簽核模組還沒做，先發 `group.members_changed` 事件當掛點）。
@@ -13,12 +13,14 @@ import { err, type Err } from '@/shared/result'
 
 export const CHANGE_REASON_MAX_LENGTH = 200
 
-/** 管理員動作的理由：必填、去前後空白、有長度上限。`what` 是動作名稱（「加入組員」「作廢」…）。 */
+/**
+ * 管理員動作的理由：選填（C 階段規格③ C3-05）、去前後空白、有長度上限。空白回空字串，畫面視為未填。
+ * `what` 是動作名稱（「加入組員」「終止建立」…），放進超過上限的句子。
+ */
 export function normalizeReason(reason: string, what: string): { ok: true; value: string } | Err {
   const trimmed = reason.trim()
-  if (!trimmed) return err('VALIDATION_FAILED', `${what}一定要填理由。`, { details: { field: 'reason' } })
   if (trimmed.length > CHANGE_REASON_MAX_LENGTH) {
-    return err('VALIDATION_FAILED', `理由最多 ${CHANGE_REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
+    return err('VALIDATION_FAILED', `${what}的理由最多 ${CHANGE_REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
   }
   return { ok: true, value: trimmed }
 }
@@ -50,7 +52,7 @@ export type RemoveMemberInput = {
   readonly successorLeaderUserId: string | null
 }
 
-/** 系辦解散組別（開站後；產品模組 03 §4「換成員與解散」）。理由必填；二次確認在畫面上。 */
+/** 系辦解散組別（開站後；產品模組 03 §4「換成員與解散」）。理由選填；二次確認在畫面上。 */
 export type DissolveGroupInput = {
   readonly groupId: string
   readonly revision: number

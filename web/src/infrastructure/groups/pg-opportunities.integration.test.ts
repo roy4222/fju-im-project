@@ -555,7 +555,7 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     expect(ownerMissing.ok ? 'ok' : ownerMissing.code).toBe('VALIDATION_FAILED')
   })
 
-  it('換案：理由必填、保留前後關係、通知全組與新舊兩位案主；舊畫面版本 CONFLICT', async () => {
+  it('換案：理由選填（C3-05）、保留前後關係、通知全組與新舊兩位案主；舊畫面版本 CONFLICT', async () => {
     const t1 = await newTeacher('C1 案主')
     const t2 = await newTeacher('C2 案主')
     const cohort = await newCohort()
@@ -568,8 +568,6 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     const staleRevision = (await revisionOf(g.id)) - 1
     const stale = await command.link(leader, { groupId: g.id, revision: staleRevision, opportunityId: c2, reason: '題目更適合' }, randomUUID())
     expect(stale.ok ? 'ok' : stale.code).toBe('CONFLICT')
-    const noReason = await command.link(leader, { groupId: g.id, revision: await revisionOf(g.id), opportunityId: c2, reason: ' ' }, randomUUID())
-    expect(noReason.ok ? 'ok' : noReason.details).toEqual({ field: 'reason' })
 
     const switched = await command.link(
       leader,
@@ -598,9 +596,19 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     const adminView = (await groupQuery.overview(cohort.id)).groups.find((x) => x.id === g.id)!
     expect(adminView.history.find((h) => h.kind === 'opportunity_linked' && h.previousOpportunityName)?.reason).toBe('題目更適合')
     expect(adminView.opportunity?.name).toBe('乙公司・資訊部')
+
+    // 理由留空也能換案（C3-05）：舊連結的 end_reason 為 NULL 或空字串，ended_by_user_id 有值。
+    const blank = await command.link(leader, { groupId: g.id, revision: await revisionOf(g.id), opportunityId: c1, reason: ' ' }, randomUUID())
+    expect(blank.ok && blank.receipt).toMatchObject({ change: 'switched', previousOpportunityName: '乙公司・資訊部' })
+    const ended = await owner.sql(
+      `select end_reason, ended_by_user_id from opportunity_links where id = $1`,
+      [rows.rows[1]!.id],
+    )
+    expect(ended.rows[0]!.ended_by_user_id).toBe(g.leader.id)
+    expect(['', null]).toContain(ended.rows[0]!.end_reason)
   })
 
-  it('案主解除（理由必填）通知該組與案主；別的老師不能解除；下架保留關係、重新發布不恢復已解除的連結', async () => {
+  it('案主解除（理由選填，C3-05）通知該組與案主；別的老師不能解除；下架保留關係、重新發布不恢復已解除的連結', async () => {
     const t = await newTeacher('案主癸')
     const other = await newTeacher('路人老師')
     const cohort = await newCohort()
@@ -620,10 +628,12 @@ describe('組別與合作案的連結（6.3、GRP-15、GRP-19）', () => {
     // 權限先判：被拒的人不碰組別、連結也還在（PR #266 審查建議：鎖組別列移到權限檢查之後）。
     expect(await revisionOf(g1.id)).toBe(before)
     expect(await linkOf(g1.id)).toBeTruthy()
-    const noReason = await command.unlink(actor(t, ['teacher']), { linkId: await linkOf(g1.id), reason: '' }, randomUUID())
-    expect(noReason.ok ? 'ok' : noReason.details).toEqual({ field: 'reason' })
-    const unlinked = await command.unlink(actor(t, ['teacher']), { linkId: await linkOf(g1.id), reason: '企業暫停合作' }, randomUUID())
+    const g1Link = await linkOf(g1.id)
+    const unlinked = await command.unlink(actor(t, ['teacher']), { linkId: g1Link, reason: '' }, randomUUID())
     expect(unlinked.ok && unlinked.receipt.change).toBe('unlinked')
+    const ended = (await owner.sql('select end_reason, ended_by_user_id from opportunity_links where id = $1', [g1Link])).rows[0]!
+    expect(ended.ended_by_user_id).toBe(t)
+    expect(['', null]).toContain(ended.end_reason)
     const notified = await events('opportunity.unlinked', g1.id)
     expect(notified[0]!.recipients).toEqual([...g1.members.map((m) => m.id), t].sort())
 
@@ -852,12 +862,10 @@ describe('組長改組別類型（5.3、GRP-14）', () => {
     const panel = await query.leaderPanel(actor(g.leader.id, ['student']), cohort.id)
     expect(panel?.typeChangeBlockers).toEqual(['分組期已結束', '已經有指導老師', '已經連結合作案'])
 
-    // 系辦處理：理由必填，保留主指導與合作案連結（不靜默刪關聯）。
-    const noReason = await command.changeGroupType(adminActor(), { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '' }, randomUUID())
-    expect(noReason.ok ? 'ok' : noReason.code).toBe('VALIDATION_FAILED')
+    // 系辦處理：理由選填（C3-05，這裡留空），保留主指導與合作案連結（不靜默刪關聯）。
     const byAdmin = await command.changeGroupType(
       adminActor(),
-      { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '企業改由系上一般專題帶' },
+      { groupId: g.id, revision: await revisionOf(g.id), groupType: 'general', reason: '' },
       randomUUID(),
     )
     expect(byAdmin.ok && byAdmin.receipt.keptRelations).toEqual(['指導老師 指導老師', '合作案「輔仁零售・資訊部」的連結'])

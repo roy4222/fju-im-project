@@ -7,7 +7,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  *
  * 1. 每組人數由管理員設定、學生提案照設定擋——票 13 的 groups.spec「分組設定」與整合測試已證明；
  *    這裡看管理員端：人數和設定不符時顯示「與設定不符」提醒，但允許。
- * 2. 管理員把未分組學生加入某組（理由必填）；把組長移出時要先指定接任。
+ * 2. 管理員把未分組學生加入某組（理由選填，C3-05）；把組長移出時要先指定接任。
  * 3. 管理員填理由換組長，組別詳情與學生的「我的組別」都看得到歷史（學生看不到理由）。
  * 4. 只換組長不發成員異動事件（不重簽）；加入／移出才發。
  * 資格、正在提案中的學生、移出最後一人、並發等拒絕路徑由整合測試 pg-group-members.integration.test.ts 證明。
@@ -152,16 +152,13 @@ async function eventCount(type: string): Promise<number> {
   return rows.rows[0]!.n
 }
 
-test('加入某組：預覽提醒人數會和設定不符、理由必填；加入後允許並標「與設定不符」，全組收到成員異動', async ({ page }) => {
+test('加入某組：預覽提醒人數會和設定不符；加入後允許並標「與設定不符」，全組收到成員異動', async ({ page }) => {
   await openAdminPage(page)
   const ungrouped = page.getByRole('region', { name: '未分組學生' })
   await ungrouped.getByRole('button', { name: `加入某組：${newcomer.name}` }).click()
   const dialog = page.getByRole('dialog', { name: `把 ${newcomer.name} 加入組別` })
   await expect(dialog.getByLabel('組別')).toContainText('G01・目前 5 人')
   await expect(dialog).toContainText('人數與設定不符：6 人，超過本屆每組最多 5 人')
-
-  await dialog.getByRole('button', { name: '確認加入' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('加入組員一定要填理由')
 
   await dialog.getByLabel('理由（必填）').fill('轉學生，系上安排加入')
   await dialog.getByRole('button', { name: '確認加入' }).click()
@@ -410,7 +407,7 @@ test.describe('AD-05 系辦分組頁', () => {
     const closed = page.getByRole('region', { name: '最近終止的提案' })
     await expect(closed.locator('table')).toHaveCount(0)
     await expect(closed.getByRole('listitem')).toHaveCount(1)
-    await expect(closed).toContainText('管理員作廢')
+    await expect(closed).toContainText('系辦終止')
     await expect(closed).toContainText('AD-05 測試作廢')
     await expect(page.getByRole('region', { name: '全部組別' }).locator('table')).toHaveCount(1)
     await expect(page.getByTestId('advisor-summary')).toContainText('指導老師已指派 6／12・6 組尚未指派・產學組未連結合作案 1')
