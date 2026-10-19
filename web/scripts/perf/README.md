@@ -55,7 +55,7 @@ node --test 'scripts/perf/*.test.mjs'   # 判定邏輯的單元測試（scripts/
 pnpm -C web build && pnpm -C web perf:bundle [--write-baseline] [--budget …] [--dir <web 目錄>]
 ```
 
-讀 `.next/diagnostics/route-bundle-stats.json`（Next 16.3.8 只在 Turbopack 建置時寫），每路由 `firstLoadChunkPaths` 去重、逐檔 gzip（level 9）加總。缺 manifest、缺 chunk、預算列的路由不在 manifest、manifest 的路由沒有預算列 → exit 1，不印假的 0。超過 `limit` → exit 1 並列最大 5 個 chunk。也檢查 `$shared`（每路由都載入的 chunk）與三角色首頁不含 `$rules.homeRoutesMustNotContain`。
+讀 `.next/diagnostics/route-bundle-stats.json`（Next 16.3.8 只在 Turbopack 建置時寫），每路由 `firstLoadChunkPaths` 去重、逐檔 gzip（level 9）加總。`/_` 開頭的內部路由只算 `/_not-found`（404 頁，規格④ C4-05），`/_global-error` 不算。缺 manifest、缺 chunk、預算列的路由不在 manifest、manifest 的路由沒有預算列 → exit 1，不印假的 0。超過 `limit` → exit 1 並列最大 5 個 chunk。也檢查 `$shared`（每路由都載入的 chunk）與三角色首頁不含 `$rules.homeRoutesMustNotContain`。
 
 `--write-baseline` 覆寫每列 `baseline`，`limit = min(ceil(baseline × 1.1), 250)`（baseline 已超過 250 時不封頂）。
 
