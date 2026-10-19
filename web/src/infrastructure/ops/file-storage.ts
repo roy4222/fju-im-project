@@ -634,8 +634,10 @@ export class PgFileAdminCommand implements FileAdminCommand {
     const row = found.rows[0]
     if (!row || row.status !== 'stored') return err('VALIDATION_FAILED', '這個檔案已經刪除或還沒上傳完成，請重新整理頁面。')
 
+    // 首頁大圖不寫 `file_references`（`pg-home-settings.ts`），由 `home_settings.hero_file_id` 指著；它也算一處在用。
     const refs = await tx.query<{ n: number }>(
-      `select count(*)::int as n from file_references where file_id = $1 and released_at is null`,
+      `select (select count(*)::int from file_references where file_id = $1 and released_at is null)
+            + (select count(*)::int from home_settings where hero_file_id = $1) as n`,
       [fileId],
     )
     const inUse = refs.rows[0]?.n ?? 0

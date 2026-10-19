@@ -694,6 +694,23 @@ describe('系辦刪掉沒人用的檔（C1-16；AC-15，①設計方案 §1.6）
     expect(await auditRows(fileId)).toEqual([])
   })
 
+  it('首頁大圖（不寫 file_references，由 home_settings 指著）也算一處在用：CONFLICT，檔案不動', async () => {
+    const fileId = await storedFile()
+    await db.sql(
+      `insert into home_settings (id, hero_file_id, updated_by_user_id) values (1, $1, $2)
+       on conflict (id) do update set hero_file_id = excluded.hero_file_id`,
+      [fileId, adminId],
+    )
+    try {
+      const result = await command.deleteUnreferenced(admin(), fileId, crypto.randomUUID())
+      expect(result).toMatchObject({ ok: false, code: 'CONFLICT' })
+      expect(!result.ok && result.message).toContain('還有 1 處在用')
+      expect((await fileRow(fileId)).status).toBe('stored')
+    } finally {
+      await db.sql('update home_settings set hero_file_id = null where id = 1')
+    }
+  })
+
   it('引用都解除了（released_at 有值）才算沒人用，可以刪', async () => {
     const fileId = await storedFile()
     const ref = { refType: 'roster_version' as const, refId: crypto.randomUUID() }
