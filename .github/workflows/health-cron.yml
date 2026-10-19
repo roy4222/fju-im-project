@@ -33,15 +33,23 @@ env:
     url=$1
     code=$(curl -s -o body.json -w '%{http_code}' --retry 3 --retry-delay 30 --retry-all-errors "$url"); rc=$?
     echo "$url -> HTTP $code (curl exit $rc)"; cat body.json 2>/dev/null; echo
-    echo "detail=HTTP $code（curl 結束碼 $rc）" >> "$GITHUB_OUTPUT"
-    [ "$rc" = 0 ] && [ "$code" = 200 ] || exit 1
+    # 失敗原因判定完才寫一次，給 notify job 當通知文字；每條會讓巡檢失敗的路徑都要對到一句。
+    fail() { echo "detail=$1" >> "$GITHUB_OUTPUT"; exit 1; }
+    case $rc in
+      0) ;;
+      28) fail "逾時" ;;
+      6|7) fail "連不上" ;;
+      *) fail "連線失敗（curl 結束碼 $rc）" ;;
+    esac
+    [ "$code" = 200 ] || fail "HTTP $code"
     jq -e '.ok == true
            and (.commit | type == "string" and length > 0)
            and (.worker.lastTickAt | type == "string")
            and (.worker.lastTickAt
                 | capture("^(?<base>[^.]+)(?<frac>\\.[0-9]+)?Z$")
                 | ((.base + "Z") | fromdateiso8601) + (("0" + (.frac // "")) | tonumber)
-                | now - . <= 300)' body.json
+                | now - . <= 300)' body.json \
+      || fail "HTTP 200 但內容不對（ok／commit 不對，或 worker 超過 5 分鐘沒心跳）"
 
 jobs:
   test:
