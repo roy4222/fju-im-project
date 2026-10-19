@@ -1,8 +1,7 @@
 'use client'
 import { useState, useTransition, type FormEvent } from 'react'
-import { requestHeroUploadAction, saveHeroAction } from './actions'
 import type { FeFormProps } from '../forms'
-import { BTN_SUBMIT, INPUT, LABEL } from '@/app/_ui/dashboard/look'
+import { feActions } from './registry'
 
 /**
  * 首頁橫幅的前台編輯表單（C2-17；原後台「首頁設定」搬到前台，用例不變：`HomeSettingsCommand.save`）。
@@ -12,13 +11,22 @@ import { BTN_SUBMIT, INPUT, LABEL } from '@/app/_ui/dashboard/look'
  * 「改用預設照片」＋三欄清空再儲存就等於以前的「恢復預設」。存檔帶著畫面看到的版本，另一個分頁先存過就被擋。
  */
 
+/**
+ * 樣式字串跟 `_ui/dashboard/look.ts` 的 INPUT／TEXTAREA／LABEL／BTN_SUBMIT 同字，刻意不 import：
+ * 這個模組是按下「編輯」才載的延遲 chunk，一 import 共用模組 Turbopack 就把每頁都載的共用 chunk 再切一塊、gzip 變差（AC-C2-44 步驟 7：`/` 不能變大）。
+ */
+const INPUT =
+  'h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 aria-invalid:border-destructive disabled:opacity-60'
+const LABEL = 'flex flex-col gap-1.5 text-sm font-semibold text-foreground'
+const BTN_SUBMIT = 'btn-fju h-11 px-5 text-sm disabled:pointer-events-none disabled:opacity-60'
+
 type Hero = { fileId: string; name: string } | null
 
 const str = (value: unknown) => (typeof value === 'string' ? value : value == null ? '' : String(value))
 
 async function uploadHero(file: File): Promise<{ ok: true; hero: NonNullable<Hero> } | { ok: false; message: string }> {
   try {
-    const ticket = await requestHeroUploadAction({ fileName: file.name, declaredMime: file.type, declaredSize: file.size })
+    const ticket = await feActions().requestHeroUpload({ fileName: file.name, declaredMime: file.type, declaredSize: file.size })
     if (!ticket.ok) return ticket
     const response = await fetch(`/api/files/upload?ticket=${encodeURIComponent(ticket.ticket.ticket)}`, {
       method: 'POST',
@@ -51,7 +59,7 @@ export default function HeroForm({ revision, fields, onDone, onCancel }: FeFormP
     e.preventDefault()
     setError(null)
     startTransition(async () => {
-      const result = await saveHeroAction({ revision: revision ?? 0, requestId, heroFileId: hero?.fileId ?? '', ...values })
+      const result = await feActions().saveHero({ revision: revision ?? 0, requestId, heroFileId: hero?.fileId ?? '', ...values })
       if (result.ok) onDone({ id: 'home', status: 'saved' })
       else setError(result.message)
     })

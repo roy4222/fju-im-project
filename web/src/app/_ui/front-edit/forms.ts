@@ -1,4 +1,6 @@
 import type { ComponentType } from 'react'
+import { requestHeroUploadAction, saveHeroAction, saveSiteTextAction } from './forms/actions'
+import { provideFeActions } from './forms/registry'
 
 /**
  * 前台編輯的表單登錄表（C2-16 建檔並定型別；規格② 設計方案 §6.3.1 是定版）。
@@ -38,6 +40,13 @@ export interface FeFormModule {
   /** 有才能刪；框架先跳確認再呼叫。回 ok:false 時框架把 message 顯示在確認框、不關窗。 */
   remove?: (input: { id: string; revision: number | null; requestId: string }) => Promise<{ ok: true } | { ok: false; message: string }>
 }
+
+/**
+ * ②的 Server Function（C2-17）由這裡（編輯層載入時就在的父層）登錄給延遲表單，表單經 `forms/registry.ts` 取用、
+ * 不直接 import `./forms/actions`：延遲 chunk 一靜態碰到 Server Function 的客戶端接線，Turbopack 就把那段接線從
+ * 「每頁都載」的共用 chunk 拆出來，所有路由的 gzip 都變大（AC-C2-44 步驟 7）。理由全文見 `forms/registry.ts`。
+ */
+provideFeActions({ saveSiteText: saveSiteTextAction, saveHero: saveHeroAction, requestHeroUpload: requestHeroUploadAction })
 
 /** 「尚未提供」佔位：框架認得它，不載入任何東西，直接告訴系辦這個區塊還不能在前台改。 */
 export const notProvided = (): Promise<FeFormModule> => Promise.reject(new Error('這個區塊還不能在前台改'))

@@ -1,8 +1,7 @@
 'use client'
 import { useState, useTransition, type FormEvent } from 'react'
-import { saveSiteTextAction } from './actions'
 import type { FeFormProps } from '../forms'
-import { BTN_SUBMIT, INPUT, LABEL, TEXTAREA } from '@/app/_ui/dashboard/look'
+import { feActions } from './registry'
 
 /**
  * 站內文字的前台編輯表單（C2-17；規格② 設計方案 §6.5）：同一個模組登錄給三種 kind。
@@ -26,6 +25,16 @@ const FOOTER_FIELDS: readonly { name: string; label: string; hint?: string }[] =
   { name: 'industryNote', label: '產學洽詢說明' },
 ]
 
+/**
+ * 樣式字串跟 `_ui/dashboard/look.ts` 的 INPUT／TEXTAREA／LABEL／BTN_SUBMIT 同字，刻意不 import：
+ * 這個模組是按下「編輯」才載的延遲 chunk，一 import 共用模組 Turbopack 就把每頁都載的共用 chunk 再切一塊、gzip 變差（AC-C2-44 步驟 7：`/` 不能變大）。
+ */
+const INPUT =
+  'h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal text-foreground outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 aria-invalid:border-destructive disabled:opacity-60'
+const LABEL = 'flex flex-col gap-1.5 text-sm font-semibold text-foreground'
+const BTN_SUBMIT = 'btn-fju h-11 px-5 text-sm disabled:pointer-events-none disabled:opacity-60'
+const TEXTAREA =
+  'w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal text-foreground outline-none transition-[border-color,box-shadow] focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 aria-invalid:border-destructive disabled:opacity-60'
 const HINT = '-mt-2 text-xs text-muted-foreground'
 
 const str = (value: unknown) => (typeof value === 'string' ? value : value == null ? '' : String(value))
@@ -45,7 +54,7 @@ export default function SiteTextForm({ kind, id, revision, fields, onDone, onCan
     e.preventDefault()
     setError(null)
     startTransition(async () => {
-      const result = await saveSiteTextAction({ key, revision: revision ?? 0, requestId, fields: values })
+      const result = await feActions().saveSiteText({ key, revision: revision ?? 0, requestId, fields: values })
       if (result.ok) onDone({ id: key, status: 'saved' })
       else setError(result)
     })
