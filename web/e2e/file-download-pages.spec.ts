@@ -477,13 +477,28 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
   })
 
   test('AC-V20：首頁大圖換圖前公開可快取；換圖後舊圖帶 ETag 是 401、document 是 303，新圖公開', async ({ page }) => {
-    // 首頁是全站共用的：只在後台上傳兩張圖（不按儲存，標語與說明都不動），用 owner 連線切 `hero_file_id`，
-    // 結束一定切回原值，把跟 `home-settings.spec` 重疊的時間壓到最短。
-    await asAdmin(page)
-    await page.goto('/dashboard/admin/home-settings')
+    // 首頁是全站共用的：只在前台編輯模式的「首頁橫幅」視窗上傳兩張圖（不按儲存，標語與說明都不動；C2-17 起首頁設定在前台改），
+    // 用 owner 連線切 `hero_file_id`，結束一定切回原值，把跟 `front-edit-site-texts.spec` 重疊的時間壓到最短。
+    // 前台編輯模式要新註冊的系辦用密碼從登入頁登入（`hooks.after` 設 `fju_office` 提示 cookie）。
+    const api = await playwrightRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { origin: new URL(BASE_URL).origin } })
+    const editor = await createTestSession(api, 'admin')
+    await api.dispose()
+    await page.context().clearCookies()
+    await page.goto('/login')
+    await page.getByLabel('Email').fill(editor.email)
+    await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+    await page.getByRole('button', { name: '登入', exact: true }).click()
+    await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 })
+    await page.goto('/')
+    await page.getByRole('button', { name: '編輯頁面' }).click()
+    const layer = page.getByTestId('front-edit-layer')
     const upload = async (name: string) => {
-      await page.getByLabel('選擇首頁大圖').setInputFiles({ name, mimeType: 'image/png', buffer: HERO })
-      await expect(page.getByTestId('hero-name')).toContainText(name)
+      await layer.getByRole('button', { name: '編輯「首頁橫幅」' }).click()
+      const dialog = page.getByRole('dialog', { name: '編輯首頁橫幅' })
+      await dialog.getByLabel('選擇首頁大圖').setInputFiles({ name, mimeType: 'image/png', buffer: HERO })
+      await expect(dialog.getByTestId('hero-name')).toContainText(name)
+      await dialog.getByRole('button', { name: '取消' }).click()
+      await expect(dialog).toHaveCount(0)
       let id = ''
       await expect
         .poll(async () => {
