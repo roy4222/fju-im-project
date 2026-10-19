@@ -64,8 +64,8 @@ describe('legacyAdminRedirect', () => {
     }
   })
 
-  it('不是舊網址就不轉（首頁設定、同意書還沒輪到；分頁本身不轉）', () => {
-    expect(legacyAdminRedirect('/dashboard/admin/home-settings')).toBeNull()
+  it('首頁設定（C2-17）轉回前台首頁；不是舊網址就不轉（同意書還沒輪到；分頁本身不轉）', () => {
+    expect(legacyAdminRedirect('/dashboard/admin/home-settings')).toBe('/')
     expect(legacyAdminRedirect('/dashboard/admin/signoff')).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/accounts/pending', { status: 'disabled' })).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/affairs/resources', { placement: 'rules' })).toBeNull()

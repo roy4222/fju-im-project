@@ -48,4 +48,4 @@ export const loadSiteTexts = cache((): Promise<SiteTexts> => getSiteTextsQuery()
 
 /** app 對 application 只能帶型別；畫面要用的預設值、上限與句子經這裡拿（母 spec §4.3）。 */
 export { describeHomeSaved, HERO_UPLOAD, HOME_DEFAULTS, HOME_LIMITS, resolveHome } from '@/application/site'
-export { FOOTER_CONTACT_FIELDS, FOOTER_CONTACT_LABEL, privacyBodyOf, SITE_TEXT_LIMITS } from '@/application/site'
+export { privacyBodyOf } from '@/application/site'

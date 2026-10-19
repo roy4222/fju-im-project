@@ -1,0 +1,4 @@
+{
+  "ticket": "C2-17",
+  "delete": [{ "key": "/dashboard/admin/home-settings", "from": "base" }]
+}

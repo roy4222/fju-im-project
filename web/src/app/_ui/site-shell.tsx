@@ -14,8 +14,9 @@ import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
 import { roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
-import { SITE_CONTACT } from '@/app/_ui/site-contact'
+import { resolveSiteContact, type SiteContact } from '@/app/_ui/site-contact'
 import { checkStatus, isRegistrationOpen } from '@/composition/accounts'
+import { loadSiteTexts } from '@/composition/site'
 import { cn } from '@/shared/cn'
 
 /**
@@ -137,11 +138,25 @@ export async function SiteShell({ children, current, bare = false }: { children:
   const nav: readonly HeaderNavItem[] = isMember(actor) ? MEMBER_NAV : GUEST_NAV
   // 註冊關閉時（設計方案 §5），手機選單與頁尾都不列「註冊」。
   const registrationOpen = isRegistrationOpen()
-  // 前台編輯標記（C2-16）：頁尾聯絡資料一則、只能改不能刪；只有系辦經 /office-edit 改寫進來才有。
+  // 頁尾聯絡資料（C2-17）：系辦在前台改過就讀 `site_texts.footer_contact`，沒有就是程式內預設；同一次 render 跟首頁、隱私權頁共用一份查詢。
+  const footerRow = (await loadSiteTexts()).footer_contact
+  const contact = resolveSiteContact(footerRow?.value)
+  // 前台編輯標記（C2-16）：頁尾聯絡資料一則、只能改不能刪；只有系辦經 /office-edit 改寫進來才有。表單預填八欄＋目前版本。
   const contactMarks = feItem(await frontEditScope(), {
     kind: 'footer_contact',
     id: 'footer_contact',
-    fields: { title: '頁尾聯絡資料', address: SITE_CONTACT.address, phone: SITE_CONTACT.phone },
+    rev: footerRow?.revision ?? 0,
+    fields: {
+      title: '頁尾聯絡資料',
+      department: contact.department,
+      address: contact.address,
+      phone: contact.phone,
+      siteLabel: contact.siteLabel,
+      siteHref: contact.siteHref,
+      slogan: contact.slogan,
+      officeNote: contact.officeNote,
+      industryNote: contact.industryNote,
+    },
   })
   return (
     <div className="flex min-h-dvh flex-col bg-background">
@@ -154,7 +169,7 @@ export async function SiteShell({ children, current, bare = false }: { children:
       />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} contactMarks={contactMarks} />
+      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} contact={contact} contactMarks={contactMarks} />
     </div>
   )
 }
@@ -164,11 +179,13 @@ function SiteFooter({
   viewer,
   nav,
   registrationOpen,
+  contact,
   contactMarks,
 }: {
   viewer: ReturnType<typeof viewerOf>
   nav: readonly HeaderNavItem[]
   registrationOpen: boolean
+  contact: SiteContact
   contactMarks: ReturnType<typeof feItem>
 }) {
   const columns = [
@@ -191,26 +208,31 @@ function SiteFooter({
   return (
     <footer className="bg-ink text-ink-foreground">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
-        <div {...contactMarks}>
-          <p className="text-lg font-bold">{SITE_CONTACT.department}</p>
+        <div {...contactMarks} data-testid="site-footer-contact">
+          <p className="text-lg font-bold">{contact.department}</p>
           <p className="mt-3 text-[13px] leading-loose opacity-85">
-            {SITE_CONTACT.address}
+            {contact.address}
             <br />
             電話{' '}
-            <a href={SITE_CONTACT.phoneHref} className="hover:underline">
-              {SITE_CONTACT.phone}
+            <a href={contact.phoneHref} className="hover:underline">
+              {contact.phone}
             </a>
-            <br />
-            系網{' '}
-            <a href={SITE_CONTACT.siteHref} className="hover:underline">
-              {SITE_CONTACT.siteLabel}
-            </a>
-            <br />
-            {SITE_CONTACT.slogan}
-            <br />
-            {SITE_CONTACT.officeNote}
-            <br />
-            {SITE_CONTACT.industryNote}
+            {contact.siteLabel ? (
+              <>
+                <br />
+                系網{' '}
+                <a href={contact.siteHref} className="hover:underline">
+                  {contact.siteLabel}
+                </a>
+              </>
+            ) : null}
+            {[contact.slogan, contact.officeNote, contact.industryNote]
+              .filter((line) => line !== '')
+              .map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
           </p>
         </div>
         {columns.map((col) => (

@@ -6,7 +6,7 @@ import type { ComponentType } from 'react'
  * 每種 kind 對應一個 `() => import('<表單模組>')`：只在按下「編輯／新增」那一刻才載入，
  * 不進 `/office-edit/*` 的首載（①③表單的硬規定，§12.1 第 4 點）。
  * 還沒有表單的 kind 先登錄成 `notProvided`，框架看到它就顯示「這個區塊還不能在前台改」：
- * - ②的 `hero`、`quick_card`、`footer_contact`、`privacy` 由 C2-17 換成 import；
+ * - ②的 `hero`、`quick_card`、`footer_contact`、`privacy` 已由 C2-17 換成 import（`forms/`）；
  * - ①的由 C1-06／C1-07／C1-09 各自換掉自己 kind 那一行（10/18 主腦裁定）；
  * - ③的 `opportunity`、`activity` 由 C3-10、C3-08 各自換掉（總表 Y-3）。
  * 換的時候只改自己那一行，型別不動。
@@ -54,11 +54,11 @@ export const FE_FORMS: Record<FeKind, () => Promise<FeFormModule>> = {
   // ③（C3-08、C3-10 登錄）
   activity: notProvided,
   opportunity: notProvided,
-  // ②（C2-17 登錄）
-  hero: notProvided,
-  quick_card: notProvided,
-  footer_contact: notProvided,
-  privacy: notProvided,
+  // ②（C2-17）
+  hero: () => import('./forms/hero-form'),
+  quick_card: () => import('./forms/site-text-form'),
+  footer_contact: () => import('./forms/site-text-form'),
+  privacy: () => import('./forms/site-text-form'),
 }
 
 /** 視窗標題用的名稱：「編輯公告」「新增活動」。 */
