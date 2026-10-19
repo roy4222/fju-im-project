@@ -1,134 +1,6 @@
 {
   "ticket": "C2-17",
   "override": {
-    "/dashboard/student": {
-      "from": "base",
-      "value": {
-        "as": "student",
-        "baseline": 16,
-        "max": 16,
-        "identity": 0
-      }
-    },
-    "/dashboard/student/affairs": {
-      "from": "base",
-      "value": {
-        "as": "student",
-        "baseline": 10,
-        "max": 10,
-        "identity": 0
-      }
-    },
-    "/dashboard/student/groups": {
-      "from": "base",
-      "value": {
-        "as": "student",
-        "baseline": 18,
-        "max": 18,
-        "identity": 0
-      }
-    },
-    "/dashboard/student/signoff": {
-      "from": "base",
-      "value": {
-        "as": "student",
-        "baseline": 10,
-        "max": 10,
-        "identity": 0
-      }
-    },
-    "/timeline": {
-      "from": "base",
-      "value": {
-        "as": "student",
-        "baseline": 6,
-        "max": 6,
-        "identity": 0
-      }
-    },
-    "/dashboard/teacher": {
-      "from": "base",
-      "value": {
-        "as": "teacher",
-        "baseline": 21,
-        "max": 21,
-        "identity": 0,
-        "noDuplicate": [
-          "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages, ",
-          "select distinct on (e.assignment_id) e.assignment_id, e.scores, e.comment, e.submitted_real_at, ev.reason, ev.real_at as returned_at from evaluations ",
-          "select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no, s.state, s.cause, v.participants, "
-        ]
-      }
-    },
-    "/dashboard/teacher/grading": {
-      "from": "base",
-      "value": {
-        "as": "teacher",
-        "baseline": 8,
-        "max": 8,
-        "identity": 0,
-        "noDuplicate": [
-          "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages, "
-        ]
-      }
-    },
-    "/dashboard/teacher/affairs": {
-      "from": "base",
-      "value": {
-        "as": "teacher",
-        "baseline": 13,
-        "max": 13,
-        "identity": 0
-      }
-    },
-    "/dashboard/teacher/groups": {
-      "from": "base",
-      "value": {
-        "as": "teacher",
-        "baseline": 13,
-        "max": 13,
-        "identity": 0
-      }
-    },
-    "/dashboard/admin": {
-      "from": "base",
-      "value": {
-        "as": "admin",
-        "baseline": 20,
-        "max": 20,
-        "identity": 0,
-        "noDuplicate": [
-          "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
-        ]
-      }
-    },
-    "/dashboard/admin/affairs": {
-      "from": "base",
-      "value": {
-        "as": "admin",
-        "baseline": 7,
-        "max": 7,
-        "identity": 0
-      }
-    },
-    "/dashboard/admin/groups": {
-      "from": "base",
-      "value": {
-        "as": "admin",
-        "baseline": 23,
-        "max": 23,
-        "identity": 0
-      }
-    },
-    "/dashboard/admin/grading": {
-      "from": "base",
-      "value": {
-        "as": "admin",
-        "baseline": 17,
-        "max": 17,
-        "identity": 0
-      }
-    },
     "/": {
       "from": "base",
       "value": {
@@ -153,6 +25,24 @@
         "as": "anonymous",
         "baseline": 4,
         "max": 4,
+        "identity": 0
+      }
+    },
+    "/rules": {
+      "from": "C1-14",
+      "value": {
+        "as": "anonymous",
+        "baseline": 5,
+        "max": 5,
+        "identity": 0
+      }
+    },
+    "/timeline": {
+      "from": "base",
+      "value": {
+        "as": "student",
+        "baseline": 6,
+        "max": 6,
         "identity": 0
       }
     }
