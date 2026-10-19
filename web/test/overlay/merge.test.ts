@@ -62,36 +62,55 @@ function fakeWebDir(routes: string[]) {
 }
 const runNode = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, args, { cwd: WEB, encoding: 'utf8', env: { ...process.env, ...env } })
 
-describe('I2-1 真實資料夾：合併後＝基底', () => {
-  test('三個真實資料夾合併不報錯', () => {
-    expect(() => mergeFromDir(BASE_FINGERPRINTS, FINGERPRINTS_D, 'fingerprints')).not.toThrow()
-    expect(() => mergeFromBaseFile(BUDGET, 'budget')).not.toThrow()
-    expect(() => mergeFromBaseFile(SQL_EXPECT, 'sql-expect')).not.toThrow()
-  })
+/**
+ * I2-1：三個真實資料夾（`e2e/fingerprints.d/`、`scripts/perf/budget.d/`、`scripts/perf/sql-expect.d/`）。
+ * 「合併不報錯」任何時候都驗；「合併後＝基底」只在那個資料夾**沒有小檔**時驗（有小檔的票合進後自動 skip，
+ * 之後的票不用改這個檔）。小檔數讀不出來（檔名不合規則等）算 -1：等於基底那條 skip，不報錯那條會紅。
+ */
+const REAL_DIRS = [
+  { kind: 'fingerprints', dir: FINGERPRINTS_D, merge: () => mergeFromDir(BASE_FINGERPRINTS, FINGERPRINTS_D, 'fingerprints'), base: () => BASE_FINGERPRINTS as Record<string, unknown> },
+  { kind: 'budget', dir: overlayDirFor(BUDGET), merge: () => mergeFromBaseFile(BUDGET, 'budget'), base: () => readJson(BUDGET) },
+  { kind: 'sql-expect', dir: overlayDirFor(SQL_EXPECT), merge: () => mergeFromBaseFile(SQL_EXPECT, 'sql-expect'), base: () => readJson(SQL_EXPECT) },
+].map((d) => {
+  let count = -1
+  try {
+    count = readOverlayFiles(d.dir).length
+  } catch {
+    /* 讓「合併不報錯」那條去報 */
+  }
+  return { ...d, count, hasFiles: count !== 0 }
+})
+const anyRealFiles = REAL_DIRS.some((d) => d.hasFiles)
 
-  // 之後有票放了小檔，這一條照 D-23 §2 改成只驗「合併不報錯」（上一條）。
-  test('目前三個資料夾都沒有小檔：合併結果與基底深度相等', () => {
-    const fp = mergeFromDir(BASE_FINGERPRINTS, FINGERPRINTS_D, 'fingerprints')
-    expect(fp.files).toEqual([])
-    expect(fp.merged).toEqual(BASE_FINGERPRINTS)
+describe('I2-1 真實資料夾', () => {
+  for (const d of REAL_DIRS) {
+    test(`${d.kind}：真實資料夾合併不報錯（小檔 ${d.count} 個）`, () => {
+      expect(d.merge).not.toThrow()
+    })
+
+    // 有小檔的資料夾 skip（只驗上一條）；之後的票放了小檔不用改這個檔。
+    test.skipIf(d.hasFiles)(`${d.kind}：資料夾沒有小檔時，合併結果與基底深度相等`, () => {
+      const r = d.merge()
+      expect(r.files).toEqual([])
+      expect(r.merged).toEqual(d.base())
+    })
+  }
+
+  test.skipIf(REAL_DIRS[0]!.hasFiles)('fingerprints.d/ 沒有小檔時，FINGERPRINTS 與 BASE_FINGERPRINTS 深度相等', () => {
     expect(FINGERPRINTS).toEqual(BASE_FINGERPRINTS)
-    const budget = mergeFromBaseFile(BUDGET, 'budget')
-    expect(budget.files).toEqual([])
-    expect(budget.merged).toEqual(readJson(BUDGET))
-    const sqlx = mergeFromBaseFile(SQL_EXPECT, 'sql-expect')
-    expect(sqlx.files).toEqual([])
-    expect(sqlx.merged).toEqual(readJson(SQL_EXPECT))
   })
 
-  test('overlay print budget／sql-expect 的輸出與 JSON.parse(基底) 深度相等；overlay check exit 0', () => {
-    for (const [kind, base] of [['budget', BUDGET], ['sql-expect', SQL_EXPECT]] as const) {
-      const r = runNode(['scripts/overlay/cli.mjs', 'print', kind])
+  test('overlay print budget／sql-expect 的輸出與程式內合併結果相等（沒有小檔時＝JSON.parse(基底)）；overlay check exit 0', () => {
+    for (const d of REAL_DIRS.filter((d) => d.kind !== 'fingerprints')) {
+      const r = runNode(['scripts/overlay/cli.mjs', 'print', d.kind])
       expect(r.status, r.stderr).toBe(0)
-      expect(JSON.parse(r.stdout)).toEqual(readJson(base))
+      expect(JSON.parse(r.stdout)).toEqual(d.merge().merged)
+      if (!d.hasFiles) expect(JSON.parse(r.stdout)).toEqual(d.base())
     }
     const check = runNode(['scripts/overlay/cli.mjs', 'check'])
     expect(check.status, check.stderr).toBe(0)
     expect(check.stdout).toContain('budget.d')
+    if (!anyRealFiles) expect(check.stdout).not.toContain('刪')
   })
 })
 
