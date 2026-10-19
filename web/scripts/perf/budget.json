@@ -273,6 +273,26 @@
     "baseline": 222,
     "limit": 245
   },
+  "/office-edit": {
+    "baseline": 227.7,
+    "limit": 250
+  },
+  "/office-edit/files": {
+    "baseline": 227.7,
+    "limit": 250
+  },
+  "/office-edit/industry": {
+    "baseline": 227.9,
+    "limit": 250
+  },
+  "/office-edit/privacy": {
+    "baseline": 227.7,
+    "limit": 250
+  },
+  "/office-edit/rules": {
+    "baseline": 227.7,
+    "limit": 250
+  },
   "/privacy": {
     "baseline": 222,
     "limit": 245

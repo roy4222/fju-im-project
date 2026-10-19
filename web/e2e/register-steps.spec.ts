@@ -481,27 +481,35 @@ test('AC-VI-54 畫面段：Google 新帳號到第 3 步，進度條第 1、2 格
   await context.close()
 })
 
-test('AC-VI-55 畫面段（VB-6）：Google 帳號送第 3 步、名單同一列 Email 相同 → 「帳號已開通」→ 進入學生首頁', async ({ browser, playwright }) => {
+const AUTO_APPROVE_CASES = [
+  { mode: 'google', title: 'AC-VI-55 畫面段（VB-6）：Google 帳號送第 3 步', method: 'google_email_match' },
+  { mode: 'password', title: 'AC-C2-28 畫面段（C2-12）：Email 註冊且已驗證的帳號送第 3 步', method: 'email_roster_match' },
+] as const
+
+for (const { mode, title, method } of AUTO_APPROVE_CASES) {
+test(`${title}、名單同一列 Email 相同 → 「帳號已開通」→ 進入學生首頁`, async ({ browser, playwright }) => {
   const { context, page } = await fresh(browser)
   const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
   const session = await createTestSession(request, null).finally(() => request.dispose())
   await pool.query('update users set email_verified = true where id = $1', [session.userId])
-  await pool.query(
-    `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at)
-     values (gen_random_uuid(), $2, 'google', $1, now(), now())`,
-    [session.userId, `g55-${run}`],
-  )
-  await pool.query(`update sessions set login_method = 'google' where user_id = $1`, [session.userId])
+  if (mode === 'google') {
+    await pool.query(
+      `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at)
+       values (gen_random_uuid(), $2, 'google', $1, now(), now())`,
+      [session.userId, `g55-${run}`],
+    )
+  }
+  await pool.query(`update sessions set login_method = $2 where user_id = $1`, [session.userId, mode])
   // 自己的一屆＋自己的名單（不動其他 spec 的屆別與名單版本）。開放註冊旗標暫時從原本那一屆借過來，測完還回去；
   // 旗標由部分唯一索引守著，先清舊的再設新的。
   const previous = (await pool.query<{ id: string }>(`select id from cohorts where is_registration_open`)).rows[0]?.id ?? null
   const cohortId = (
     await pool.query<{ id: string }>(
       `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
-      [`vb6-${run}`, `VB-6 測試屆 ${run}`],
+      [`vb6-${mode}-${run}`, `VB-6 ${mode} 測試屆 ${run}`],
     )
   ).rows[0]!.id
-  const studentNo = `4114${String(Date.now()).slice(-5)}`
+  const studentNo = `${mode === 'google' ? '4114' : '4115'}${String(Date.now()).slice(-5)}`
   try {
     await pool.query(`update cohorts set is_registration_open = false where is_registration_open`)
     await pool.query(`update cohorts set is_registration_open = true where id = $1`, [cohortId])
@@ -537,13 +545,71 @@ test('AC-VI-55 畫面段（VB-6）：Google 帳號送第 3 步、名單同一列
     await page.getByRole('button', { name: '送出申請' }).click()
     await expect(page).toHaveURL(/\/register\/apply\/done$/)
     await expect(page.getByRole('heading', { name: '帳號已開通' })).toBeVisible()
-    await expect(page.getByTestId('auto-approved')).toHaveText(`${session.email} 和本屆專題名單登記的 Email 相同，不用等系辦審核。`)
-    await page.screenshot({ path: 'e2e/.artifacts/vb6-auto-approved.png', fullPage: true })
+    await expect(page.getByTestId('auto-approved')).toHaveText(`${session.email} 的 Email、學號、姓名和本屆專題名單同一列，不用等系辦審核。`)
+    await page.screenshot({ path: `e2e/.artifacts/vb6-auto-approved-${mode}.png`, fullPage: true })
     await page.getByRole('link', { name: '進入學生首頁' }).click()
     await expect(page).toHaveURL(/\/dashboard\/student$/)
     expect(
       (await pool.query(`select state, verification_method from registration_applications where user_id = $1`, [session.userId])).rows,
-    ).toEqual([{ state: 'approved', verification_method: 'google_email_match' }])
+    ).toEqual([{ state: 'approved', verification_method: method }])
+  } finally {
+    await pool.query(`update cohorts set is_registration_open = false where id = $1`, [cohortId])
+    if (previous) await pool.query(`update cohorts set is_registration_open = true where id = $1`, [previous])
+    await context.close()
+  }
+})
+}
+
+test('AC-C2-29 畫面段（C2-12）：Email 註冊已驗證但姓名和名單不同 → 不開通，進等待審核', async ({ browser, playwright }) => {
+  const { context, page } = await fresh(browser)
+  const request = await playwright.request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
+  const session = await createTestSession(request, null).finally(() => request.dispose())
+  await pool.query('update users set email_verified = true where id = $1', [session.userId])
+  await pool.query(`update sessions set login_method = 'password' where user_id = $1`, [session.userId])
+  const previous = (await pool.query<{ id: string }>(`select id from cohorts where is_registration_open`)).rows[0]?.id ?? null
+  const cohortId = (
+    await pool.query<{ id: string }>(
+      `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+      [`c212-${run}`, `C2-12 測試屆 ${run}`],
+    )
+  ).rows[0]!.id
+  const studentNo = `4116${String(Date.now()).slice(-5)}`
+  try {
+    await pool.query(`update cohorts set is_registration_open = false where is_registration_open`)
+    await pool.query(`update cohorts set is_registration_open = true where id = $1`, [cohortId])
+    const summary = JSON.stringify({
+      counts: { total: 1, valid: 1, duplicate: 0, missing: 0, conflict: 0, cohortMismatch: 0, invalidEmail: 0 },
+      columns: { cohort: false, email: true, departmentClass: true },
+      fileName: 'c212-seeded.csv',
+      checksum: '',
+      issues: [],
+      issuesTotal: 0,
+    })
+    const version = (
+      await pool.query<{ id: string }>(
+        `insert into roster_versions (id, cohort_id, imported_by_user_id, imported_real_at, summary)
+         values (gen_random_uuid(), $1, $2, now(), $3::jsonb) returning id`,
+        [cohortId, session.userId, summary],
+      )
+    ).rows[0]!.id
+    await pool.query(
+      `insert into roster_entries (id, roster_version_id, student_no, name_raw, name_normalized, department_class, email)
+       values (gen_random_uuid(), $1, $2, '林小華', '林小華', '資管二甲', $3)`,
+      [version, studentNo, session.email],
+    )
+    await context.clearCookies()
+    await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
+    await page.goto('/register/apply')
+    await page.getByLabel('姓名').fill('林大華')
+    await page.getByLabel('學號').fill(studentNo)
+    await page.getByLabel('系級').fill('資管二甲')
+    await page.getByLabel('手機').fill('0912-345-678')
+    await page.getByRole('button', { name: '送出申請' }).click()
+    await expect(page).toHaveURL(/\/register\/pending$/)
+    expect(
+      (await pool.query(`select state, verification_method from registration_applications where user_id = $1`, [session.userId])).rows,
+    ).toEqual([{ state: 'pending', verification_method: null }])
+    expect((await pool.query(`select 1 from student_identities where user_id = $1`, [session.userId])).rowCount).toBe(0)
   } finally {
     await pool.query(`update cohorts set is_registration_open = false where id = $1`, [cohortId])
     if (previous) await pool.query(`update cohorts set is_registration_open = true where id = $1`, [previous])
@@ -567,7 +633,7 @@ test('VB-6 Review：系辦人工核准的學生直接開「帳號已開通」頁
   await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
   await page.goto('/register/apply/done')
   await expect(page).toHaveURL(/\/dashboard\/student$/)
-  await expect(page.getByText('和本屆專題名單登記的 Email 相同')).toHaveCount(0)
+  await expect(page.getByText('和本屆專題名單同一列')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '帳號已開通' })).toHaveCount(0)
   await context.close()
 })

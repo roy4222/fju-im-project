@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   accountAdminDenied,
   normalizeApproval,
+  normalizeNewMember,
   normalizeTeacherAccountInput,
   normalizeTeacherProfile,
   normalizeTemporaryPasswordRequest,
@@ -142,5 +143,42 @@ describe('誰能做', () => {
     expect(teacherSetupDenied(actor(['teacher']))).toBeNull()
     expect(teacherSetupDenied(actor(['student']))).toBe('FORBIDDEN')
     expect(teacherSetupDenied(actor(['teacher'], { mustChangePassword: true }))).toBe('PASSWORD_CHANGE_REQUIRED')
+  })
+})
+
+describe('新增成員的欄位（AC-C2-27）', () => {
+  const cohortId = '0190a0a0-0000-7000-8000-0000000000c1'
+  const member = { kind: 'teacher', name: ' 林  老師 ', email: ' T1@Example.com ', studentNo: '', cohortId: '' }
+
+  it('老師、管理員：只要姓名與 Email（Email 轉小寫、姓名空白縮一個），不要核實方式、學號、屆別', () => {
+    expect(normalizeNewMember(member)).toEqual({ ok: true, value: { kind: 'teacher', name: '林 老師', email: 't1@example.com' } })
+    expect(normalizeNewMember({ ...member, kind: 'admin', studentNo: '123', cohortId })).toEqual({
+      ok: true,
+      value: { kind: 'admin', name: '林 老師', email: 't1@example.com' },
+    })
+  })
+
+  it('學生：學號與屆別必填，學號只能英數', () => {
+    const student = { ...member, kind: 'student', name: '王小明', studentNo: ' 412012345 ', cohortId }
+    expect(normalizeNewMember(student)).toEqual({
+      ok: true,
+      value: { kind: 'student', name: '王小明', email: 't1@example.com', studentNo: '412012345', cohortId },
+    })
+    expect(normalizeNewMember({ ...student, studentNo: '' })).toMatchObject({
+      ok: false,
+      message: '學生要有學號和屆別',
+      details: { field: 'studentNo' },
+    })
+    expect(normalizeNewMember({ ...student, cohortId: '' })).toMatchObject({ ok: false, details: { field: 'cohortId' } })
+    expect(normalizeNewMember({ ...student, studentNo: '41-2' })).toMatchObject({ ok: false, details: { field: 'studentNo' } })
+    expect(normalizeNewMember({ ...student, cohortId: 'not-a-uuid' })).toMatchObject({ ok: false, details: { field: 'cohortId' } })
+  })
+
+  it('姓名、Email 必填且格式要對；不認得的身分擋下', () => {
+    expect(normalizeNewMember({ ...member, name: '  ' })).toMatchObject({ ok: false, details: { field: 'name' } })
+    expect(normalizeNewMember({ ...member, name: 'a\u0000b' })).toMatchObject({ ok: false, details: { field: 'name' } })
+    expect(normalizeNewMember({ ...member, email: '' })).toMatchObject({ ok: false, details: { field: 'email' } })
+    expect(normalizeNewMember({ ...member, email: 'nope' })).toMatchObject({ ok: false, details: { field: 'email' } })
+    expect(normalizeNewMember({ ...member, kind: 'staff' })).toMatchObject({ ok: false, details: { field: 'kind' } })
   })
 })

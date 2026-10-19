@@ -1,7 +1,7 @@
 import type { AccountStatus, ResolvedActor, Role } from '@/application/accounts/actor'
 import { hasControlChars } from '@/application/accounts/registration'
 import { STUDENT_NO_PATTERN } from '@/application/accounts/roster'
-import { TEACHER_NAME_MAX_LENGTH } from '@/application/accounts/teachers'
+import { TEACHER_NAME_MAX_LENGTH } from '@/application/accounts/members'
 import { err, type Err, type Result } from '@/shared/result'
 
 /**

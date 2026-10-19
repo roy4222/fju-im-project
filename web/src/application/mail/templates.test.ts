@@ -22,6 +22,17 @@ describe('信件範本', () => {
     )
   })
 
+  it('請設定密碼信（系辦新增成員）：同一個樣板，主旨改「請設定密碼」；連結只在內文', () => {
+    const url = 'https://test.fju.roy422.dev/reset-password?token=abc123secret'
+    const mail = passwordResetMail(url, 'setup')
+    expect(mail.template).toBe('password_reset')
+    expect(mail.subject).toBe('【專題管理平台】請設定密碼')
+    expect(mail.subject).not.toMatch(/token|abc123secret/)
+    expect(mail.text).toBe(
+      `系辦已經為你建立帳號。請在 30 分鐘內打開這個連結設定密碼：${url}。如果你不認識這個網站，請忽略這封信。`,
+    )
+  })
+
   it('核准信：連到 /login；網址結尾的斜線不會變成雙斜線', () => {
     const mail = registrationResultMail({ decision: 'approved' }, 'http://127.0.0.1:3000/')
     expect(mail.template).toBe('registration_result')

@@ -46,6 +46,16 @@ status: v6-role-split-in-progress
 - 待審核、已停用、名單匯入、未分組學生、評分老師目前是外殼（分頁列＋說明句），內容由後續票接上；「全部帳號」的分頁列在 C2-07 掛上。
 - 舊網址轉址（`web/src/app/dashboard/admin/legacy-redirects.ts`，先守衛再轉，307）：`/settings` → `/cohorts`；`/affairs?placement=resource` → `/affairs/resources`、`submission`／`requirement` → `/affairs/assignments`、`rules` → `/affairs/rules`（其餘 query 照帶）。`?placement=honor` 暫不轉；`/accounts?status=`、`/home-settings`、`/signoff` 由後續票加。
 
+### 前台編輯（2026-10-19 框架，C 階段規格② C2-16；設計方案 §6）
+
+系辦（已開通、有效的管理員角色）在前台原頁直接改內容，不跳後台。
+
+- **誰看得到**：只有系辦。登入時伺服器設一個 HttpOnly 的 `fju_office=1` 提示 cookie（登出清掉）；`web/src/proxy.ts` 看到它，就把 GET／HEAD 的 `/`、`/files`、`/rules`、`/industry`、`/privacy` 改寫到 `/office-edit/*`（網址列不變，回應加 `Cache-Control: private, no-store`）。cookie 只是提示：`/office-edit/*` 自己再判一次身分，不是系辦就只回原頁。訪客、學生、老師不經過這段，HTML 與下載的程式一個位元組都不多。
+- **直接打 `/office-edit/*`**：307 回對應的公開網址（帶原本的查詢字串）。
+- **長什麼樣**：右下角「編輯頁面」開關（狀態存 sessionStorage，換頁保持、關分頁就忘）。打開後每個可改的區塊有虛線框與標籤（可新增的有「＋新增」），每一則右上角「編輯」，可刪的多「刪除」（先確認「確定刪除『標題』？」），不能刪的按鈕寫原因（例如分類「有 3 個檔案，先移走」）；頁尾聯絡、隱私權政策、首頁橫幅、三張快速入口卡只有「編輯」。按鈕畫在頁面上另一層，不在連結裡，編輯模式下點連結照常跳頁。「完成編輯」全部收起。
+- **程式位置**：標記 `web/src/app/_ui/front-edit/mark.ts`（`feSection`／`feItem`，產生 `data-fe-*`）；表單登錄表 `forms.ts`（`FeKind`／`FeFormProps`／`FeFormModule`／`FE_FORMS`）；編輯層 `front-edit.tsx`＋`front-edit.css`、視窗 `dialog.tsx`、刪除確認 `confirm.tsx`；路由 `web/src/app/office-edit/*`（原頁元件＋編輯層，`with-front-edit.tsx`）。
+- **表單**：每種內容的表單按下「編輯／新增」才載入。目前全部是「尚未提供」佔位（點了顯示「這個區塊還不能在前台改」）：②的首頁橫幅、快速入口、頁尾、隱私權由 C2-17 接；①的公告、作業、規則、資源、分類、榮譽、優秀專題由 C1-06／C1-07／C1-09 接；③的活動、合作案由 C3-08、C3-10 接。
+
 ## 0. 2026-09-10 第五輪：Codex 三角色審查後的改版（proto/role-ux-round1）
 
 Roy 請 Codex 扮演學生、老師、管理員各寫一份操作審查（`docs/reviews/2026-09-10-role-ux/`），要求「減少 AI 味、像 Apple 一樣不需要的就砍、精簡好用」。工程師逐項回覆在同目錄 `RESPONSE.md`。這輪定下的規則：

@@ -367,10 +367,19 @@ describe('Q42 自動開通的條件（VB-6，AC-VI-57）', () => {
     expect(autoApprovalEligible(eligible)).toBe(true)
   })
 
-  it('密碼註冊（就算 Email 相同）、讀不到登入方式、Email 沒驗證：不自動開通', () => {
-    expect(autoApprovalEligible({ ...eligible, loginMethod: 'password' })).toBe(false)
+  it('Email 密碼註冊、Email 已驗證、名單同一列：可以自動開通（C2-12，AC-C2-28）', () => {
+    expect(autoApprovalEligible({ ...eligible, loginMethod: 'password' })).toBe(true)
+  })
+
+  it('讀不到登入方式、Email 沒驗證（密碼或 Google）：不自動開通', () => {
     expect(autoApprovalEligible({ ...eligible, loginMethod: undefined })).toBe(false)
     expect(autoApprovalEligible({ ...eligible, emailVerified: false })).toBe(false)
+    expect(autoApprovalEligible({ ...eligible, loginMethod: 'password', emailVerified: false })).toBe(false)
+  })
+
+  it('Email 註冊但姓名不同（AC-C2-29）：不自動開通', () => {
+    const mismatch = matchRoster({ ...app, appliedName: '王大名' }, [candidate()], C115)
+    expect(autoApprovalEligible({ ...eligible, loginMethod: 'password', match: mismatch })).toBe(false)
   })
 
   it('名單 Email 不同或沒填：不自動開通', () => {

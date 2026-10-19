@@ -322,6 +322,8 @@ async function startPostgres(purpose) {
     '-p', '127.0.0.1::5432',
     '--tmpfs', '/var/lib/postgresql/data',
     PG_IMAGE,
+    // 預設 64 太小：結束時 drop 一個 schema 要一次鎖住裡面所有表與索引，幾個檔同時清就 out of shared memory。
+    '-c', 'max_locks_per_transaction=256',
   ])
   const mapping = docker(['port', name, '5432/tcp']).split('\n')[0]
   const port = Number(mapping.split(':').at(-1))
@@ -444,8 +446,10 @@ async function runE2e(specs) {
 
   let app
   let worker
-  const started = await checkStep('app＋worker 啟動', `next start --hostname 127.0.0.1 --port ${appPort} ＆ node dist/worker.mjs，等 ${baseUrl}/api/health`, async () => {
-    app = startBackground('app', bin('next'), ['start', '--hostname', '127.0.0.1', '--port', String(appPort)], env)
+  // app 綁 0.0.0.0（跟正式站 standalone、CI 的 `pnpm start` 同一種）：Next 16 會把 proxy 裡的 127.x 主機名正規化成 localhost，
+  // 綁 127.0.0.1 時 proxy 的改寫（前台編輯 C2-16）跟伺服器自己的來源對不上、被當成外部網址。連線照舊走 127.0.0.1。
+  const started = await checkStep('app＋worker 啟動', `next start --hostname 0.0.0.0 --port ${appPort} ＆ node dist/worker.mjs，等 ${baseUrl}/api/health`, async () => {
+    app = startBackground('app', bin('next'), ['start', '--hostname', '0.0.0.0', '--port', String(appPort)], env)
     worker = startBackground('worker', 'node', ['dist/worker.mjs'], env)
     const deadline = Date.now() + HEALTH_TIMEOUT_MS
     let last = ''

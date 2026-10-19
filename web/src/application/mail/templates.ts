@@ -25,7 +25,18 @@ export function emailOtpMail(otp: string): MailContent {
   }
 }
 
-export function passwordResetMail(url: string): MailContent {
+/**
+ * 重設密碼信。`variant: 'setup'` 是系辦新增成員後寄的「請設定密碼」信（C2-09）：
+ * 同一個樣板（`password_reset`）、同一種連結，只有主旨與開頭不同——收信的人還沒有密碼，不是「重設」。
+ */
+export function passwordResetMail(url: string, variant?: 'setup'): MailContent {
+  if (variant === 'setup') {
+    return {
+      template: 'password_reset',
+      subject: `${BRAND}請設定密碼`,
+      text: `系辦已經為你建立帳號。請在 ${PASSWORD_RESET_MINUTES} 分鐘內打開這個連結設定密碼：${url}。如果你不認識這個網站，請忽略這封信。`,
+    }
+  }
   return {
     template: 'password_reset',
     subject: `${BRAND}重設密碼`,

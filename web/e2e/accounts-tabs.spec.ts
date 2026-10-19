@@ -116,9 +116,9 @@ test('AC-C2-18：全部帳號只剩列表，標題列只有「新增成員」', 
   await expect(page.getByRole('button', { name: '發臨時密碼', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '新增老師', exact: true })).toHaveCount(0)
   await expect(page.getByTestId('page-title-actions').getByRole('button')).toHaveText(['新增成員'])
-  // 「新增成員」暫時只開老師表單（三選一在 C2-09）。
+  // 「新增成員」開三選一的視窗（C2-09；內容在 `new-member.spec.ts`）。
   await page.getByRole('button', { name: '新增成員', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: '新增老師' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '新增成員' })).toBeVisible()
 })
 
 test('AC-C2-13：帳號頁、已停用分頁沒有「危險操作」；列上依序編輯、寄重設密碼信、停用、更多', async ({ browser }) => {
