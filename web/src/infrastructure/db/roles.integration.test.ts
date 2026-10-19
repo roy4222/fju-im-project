@@ -733,6 +733,14 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'tagline_line1', value: '改過的標語' },
   },
+  site_texts: {
+    insert: () => ({
+      // 一個 key 一列（C2-17）：整套只有 INSERT 那一格會插 footer_contact。
+      sql: `insert into site_texts (key, value, updated_by_user_id) values ('footer_contact', '{"phone":"02-2905-2666"}'::jsonb, $1)`,
+      values: [userId],
+    }),
+    updatable: { column: 'revision', value: 2 },
+  },
   mail_outbox: {
     insert: () => ({
       sql: `insert into mail_outbox (id, to_email, template, subject, status) values (gen_random_uuid(), $1, 'email_otp', '【專題管理平台】Email 驗證碼', 'queued')`,

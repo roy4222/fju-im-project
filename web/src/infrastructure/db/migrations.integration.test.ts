@@ -21,6 +21,7 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面倒數第二組）。
  * C 階段 C2-21：0020 只放寬約束（理由選填、核實方式加 office_review／email_roster_match；仍七十張表）；已套 0019、有資料的庫升上來（下面最後一組）。
  * C 階段 C1-01：0021 新增評分項目側表 `grading_stage_settings`（七十一張表），其餘是加欄與放寬（細節在 s04-items、pg-signoff、pg-grading 整合測試）。
+ * C 階段 C2-17：0022 新增站內文字 `site_texts`（七十二張表），只有新增；已套 0021、有資料的庫升上來（下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -135,6 +136,9 @@ const A01_TABLES = ['grade_settlements']
 /** C 階段 C1-01 的 0021：評分項目側表（對應作業、說明、評審組）。 */
 const C1_TABLES = ['grading_stage_settings']
 
+/** C 階段 C2-17 的 0022：系辦可在前台改的站內文字（頁尾聯絡、三張卡、隱私權政策）。 */
+const C2_TABLES = ['site_texts']
+
 const EXPECTED_TABLES = [
   ...S00_TABLES,
   ...S01_TABLES,
@@ -150,9 +154,10 @@ const EXPECTED_TABLES = [
   ...VB1_TABLES,
   ...A01_TABLES,
   ...C1_TABLES,
+  ...C2_TABLES,
 ].sort()
 
-const LATEST = '0021_c1_affairs_consent_grading'
+const LATEST = '0022_c2_site_texts'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -164,7 +169,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出七十一張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出七十二張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
@@ -679,7 +684,40 @@ describe('0020（C2-21）：已套 0019、有資料的庫升到 0020：理由選
         [db.schemaName],
       )
       expect(gone.rows).toEqual([])
-      expect(await tableNames(db)).toEqual(EXPECTED_TABLES.filter((t) => !C1_TABLES.includes(t)))
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES.filter((t) => !C1_TABLES.includes(t) && !C2_TABLES.includes(t)))
+    })
+  })
+})
+
+describe('0022（C2-17）：已套 0021、有資料的庫升到 0022：只多 site_texts', () => {
+  it('舊表不動；site_texts 只收五個 key、revision ≥ 1；fju_app 能讀寫但不能刪', async () => {
+    await withIsolatedDatabase({ label: 'm0022' }, async (db) => {
+      await applyMigrations(db, '0021_c1_affairs_consent_grading')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0022@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      await db.sql(`insert into home_settings (id, tagline_line1, updated_by_user_id) values (1, '舊標語', $1)`, [userId])
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES.filter((t) => !C2_TABLES.includes(t)))
+
+      await applyMigration(db, '0022_c2_site_texts')
+
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+      expect((await db.sql(`select tagline_line1 from home_settings where id = 1`)).rows).toEqual([{ tagline_line1: '舊標語' }])
+      const insert = (key: string, revision = 1) =>
+        db.sql(`insert into site_texts (key, value, revision, updated_by_user_id) values ($1, '{"phone":"02-0000-0000"}'::jsonb, $2, $3)`, [key, revision, userId])
+      await expect(insert('footer_contact')).resolves.toBeTruthy()
+      await expect(insert('quick_card_2')).resolves.toBeTruthy()
+      await expect(insert('hero')).rejects.toThrow(/site_texts_key_check/)
+      await expect(insert('privacy', 0)).rejects.toThrow(/site_texts_revision_check/)
+
+      // 權限照 0012 給 home_settings 的寫法：app 角色讀、寫、改，不能刪。
+      const grants = await db.sql(
+        `select privilege_type from information_schema.role_table_grants
+          where table_schema = $1 and table_name = 'site_texts' and grantee = 'fju_app' order by privilege_type`,
+        [db.schemaName],
+      )
+      expect(grants.rows.map((r) => r.privilege_type)).toEqual(['INSERT', 'SELECT', 'UPDATE'])
     })
   })
 })

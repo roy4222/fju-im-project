@@ -274,9 +274,9 @@ test.describe('系辦', () => {
     await expect(layer.locator('.fe-item[data-fe-for="quick_card"]')).toHaveCount(3)
     await page.screenshot({ path: test.info().outputPath('on.png'), fullPage: true })
 
-    // 還沒有表單的 kind：開窗說明，不壞。
-    await layer.locator('.fe-item[data-fe-for="hero"]').getByRole('button', { name: /^編輯/ }).click()
-    const dialog = page.getByRole('dialog', { name: '編輯首頁橫幅' })
+    // 還沒有表單的 kind（①的優秀專題；②的四種 C2-17 已登錄）：開窗說明，不壞。
+    await layer.locator('.fe-item[data-fe-for="showcase"]').first().getByRole('button', { name: /^編輯/ }).click()
+    const dialog = page.getByRole('dialog', { name: '編輯優秀專題' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('alert')).toHaveText('這個區塊還不能在前台改')
     await dialog.getByRole('button', { name: '關閉' }).first().click()
