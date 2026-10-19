@@ -4,6 +4,7 @@ import type {
   AdvisorCommand,
   AdvisorGradingLookup,
   GroupCommand,
+  GroupImportCommand,
   GroupQuery,
   LeaderSuccessionHook,
   OpportunityCommand,
@@ -18,6 +19,7 @@ import { getAuditWriter, getFileStorage, getOperationLedger } from '@/compositio
 import { getSignoffParticipantHook } from '@/composition/signoff'
 import { PgGradingDissolution } from '@/infrastructure/grading/pg-grading-dissolution'
 import { PgAdvisorCommand } from '@/infrastructure/groups/pg-advisors'
+import { PgGroupImportCommand } from '@/infrastructure/groups/pg-group-import'
 import { PgGroupCommand, PgGroupQuery } from '@/infrastructure/groups/pg-groups'
 import { PgOpportunityCommand, PgOpportunityQuery } from '@/infrastructure/groups/pg-opportunities'
 
@@ -93,6 +95,22 @@ export function getAdvisorGradingLookup(): AdvisorGradingLookup {
   return { assignmentsFor: (groupId, teacherUserId) => assignments.listForGroup(groupId, teacherUserId) }
 }
 
+// ── 系辦匯入分組（C3-16）：加人走同一個 `addMember`（含簽核失效 hook） ──
+
+let groupImportCommand: GroupImportCommand | undefined
+
+export function getGroupImportCommand(): GroupImportCommand {
+  groupImportCommand ??= new PgGroupImportCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    events: getEventPublisher(),
+    files: getFileStorage(),
+    businessClock: getBusinessClock(),
+    groups: command(),
+  })
+  return groupImportCommand
+}
+
 // ── 產學合作案、組別連結、改類型、組別名單匯出（票 20） ──
 
 let opportunityCommand: OpportunityCommand | undefined
@@ -137,6 +155,12 @@ export {
   describeLeaderChangeReceipt,
   describeMemberChangeReceipt,
   describeTerminateReceipt,
+  // C3-16
+  describeGroupImportReceipt,
+  GROUP_IMPORT_KIND_LABEL,
+  GROUP_IMPORT_MAX_BYTES,
+  GROUP_IMPORT_OUTCOME_LABEL,
+  groupImportResultCsv,
   GROUP_TYPE_LABEL,
   GROUP_TYPES,
   groupSizeWarning,
