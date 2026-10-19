@@ -256,7 +256,7 @@ export class PgGroupImportCommand implements GroupImportCommand {
         tx,
         {
           actorUserId: adminId,
-          operationKind: 'group.import.create',
+          operationKind: 'group.establish',
           requestId,
           fingerprint: sha256(canonicalJson({ cohortId, code: plan.code, studentNos: plan.rows.map((r) => r.studentNo) })),
           scope: 'cohort',
