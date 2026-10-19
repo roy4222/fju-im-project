@@ -18,7 +18,7 @@ import { cn } from '@/shared/cn'
  *   `ItemFormDialog placement='honor'`（帶榮譽榜區選的屆別，封存屆別也可以）。
  * - `EntryRowActions`：作品列的「編輯」（開視窗）、「刪除」（公開中停用、按鈕寫原因；能刪時一句確認）。
  * - `HomeOrderPanel`：首頁輪播順序，原生拖曳或上移／下移，按一次「儲存首頁順序」。
- * - 成功後右下角一句提示；資料由 Server Action 的 `refresh()` 重新整理。
+ * - 成功後右下角一句提示（整頁共用一個，掛在「新增」旁；列被刪掉也還看得到）；資料由 Server Action 的 `refresh()` 重新整理。
  */
 
 /** `field`：失敗時是哪一欄（目前只有存草稿的 `videoUrl` 會帶），訊息改顯示在那一欄下面。 */
@@ -54,6 +54,24 @@ function Toast({ text }: { text: string | null }) {
   )
 }
 
+/** 整頁共用的提示：列上的動作呼叫 `showToast`，`ToastHost`（掛在「新增」旁，頁面只有一個）顯示。 */
+const toastListeners = new Set<(text: string) => void>()
+
+function showToast(text: string) {
+  for (const listener of toastListeners) listener(text)
+}
+
+function ToastHost() {
+  const [toast, setToast] = useToast()
+  useEffect(() => {
+    toastListeners.add(setToast)
+    return () => {
+      toastListeners.delete(setToast)
+    }
+  }, [setToast])
+  return <Toast text={toast} />
+}
+
 /** 視窗共用的設定（伺服器帶進來的句子與上限）。 */
 export type ShowcaseDialogConfig = { videoUrlMessage: string; awardLabelMax: number }
 
@@ -77,7 +95,6 @@ export function ShowcaseNewMenu({
   const [target, setTarget] = useState<ShowcaseDialogTarget | null>(null)
   const [honor, setHonor] = useState<Honor | null>(null)
   const [loading, setLoading] = useState(false)
-  const [toast, setToast] = useToast()
   const box = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -103,9 +120,9 @@ export function ShowcaseNewMenu({
     try {
       const context = await frontEditContextAction({ cohortId: honorCohort.id })
       if (context.ok) setHonor({ cohortId: context.cohortId, options: context.options })
-      else setToast(context.message)
+      else showToast(context.message)
     } catch {
-      setToast('表單資料載入失敗，請再按一次。')
+      showToast('表單資料載入失敗，請再按一次。')
     } finally {
       setLoading(false)
     }
@@ -172,7 +189,7 @@ export function ShowcaseNewMenu({
           onCancel={() => setTarget(null)}
           onSaved={(message) => {
             setTarget(null)
-            setToast(message)
+            showToast(message)
           }}
         />
       ) : null}
@@ -186,12 +203,12 @@ export function ShowcaseNewMenu({
           onCancel={() => setHonor(null)}
           onDone={(result) => {
             setHonor(null)
-            setToast(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
+            showToast(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
             router.refresh()
           }}
         />
       ) : null}
-      <Toast text={toast} />
+      <ToastHost />
     </div>
   )
 }
@@ -199,14 +216,13 @@ export function ShowcaseNewMenu({
 /** 作品列的「編輯」「刪除」。 */
 export function EntryRowActions({ entry, config }: { entry: ShowcaseEntryView; config: ShowcaseDialogConfig }) {
   const [editing, setEditing] = useState(false)
-  const [toast, setToast] = useToast()
   const name = entry.title || '（未填題目）'
   return (
     <span className="flex flex-wrap items-center gap-1.5 md:justify-end">
       <button type="button" className={ROW_BTN} aria-label={`編輯：${name}`} onClick={() => setEditing(true)}>
         編輯
       </button>
-      <DeleteEntryButton entry={entry} onDeleted={setToast} />
+      <DeleteEntryButton entry={entry} onDeleted={showToast} />
       {editing ? (
         <ShowcaseEditDialog
           target={{ mode: 'edit', entry }}
@@ -214,11 +230,10 @@ export function EntryRowActions({ entry, config }: { entry: ShowcaseEntryView; c
           onCancel={() => setEditing(false)}
           onSaved={(message) => {
             setEditing(false)
-            setToast(message)
+            showToast(message)
           }}
         />
       ) : null}
-      <Toast text={toast} />
     </span>
   )
 }

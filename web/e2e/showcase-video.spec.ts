@@ -11,6 +11,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * - AC-V27⑦：作品頁側欄海報 lazy、`900×1200`。
  *
  * 資料：一個進行中的屆別＋G01（走畫面建草稿、存檔、上傳海報、勾同意發布、設獎項）。每筆都帶這次的戳記。
+ * C1-09：成果展示改成清單＋編輯視窗（「新增 › 作品」建草稿、列上「編輯」開視窗、按一次「儲存」），只換選擇器。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -60,7 +61,14 @@ async function asAdmin(page: Page) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
 }
 
-const card = (page: Page) => page.getByTestId('showcase-draft').filter({ hasText: 'G01' })
+/** 開 G01 那一列的編輯視窗。 */
+async function openG01(page: Page) {
+  await page.getByTestId('entry-row').filter({ hasText: 'G01' }).getByRole('button', { name: /^編輯：/ }).click()
+  const dialog = page.getByTestId('showcase-edit-dialog')
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+const toast = (page: Page) => page.getByTestId('showcase-toast')
 
 async function draftRow(): Promise<{ revision: number; videoUrl: string | null; title: string }> {
   const { rows } = await pool.query(
@@ -73,12 +81,14 @@ async function draftRow(): Promise<{ revision: number; videoUrl: string | null; 
 test('AC-V13：不是 YouTube 影片的連結存檔被擋，紅字在影片欄下方、欄位標不合格；其他欄位還在、草稿不變', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  const create = page.getByRole('form', { name: '建立成果展示草稿' })
+  await page.getByRole('button', { name: '新增', exact: true }).click()
+  await page.getByRole('menuitem', { name: /^作品/ }).click()
+  const create = page.getByTestId('showcase-edit-dialog')
   await create.getByLabel('組別').selectOption({ label: 'G01' })
-  await create.getByRole('button', { name: '建立草稿' }).click()
-  await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
+  await create.getByRole('button', { name: '儲存', exact: true }).click()
+  await expect(toast(page)).toContainText('已替 G01 建立成果展示草稿')
 
-  const g01 = card(page)
+  const g01 = await openG01(page)
   const video = g01.getByLabel('影片連結')
   // 欄位說明（不是欄位名稱的一部分）。
   await expect(video).toHaveAccessibleDescription(/只收 YouTube 影片網址（watch、youtu\.be、shorts 都可以），不公開（unlisted）影片也可以。/)
@@ -88,7 +98,7 @@ test('AC-V13：不是 YouTube 影片的連結存檔被擋，紅字在影片欄�
 
   // 瀏覽器 type="url" 只擋非網址字串，提示是同一句。
   await video.fill('youtu.be/t25-demo')
-  await g01.getByRole('button', { name: '儲存草稿' }).click()
+  await g01.getByRole('button', { name: '儲存', exact: true }).click()
   expect(await video.evaluate((el) => (el as HTMLInputElement).validationMessage)).toBe(MESSAGE)
 
   for (const bad of [
@@ -100,7 +110,7 @@ test('AC-V13：不是 YouTube 影片的連結存檔被擋，紅字在影片欄�
     'javascript:alert(1)',
   ]) {
     await video.fill(bad)
-    await g01.getByRole('button', { name: '儲存草稿' }).click()
+    await g01.getByRole('button', { name: '儲存', exact: true }).click()
     const alert = g01.getByRole('alert')
     await expect(alert, bad).toHaveText(MESSAGE)
     await expect(alert).toHaveCount(1)
@@ -128,7 +138,7 @@ test('AC-V12、AC-V27⑦：五種 YouTube 網址存原字串；發布後版本�
     'https://www.youtube.com/live/dQw4w9WgXcQ?si=abc',
   ]
   for (const url of urls) {
-    const g01 = card(page)
+    const g01 = await openG01(page)
     await g01.getByLabel('題目').fill(TITLE)
     // 前後空白存檔時去掉（trim 後的原字串）。
     await g01.getByLabel('影片連結').fill(`${url} `)
@@ -136,23 +146,25 @@ test('AC-V12、AC-V27⑦：五種 YouTube 網址存原字串；發布後版本�
       await g01.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: PNG })
       await expect(g01.getByTestId('poster-name')).toContainText('poster.png')
     }
-    await g01.getByRole('button', { name: '儲存草稿' }).click()
-    await expect(g01.getByRole('status'), url).toContainText('G01 的成果展示草稿已儲存')
-    await expect(g01.getByRole('alert')).toHaveCount(0)
-    await expect(g01.getByLabel('影片連結')).not.toHaveAttribute('aria-invalid', 'true')
+    await g01.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(toast(page), url).toContainText('G01 的成果展示草稿已儲存')
+    // 存好視窗就關掉（沒有欄位錯）。
+    await expect(g01).toHaveCount(0)
     expect((await draftRow()).videoUrl).toBe(url)
     await page.reload()
-    await expect(card(page).getByLabel('影片連結'), url).toHaveValue(url)
+    const again = await openG01(page)
+    await expect(again.getByLabel('影片連結'), url).toHaveValue(url)
+    await expect(again.getByLabel('影片連結')).not.toHaveAttribute('aria-invalid', 'true')
+    await again.getByRole('button', { name: '取消' }).click()
   }
 
-  const g01 = card(page)
-  await g01.getByLabel(/已取得這組同學同意公開/).check()
-  await g01.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(g01.getByRole('group', { name: '公開' }).getByRole('status')).toContainText('已發布（第 1 版）')
-  const awardForm = g01.getByRole('form', { name: /的獎項/ })
-  await awardForm.getByLabel('獎項等級').selectOption('excellent')
-  await awardForm.getByRole('button', { name: '儲存獎項' }).click()
-  await expect(awardForm.getByRole('status')).toBeVisible()
+  // 發布與獎項同一個視窗、存一次。
+  const g01 = await openG01(page)
+  await g01.getByLabel(/儲存後發布：已取得這組同學同意公開/).check()
+  await g01.getByLabel('獎項等級').selectOption('excellent')
+  await g01.getByRole('button', { name: '儲存', exact: true }).click()
+  await expect(toast(page)).toContainText('已發布（第 1 版）')
+  await expect(toast(page)).toContainText('的獎項已設為「優秀專題」')
 
   const { rows } = await pool.query(
     `select e.id, v.video_url from showcase_entries e join showcase_versions v on v.id = e.current_version_id where e.cohort_id = $1`,

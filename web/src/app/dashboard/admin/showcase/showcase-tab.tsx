@@ -90,7 +90,8 @@ export async function ShowcaseTab({ cohortId, searchParams }: { cohortId: string
     publishedTitle: d.publishedTitle,
     // 封存屆別的作品照樣能改（優秀專題是跨屆的公開紀錄，W15）；只有解散的組鎖內容。
     locked: d.groupDissolved ? '這一組已解散，內容只能查看。' : null,
-    deleteBlocked: checkShowcaseLifecycle('delete', d.status),
+    // 按鈕本身寫原因（同公告分頁的說法）；規則照用例（公開中不能直接刪）。
+    deleteBlocked: checkShowcaseLifecycle('delete', d.status) ? '公開中，先下架才能刪' : null,
     savedNote: [
       `最後儲存 ${formatTaipeiMinute(d.updatedAt)}${d.updatedByName ? `・${d.updatedByName}` : ''}`,
       d.frozenInVersions > 0 ? `已有 ${d.frozenInVersions} 份站內同意書鎖定了這份草稿當時的內容（改草稿不影響它們）` : null,
