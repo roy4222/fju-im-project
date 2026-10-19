@@ -107,9 +107,12 @@ export default function HeroForm({ revision, fields, onDone, onCancel }: FeFormP
             className={INPUT}
             disabled={!hero || busy}
             placeholder={hero ? '例如：利瑪竇大樓外觀' : '上傳自訂圖片後再填'}
+            aria-describedby="fe-hint-hero-alt"
           />
-          <span className="text-xs font-normal text-muted-foreground">看不到圖片的人（例如用螢幕報讀）會聽到這段文字。</span>
         </label>
+        <p id="fe-hint-hero-alt" className="-mt-1 text-xs text-muted-foreground">
+          看不到圖片的人（例如用螢幕報讀）會聽到這段文字。
+        </p>
       </fieldset>
       <label className={LABEL}>
         標語第一行（首頁大標題）

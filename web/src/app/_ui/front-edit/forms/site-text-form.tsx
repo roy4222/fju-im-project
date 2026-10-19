@@ -22,9 +22,11 @@ const FOOTER_FIELDS: readonly { name: string; label: string; hint?: string }[] =
   { name: 'siteLabel', label: '系網（顯示文字）', hint: '留空就不顯示系網那一行。' },
   { name: 'siteHref', label: '系網網址', hint: '以 https:// 開頭。' },
   { name: 'slogan', label: '一句話介紹' },
-  { name: 'officeNote', label: '專題事務說明' },
+  { name: 'officeNote', label: '專題洽詢說明' },
   { name: 'industryNote', label: '產學洽詢說明' },
 ]
+
+const HINT = '-mt-2 text-xs text-muted-foreground'
 
 const str = (value: unknown) => (typeof value === 'string' ? value : value == null ? '' : String(value))
 
@@ -58,18 +60,26 @@ export default function SiteTextForm({ kind, id, revision, fields, onDone, onCan
       ) : null}
       {kind === 'footer_contact'
         ? FOOTER_FIELDS.map((f) => (
-            <label key={f.name} className={LABEL}>
-              {f.label}
-              <input
-                name={f.name}
-                value={values[f.name] ?? ''}
-                onChange={set(f.name)}
-                className={INPUT}
-                disabled={pending}
-                aria-invalid={error?.field === f.name || undefined}
-              />
-              {f.hint ? <span className="text-xs font-normal text-muted-foreground">{f.hint}</span> : null}
-            </label>
+            // 提示放在 label 外（aria-describedby），label 的名稱只有欄位名。
+            <div key={f.name} className="flex flex-col gap-1">
+              <label className={LABEL}>
+                {f.label}
+                <input
+                  name={f.name}
+                  value={values[f.name] ?? ''}
+                  onChange={set(f.name)}
+                  className={INPUT}
+                  disabled={pending}
+                  aria-invalid={error?.field === f.name || undefined}
+                  aria-describedby={f.hint ? `fe-hint-${f.name}` : undefined}
+                />
+              </label>
+              {f.hint ? (
+                <p id={`fe-hint-${f.name}`} className={HINT}>
+                  {f.hint}
+                </p>
+              ) : null}
+            </div>
           ))
         : null}
       {kind === 'quick_card' ? (
@@ -88,27 +98,33 @@ export default function SiteTextForm({ kind, id, revision, fields, onDone, onCan
               rows={3}
               disabled={pending}
               aria-invalid={error?.field === 'description' || undefined}
+              aria-describedby="fe-hint-description"
             />
-            <span className="text-xs font-normal text-muted-foreground">顯示在連結下面；留空就不顯示。連結與按鈕照登入狀態，不在這裡改。</span>
           </label>
+          <p id="fe-hint-description" className={HINT}>
+            顯示在連結下面；留空就不顯示。連結與按鈕照登入狀態，不在這裡改。
+          </p>
         </>
       ) : null}
       {kind === 'privacy' ? (
-        <label className={LABEL}>
-          內文
-          <textarea
-            name="body"
-            value={values.body ?? ''}
-            onChange={set('body')}
-            className={`${TEXTAREA} min-h-80 font-mono text-[13px]`}
-            rows={18}
-            disabled={pending}
-            aria-invalid={error?.field === 'body' || undefined}
-          />
-          <span className="text-xs font-normal text-muted-foreground">
+        <>
+          <label className={LABEL}>
+            內文
+            <textarea
+              name="body"
+              value={values.body ?? ''}
+              onChange={set('body')}
+              className={`${TEXTAREA} min-h-80 font-mono text-[13px]`}
+              rows={18}
+              disabled={pending}
+              aria-invalid={error?.field === 'body' || undefined}
+              aria-describedby="fe-hint-body"
+            />
+          </label>
+          <p id="fe-hint-body" className={HINT}>
             以「# 標題」起一節，空一行分段。「聯絡我們」那一節由頁尾聯絡資料自動帶入，不用寫。
-          </span>
-        </label>
+          </p>
+        </>
       ) : null}
       <div className="fe-actions">
         <button type="button" className="fe-btn" onClick={onCancel} disabled={pending}>

@@ -259,16 +259,16 @@ test('兩個分頁同時改頁尾：後存的被擋、視窗不關、內容還�
   await layer2.getByRole('button', { name: '編輯「頁尾聯絡資料」' }).click()
 
   const dialog1 = page.getByRole('dialog', { name: '編輯頁尾聯絡資料' })
-  await dialog1.getByLabel('專題事務說明').fill(`分頁一 ${stamp}`)
+  await dialog1.getByLabel('專題洽詢說明').fill(`分頁一 ${stamp}`)
   await dialog1.getByRole('button', { name: '儲存', exact: true }).click()
   await expectSaved(page, '編輯頁尾聯絡資料')
 
   const dialog2 = second.getByRole('dialog', { name: '編輯頁尾聯絡資料' })
-  await dialog2.getByLabel('專題事務說明').fill(`分頁二 ${stamp}`)
+  await dialog2.getByLabel('專題洽詢說明').fill(`分頁二 ${stamp}`)
   await dialog2.getByRole('button', { name: '儲存', exact: true }).click()
   await expect(dialog2.getByRole('alert')).toContainText(STALE)
   await expect(dialog2).toBeVisible()
-  await expect(dialog2.getByLabel('專題事務說明')).toHaveValue(`分頁二 ${stamp}`)
+  await expect(dialog2.getByLabel('專題洽詢說明')).toHaveValue(`分頁二 ${stamp}`)
 
   const rows = await sql<{ revision: number; note: string }>(`select revision, value->>'officeNote' as note from site_texts where key = 'footer_contact'`)
   expect(rows).toEqual([{ revision: 2, note: `分頁一 ${stamp}` }])

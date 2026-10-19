@@ -78,7 +78,7 @@ export const FOOTER_CONTACT_LABEL: Record<FooterContactField, string> = {
   siteLabel: '系網（顯示文字）',
   siteHref: '系網網址',
   slogan: '一句話介紹',
-  officeNote: '專題事務說明',
+  officeNote: '專題洽詢說明',
   industryNote: '產學洽詢說明',
 }
 
