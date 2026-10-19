@@ -157,12 +157,13 @@ export async function AffairsNewsList({ cohortId, searchParams }: { cohortId: st
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-1.5">
                     {r.pinnedAt ? (
-                      <span role="img" aria-label="置頂" title="置頂" data-testid="pinned-pill" className="shrink-0 text-primary">
+                      <span title="置頂" data-testid="pinned-pill" className="shrink-0 text-primary">
                         <IconPin aria-hidden className="size-4" />
+                        <span className="sr-only">置頂</span>
                       </span>
                     ) : null}
                     {filter === 'news' ? null : <span className="shrink-0 text-xs font-semibold text-muted-foreground">{PLACEMENT_LABEL[r.placement]}</span>}
-                    <Link href={`/dashboard/admin/editor/${r.id}`} className="link-ink block truncate text-[15px] font-bold">
+                    <Link href={`/dashboard/admin/editor/${r.id}`} className="link-ink block min-w-0 flex-1 truncate text-[15px] font-bold">
                       {r.title}
                     </Link>
                   </div>
