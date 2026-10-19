@@ -9,6 +9,7 @@ import { homeFor, renderActor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
+import { feItem, frontEditScope } from '@/app/_ui/front-edit/mark'
 import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
 import { roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
@@ -136,6 +137,12 @@ export async function SiteShell({ children, current, bare = false }: { children:
   const nav: readonly HeaderNavItem[] = isMember(actor) ? MEMBER_NAV : GUEST_NAV
   // 註冊關閉時（設計方案 §5），手機選單與頁尾都不列「註冊」。
   const registrationOpen = isRegistrationOpen()
+  // 前台編輯標記（C2-16）：頁尾聯絡資料一則、只能改不能刪；只有系辦經 /office-edit 改寫進來才有。
+  const contactMarks = feItem(await frontEditScope(), {
+    kind: 'footer_contact',
+    id: 'footer_contact',
+    fields: { title: '頁尾聯絡資料', address: SITE_CONTACT.address, phone: SITE_CONTACT.phone },
+  })
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <SiteHeader
@@ -147,7 +154,7 @@ export async function SiteShell({ children, current, bare = false }: { children:
       />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} />
+      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} contactMarks={contactMarks} />
     </div>
   )
 }
@@ -157,10 +164,12 @@ function SiteFooter({
   viewer,
   nav,
   registrationOpen,
+  contactMarks,
 }: {
   viewer: ReturnType<typeof viewerOf>
   nav: readonly HeaderNavItem[]
   registrationOpen: boolean
+  contactMarks: ReturnType<typeof feItem>
 }) {
   const columns = [
     { title: '內容', links: footerLinks(nav) },
@@ -182,7 +191,7 @@ function SiteFooter({
   return (
     <footer className="bg-ink text-ink-foreground">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
-        <div>
+        <div {...contactMarks}>
           <p className="text-lg font-bold">{SITE_CONTACT.department}</p>
           <p className="mt-3 text-[13px] leading-loose opacity-85">
             {SITE_CONTACT.address}

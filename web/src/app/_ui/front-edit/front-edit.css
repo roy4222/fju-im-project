@@ -1,0 +1,233 @@
+/*
+ * 前台編輯層的樣式（C2-16；規格② 設計方案 §6.2 第 6 點）。
+ * 只由 front-edit.tsx import，所以只跟著 /office-edit/* 下載；全站 globals.css 不變。
+ * 這裡的 class 都是 fe- 開頭的自訂名稱（不用 Tailwind 工具類，免得全站樣式表跟著變大）。
+ */
+
+.fe-toggle {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 70;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground, #fff);
+  padding: 0.75rem 1.25rem;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+
+.fe-toggle[aria-pressed='true'] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.fe-toggle:focus-visible,
+.fe-btn:focus-visible,
+.fe-icon-btn:focus-visible {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 2px;
+}
+
+.fe-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 60;
+}
+
+.fe-section,
+.fe-item {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.fe-section {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.fe-item {
+  outline: 1px dashed color-mix(in oklab, var(--primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.fe-section-label {
+  position: absolute;
+  top: -1.9rem;
+  left: -4px;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 6px 6px 6px 0;
+  background: var(--primary);
+  color: var(--primary-foreground, #fff);
+  padding: 0.2rem 0.375rem 0.2rem 0.6rem;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.fe-tools {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  pointer-events: auto;
+}
+
+.fe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.45rem 0.9rem;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.fe-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.fe-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.fe-btn-sm {
+  padding: 0.25rem 0.6rem;
+  font-size: 13px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+}
+
+.fe-btn-danger {
+  border-color: var(--destructive, #c62828);
+  color: var(--destructive, #c62828);
+}
+
+.fe-actions .fe-btn-danger {
+  background: var(--destructive, #c62828);
+  color: #fff;
+}
+
+.fe-reason {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.fe-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  border: 0;
+  border-radius: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+}
+
+.fe-dialog::backdrop {
+  background: rgb(15 23 42 / 0.45);
+}
+
+.fe-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.25rem;
+}
+
+.fe-dialog-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.fe-icon-btn {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  width: 2rem;
+  height: 2rem;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fe-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.25rem;
+}
+
+.fe-confirm-text {
+  margin: 0;
+  font-size: 15px;
+}
+
+.fe-error {
+  margin: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--destructive, #c62828) 10%, transparent);
+  color: var(--destructive, #c62828);
+  padding: 0.6rem 0.8rem;
+  font-size: 14px;
+}
+
+.fe-loading {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.fe-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.fe-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 5rem;
+  z-index: 80;
+  margin: 0;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: var(--foreground);
+  color: var(--background);
+  padding: 0.6rem 1rem;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.2);
+}
+
+@media (max-width: 640px) {
+  .fe-toggle {
+    right: 1rem;
+    bottom: 1rem;
+  }
+}

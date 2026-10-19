@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { feItem, frontEditScope } from '@/app/_ui/front-edit/mark'
 import { PublicPage } from '@/app/_ui/public-content'
 import { SITE_CONTACT } from '@/app/_ui/site-contact'
 import { SiteShell } from '@/app/_ui/site-shell'
@@ -18,11 +19,13 @@ const P = 'text-[15px] leading-relaxed text-foreground'
  * 四段文案照 Roy 定的 R4 草稿；保存年限寫「依校方規定」，不自訂數字；不做 cookie 橫幅。
  * 純靜態、不查資料庫，訪客與登入者看到的相同。聯絡資料讀 `SITE_CONTACT`，不寫死。
  */
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  // 前台編輯標記（C2-16）：只有系辦經 /office-edit 改寫進來才有（看改寫標頭，訪客不多查身分）。整頁內文一則、只能改不能刪。
+  const fe = await frontEditScope()
   return (
     <SiteShell current="/privacy" bare>
       <PublicPage title="隱私權政策" description="我們蒐集哪些資料、用在哪裡、誰看得到，以及怎麼聯絡我們。">
-        <div className="flex max-w-3xl flex-col gap-9">
+        <div className="flex max-w-3xl flex-col gap-9" {...feItem(fe, { kind: 'privacy', id: 'privacy', fields: { title: '隱私權政策' } })}>
           <section aria-labelledby="privacy-collect" className="flex flex-col gap-3">
             <h2 id="privacy-collect" className={H2}>
               我們蒐集哪些資料
