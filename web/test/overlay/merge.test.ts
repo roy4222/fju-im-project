@@ -1,5 +1,5 @@
 /**
- * overlay 合併器（D-23 放寬，INFRA-2）：I2-1 真實資料夾＝基底、I2-2 判定不變、I2-3 撞鍵報錯、I2-4 正常用法、I2-5 fold。
+ * overlay 合併器（D-23 放寬，INFRA-2）：I2-1 真實資料夾＝基底、I2-2 判定不變（只比沒被小檔動過的路由，INFRA-2-fix1）、I2-3 撞鍵報錯、I2-4 正常用法、I2-5 fold。
  * fixtures 在 `./fixtures/`（README 有說明）；單條錯誤直接用字串餵。
  */
 import { spawnSync } from 'node:child_process'
@@ -114,13 +114,28 @@ describe('I2-1 真實資料夾', () => {
   })
 })
 
+/**
+ * I2-2 只比**沒被任何小檔動過**的路由（INFRA-2-fix1）：小檔 override／delete 的鍵本來就該跟基底判定不同，
+ * 比照 I2-1 排除；沒被碰的鍵照舊逐條比。小檔合併報錯時這裡不比（由 I2-1「合併不報錯」那條報），全部被碰到時整條 skip。
+ */
+const SQL_BASE = readJson(SQL_EXPECT) as Record<string, { max: number; identity: number; noDuplicate?: string[] }>
+const SQL_UNTOUCHED = (() => {
+  try {
+    const r = mergeFromBaseFile<typeof SQL_BASE>(SQL_EXPECT, 'sql-expect')
+    const touched = new Set([...r.changed, ...r.deleted])
+    return Object.keys(SQL_BASE).filter((k) => !k.startsWith('$') && !touched.has(k))
+  } catch {
+    return []
+  }
+})()
+
 describe('I2-2 判定不變', () => {
-  test('sql.mjs 的 judge 對同一份假量測，用合併後的期望與用基底的期望結果相同', () => {
-    const base = readJson(SQL_EXPECT) as Record<string, { max: number; identity: number; noDuplicate?: string[] }>
+  test.skipIf(SQL_UNTOUCHED.length === 0)('sql.mjs 的 judge 對同一份假量測，用合併後的期望與用基底的期望結果相同（只比沒被小檔動過的路由）', () => {
+    const base = SQL_BASE
     const merged = mergeFromBaseFile<typeof base>(SQL_EXPECT, 'sql-expect').merged
     const sig = 'select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter (where x)'
     const row = { total: 999, identity: 3, duplicates: [{ sig, count: 2 }] }
-    for (const route of Object.keys(base).filter((k) => !k.startsWith('$'))) {
+    for (const route of SQL_UNTOUCHED) {
       const want = judge(row, base[route], [sig])
       expect(want.length, route).toBeGreaterThan(0) // 假量測刻意超標，判定不是空的
       expect(judge(row, merged[route], [sig])).toEqual(want)
