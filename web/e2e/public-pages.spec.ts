@@ -152,7 +152,7 @@ async function itemByTitle(title: string) {
   return found.rows[0]!
 }
 
-/** 清單「新增公告」→ 選類型 → 一頁式共用表單（C1-06）→ 發布。正文用原始 HTML 填（要測前台淨化與排版）。 */
+/** 那一類分頁的「新增」→ 一頁式共用表單（C1-06）→ 發布。正文用原始 HTML 填（要測前台淨化與排版）。 */
 async function quickPublish(
   page: Page,
   options: {
@@ -165,12 +165,15 @@ async function quickPublish(
     important?: boolean
   },
 ) {
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const picker = page.getByRole('dialog', { name: '新增公告' })
-  await picker.getByRole('radio', { name: options.placement }).check()
-  await picker.getByRole('button', { name: '下一步' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
+  // C1-07：各分頁的「新增」直接開那一類的表單（不再先選類型）。
+  const tab = options.placement.test('專題規則')
+    ? { path: 'affairs/rules', button: '新增規則' }
+    : options.placement.test('資源下載')
+      ? { path: 'affairs/resources', button: '新增資源' }
+      : { path: 'affairs', button: '新增公告' }
+  await page.goto(`/dashboard/admin/${tab.path}?cohort=${cohortId}`)
+  await page.getByRole('button', { name: tab.button }).click()
+  const dialog = page.getByRole('dialog', { name: tab.button })
   const form = await formReady(dialog)
   await fillItemForm(page, form, { title: options.title, audience: options.audience, html: options.body, file: options.file })
   // 「重要公告」在進階設定（公告、資源才有）：公開、所有登入者的公告預設不逐人通知；其他對象預設通知。
