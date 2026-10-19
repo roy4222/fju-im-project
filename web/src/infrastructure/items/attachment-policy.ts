@@ -1,8 +1,10 @@
 import 'server-only'
 import type { Pool } from 'pg'
+import type { ResolvedActor } from '@/application/accounts'
 import { canViewItem, type AudienceKind, type ItemStatus, type ReceiverUnit } from '@/application/items'
 import type { DownloadPolicy } from '@/application/ops'
 import { viewerOf } from '@/infrastructure/items/viewer'
+import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-access'
 
 /**
  * 專題事務附件與封面的下載政策（`DOWNLOAD_POLICIES.attachment`；產品模組 04 §4.3、契約 03 §1）。
@@ -19,6 +21,12 @@ import { viewerOf } from '@/infrastructure/items/viewer'
  *
  * 只看**目前有效**的引用（`released_at IS NULL`，由共用檔案能力先篩好）：從項目拿掉的舊附件就下載不到了。
  * 每次下載都重查（契約 03 §4），不快取結果。
+ *
+ * **站內同意書的附件**（C 階段規格① §3.3，C1-03）：同意書作業發布時，作業附件以 `signoff_version` 引用綁到各組的簽核版本上。
+ * 另接受「經簽核版本讀權驗證」的 `signoff_version` 引用：讀得到那一版的人（`canReadSignoffVersions`：管理員、快照裡的學生、
+ * 該組此刻的組員與主指導）就下載得到——主指導因此能下載整組收件的同意書附件；系辦換掉附件後，只剩舊版 `signoff_version`
+ * 引用的舊檔，系辦與該舊版參與者仍可下載。**不放寬其他附件**：沒有 `item_attachment`、也沒有可讀簽核版本引用的檔照舊拒絕；
+ * 非該組參與者的老師對同一檔仍只依 item 對象判斷。訪客、狀態被擋的人（比照訪客）不走簽核這一條。
  */
 
 type ItemFacts = {
@@ -33,29 +41,38 @@ type ItemFacts = {
 export function createAttachmentPolicy(reader: () => Pick<Pool, 'query'>): DownloadPolicy {
   return async (actor, file) => {
     const itemIds = file.references.filter((r) => r.refType === 'item_attachment').map((r) => r.refId)
-    if (itemIds.length === 0) return false
+    const signoffIds = file.references.filter((r) => r.refType === 'signoff_version').map((r) => r.refId)
+    if (itemIds.length === 0 && signoffIds.length === 0) return false
 
     const db = reader()
-    const items = await db.query<ItemFacts>(
-      `select m.id, m.status, m.audience_kind, m.cohort_id, m.receiver_unit,
-              array(select a.group_id from item_audience_groups a where a.item_id = m.id) as group_ids
-         from managed_items m where m.id = any($1::uuid[]) and m.deleted_at is null`,
-      [itemIds],
-    )
-    if (items.rows.length === 0) return false
-    if (actor.kind === 'authenticated' && actor.roles.includes('admin')) return true
-
-    const viewer = await viewerOf(db, actor, {
-      needsGroups: items.rows.some((i) => i.audience_kind === 'groups' || i.audience_kind === 'cohort_students'),
-    })
-    return items.rows.some((i) =>
-      canViewItem(viewer, {
-        status: i.status,
-        audienceKind: i.audience_kind,
-        cohortId: i.cohort_id,
-        groupIds: i.group_ids ?? [],
-        receiverUnit: i.receiver_unit,
-      }),
-    )
+    if (itemIds.length > 0 && (await viewableViaItems(db, actor, itemIds))) return true
+    // 簽核版本引用：只給登入者，用版本頁同一個讀權判斷（管理員在裡面放行）。
+    if (signoffIds.length > 0 && actor.kind === 'authenticated') return canReadSignoffVersions(db, actor, signoffIds)
+    return false
   }
+}
+
+/** 原本的規則：誰看得到綁著這個檔的（未刪除）項目（管理員任何狀態；其他人看對象）。 */
+async function viewableViaItems(db: Pick<Pool, 'query'>, actor: ResolvedActor, itemIds: readonly string[]): Promise<boolean> {
+  const items = await db.query<ItemFacts>(
+    `select m.id, m.status, m.audience_kind, m.cohort_id, m.receiver_unit,
+            array(select a.group_id from item_audience_groups a where a.item_id = m.id) as group_ids
+       from managed_items m where m.id = any($1::uuid[]) and m.deleted_at is null`,
+    [itemIds],
+  )
+  if (items.rows.length === 0) return false
+  if (actor.kind === 'authenticated' && actor.roles.includes('admin')) return true
+
+  const viewer = await viewerOf(db, actor, {
+    needsGroups: items.rows.some((i) => i.audience_kind === 'groups' || i.audience_kind === 'cohort_students'),
+  })
+  return items.rows.some((i) =>
+    canViewItem(viewer, {
+      status: i.status,
+      audienceKind: i.audience_kind,
+      cohortId: i.cohort_id,
+      groupIds: i.group_ids ?? [],
+      receiverUnit: i.receiver_unit,
+    }),
+  )
 }

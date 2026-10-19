@@ -1,13 +1,13 @@
 import 'server-only'
-import { noopConsentPublishHook, type ConsentPublishHook, type ItemCommand, type ItemQuery, type PublicItemQuery } from '@/application/items'
+import type { ItemCommand, ItemQuery, PublicItemQuery } from '@/application/items'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getDueWorkScheduler, getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
+import { getConsentPublishHook } from '@/composition/signoff'
 import { getPool } from '@/infrastructure/db/client'
 import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
-import type { PoolClient } from 'pg'
 
 /** 模組 04 專題事務的實例組裝（票 15：建立、編輯、發布、發布更新；票 16：撤回、下架、重新發布、前台查詢）。 */
 let itemCommand: ItemCommand | undefined
@@ -24,8 +24,8 @@ export function getItemCommand(): ItemCommand {
     // 有人存過草稿或正式送出後，收件單位、對象、欄位結構鎖定（票 17 接上的真查詢）。
     responses: new PgResponsePresence(),
     businessClock: getBusinessClock(),
-    // 站內同意書發布時建包：簽核模組的實作（C1-03）接上之前先注入空實作，作業照常發布、不建包。
-    consent: noopConsentPublishHook as ConsentPublishHook<PoolClient>,
+    // 站內同意書：發布建包、改內容建新版、移出對象作廢（簽核模組的 `PgConsentPublishHook`，C1-03；同一筆交易）。
+    consent: getConsentPublishHook(),
   })
   return itemCommand
 }
