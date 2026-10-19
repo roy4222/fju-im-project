@@ -16,6 +16,7 @@ const summary: VersionSummary = {
   receivedBusinessAt: new Date('2026-10-01T04:05:06Z'),
   receivedRealAt: new Date('2026-10-01T04:05:06Z'),
   submittedByName: '王小明',
+  submittedBy: { id: '0192d4c5-7b1e-7a00-8000-000000000001', name: '王小明', avatarPreset: null, avatarFileId: null },
   schemaVersionNo: 7,
   requestId: 'req-1',
   late: false,

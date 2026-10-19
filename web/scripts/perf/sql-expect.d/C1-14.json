@@ -1,0 +1,4 @@
+{
+  "ticket": "C1-14",
+  "set": { "/rules": { "as": "anonymous", "baseline": 4, "max": 4, "identity": 0 } }
+}

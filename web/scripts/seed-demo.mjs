@@ -16,7 +16,7 @@
  *   - 示範帳號的 Email 一律是保留網域 `@demo.invalid`（老師、學生、「系辦管理員（示範）」）。
  *     **登不進來**：沒有密碼（`accounts` 沒有列）、Google 也不可能有 `.invalid` 的帳號；
  *     「系辦管理員（示範）」只是所有示範資料的建立者，狀態是停用、沒有任何角色。
- *   - 產學合作案的案主是示範老師；封面與附件的檔案擁有者是「系辦管理員（示範）」。
+ *   - 產學合作案的案主是示範老師；封面與附件的檔案擁有者是「系辦管理員（示範）」，繳交的檔案是送出的那位示範學生。
  *   - 每個 id 都由固定的 key 算出來（`demoId`），重跑產生一樣的 id。
  *
  * 冪等：示範屆別已經在就不再建（只把遺失的封面／附件檔案補回 FILES_ROOT，並補票 39 加的欄位——只填空著的）。整批寫入是同一筆交易，
@@ -259,6 +259,21 @@ function fileSpecs() {
   for (const pr of demo.PROJECTS) {
     specs.push({ key: `file:${pr.key}:poster`, entryKey: pr.key, name: `${pr.title}（海報）.jpg`, kind: 'jpg', source: pr.image, purpose: 'poster', date: pr.published, unshifted: true, cohort: pr.cohort })
   }
+  // C1-17：系統驗收文件各組繳交的 PDF（繳交檔，不是作業附件：不帶 `itemKey`，擁有者是送出的組員）。
+  const acceptance = demo.ACCEPTANCE_COLLECTION
+  for (const sub of acceptance.submitted) {
+    const g = demo.GROUPS.find((x) => x.key === sub.group)
+    specs.push({
+      key: `file:${acceptance.key}:${sub.group}:submission`,
+      submission: { itemKey: acceptance.key, group: sub.group, fieldKey: 'f2' },
+      owner: g.members[0].key,
+      name: `${g.code} 系統發展文件.pdf`,
+      kind: 'pdf',
+      source: `${acceptance.key}-${sub.group}`,
+      purpose: 'submission',
+      date: sub.at.slice(0, 10),
+    })
+  }
   return specs.map((s) => ({ ...s, id: demoId(s.key) }))
 }
 
@@ -281,10 +296,10 @@ function resolveInRoot(key) {
 async function writeMissingFiles(db) {
   if (!filesRoot) return 0
   const specs = new Map(fileSpecs().map((s) => [s.id, s]))
-  const rows = await db.query(
-    `select id, storage_key, checksum from stored_files where owner_user_id = $1 and status = 'stored'`,
-    [OFFICE_ID],
-  )
+  // 用規格的 id 找（繳交檔的擁有者是學生，不是系辦管理員（示範））。
+  const rows = await db.query(`select id, storage_key, checksum from stored_files where id = any($1::uuid[]) and status = 'stored'`, [
+    [...specs.keys()],
+  ])
   let written = 0
   for (const row of rows.rows) {
     const spec = specs.get(row.id)
@@ -474,17 +489,19 @@ async function seed(db, phases) {
   const specs = fileSpecs()
   const pendingWrites = []
   /**
-   * 一個示範檔：寫 `stored_files`（擁有者是系辦管理員（示範））與有效引用。專題事務的封面與附件引用項目；
-   * 精選海報（`purpose='poster'`）同時引用草稿與發布的那一版（#293：之後換草稿海報，已發布那張才不會變成沒有引用）。
+   * 一個示範檔：寫 `stored_files`（擁有者是系辦管理員（示範）；繳交檔是 `spec.owner`）與有效引用。專題事務的封面與附件引用項目；
+   * 精選海報（`purpose='poster'`）同時引用草稿與發布的那一版（#293：之後換草稿海報，已發布那張才不會變成沒有引用）；
+   * 繳交檔（`submission`）引用繳交草稿與送出的那一版。
    */
-  const addFile = async (spec, poster = null) => {
+  const addFile = async (spec, poster = null, submission = null) => {
     const bytes = await fileBytes(spec)
     const uploaded = spec.unshifted ? history(spec.date, '09:30') : at(spec.date, '09:30')
     const key = storageKeyFor(spec.id, uploaded)
     const checksum = createHash('sha256').update(bytes).digest('hex')
+    const owner = spec.owner ? userId(spec.owner) : OFFICE_ID
     await insert(db, 'stored_files', {
       id: spec.id,
-      owner_user_id: OFFICE_ID,
+      owner_user_id: owner,
       scope: 'cohort',
       cohort_id: cohortIdOf(spec.cohort ?? demo.COHORT.code),
       purpose: spec.purpose ?? 'attachment',
@@ -500,14 +517,20 @@ async function seed(db, phases) {
       finalized_at: uploaded,
       created_at: uploaded,
       updated_at: uploaded,
-      updated_by_user_id: OFFICE_ID,
+      updated_by_user_id: owner,
     })
+    // 繳交檔同 pg-submissions：草稿與送出的那一版都引用它。
     const refs = poster
       ? [
           ['showcase_draft', poster.entryId],
           ['showcase_version', poster.versionId],
         ]
-      : [['item_attachment', demoId(`item:${spec.itemKey}`)]]
+      : submission
+        ? [
+            ['draft', submission.draftId],
+            ['submission_version', submission.versionId],
+          ]
+        : [['item_attachment', demoId(`item:${spec.itemKey}`)]]
     for (const [i, [refType, refId]] of refs.entries()) {
       await insert(db, 'file_references', {
         id: demoId(i === 0 ? `file-ref:${spec.key}` : `file-ref:${spec.key}:${refType}`),
@@ -537,7 +560,9 @@ async function seed(db, phases) {
       placement: item.placement,
       audience_kind: item.audience,
       receiver_unit: item.receiverUnit ?? 'none',
-      stage_id: item.stage ? demoId(`stage:${item.stage}`) : null,
+      // 作業不再寫所屬階段（C1-17，規格① §1.1：`stage_id` 保留、不寫）。
+      consent_mode: item.consentMode ?? null,
+      consent_purpose: item.consentPurpose ?? null,
       status: 'draft',
       due_at: item.dueAt ?? null,
       title: item.title,
@@ -606,6 +631,96 @@ async function seed(db, phases) {
   }
 
   const teacherName = new Map(demo.TEACHERS.map((t) => [t.key, t.name]))
+
+  /**
+   * 一份正式繳交（草稿列＋第 1 版），收件者是組或人。`file`（選填）＝這一版附的繳交檔規格：
+   * 跟 pg-submissions 一樣草稿與這一版都引用它，checksum 抄進 `submission_files`。
+   */
+  const submit = async ({ itemKey, itemId, schemaId, receiver, answers, by, when, members, file = null }) => {
+    const tag = `${itemKey}:${receiver.key}`
+    await insert(db, 'submission_drafts', {
+      id: demoId(`draft:${tag}`),
+      item_id: itemId,
+      receiver_kind: receiver.kind,
+      receiver_id: receiver.id,
+      schema_version_id: schemaId,
+      answers: json(answers),
+      revision: 1,
+      created_at: when,
+      created_by_kind: 'user',
+      created_by_user_id: userId(by),
+      updated_at: when,
+      updated_by_user_id: userId(by),
+    })
+    await insert(db, 'submission_versions', {
+      id: demoId(`submission:${tag}:1`),
+      item_id: itemId,
+      receiver_kind: receiver.kind,
+      receiver_id: receiver.id,
+      version_no: 1,
+      schema_version_id: schemaId,
+      answers: json(answers),
+      submitted_by_user_id: userId(by),
+      received_real_at: when,
+      received_business_at: when,
+      request_id: demoId(`submission-request:${tag}:1`),
+      membership_snapshot: members ? json(members.map((m) => userId(m.key))) : null,
+      advisor_snapshot: receiver.advisorSnapshot ? json(receiver.advisorSnapshot) : null,
+      deadline_version_at_submit: 1,
+    })
+    if (file) {
+      const { checksum } = await addFile(file, null, { draftId: demoId(`draft:${tag}`), versionId: demoId(`submission:${tag}:1`) })
+      await insert(db, 'submission_files', {
+        submission_version_id: demoId(`submission:${tag}:1`),
+        file_id: file.id,
+        field_key: file.submission.fieldKey,
+        checksum,
+      })
+    }
+    count('正式繳交')
+  }
+  const rosterRow = async (itemKey, itemId, receiver, from) => {
+    await insert(db, 'response_rosters', {
+      id: demoId(`roster-row:${itemKey}:${receiver.key}`),
+      item_id: itemId,
+      cohort_id: COHORT_ID,
+      receiver_kind: receiver.kind,
+      receiver_id: receiver.id,
+      eligible_from_business_at: from,
+      source: 'auto',
+      created_at: from,
+      created_by_kind: 'user',
+      created_by_user_id: OFFICE_ID,
+      updated_at: from,
+      updated_by_user_id: OFFICE_ID,
+    })
+  }
+
+  const publishCollection = async (c, { receiverUnit, audience, audienceGroups, consentPurpose = null }) => {
+    const opened = at(c.published, '10:00')
+    const dueAt = c.due ? at(c.due, '23:59') : null
+    const published = await publishItem({
+      key: c.key,
+      placement: c.placement,
+      audience,
+      audienceGroups,
+      receiverUnit,
+      consentMode: consentPurpose ? 'form' : null,
+      consentPurpose,
+      dueAt,
+      title: c.title,
+      summary: c.summary,
+      bodyHtml: c.bodyHtml ?? paragraphs([c.summary]),
+      fields: c.fields,
+      openedAt: opened,
+    })
+    count('收件項目')
+    return { ...published, opened, dueAt }
+  }
+  const advisorSnapshotOf = (g) => ({
+    assignmentId: g.advisor ? demoId(`advisor:${g.key}`) : null,
+    teacherUserId: g.advisor ? userId(g.advisor) : null,
+  })
 
   // ═══ 第一批：DEMO-114 與它底下的一切（#290）═══
   const seedCurrent = async () => {
@@ -1063,7 +1178,6 @@ async function seed(db, phases) {
       placement: c.placement,
       audience: 'cohort_students',
       receiverUnit: 'group',
-      stage: c.stage,
       dueAt,
       title: c.title,
       summary: c.summary,
@@ -1254,6 +1368,67 @@ async function seed(db, phases) {
     count(a.state === 'final' ? '正式評分' : '暫存評分')
   }
 
+  // ── 專題事務的作業示範（C1-17，規格① §1.7）：老師作業、站內同意書作業、系統驗收文件＋評分項目的對應 ──
+  // 給老師的作業：每位老師一列名單（個人收件），`submitted` 的老師各交一份。
+  const tc = demo.TEACHER_COLLECTION
+  const teacherItem = await publishCollection(tc, { receiverUnit: 'individual', audience: 'teachers' })
+  for (const t of demo.TEACHERS) {
+    const receiver = { kind: 'user', id: userId(t.key), key: t.key }
+    await rosterRow(tc.key, teacherItem.id, receiver, teacherItem.opened)
+    const sub = tc.submitted.find((x) => x.teacher === t.key)
+    if (!sub) continue
+    await submit({ itemKey: tc.key, itemId: teacherItem.id, schemaId: teacherItem.schemaId, receiver, answers: tc.answers[t.key], by: t.key, when: stamp(sub.at) })
+  }
+
+  // 站內同意書作業（最終文件授權）：對象＝有主指導的 6 組、每組一列名單；簽核包在下面建，`item_id` 指到這裡。
+  const cc = demo.CONSENT_COLLECTION
+  const consentGroups = demo.GROUPS.filter((g) => g.advisor && demo.SIGNOFF.approvals[g.key])
+  const consentItem = await publishCollection(
+    { ...cc, bodyHtml: paragraphs(demo.SIGNOFF.body) },
+    { receiverUnit: 'group', audience: 'groups', audienceGroups: consentGroups.map((g) => g.key), consentPurpose: 'final_document' },
+  )
+  for (const g of consentGroups) {
+    await rosterRow(cc.key, consentItem.id, { kind: 'group', id: groupId(g.key), key: g.key }, consentItem.opened)
+  }
+
+  // 系統驗收文件：每組一列名單，`submitted` 的三組各交一份 PDF（沒有 FILES_ROOT 就不建檔，只交補充說明）。
+  const ac = demo.ACCEPTANCE_COLLECTION
+  const acceptanceItem = await publishCollection(ac, { receiverUnit: 'group', audience: 'cohort_students' })
+  for (const g of demo.GROUPS) {
+    const from = new Date(Math.max(acceptanceItem.opened.getTime(), at(g.established, '17:00').getTime()))
+    const receiver = { kind: 'group', id: groupId(g.key), key: g.key }
+    await rosterRow(ac.key, acceptanceItem.id, receiver, from)
+    const sub = ac.submitted.find((x) => x.group === g.key)
+    if (!sub) continue
+    const file = filesRoot ? specs.find((x) => x.submission?.itemKey === ac.key && x.submission.group === g.key) : null
+    await submit({
+      itemKey: ac.key,
+      itemId: acceptanceItem.id,
+      schemaId: acceptanceItem.schemaId,
+      receiver: { ...receiver, advisorSnapshot: advisorSnapshotOf(g) },
+      answers: { ...(file ? { f2: file.id } : {}), f3: `${g.code} 系統發展文件第一版。` },
+      by: g.members[0].key,
+      when: stamp(sub.at),
+      members: g.members,
+      file,
+    })
+  }
+
+  // 評分項目的對應作業與說明（不進方案版本，示範不設評審組）。
+  const settingsAt = at('2026-08-12', '10:30')
+  for (const st of demo.STAGE_SETTINGS) {
+    await insert(db, 'grading_stage_settings', {
+      cohort_id: COHORT_ID,
+      stage_key: st.stage,
+      item_id: st.item ? demoId(`item:${st.item}`) : null,
+      description: st.description,
+      panel_key: null,
+      updated_by_user_id: OFFICE_ID,
+      updated_at: settingsAt,
+    })
+  }
+  count('評分項目設定', demo.STAGE_SETTINGS.length)
+
   // ── 精選草稿（每組一份）與簽核（有主指導的組）──
   const signoffAt = at(demo.SIGNOFF.created, '10:00')
   for (const g of demo.GROUPS) {
@@ -1291,6 +1466,8 @@ async function seed(db, phases) {
       group_id: groupId(g.key),
       cohort_id: COHORT_ID,
       purpose: 'final_document',
+      // 掛在站內同意書作業底下（seed 直接寫，不走發布 hook）。
+      item_id: consentItem.id,
       created_at: signoffAt,
       created_by_user_id: OFFICE_ID,
       updated_at: signoffAt,
@@ -1471,81 +1648,9 @@ async function seed(db, phases) {
     }
     count('第三波公告', demo.WAVE3_NEWS.length)
 
-    /** 一份正式繳交（草稿列＋第 1 版），收件者是組或人。 */
-    const submit = async ({ itemKey, itemId, schemaId, receiver, answers, by, when, members }) => {
-      const tag = `${itemKey}:${receiver.key}`
-      await insert(db, 'submission_drafts', {
-        id: demoId(`draft:${tag}`),
-        item_id: itemId,
-        receiver_kind: receiver.kind,
-        receiver_id: receiver.id,
-        schema_version_id: schemaId,
-        answers: json(answers),
-        revision: 1,
-        created_at: when,
-        created_by_kind: 'user',
-        created_by_user_id: userId(by),
-        updated_at: when,
-        updated_by_user_id: userId(by),
-      })
-      await insert(db, 'submission_versions', {
-        id: demoId(`submission:${tag}:1`),
-        item_id: itemId,
-        receiver_kind: receiver.kind,
-        receiver_id: receiver.id,
-        version_no: 1,
-        schema_version_id: schemaId,
-        answers: json(answers),
-        submitted_by_user_id: userId(by),
-        received_real_at: when,
-        received_business_at: when,
-        request_id: demoId(`submission-request:${tag}:1`),
-        membership_snapshot: members ? json(members.map((m) => userId(m.key))) : null,
-        advisor_snapshot: receiver.advisorSnapshot ? json(receiver.advisorSnapshot) : null,
-        deadline_version_at_submit: 1,
-      })
-      count('正式繳交')
-    }
-    const rosterRow = async (itemKey, itemId, receiver, from) => {
-      await insert(db, 'response_rosters', {
-        id: demoId(`roster-row:${itemKey}:${receiver.key}`),
-        item_id: itemId,
-        cohort_id: COHORT_ID,
-        receiver_kind: receiver.kind,
-        receiver_id: receiver.id,
-        eligible_from_business_at: from,
-        source: 'auto',
-        created_at: from,
-        created_by_kind: 'user',
-        created_by_user_id: OFFICE_ID,
-        updated_at: from,
-        updated_by_user_id: OFFICE_ID,
-      })
-    }
-    const publishCollection = async (c, receiverUnit, audience, audienceGroups) => {
-      const opened = at(c.published, '10:00')
-      const dueAt = at(c.due, '23:59')
-      const published = await publishItem({
-        key: c.key,
-        placement: c.placement,
-        audience,
-        audienceGroups,
-        receiverUnit,
-        stage: c.stage,
-        dueAt,
-        title: c.title,
-        summary: c.summary,
-        bodyHtml: paragraphs([c.summary]),
-        fields: c.fields,
-        openedAt: opened,
-      })
-      count('收件項目')
-      return { ...published, opened, dueAt }
-    }
-
     // 已有組別交件、之後下架的收件（Q28）：每組一列名單，`submitted` 的組各交一份。
     const ac = demo.ARCHIVED_COLLECTION
-    const archived = await publishCollection(ac, 'group', 'cohort_students')
+    const archived = await publishCollection(ac, { receiverUnit: 'group', audience: 'cohort_students' })
     for (const [i, g] of demo.GROUPS.entries()) {
       const from = new Date(Math.max(archived.opened.getTime(), at(g.established, '17:00').getTime()))
       const receiver = { kind: 'group', id: groupId(g.key), key: g.key }
@@ -1555,10 +1660,7 @@ async function seed(db, phases) {
         itemKey: ac.key,
         itemId: archived.id,
         schemaId: archived.schemaId,
-        receiver: {
-          ...receiver,
-          advisorSnapshot: { assignmentId: g.advisor ? demoId(`advisor:${g.key}`) : null, teacherUserId: g.advisor ? userId(g.advisor) : null },
-        },
+        receiver: { ...receiver, advisorSnapshot: advisorSnapshotOf(g) },
         answers: { f2: String(Math.min(g.members.length, 3)), f3: i % 2 === 0 ? '宏昇物流' : '昱鋼精機' },
         by: g.members[0].key,
         when: new Date(from.getTime() + (20 + i) * 3600_000),
@@ -1570,7 +1672,7 @@ async function seed(db, phases) {
     // 每人一份、已截止：指定組別的組員每人一列，只有 `overdue` 那位沒交。
     const ic = demo.INDIVIDUAL_COLLECTION
     const icGroup = demo.GROUPS.find((g) => g.key === ic.group)
-    const individual = await publishCollection(ic, 'individual', 'groups', [ic.group])
+    const individual = await publishCollection(ic, { receiverUnit: 'individual', audience: 'groups', audienceGroups: [ic.group] })
     for (const [i, m] of icGroup.members.entries()) {
       const receiver = { kind: 'user', id: userId(m.key), key: m.key }
       await rosterRow(ic.key, individual.id, receiver, individual.opened)
@@ -1834,6 +1936,7 @@ const REMOVE_STEPS = [
   [`update evaluator_assignments set previous_assignment_id = null where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
   [`delete from evaluator_assignments where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
   [`delete from stage_requirements where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
+  [`delete from grading_stage_settings where cohort_id = any($1::uuid[])`],
   [`update grading_schemes set current_version_id = null where cohort_id = any($1::uuid[])`],
   [`delete from grading_scheme_versions where scheme_id in (select id from grading_schemes where cohort_id = any($1::uuid[]))`],
   [`delete from grading_schemes where cohort_id = any($1::uuid[])`],

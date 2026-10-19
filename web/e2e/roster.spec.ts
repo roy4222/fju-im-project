@@ -225,10 +225,10 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   await page.goto('/dashboard/student/affairs')
   await expect(page.getByRole('navigation', { name: '篩選作業' }).getByRole('link', { name: /待交\s*1/ })).toBeVisible()
 
-  await page.goto(`/dashboard/student/affairs/${itemId}`)
+  await page.goto(`/dashboard/student/affairs/${itemId}?tab=history&write=1`)
   await page.getByLabel('想做的題目').fill('校園導覽 App')
   await page.getByLabel('一般專題').check()
-  await page.getByRole('button', { name: '正式送出' }).click()
+  await page.getByRole('button', { name: '繳交作業' }).click()
   await expect(page.getByTestId('receipt')).toContainText('第 1 次')
   await page.getByRole('button', { name: '關閉' }).click()
 
