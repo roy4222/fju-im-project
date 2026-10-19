@@ -244,7 +244,7 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
         tx,
         {
           actorUserId: adminId,
-          operationKind: 'signoff.consent_create_for_group',
+          operationKind: 'signoff.version_create',
           requestId,
           fingerprint: sha256(canonicalJson({ itemId: item.id, groupId: group.id })),
           scope: 'cohort',
