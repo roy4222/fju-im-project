@@ -85,6 +85,24 @@ const HISTORY_COHORT_IDS = demo.HISTORY_COHORTS.map((c) => cohortIdOf(c.code))
 const ALL_COHORT_IDS = [COHORT_ID, ...HISTORY_COHORT_IDS]
 const ALL_COHORT_CODES = [demo.COHORT.code, ...demo.HISTORY_COHORTS.map((c) => c.code)]
 
+/**
+ * C3-01：示範屆別的老師與學生各有一張固定的預設頭像（1～100），照下面的順序配號（決定性，重跑一樣）。
+ * 不放上傳檔（seed 不碰 `stored_files` 的頭像）。
+ */
+const AVATAR_KEYS = [
+  ...demo.TEACHERS,
+  ...demo.GROUPS.flatMap((g) => g.members),
+  ...demo.UNGROUPED,
+  ...demo.DISABLED,
+  ...demo.AUTO_APPROVED,
+].map((p) => p.key)
+const avatarPresetOf = (key) => {
+  const i = AVATAR_KEYS.indexOf(key)
+  return i === -1 ? null : (i % 100) + 1
+}
+/** C3-01：全天活動的結束（不含）＝`endDate` 00:00；有時段的是當天 `to`。 */
+const eventEnd = (e, at) => (e.allDay ? at(e.endDate, '00:00') : at(e.date, e.to))
+
 function sha256(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
@@ -394,6 +412,65 @@ async function fillShowcaseStageFields(db, day) {
 }
 
 /**
+ * C3-01（migration 0023，規格③ §10.3）加的示範內容：頭像、名片、g-03 產學待確認、提案改產學、活動結束時間與跨三天的佈展。
+ *
+ * 新建時 `seed` 直接寫好，這裡什麼都不會補；**已經灌過的測試站**每次跑才補，策略同 `fillShowcaseStageFields`：
+ * 只填還空著的（頭像兩欄都 NULL、名片自介空且技能空陣列、全天活動沒有結束時間、提案還開著且沒選合作案、
+ * g-03 的連結還開著且沒有指導老師、佈展那筆不存在），系辦或本人改過的不覆蓋；重跑第二次什麼都不會變。回傳這次補了幾列。
+ */
+async function fillProfileCardFields(db, at) {
+  let filled = 0
+  const run = async (sql, values) => {
+    filled += (await db.query(sql, values)).rowCount ?? 0
+  }
+  for (const key of AVATAR_KEYS) {
+    await run(
+      `update user_profiles set avatar_preset = $2, revision = revision + 1
+        where user_id = $1 and avatar_preset is null and avatar_file_id is null`,
+      [userId(key), avatarPresetOf(key)],
+    )
+  }
+  for (const u of demo.UNGROUPED) {
+    await run(
+      `update user_profiles set bio = $2, skills = $3::jsonb, revision = revision + 1
+        where user_id = $1 and bio = '' and skills = '[]'::jsonb`,
+      [userId(u.key), u.card.bio, JSON.stringify(u.card.skills)],
+    )
+  }
+  for (const g of demo.GROUPS.filter((x) => x.linkState === 'pending')) {
+    await run(
+      `update opportunity_links set state = 'pending'
+        where id = $1 and state = 'active' and valid_to is null
+          and not exists (select 1 from advisor_assignments a where a.group_id = $2 and a.valid_to is null)`,
+      [demoId(`link:${g.key}`), groupId(g.key)],
+    )
+  }
+  await run(
+    `update group_proposals set group_type = $2, opportunity_id = $3, updated_at = now()
+      where id = $1 and state = 'open' and opportunity_id is null`,
+    [demoId('proposal:1'), demo.PROPOSAL.type, demoId(`industry:${demo.PROPOSAL.industry}`)],
+  )
+  for (const e of demo.EVENTS) {
+    if (!e.allDay) continue
+    await run(`update project_events set ends_at = $2 where id = $1 and all_day and ends_at is null`, [
+      demoId(`event:${e.key}`),
+      eventEnd(e, at),
+    ])
+  }
+  const added = demo.EVENTS.at(-1)
+  await run(
+    `insert into project_events
+       (id, cohort_id, title, description, starts_at, ends_at, all_day, audience_kind, status,
+        created_by_kind, created_by_user_id, updated_by_user_id)
+     select $1, $2, $3, $4, $5, $6, true, $7, 'scheduled', 'user', $8, $8
+      where exists (select 1 from cohorts where id = $2)
+     on conflict (id) do nothing`,
+    [demoId(`event:${added.key}`), COHORT_ID, added.title, added.description, at(added.date, '00:00'), eventEnd(added, at), added.audience, OFFICE_ID],
+  )
+  return filled
+}
+
+/**
  * 規則內文照原型改成編號清單＋灰底註解框（票 33）。新建時 `ruleHtml` 直接是新格式，這裡是給**已經灌過的測試站**：
  * 只換還是舊格式（`oldRuleHtml`）、沒被系辦改過的節。版本表不可變，所以跟正式的「改內容」一樣多一個版本
  * （版本號取這一項目現有最大版本號＋1，不寫死第 2 版：避免撞 `UNIQUE(item_id, version_no)`），項目指到它。重跑第二次什麼都不會變（冪等）。回傳這次換了幾節。
@@ -482,6 +559,9 @@ async function seed(db, phases) {
       department_class: extra.departmentClass ?? null,
       cohort_id: extra.cohortId ?? null,
       open_to_join: extra.openToJoin ?? false,
+      avatar_preset: avatarPresetOf(extra.key),
+      bio: extra.card?.bio ?? '',
+      skills: json(extra.card?.skills ?? []),
     })
   }
 
@@ -769,7 +849,7 @@ async function seed(db, phases) {
       title: e.title,
       description: e.description ?? null,
       starts_at: e.allDay ? at(e.date, '00:00') : at(e.date, e.from),
-      ends_at: e.allDay ? null : at(e.date, e.to),
+      ends_at: eventEnd(e, at),
       all_day: Boolean(e.allDay),
       audience_kind: e.audience,
       status: 'scheduled',
@@ -787,7 +867,7 @@ async function seed(db, phases) {
     const created = at('2026-07-01', '09:30')
     const id = await addUser(t.key, t.name, t.email, { createdAt: created })
     await role(id, 'teacher', created)
-    await profile(id, t.name, email(t.email), { completedAt: created })
+    await profile(id, t.name, email(t.email), { completedAt: created, key: t.key })
   }
 
   // 學生：已分組、未分組、停用、待審。
@@ -805,6 +885,8 @@ async function seed(db, phases) {
       departmentClass: '資管三甲',
       cohortId: COHORT_ID,
       openToJoin: Boolean(s.openToJoin),
+      key: s.key,
+      card: s.card,
     })
     await insert(db, 'student_identities', { cohort_id: COHORT_ID, student_no: s.studentNo, user_id: id, created_at: approvedAt })
   }
@@ -812,7 +894,7 @@ async function seed(db, phases) {
     const created = at('2026-08-01', '09:00')
     const id = await addUser(s.key, s.name, s.studentNo, { status: 'disabled', createdAt: created })
     await role(id, 'student', created)
-    await profile(id, s.name, email(s.studentNo), { completedAt: created, studentNo: s.studentNo, cohortId: COHORT_ID })
+    await profile(id, s.name, email(s.studentNo), { completedAt: created, studentNo: s.studentNo, cohortId: COHORT_ID, key: s.key })
   }
 
   // 名單（一版）：所有示範學生＋待審那位的名單姓名，讓待審申請比得到「學號命中、姓名不同」。
@@ -918,6 +1000,7 @@ async function seed(db, phases) {
       studentNo: a.studentNo,
       departmentClass: '資管三甲',
       cohortId: COHORT_ID,
+      key: a.key,
     })
     await insert(db, 'student_identities', { cohort_id: COHORT_ID, student_no: a.studentNo, user_id: id, created_at: created })
     const hit = {
@@ -1028,32 +1111,6 @@ async function seed(db, phases) {
   }
   count('組別', demo.GROUPS.length)
 
-  const proposalId = demoId('proposal:1')
-  const proposed = at(demo.PROPOSAL.created, '21:30')
-  await insert(db, 'group_proposals', {
-    id: proposalId,
-    cohort_id: COHORT_ID,
-    proposer_user_id: userId(demo.PROPOSAL.proposer),
-    group_type: 'general',
-    expires_business_at: new Date(proposed.getTime() + 7 * DAY_MS),
-    state: 'open',
-    created_real_at: proposed,
-    created_business_at: proposed,
-    updated_at: proposed,
-  })
-  for (const key of [...demo.PROPOSAL.confirmed, ...demo.PROPOSAL.pending]) {
-    const confirmed = demo.PROPOSAL.confirmed.includes(key)
-    await insert(db, 'proposal_invitations', {
-      id: demoId(`invitation:${key}`),
-      proposal_id: proposalId,
-      user_id: userId(key),
-      state: confirmed ? 'confirmed' : 'pending',
-      decided_real_at: confirmed ? proposed : null,
-      created_at: proposed,
-    })
-    await insert(db, 'proposal_occupancy', { user_id: userId(key), proposal_id: proposalId, created_at: proposed })
-  }
-  count('進行中提案')
 
   // ── 產學合作案與連結 ──
   for (const o of demo.INDUSTRY) {
@@ -1089,9 +1146,39 @@ async function seed(db, phases) {
       opportunity_id: demoId(`industry:${g.industry}`),
       valid_from: linked,
       linked_by_user_id: userId(g.members[0].key),
+      state: g.linkState ?? 'active',
       created_at: linked,
     })
   }
+
+  // 進行中的提案選了合作案（C3-01），所以排在合作案之後建。
+  const proposalId = demoId('proposal:1')
+  const proposed = at(demo.PROPOSAL.created, '21:30')
+  await insert(db, 'group_proposals', {
+    id: proposalId,
+    cohort_id: COHORT_ID,
+    proposer_user_id: userId(demo.PROPOSAL.proposer),
+    group_type: demo.PROPOSAL.type,
+    opportunity_id: demoId(`industry:${demo.PROPOSAL.industry}`),
+    expires_business_at: new Date(proposed.getTime() + 7 * DAY_MS),
+    state: 'open',
+    created_real_at: proposed,
+    created_business_at: proposed,
+    updated_at: proposed,
+  })
+  for (const key of [...demo.PROPOSAL.confirmed, ...demo.PROPOSAL.pending]) {
+    const confirmed = demo.PROPOSAL.confirmed.includes(key)
+    await insert(db, 'proposal_invitations', {
+      id: demoId(`invitation:${key}`),
+      proposal_id: proposalId,
+      user_id: userId(key),
+      state: confirmed ? 'confirmed' : 'pending',
+      decided_real_at: confirmed ? proposed : null,
+      created_at: proposed,
+    })
+    await insert(db, 'proposal_occupancy', { user_id: userId(key), proposal_id: proposalId, created_at: proposed })
+  }
+  count('進行中提案')
 
   // ── 專題事務：公告、規則、資源、收件 ──
 
@@ -1889,6 +1976,9 @@ async function seed(db, phases) {
   if (phases.history) await seedHistory()
   // 票 39 的欄位：這一批剛建的、以及早就在的另一批，都在同一筆交易裡補（見 `fillShowcaseStageFields`）。
   count('票 39 補欄', await fillShowcaseStageFields(db, day))
+  // C3-01 的頭像、名片、產學待確認與活動結束：新建的本來就寫好，補 0 列；第一批早就在時才補。
+  const cards = await fillProfileCardFields(db, at)
+  if (cards > 0) count('C3-01 補欄', cards)
   // 第一批早就在（只建第二批）時，它的規則內文可能還是舊格式；新建的本來就是新格式，換 0 節。
   const ruleFormat = await fillRuleFormat(db)
   if (ruleFormat > 0) count('規則格式', ruleFormat)
@@ -1959,7 +2049,6 @@ const REMOVE_STEPS = [
   // 產學、主指導、組別、提案
   [`update opportunity_links set previous_link_id = null where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
   [`delete from opportunity_links where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
-  [`delete from industry_opportunities where owner_teacher_user_id in (select id from users where email like $2)`],
   [`update advisor_assignments set previous_assignment_id = null where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
   [`delete from advisor_assignments where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
   [`delete from group_leaders where group_id in (select id from groups where cohort_id = any($1::uuid[]))`],
@@ -1968,6 +2057,8 @@ const REMOVE_STEPS = [
   [`delete from proposal_invitations where proposal_id in (select id from group_proposals where cohort_id = any($1::uuid[]))`],
   [`delete from group_proposals where cohort_id = any($1::uuid[])`],
   [`delete from groups where cohort_id = any($1::uuid[])`],
+  // 合作案最後刪：連結與提案（C3-01 的 `opportunity_id`）都指向它。
+  [`delete from industry_opportunities where owner_teacher_user_id in (select id from users where email like $2)`],
   // 時間軸
   [`delete from project_events where cohort_id = any($1::uuid[])`],
   [`delete from cohort_stages where cohort_id = any($1::uuid[])`],
@@ -2119,10 +2210,12 @@ try {
       await client.query('begin')
       let filled
       let rules
+      let cards
       try {
-        const { day } = makeClock(await seededAnchor(client, await businessNow(client)))
+        const { day, at } = makeClock(await seededAnchor(client, await businessNow(client)))
         filled = await fillShowcaseStageFields(client, day)
         rules = await fillRuleFormat(client)
+        cards = await fillProfileCardFields(client, at)
         await client.query('commit')
       } catch (error) {
         await client.query('rollback')
@@ -2132,6 +2225,7 @@ try {
       const did = [
         filled > 0 ? `補上票 39 的欄位 ${filled} 列` : '',
         rules > 0 ? `規則內文換成編號清單與註解框 ${rules} 節` : '',
+        cards > 0 ? `補上 C3-01 的頭像、名片、產學待確認與活動結束 ${cards} 列` : '',
         repaired > 0 ? `補回 ${repaired} 個遺失的示範檔案` : '']
         .filter(Boolean)
         .join('；')

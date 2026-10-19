@@ -44,6 +44,7 @@ const MIGRATION_BY_SLICE = {
   B17: 'drizzle/0017_te_b2a_grade_settlements.sql',
   C1: 'drizzle/0021_c1_affairs_consent_grading.sql',
   C2: 'drizzle/0022_c2_site_texts.sql',
+  C3: 'drizzle/0023_c3_profile_card_links.sql',
 }
 
 const BEGIN = '-- >>> 由 scripts/generate-grants.mjs 從 permissions/matrix.json 產生；不要手改 >>>'

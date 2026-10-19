@@ -49,7 +49,7 @@ export const advisorAssignments = pgTable(
     assignedByUserId: uuid('assigned_by_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
-    /** 指派理由：管理員指派（逐組、批次）必填；認領不需要。 */
+    /** 指派理由（選填，規格③ §10.1）。 */
     reason: text('reason'),
     /** 重派時：這一列接手的原主指導那一列（同一交易結束它）。首次指派、解除後再指派是 null。 */
     previousAssignmentId: uuid('previous_assignment_id').references((): AnyPgColumn => advisorAssignments.id, {
@@ -80,14 +80,11 @@ export const advisorAssignments = pgTable(
       'advisor_assignments_claim_self_check',
       sql`${t.source} <> 'claim' or ${t.assignedByUserId} = ${t.teacherUserId}`,
     ),
-    check(
-      'advisor_assignments_admin_reason_check',
-      sql`${t.source} = 'claim' or length(btrim(coalesce(${t.reason}, ''))) > 0`,
-    ),
+    // 結束列一定有操作者；理由選填（規格③ §10.1）。
     check(
       'advisor_assignments_ended_check',
       sql`(${t.validTo} is null) = (${t.endedRealAt} is null)
-          and (${t.validTo} is null or (${t.endedByUserId} is not null and length(btrim(coalesce(${t.endReason}, ''))) > 0))`,
+          and (${t.validTo} is null or ${t.endedByUserId} is not null)`,
     ),
   ],
 )
@@ -166,7 +163,7 @@ export const industryOpportunities = pgTable(
 
 /**
  * 組別與合作案的連結（附錄 A `opportunity_links`；產品 6.3，Q-GRP03：一案多組、一組最多一案）。
- * 換案＝結束舊列＋插新列；解除＝結束舊列並填理由。`fju_app` 只能改結束欄。
+ * 換案＝結束舊列＋插新列；解除＝結束舊列（理由選填）。`fju_app` 只能改結束欄與 `state`（老師確認指導，C3-01）。
  */
 export const opportunityLinks = pgTable(
   'opportunity_links',
@@ -194,8 +191,10 @@ export const opportunityLinks = pgTable(
       onDelete: 'restrict',
       onUpdate: 'restrict',
     }),
-    /** 解除或換案理由（附錄 A 的 `reason`）。 */
+    /** 解除或換案理由（附錄 A 的 `reason`；選填）。 */
     endReason: text('end_reason'),
+    /** 學生選了合作案先是 `pending`，負責老師確認指導後變 `active`（規格③ §7.2）。 */
+    state: text('state').notNull().default('active'),
     createdAt: timestamp('created_at', tz).notNull().defaultNow(),
   },
   (t) => [
@@ -208,7 +207,8 @@ export const opportunityLinks = pgTable(
     check(
       'opportunity_links_ended_check',
       sql`(${t.validTo} is null) = (${t.endedRealAt} is null)
-          and (${t.validTo} is null or (${t.endedByUserId} is not null and length(btrim(coalesce(${t.endReason}, ''))) > 0))`,
+          and (${t.validTo} is null or ${t.endedByUserId} is not null)`,
     ),
+    check('opportunity_links_state_check', sql`${t.state} in ('pending','active')`),
   ],
 )
