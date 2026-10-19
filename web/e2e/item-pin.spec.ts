@@ -129,7 +129,9 @@ function affairRow(page: Page, title: string): Locator {
 async function togglePin(page: Page, title: string, pin: boolean) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   const row = affairRow(page, title)
-  await row.getByRole('button', { name: pin ? `置頂「${title}」` : `取消置頂「${title}」` }).click()
+  // C1-07：置頂／取消置頂在列上的「⋯」裡（AC-10）。
+  await row.getByRole('button', { name: `更多動作：${title}` }).click()
+  await row.getByRole('menuitem', { name: pin ? `置頂「${title}」` : `取消置頂「${title}」` }).click()
   await expect(page.getByTestId('pin-feedback')).toHaveText(
     pin ? `「${title}」已置頂，前台公告與競賽資訊會排在最前面。` : `「${title}」已取消置頂。`,
   )
@@ -172,7 +174,8 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   await togglePin(page, A, true)
   const row = affairRow(page, A)
   await expect(row.getByTestId('pinned-pill')).toHaveText('置頂')
-  await expect(row.getByRole('button', { name: `取消置頂「${A}」` })).toHaveText('取消置頂')
+  await row.getByRole('button', { name: `更多動作：${A}` }).click()
+  await expect(row.getByRole('menuitem', { name: `取消置頂「${A}」` })).toHaveText('取消置頂')
 
   const after = await itemByTitle(A)
   expect(after.pinned_at).not.toBeNull()
@@ -184,7 +187,8 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   // 草稿、榮譽、還沒置頂的 B：只有 B 有「置頂」。
   await expect(affairRow(page, C).getByRole('button', { name: /置頂/ })).toHaveCount(0)
   await expect(affairRow(page, H).getByRole('button', { name: /置頂/ })).toHaveCount(0)
-  await expect(affairRow(page, B).getByRole('button', { name: `置頂「${B}」` })).toBeVisible()
+  await affairRow(page, B).getByRole('button', { name: `更多動作：${B}` }).click()
+  await expect(affairRow(page, B).getByRole('menuitem', { name: `置頂「${B}」` })).toBeVisible()
 })
 
 test('AC-V03、V27①：訪客 /news 第一張是置頂的 A（帶「置頂」），B 第二；卡片圖都 lazy、有寬高', async ({ page }) => {

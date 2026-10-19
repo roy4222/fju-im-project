@@ -8,7 +8,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 1. 學生逐人閱讀後同意（勾「已完整閱讀」→ 確認框「只代表你自己的一票」），或不同意並填理由；全員同意後才輪到老師，
  *    老師提前時沒有按鈕、只寫還差幾位（伺服器也擋，整合測試證明 `STUDENTS_PENDING`）。
  * 2. 老師同意即完成，或退回（填理由）回到修正中。
- * 3. 管理員看整體進度與缺誰、重置或作廢（理由必填）、重開＝建新版；管理員頁沒有任何替人同意的按鈕。
+ * 3. 管理員看整體進度與缺誰、重置或作廢（理由選填，C1-03）、重開＝建新版；管理員頁沒有任何替人同意的按鈕。
  * 4. 主指導改變時目前版本自動失效、不自動建新版；舊頁顯示原因等系辦建新版；失效通知只給系辦。
  * 5. 匯出可列印頁與 CSV 明細；提醒未同意者，24 小時內不重複。
  *
@@ -207,7 +207,7 @@ test('AC-AD-19 同意書頁：h1「成績」、標題列右側「新增站內同
   await expect(page.getByText('系辦只能發布、重開或重置')).toHaveCount(0)
 })
 
-test('重置：對話框列出將失效的簽署、理由必填；舊頁再按被拒；新版 v2 大家重新同意（舊同意留歷史）', async ({ page, context }) => {
+test('重置：對話框列出將失效的簽署、理由選填（C1-03）；舊頁再按被拒；新版 v2 大家重新同意（舊同意留歷史）', async ({ page, context }) => {
   // 學生乙先開著舊頁（v1）。
   await signIn(page, g1[1]!)
   await page.goto('/dashboard/student/signoff')
@@ -229,8 +229,7 @@ test('重置：對話框列出將失效的簽署、理由必填；舊頁再按�
   await expect(facts).toContainText('目前有效的組員與指導老師')
   await expect(facts).toContainText('不能復原')
   await expect(dialog.getByTestId('restart-affected')).toContainText(`${names.get(g1[0]!.userId)}（同意）`)
-  await dialog.getByRole('button', { name: '確定重新收集' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('請填寫重新收集同意的理由')
+  // C1-03：理由改選填，不再有「沒填被擋」那一步；這裡照舊填理由驗它進紀錄。
   await dialog.getByLabel('理由（必填）').fill('附件放錯版本')
   await dialog.getByRole('button', { name: '確定重新收集' }).click()
   // 成功後直接帶到新版，上方是回執。
@@ -365,7 +364,7 @@ test('提醒未同意者：收件人是還沒表態的人；24 小時內按鈕�
   await expect(page.getByTestId('remind-blocked')).toContainText('只有收集中或等老師的目前版本可以提醒')
 })
 
-test('不同意：理由必填、送出後退回修正中，其他組員看到理由；系辦「重開新版」＝建新版', async ({ page }) => {
+test('不同意：理由選填（C1-03）、送出後退回修正中，其他組員看到理由；系辦「重開新版」＝建新版', async ({ page }) => {
   await signIn(page, g2[0]!)
   await page.goto('/dashboard/student/signoff')
   // Q39：按鈕旁說明可以稍後再回覆、不同意會讓全組重新同意。
@@ -374,8 +373,7 @@ test('不同意：理由必填、送出後退回修正中，其他組員看到�
   )
   await page.getByTestId('respond-form').getByRole('button', { name: '不同意並退回修正' }).click()
   const dialog = page.getByRole('dialog', { name: '不同意並退回修正' })
-  await dialog.getByRole('button', { name: '確定不同意並退回修正' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('理由')
+  // C1-03：理由改選填，不再有「沒填被擋」那一步；有填理由時其他組員仍看得到。
   await dialog.getByLabel('理由（必填）').fill('第三章的數據要更新')
   await dialog.getByRole('button', { name: '確定不同意並退回修正' }).click()
   await expect(page.getByTestId('signoff-state').first()).toHaveText('退回修正中')
@@ -396,7 +394,7 @@ test('不同意：理由必填、送出後退回修正中，其他組員看到�
   await expect(page.getByRole('region', { name: '版本歷史' })).toContainText('第 1 版')
 })
 
-test('主指導改派：目前版本同時失效、不自動建新版；學生舊頁顯示原因等系辦建新版；失效通知只給系辦；作廢要理由', async ({ page }) => {
+test('主指導改派：目前版本同時失效、不自動建新版；學生舊頁顯示原因等系辦建新版；失效通知只給系辦；作廢（理由選填）', async ({ page }) => {
   await studentAgrees(page, g2[0]!)
 
   await asAdmin(page)
@@ -452,21 +450,19 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
   await page.goto(`/dashboard/teacher/signoff/${v3}`)
   await expect(page.getByRole('heading', { name: '找不到這個頁面' })).toBeVisible()
 
-  // 作廢：理由必填；作廢後學生頁寫已作廢、沒有按鈕。
+  // 作廢：理由選填（C1-03）、狀態 cause 固定代碼 void（畫面寫「系辦作廢」，理由只進稽核）；作廢後學生頁寫已作廢、沒有按鈕。
   await asAdmin(page)
   await page.goto(`/dashboard/admin/signoff/${v3}`)
   await page.getByRole('region', { name: '危險操作' }).getByRole('button', { name: '作廢', exact: true }).click()
   const voidDialog = page.getByRole('dialog', { name: '作廢這一版？' })
   for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(voidDialog.getByTestId('danger-facts')).toContainText(k)
   await expect(voidDialog.getByTestId('danger-facts')).toContainText('作廢不能取消')
-  await voidDialog.getByRole('button', { name: '確定作廢' }).click()
-  await expect(voidDialog.getByRole('alert')).toContainText('請填寫作廢的理由')
   await voidDialog.getByLabel('理由（必填）').fill('本學期不做期中確認')
   await voidDialog.getByRole('button', { name: '確定作廢' }).click()
   await expect(page.getByTestId('signoff-state').first()).toHaveText('已作廢')
 
   await signIn(page, g2[2]!)
   await page.goto('/dashboard/student/signoff')
-  await expect(page.getByTestId('signoff-invalidated')).toContainText('這一版同意書已作廢（本學期不做期中確認）')
+  await expect(page.getByTestId('signoff-invalidated')).toContainText('這一版同意書已作廢（系辦作廢）')
   await expect(page.getByTestId('respond-form')).toHaveCount(0)
 })

@@ -1,0 +1,7 @@
+{
+  "ticket": "C1-07",
+  "set": {
+    "/dashboard/admin/affairs/assignments": { "as": "admin", "baseline": 10, "max": 10, "identity": 0 },
+    "/dashboard/admin/affairs/resources": { "as": "admin", "baseline": 61, "max": 61, "identity": 0 }
+  }
+}

@@ -219,7 +219,7 @@ test('1. 系辦在學生的名單畫面按「讓他補交」，填明天 17:00 �
 
   await section.getByRole('button', { name: '讓他補交' }).click()
   await section.getByLabel('補交期限（臺灣時間，含這一分鐘）').fill(tomorrowFive())
-  await section.getByLabel('理由（學生會看到，200 字內）').fill('住院請假，已附診斷證明')
+  await section.getByLabel('理由（選填；學生會看到，200 字內）').fill('住院請假，已附診斷證明')
   await section.getByRole('button', { name: '開放補交' }).click()
 
   await expect(section.getByTestId('reopen-result')).toContainText('已開放補交到')
@@ -232,7 +232,9 @@ test('1. 系辦在學生的名單畫面按「讓他補交」，填明天 17:00 �
 
   // 名單列表與完成率：補交中、期限未到的那一位不算逾期未繳；另一位照舊。
   await page.goto(`/dashboard/admin/affairs/${itemId}`)
-  await expect(rosterRow(page, s1).getByTestId('roster-status')).toHaveText('未繳')
+  // C1-07（AC-11）：補交中的那一位，狀態寫「補交到 m/d」。
+  const [, month, day] = tomorrowFive().slice(0, 10).split('-')
+  await expect(rosterRow(page, s1).getByTestId('roster-status')).toHaveText(`補交到 ${Number(month)}/${Number(day)}`)
   await expect(rosterRow(page, s1)).toContainText('系辦開放補交到')
   await expect(rosterRow(page, s2).getByTestId('roster-status')).toHaveText('逾期未繳')
   await expect(overdueCount(page)).toHaveText('1')

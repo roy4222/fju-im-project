@@ -15,6 +15,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 4. 發布中的項目：「儲存更新」「下架」，沒有撤回、沒有危險操作區（AC-6）；小幅修改可以不通知。
  * 5. 同意書（下載 PDF 再上傳）：預設一個不能刪的「簽好的同意書」檔案欄（AC-24 表單面）。
  * 6. 附件用共用上傳能力，誰能下載依對象決定。
+ * 7. C1-07 清單（AC-9、AC-10）：作業分頁的欄與「新增」下拉、刪除鈕寫原因；公告分頁只列公告、「⋯」置頂、新增直接開公告表單、刪草稿。
  *
  * 全程用真的表單與按鈕；資料庫核對用 owner 連線直接查。
  */
@@ -191,11 +192,10 @@ test('AC-1／AC-3：新增 › 公告開一頁式表單；正文即時預覽是�
   await expect(page.getByRole('heading', { name: '公告與作業', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '公告與作業', exact: true })).toHaveAttribute('aria-current', 'page')
 
+  // AC-10：公告分頁的「新增」直接開公告表單，不問類型（C1-07）。
   await page.getByRole('button', { name: '新增公告' }).click()
-  const picker = page.getByRole('dialog', { name: '新增公告' })
-  await picker.getByRole('radio', { name: /公告/ }).check()
-  await picker.getByRole('button', { name: '下一步' }).click()
   const dialog = page.getByRole('dialog', { name: '新增公告' })
+  await expect(dialog.getByRole('radio', { name: /資源下載|專題規則/ })).toHaveCount(0)
   const form = await formReady(dialog)
 
   // AC-1：一頁式；沒有所屬階段、沒有步驟指示、沒有完整編輯器連結；右邊即時預覽；底部兩顆鈕。
@@ -494,10 +494,10 @@ test('AC-24（表單面）：新增 › 同意書（下載 PDF 再上傳）預�
   const title = `${CODE} 授權同意書`
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs/assignments?cohort=${cohortId}`)
+  // C1-07：作業分頁的「新增」是一顆下拉（作業、兩種同意書）。
   await page.getByRole('button', { name: '新增作業' }).click()
-  await page.getByRole('dialog', { name: '新增作業' }).getByRole('radio', { name: /同意書（下載 PDF 再上傳）/ }).check()
-  await page.getByRole('dialog', { name: '新增作業' }).getByRole('button', { name: '下一步' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增作業' })
+  await page.getByRole('menu', { name: '新增哪一種' }).getByRole('menuitem', { name: /同意書（下載 PDF 再上傳）/ }).click()
+  const dialog = page.getByRole('dialog', { name: '新增同意書（下載 PDF 再上傳）' })
   const form = await formReady(dialog)
   const fields = form.locator('section[aria-labelledby="sec-fields"]')
   const only = fields.locator('li[data-field-type]')
@@ -552,4 +552,90 @@ test('截止早於開放：儲存就被擋下，給明確的錯誤，沒有建�
   await expect(form.locator('[data-error="dueAt"]')).toHaveText('截止不能早於開放時間')
   await expect(page.getByTestId('form-error-summary')).toContainText('還缺 1 項')
   expect(Number((await pool.query('select count(*) from managed_items where title = $1', [`${CODE} 時間錯誤`])).rows[0].count)).toBe(0)
+})
+
+// ── C1-07：公告與作業各分頁的清單（AC-9、AC-10）──────────────────────────────
+
+test('AC-9：作業分頁欄是標題、對象、截止時間、繳交進度；同意書列有標籤；「新增」下拉三項；不能刪時按鈕本身寫原因', async ({ page }) => {
+  const sorted = `${CODE} 欄位排序`
+  await asAdmin(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(`/dashboard/admin/affairs/assignments?cohort=${cohortId}`)
+  for (const head of ['標題', '對象', '截止時間', '繳交進度']) await expect(page.getByText(head, { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '完整編輯器' })).toHaveCount(0)
+
+  // 繳交進度：「1／1 組已交」＋進度條；點進度進繳交狀況。
+  const row = page.getByTestId('affair-row').filter({ hasText: sorted })
+  await expect(row.getByTestId('progress')).toContainText('1／1 組已交')
+  await expect(row.getByTestId('progress').getByRole('img', { name: '完成 1／1' })).toBeVisible()
+  await expect(row).toContainText('指定組別：G01')
+  // 發布中：按鈕本身寫原因、不能按。
+  await expect(row.getByTestId('delete-blocked')).toHaveText('發布中，先下架才能刪')
+  await expect(row.getByTestId('delete-blocked')).toBeDisabled()
+  // 同意書列有「同意書」標籤。
+  await expect(page.getByTestId('affair-row').filter({ hasText: `${CODE} 授權同意書` }).getByTestId('consent-tag')).toHaveText('同意書')
+
+  // 「新增」下拉：作業、同意書（站內表單）、同意書（下載 PDF 再上傳）。
+  await page.getByRole('button', { name: '新增作業' }).click()
+  const menu = page.getByRole('menu', { name: '新增哪一種' })
+  await expect(menu.getByRole('menuitem')).toHaveCount(3)
+  for (const [i, label] of ['作業', '同意書（站內表單）', '同意書（下載 PDF 再上傳）'].entries()) {
+    await expect(menu.getByRole('menuitem').nth(i)).toContainText(label)
+  }
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+
+  // 有人交過的（下架後）：按鈕寫「已有 1 組交件，不能刪」。
+  await pool.query(`update managed_items set status = 'archived' where cohort_id = $1 and title = $2`, [cohortId, sorted])
+  await page.reload()
+  await expect(row.getByTestId('delete-blocked')).toHaveText('已有 1 組交件，不能刪')
+  await expect(row.getByTestId('delete-blocked')).toBeDisabled()
+
+  // 點標題進繳交狀況頁。
+  await row.getByRole('link', { name: sorted, exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs/[0-9a-f-]{36}$`))
+  await expect(page.getByRole('heading', { name: sorted })).toBeVisible()
+})
+
+test('AC-10：公告分頁只列公告；欄是標題、對象、狀態、發布時間；「⋯」裡置頂；「新增」直接開公告表單；草稿可以刪', async ({ page }) => {
+  const news = `${CODE} 專題說明會（改地點）`
+  const draft = `${CODE} 草稿公告`
+  await asAdmin(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+  for (const head of ['標題', '對象', '狀態', '發布時間']) await expect(page.getByText(head, { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '完整編輯器' })).toHaveCount(0)
+  const rows = page.getByTestId('affair-row')
+  await expect(rows.filter({ hasText: news })).toHaveCount(1)
+  await expect(rows.filter({ hasText: `${CODE} 期中報告` })).toHaveCount(0)
+  await expect(rows.filter({ hasText: `${CODE} 授權同意書` })).toHaveCount(0)
+
+  // 「⋯」→ 置頂；列上出現置頂圖示。
+  const row = rows.filter({ hasText: news })
+  await expect(row.getByRole('button', { name: `置頂「${news}」` })).toHaveCount(0)
+  await row.getByRole('button', { name: `更多動作：${news}` }).click()
+  await row.getByRole('menuitem', { name: `置頂「${news}」` }).click()
+  await expect(page.getByTestId('pin-feedback')).toHaveText(`「${news}」已置頂，前台公告與競賽資訊會排在最前面。`)
+  await expect(row.getByTestId('pinned-pill')).toHaveCount(1)
+  await expect(row.getByTestId('delete-blocked')).toHaveText('發布中，先下架才能刪')
+
+  // 「新增」：直接是公告表單（沒有類型選擇、沒有「下一步」）；存草稿。
+  await page.getByRole('button', { name: '新增公告' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
+  const form = await formReady(dialog)
+  await expect(dialog.getByRole('button', { name: '下一步' })).toHaveCount(0)
+  await form.getByLabel('標題', { exact: true }).fill(draft)
+  await form.getByRole('button', { name: '儲存（先不發布）' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('item-toast')).toHaveText('已儲存')
+
+  // 草稿可以刪：一句話確認 → 刪掉、列消失。
+  const draftRow = rows.filter({ hasText: draft })
+  await expect(draftRow).toContainText('草稿')
+  await draftRow.getByRole('button', { name: `刪除：${draft}` }).click()
+  const confirm = page.getByRole('dialog', { name: `刪除「${draft}」` })
+  await expect(confirm).toContainText('刪了就不能恢復')
+  await confirm.getByRole('button', { name: '刪除', exact: true }).click()
+  await expect(draftRow).toHaveCount(0)
+  expect(Number((await pool.query('select count(*) from managed_items where title = $1 and deleted_at is null', [draft])).rows[0].count)).toBe(0)
 })

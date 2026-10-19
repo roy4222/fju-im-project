@@ -230,7 +230,7 @@ export function opportunityDeleteBlocker(o: {
   return null
 }
 
-/** 組長連結或換案（管理員也可以）。`reason` 只有換案時必填（6.3「解除、換案保留原因」）。 */
+/** 組長連結或換案（管理員也可以）。`reason` 選填（C3-05），換案時有填就存在舊連結上。 */
 export type LinkOpportunityInput = {
   readonly groupId: string
   /** 畫面打開時的組別版本。 */
@@ -239,7 +239,7 @@ export type LinkOpportunityInput = {
   readonly reason: string
 }
 
-/** 案主或系辦解除（理由必填，通知全組與案主）。 */
+/** 案主或系辦解除（理由選填，通知全組與案主）。 */
 export type UnlinkOpportunityInput = {
   readonly linkId: string
   readonly reason: string
@@ -267,7 +267,7 @@ export function describeLinkReceipt(receipt: LinkReceipt): string {
   }
 }
 
-/** 換案或解除的理由：沿用管理員動作的理由規則（必填、上限 200 字）。 */
+/** 換案或解除的理由：沿用管理員動作的理由規則（選填、上限 200 字；空白回空字串）。 */
 export function normalizeLinkReason(reason: string, what: '換案' | '解除連結'): { ok: true; value: string } | Err {
   return normalizeReason(reason, what)
 }
@@ -308,7 +308,7 @@ export type ChangeGroupTypeInput = {
   readonly groupId: string
   readonly revision: number
   readonly groupType: string
-  /** 管理員必填；組長可以不填。 */
+  /** 選填（C3-05：管理員也可以不填）。 */
   readonly reason: string
 }
 
