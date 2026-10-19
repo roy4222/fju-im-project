@@ -129,7 +129,7 @@ function CreateHost({
 
 /**
  * 公告、資源、規則分頁右上的「新增」：直接開那一類的表單（不問類型，AC-10）。
- * 畫面上寫「新增」，無障礙名稱帶類別（「新增公告」），對話框標題同名。
+ * 畫面上寫「新增」，無障礙名稱帶類別（`aria-label`「新增公告」，開頭同畫面上的字），對話框標題同名。
  */
 export function NewItemButton({
   cohortId,
@@ -149,9 +149,10 @@ export function NewItemButton({
       <button
         type="button"
         className={cn(PRIMARY, 'h-10')}
+        aria-label={`新增${noun}`}
         onClick={() => setCreating({ placement, consentMode: null, title: `新增${noun}` })}
       >
-        <IconPencilPlus aria-hidden /> 新增<span className="sr-only">{noun}</span>
+        <IconPencilPlus aria-hidden /> 新增
       </button>
       <CreateHost creating={creating} cohortId={cohortId} vocabulary={vocabulary} onClose={() => setCreating(null)} />
     </>
@@ -175,11 +176,12 @@ export function AssignmentListActions({ cohortId, vocabulary }: { cohortId: stri
       <button
         type="button"
         className={cn(PRIMARY, 'h-10')}
+        aria-label="新增作業"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <IconPencilPlus aria-hidden /> 新增<span className="sr-only">作業</span>
+        <IconPencilPlus aria-hidden /> 新增
         <IconChevronDown aria-hidden className="size-4" />
       </button>
       {open ? (
