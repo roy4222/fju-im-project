@@ -12,6 +12,7 @@ import {
   isTerminal,
   readAuthorizationScope,
   rebuildsOnContentChange,
+  type AuthorizationScope,
   type SignoffPurpose,
   type SignoffState,
 } from '@/application/signoff'
@@ -26,6 +27,7 @@ import {
   lockItemPackage,
   type CohortRow,
   type GroupRow,
+  type LockedPackage,
   type PgSignoffCommand,
 } from '@/infrastructure/signoff/pg-signoff'
 import { err, ok, type Err, type Result } from '@/shared/result'
@@ -87,6 +89,8 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
    * 發布：每個對象組建包＋第 1 版。沒有主指導或沒有組員的組跳過（`skipped`，之後由系辦補建）；最終文件授權**任一**對象組沒有
    * 成果展示草稿 → 整筆 `VALIDATION_FAILED`（列出組別），一包都不建（§1.2「缺老師＝跳過、缺草稿＝拒絕」）。
    * 第 1 版發既有 `signoff.version_created` 給組員（作業模組對站內同意書不另發 `item.published`）。
+   * 撤回後重新發布：已有一版在跑的組，內容與附件都沒變就不動；有變就同內容改版（新版 cause `content_change`、沿用舊版凍結的範圍、
+   * 只發 `signoff.content_changed`），也算進 `created`。
    */
   async onPublished(tx: PoolClient, item: ConsentItem, actorUserId: string, requestId: string): Promise<Result<ConsentPublished>> {
     const checked = await this.#contentOf(tx, item)
@@ -95,10 +99,13 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
     const businessAt = await this.#businessClock.now()
     const realAt = this.#realClock.now()
 
-    // 先逐組把事實看完（老師、組員、草稿）再動手：缺草稿要一次列出所有組，而且不能先建了幾包才發現。
+    // 先逐組把事實看完（老師、組員、既有版本、草稿）再動手：缺草稿要一次列出所有組，而且不能先建了幾包才發現。
     const skipped: ConsentSkip[] = []
     const missingDrafts: string[] = []
-    const plans: { cohort: CohortRow; group: GroupRow; entryId: string | null }[] = []
+    type Plan =
+      | { cohort: CohortRow; group: GroupRow; pkg: LockedPackage; mode: 'fresh'; entryId: string | null }
+      | { cohort: CohortRow; group: GroupRow; pkg: LockedPackage; mode: 'content_changed'; live: LiveVersion }
+    const plans: Plan[] = []
     for (const groupId of [...item.groupIds].sort()) {
       const locked = await lockGroup(tx, groupId)
       if (!locked) return groupNotFound()
@@ -113,6 +120,17 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
         skipped.push({ groupId, reason: skip })
         continue
       }
+      const pkg = await lockItemPackage(tx, { cohort, group, itemId: item.id, purpose: item.purpose, adminId: actorUserId, realAt, create: true })
+      if (!pkg) return groupNotFound()
+      // 撤回後重新發布：這組已經有一版在跑。內容與附件都沒變就不再建（免得同一份內容再發一次通知）；
+      // 有變就跟「發布更新改內容」一樣建新版、沿用舊版凍結的範圍、只發 content_changed（§6.4：內容變＝全員重新同意；Review r1）。
+      // 這條路不再查成果展示草稿：範圍是沿用舊版凍結的，不因此刻缺草稿把整筆擋下（Review r1 選用 3）。
+      const live = pkg.current_version_id ? await liveVersionOf(tx, pkg.current_version_id) : null
+      if (live) {
+        if (live.contentChecksum === contentChecksum && sameSet(live.fileIds, item.attachmentFileIds)) continue
+        plans.push({ cohort, group, pkg, mode: 'content_changed', live })
+        continue
+      }
       let entryId: string | null = null
       if (item.purpose === 'final_document') {
         entryId = await draftEntryOf(tx, group.id)
@@ -121,7 +139,7 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
           continue
         }
       }
-      plans.push({ cohort, group, entryId })
+      plans.push({ cohort, group, pkg, mode: 'fresh', entryId })
     }
     if (missingDrafts.length > 0) {
       return err('VALIDATION_FAILED', describeMissingDrafts(missingDrafts), { details: { field: 'consent_drafts', groups: missingDrafts } })
@@ -129,19 +147,20 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
 
     let created = 0
     for (const plan of plans) {
-      const pkg = await lockItemPackage(tx, { ...plan, itemId: item.id, purpose: item.purpose, adminId: actorUserId, realAt, create: true })
-      if (!pkg) return groupNotFound()
-      // 撤回後重新發布：這組已經有一版在跑就不再建（免得同一份內容再發一次「輪到你同意」）；已失效／作廢的才重建。
-      if (pkg.current_version_id && !isTerminal(await stateOf(tx, pkg.current_version_id))) continue
       const built = await this.#signoff.createVersionInTx(tx, {
         cohort: plan.cohort,
         group: plan.group,
-        pkg,
+        pkg: plan.pkg,
         content,
         contentChecksum,
         attachments: { source: 'item_attachment', itemId: item.id, itemTitle: meta.title, itemVersionNo: meta.content_version_no, fileIds: item.attachmentFileIds },
-        scope: plan.entryId ? { kind: 'draft', entryId: plan.entryId } : { kind: 'none' },
-        notify: 'version_created',
+        scope:
+          plan.mode === 'fresh'
+            ? plan.entryId
+              ? { kind: 'draft', entryId: plan.entryId }
+              : { kind: 'none' }
+            : { kind: 'carry_over', fromVersionId: plan.live.versionId, scope: plan.live.scope },
+        notify: plan.mode === 'fresh' ? 'version_created' : 'content_changed',
         adminId: actorUserId,
         realAt,
         businessAt,
@@ -338,6 +357,34 @@ const isUuid = (value: unknown): value is string => typeof value === 'string' &&
 
 function notConsentItem(): Err {
   return err('VALIDATION_FAILED', '找不到這份站內同意書作業，請重新整理頁面。', { details: { field: 'itemId' } })
+}
+
+type LiveVersion = { versionId: string; contentChecksum: string; fileIds: string[]; scope: AuthorizationScope | null }
+
+/** 簽核包目前那一版還在跑（非失效／作廢）的話，回它的內容核對碼、附件集合與凍結範圍；終態回 null。狀態列 `FOR UPDATE`。 */
+async function liveVersionOf(tx: PoolClient, versionId: string): Promise<LiveVersion | null> {
+  const row = (
+    await tx.query<{ state: SignoffState; content_checksum: string; attachment_file_versions: unknown; authorization_scope: unknown }>(
+      `select s.state, v.content_checksum, v.attachment_file_versions, v.authorization_scope
+         from signoff_version_status s join signoff_package_versions v on v.id = s.version_id
+        where s.version_id = $1 for update of s`,
+      [versionId],
+    )
+  ).rows[0]
+  if (!row || isTerminal(row.state)) return null
+  const attachments = Array.isArray(row.attachment_file_versions) ? (row.attachment_file_versions as { fileId?: unknown }[]) : []
+  return {
+    versionId,
+    contentChecksum: row.content_checksum,
+    fileIds: attachments.map((a) => String(a.fileId ?? '')),
+    scope: readAuthorizationScope(row.authorization_scope),
+  }
+}
+
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  const left = [...new Set(a)].sort()
+  const right = [...new Set(b)].sort()
+  return left.length === right.length && left.every((id, i) => id === right[i])
 }
 
 async function stateOf(tx: PoolClient, versionId: string): Promise<SignoffState> {

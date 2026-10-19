@@ -488,6 +488,88 @@ describe('內容改版只發「內容已更新」（AC-23、AC-23a）', () => {
     expect(await canDownload(teacher(outsider), oldFile)).toBe(false)
   })
 
+  it('撤回 → 改正文 → 重新發布（Review r1）：每組建第 2 版、cause content_change、參與者各收一則 content_changed、沒有 version_created；撤回 → 沒改 → 發布：不建新版、不發通知', async () => {
+    const cohortId = await newCohort()
+    const g1 = await newGroup(cohortId, 'G01')
+    const g2 = await newGroup(cohortId, 'G02')
+    const item = await createItem(cohortId)
+    const published = await mustPublish(item.itemId, item.revision)
+    const v1 = (await packageOf(item.itemId, g1.groupId))!
+    expect((await vote(student(g1.members[0]!), v1.version_id)).ok).toBe(true)
+
+    // 撤回 → 沒改 → 重新發布：同一份內容不再建版、不再通知。
+    const withdrawn = await items.changeStatus(admin(), item.itemId, published.revision, 'withdraw', randomUUID())
+    if (!withdrawn.ok) throw new Error(`${withdrawn.code} ${withdrawn.message}`)
+    const quiet = new Date()
+    const republished = await mustPublish(item.itemId, withdrawn.receipt.revision)
+    expect(republished.consent).toEqual({ created: 0, skipped: [] })
+    expect((await packageOf(item.itemId, g1.groupId))!.version_id).toBe(v1.version_id)
+    expect(await count(`select count(*) as n from domain_events where type like 'signoff.%' and occurred_real_at >= $1`, [quiet])).toBe(0)
+
+    // 撤回 → 改正文 → 重新發布：內容變＝全員重新同意（§6.4）。
+    const withdrawn2 = await items.changeStatus(admin(), item.itemId, republished.revision, 'withdraw', randomUUID())
+    if (!withdrawn2.ok) throw new Error(`${withdrawn2.code} ${withdrawn2.message}`)
+    const saved = await items.saveDraft(admin(), item.itemId, withdrawn2.receipt.revision, consentInput(cohortId, { body: '<p>撤回後改過的內容。</p>' }), randomUUID())
+    if (!saved.ok) throw new Error(`${saved.code} ${saved.message}`)
+    const since = new Date()
+    const again = await mustPublish(item.itemId, saved.receipt.revision)
+    expect(again.consent).toEqual({ created: 2, skipped: [] })
+    for (const g of [g1, g2]) {
+      const v2 = (await packageOf(item.itemId, g.groupId))!
+      expect(v2).toMatchObject({ version_no: 2, state: 'collecting', supersede_cause: 'content_change' })
+      expect(v2.content_checksum).toBe(sha256('<p>撤回後改過的內容。</p>'))
+      expect(await recipientsOf('signoff.content_changed', v2.version_id)).toEqual([...g.members.map((m) => m.id), g.teacher!.id].sort())
+      expect(await eventsOfType('signoff.version_created', v2.version_id)).toBe(0)
+    }
+    expect(await statusOf(v1.version_id)).toEqual({ state: 'superseded', cause: 'content_change' })
+    expect(await count('select count(*) as n from approvals where version_id = $1', [v1.version_id])).toBe(1)
+    for (const u of [...g1.members, g1.teacher!]) expect(await receivedBy(u.id, 'signoff.content_changed', since)).toBe(1)
+  })
+
+  it('重新發布時最終文件授權已凍結範圍的組不因此刻缺草稿被擋：內容沒變不建版；內容有變沿用舊範圍建新版、只發 content_changed（Review r1 選用 3）', async () => {
+    const cohortId = await newCohort()
+    const g1 = await newGroup(cohortId, 'G01')
+    const g2 = await newGroup(cohortId, 'G02')
+    await showcaseDraft(cohortId, g1.groupId, '題目一')
+    const entry2 = await showcaseDraft(cohortId, g2.groupId, '題目二')
+    const item = await createItem(cohortId, { consentPurpose: 'final_document' })
+    await mustPublish(item.itemId, item.revision)
+    const v1 = (await packageOf(item.itemId, g2.groupId))!
+    // G02 的草稿之後沒了（此刻查不到可凍結的草稿）。作業模組自己的發布前檢查 `consent_drafts`（pg-items.ts，不在本票範圍）
+    // 會先擋住整筆重新發布，所以這裡直接驅動 hook 驗它的規則。
+    await owner.sql('delete from showcase_drafts where entry_id = $1', [entry2])
+    const run = async (bodyHtml: string) => {
+      const client = await app.connect()
+      try {
+        await client.query('begin')
+        const r = await hook.onPublished(
+          client,
+          { id: item.itemId, cohortId, groupIds: [g1.groupId, g2.groupId], bodyHtml, attachmentFileIds: [], purpose: 'final_document', dueAt: null },
+          adminId,
+          randomUUID(),
+        )
+        await client.query(r.ok ? 'commit' : 'rollback')
+        return r
+      } finally {
+        client.release()
+      }
+    }
+    // 內容沒變：兩組都有一版在跑，不查草稿、不建版、不通知。
+    const quiet = new Date()
+    expect(await run('<p>本組同意期中結果。</p>')).toMatchObject({ ok: true, receipt: { created: 0, skipped: [] } })
+    expect((await packageOf(item.itemId, g2.groupId))!.version_id).toBe(v1.version_id)
+    expect(await count(`select count(*) as n from domain_events where type like 'signoff.%' and occurred_real_at >= $1`, [quiet])).toBe(0)
+    // 內容有變：沿用舊版凍結的範圍建新版，不因 G02 缺草稿被擋。
+    expect(await run('<p>改過。</p>')).toMatchObject({ ok: true, receipt: { created: 2, skipped: [] } })
+    const v2 = (await packageOf(item.itemId, g2.groupId))!
+    expect(v2).toMatchObject({ version_no: 2, supersede_cause: 'content_change' })
+    expect(v2.content_checksum).toBe(sha256('<p>改過。</p>'))
+    expect(v2.authorization_scope).toMatchObject({ title: '題目二' })
+    expect(await statusOf(v1.version_id)).toEqual({ state: 'superseded', cause: 'content_change' })
+    expect(await recipientsOf('signoff.content_changed', v2.version_id)).toEqual([...g2.members.map((m) => m.id), g2.teacher!.id].sort())
+    expect(await eventsOfType('signoff.version_created', v2.version_id)).toBe(0)
+  })
+
   it('退回修正中的包改內容也建新版；已失效（組員變更）的不動', async () => {
     const cohortId = await newCohort()
     const g1 = await newGroup(cohortId, 'G01')
