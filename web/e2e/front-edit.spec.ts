@@ -263,7 +263,8 @@ test.describe('系辦', () => {
     for (const label of ['最新公告', '優秀專題', '榮譽與競賽', '歷屆專題一覽']) {
       await expect(layer.locator('.fe-section-label', { hasText: label })).toHaveCount(1)
     }
-    await expect(layer.getByRole('button', { name: /^新增公告/ })).toBeVisible()
+    // 「最新公告」那顆（進行中的競賽區塊也可新增公告，有競賽資料時會多一顆「新增公告（進行中的競賽）」）。
+    await expect(layer.getByRole('button', { name: '新增公告（最新公告）', exact: true })).toBeVisible()
     const items = await page.locator('[data-fe-item]').count()
     await expect(layer.locator('.fe-item')).toHaveCount(items)
     await expect(layer.getByRole('button', { name: /^編輯/ })).toHaveCount(items)
