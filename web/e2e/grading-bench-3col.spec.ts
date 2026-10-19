@@ -30,6 +30,10 @@ const DAY = 86_400_000
 const TITLE_A = `${CODE} 系統驗收文件`
 const TITLE_B = `${CODE} 期中報告`
 const DESCRIPTION = '依發表當天表現評分'
+const CODE2 = `C112B-${stamp}`
+const NAME2 = `第二屆${stamp.slice(-3)}`
+const TITLE_C = `${CODE2} 系統驗收文件`
+const TITLE_D = `${CODE2} 發表投影片`
 
 const STAGES = [
   {
@@ -51,6 +55,8 @@ let cohortId: string
 let bing: TestSession
 let ding: TestSession
 let wu: TestSession
+/** 兩個屆別都有指派的老師（Review 第 1 輪）。 */
+let ji: TestSession
 const groupIds = new Map<string, string>()
 /** 每個種好的檔案：檔名 → id。 */
 const fileIds = new Map<string, string>()
@@ -202,6 +208,49 @@ async function assign(groupId: string, stageKey: string, teacherId: string) {
 
 const submittedAt = new Date(Date.now() - 2 * 3600_000)
 
+/** 建一個進行中的屆別與一個階段（作業要掛階段）；把全域 `cohortId` 換成它，回階段 id。 */
+async function insertCohort(code: string, name: string): Promise<string> {
+  cohortId = (
+    await pool.query<{ id: string }>(
+      `insert into cohorts (id, code, name, status, year_end_date, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'active', $3, 'system') returning id`,
+      [code, name, ymd(new Date(Date.now() + 300 * DAY))],
+    )
+  ).rows[0]!.id
+  return (
+    await pool.query<{ id: string }>(
+      `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+       values (gen_random_uuid(), $1, 1, '期末', $2, 'system') returning id`,
+      [cohortId, ymd(new Date(Date.now() - 30 * DAY))],
+    )
+  ).rows[0]!.id
+}
+
+/** 目前屆別發布一份方案（`STAGES`），每組每個評分項目要 3 位老師評。 */
+async function publishScheme(name: string, groups: readonly string[]) {
+  const scheme = await pool.query<{ id: string }>(
+    `insert into grading_schemes (id, cohort_id, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
+    [cohortId, name],
+  )
+  const versionId = (
+    await pool.query<{ id: string }>(
+      `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_by_user_id)
+       values (gen_random_uuid(), $1, 1, $2::jsonb, 'published', $3) returning id`,
+      [scheme.rows[0]!.id, JSON.stringify(STAGES), adminId],
+    )
+  ).rows[0]!.id
+  await pool.query('update grading_schemes set current_version_id = $2 where id = $1', [scheme.rows[0]!.id, versionId])
+  for (const groupId of groups) {
+    for (const stageKey of ['s1', 's2']) {
+      await pool.query(`insert into stage_requirements (group_id, stage_key, required_count, created_by_user_id) values ($1, $2, 3, $3)`, [
+        groupId,
+        stageKey,
+        adminId,
+      ])
+    }
+  }
+}
+
 test.beforeAll(async () => {
   test.setTimeout(240_000)
   if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能準備與核對資料')
@@ -222,47 +271,15 @@ test.beforeAll(async () => {
   ding = await fresh()
   wu = await fresh()
 
-  cohortId = (
-    await pool.query<{ id: string }>(
-      `insert into cohorts (id, code, name, status, year_end_date, created_by_kind)
-       values (gen_random_uuid(), $1, $1, 'active', $2, 'system') returning id`,
-      [CODE, ymd(new Date(Date.now() + 300 * DAY))],
-    )
-  ).rows[0]!.id
-  const stageId = (
-    await pool.query<{ id: string }>(
-      `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
-       values (gen_random_uuid(), $1, 1, '期末', $2, 'system') returning id`,
-      [cohortId, ymd(new Date(Date.now() - 30 * DAY))],
-    )
-  ).rows[0]!.id
+  ji = await fresh()
 
+  const stageId = await insertCohort(CODE, CODE)
   const students = [await insertStudent(), await insertStudent(), await insertStudent()]
   const g1 = await insertGroup('G1', students[0]!)
   const g2 = await insertGroup('G2', students[1]!)
   const g3 = await insertGroup('G3', students[2]!)
 
-  const scheme = await pool.query<{ id: string }>(
-    `insert into grading_schemes (id, cohort_id, name, created_by_kind) values (gen_random_uuid(), $1, $2, 'system') returning id`,
-    [cohortId, `${CODE} 評分方案`],
-  )
-  const versionId = (
-    await pool.query<{ id: string }>(
-      `insert into grading_scheme_versions (id, scheme_id, version_no, stages, status, created_by_user_id)
-       values (gen_random_uuid(), $1, 1, $2::jsonb, 'published', $3) returning id`,
-      [scheme.rows[0]!.id, JSON.stringify(STAGES), adminId],
-    )
-  ).rows[0]!.id
-  await pool.query('update grading_schemes set current_version_id = $2 where id = $1', [scheme.rows[0]!.id, versionId])
-  for (const groupId of [g1, g2, g3]) {
-    for (const stageKey of ['s1', 's2']) {
-      await pool.query(`insert into stage_requirements (group_id, stage_key, required_count, created_by_user_id) values ($1, $2, 2, $3)`, [
-        groupId,
-        stageKey,
-        adminId,
-      ])
-    }
-  }
+  await publishScheme(`${CODE} 評分方案`, [g1, g2, g3])
 
   const itemA = await groupItem(stageId, TITLE_A)
   const itemB = await groupItem(stageId, TITLE_B)
@@ -288,6 +305,32 @@ test.beforeAll(async () => {
   }
   await assign(g1, 's2', ding.userId)
   await assign(g1, 's1', wu.userId)
+
+  // Review 第 1 輪：老師己同時評兩個進行中屆別，兩份方案都有 s1（系統驗收）、s2（專題發表）。
+  // 第一屆只評 G1 的 s1；第二屆評 H1 的 s1、s2 與 H2 的 s1。第二屆 s1、s2 都對應作業（C、D），H1 兩份都交了。
+  await assign(g1, 's1', ji.userId)
+  const firstCohort = cohortId
+  const stage2 = await insertCohort(CODE2, NAME2)
+  const others = [await insertStudent(), await insertStudent()]
+  const h1 = await insertGroup('H1', others[0]!)
+  const h2 = await insertGroup('H2', others[1]!)
+  await publishScheme(`${CODE2} 評分方案`, [h1, h2])
+  const itemC = await groupItem(stage2, TITLE_C)
+  const itemD = await groupItem(stage2, TITLE_D)
+  for (const [stageKey, item] of [['s1', itemC], ['s2', itemD]] as const) {
+    await pool.query(`insert into grading_stage_settings (cohort_id, stage_key, item_id, updated_by_user_id) values ($1, $2, $3, $4)`, [
+      cohortId,
+      stageKey,
+      item.itemId,
+      adminId,
+    ])
+  }
+  await submit(itemC, h1, others[0]!, 1, [pdf('H1-acceptance.pdf')], submittedAt)
+  await submit(itemD, h1, others[0]!, 1, [pdf('H1-talk.pdf')], submittedAt)
+  await assign(h1, 's1', ji.userId)
+  await assign(h1, 's2', ji.userId)
+  await assign(h2, 's1', ji.userId)
+  cohortId = firstCohort
 })
 
 test.afterAll(async () => {
@@ -456,4 +499,52 @@ test('AC-28a（畫面）：丁只評 G1 的 s2——s2 頁沒有任何版本、�
   await shoot(page, 'ac28a-wu-s1.png')
   if (filesRoot) expect(await downloadStatus(page.request, wu, 'G1-v2-report.pdf')).toBe(200)
   expect(await downloadStatus(page.request, wu, 'G1-midterm.pdf')).toBe(403)
+})
+
+test('Review 第 1 輪①：s1、s2 都對應作業時，從 s1 切到 s2 → 中欄預覽的是 s2 作業的檔案（不沿用 s1 的選取）', async ({ page }) => {
+  await signIn(page, ji)
+  await page.goto(benchUrl('H1', 's1'))
+  const picker = page.getByTestId('submission-picker')
+  await expect(picker).toHaveAttribute('data-hydrated', '')
+  await expect(picker).toContainText(TITLE_C)
+  const pane = page.getByRole('region', { name: '文件預覽' })
+  await expect(pane.locator('iframe')).toHaveAttribute('src', `/api/files/${fileIds.get('H1-acceptance.pdf')}/preview`)
+
+  await page.getByRole('navigation', { name: '選擇評分項目' }).getByRole('link', { name: '專題發表' }).click()
+  await expect(page).toHaveURL(/\?stage=s2$/)
+  await expect(page.getByRole('region', { name: 'H1「專題發表」評分表' })).toBeVisible()
+  await expect(page.getByTestId('submission-picker')).toContainText(TITLE_D)
+  await expect(page.getByTestId('submission-picker').getByRole('list', { name: '檔案' })).toContainText('H1-talk.pdf')
+  await expect(pane).not.toContainText('這一版沒有附件')
+  await expect(pane.locator('iframe')).toHaveAttribute('src', `/api/files/${fileIds.get('H1-talk.pdf')}/preview`)
+})
+
+test('Review 第 1 輪②：老師在兩個屆別都有 s1 → 清單分成兩區、標題帶屆別；批改頁左欄與上一組／下一組只有本屆的組', async ({ page }) => {
+  await signIn(page, ji)
+  await page.goto('/dashboard/teacher/grading')
+  const first = page.getByRole('table', { name: `${CODE}（${CODE}）・系統驗收評分清單` })
+  const second = page.getByRole('table', { name: `${NAME2}（${CODE2}）・系統驗收評分清單` })
+  await expect(first.getByTestId('grading-entry')).toHaveCount(1)
+  await expect(first).toContainText('G1')
+  await expect(second.getByTestId('grading-entry')).toHaveCount(2)
+  await expect(second).toContainText('H1')
+  await expect(second).toContainText('H2')
+  await expect(second).not.toContainText('G1')
+  await expect(page.getByRole('heading', { name: `${NAME2}（${CODE2}）・系統驗收` })).toBeVisible()
+  await expect(page.getByRole('table', { name: `${NAME2}（${CODE2}）・專題發表評分清單` }).getByTestId('grading-entry')).toHaveCount(1)
+  await shoot(page, 'review1-two-cohorts.png')
+
+  // 第一屆 G1 的批改頁：左欄只有 G1，沒有第二屆的 H1、H2；上一組、下一組都停用。
+  await page.goto(benchUrl('G1', 's1'))
+  const rail = page.getByRole('list', { name: '本評分項目的組別' })
+  await expect(rail.getByTestId('rail-group')).toHaveCount(1)
+  await expect(rail).not.toContainText('H1')
+  const switcher = page.getByRole('navigation', { name: '切換組別' })
+  await expect(switcher.getByRole('link', { name: '上一組' })).toHaveAttribute('aria-disabled', 'true')
+  await expect(switcher.getByRole('link', { name: '下一組' })).toHaveAttribute('aria-disabled', 'true')
+
+  // 第二屆 H1：左欄只有 H1、H2，下一組是 H2。
+  await page.goto(benchUrl('H1', 's1'))
+  await expect(page.getByRole('list', { name: '本評分項目的組別' }).getByTestId('rail-group')).toHaveText([/^H1/, /^H2/])
+  await expect(page.getByRole('navigation', { name: '切換組別' }).getByRole('link', { name: /^下一組/ })).toHaveAttribute('href', benchUrl('H2', 's1'))
 })

@@ -3,10 +3,11 @@ import type { TeacherQueueEntry } from '@/application/grading'
 import { Pill } from '@/app/dashboard/teacher/_ui/dash'
 import { filterQueue, gradingStatusOf } from '@/app/dashboard/teacher/grading/filter'
 import type { GradingFilter } from '@/app/dashboard/teacher/grading/overview-types'
+import { cohortLabel } from '@/composition/cohorts'
 import { formatTaipeiMinute } from '@/shared/time'
 
 /**
- * 老師評分清單的區段（C1-12，設計方案① §7.2、AC-27）：每個評分項目一個區段，底下每組一列——
+ * 老師評分清單的區段（C1-12，設計方案① §7.2、AC-27）：每個屆別的每個評分項目一個區段，底下每組一列——
  * 組別、狀態、附件（對應作業最後一次繳交的檔案數與日期；沒對應作業或還沒交寫「—」）、成績（已送出的分數）、「批改」。
  * 伺服器元件；篩選（`?filter=`）在伺服器端套到每個區段，區段標題的「已評 N／M 組」不受篩選影響。
  */
@@ -50,15 +51,23 @@ function StatusCell({ e }: { e: TeacherQueueEntry }) {
 const TH = 'px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground'
 const TD = 'px-4 py-3 align-middle'
 
-function StageSection({ stageKey, stageName, entries, filter }: { stageKey: string; stageName: string; entries: readonly TeacherQueueEntry[]; filter: GradingFilter }) {
+/**
+ * 區段的錨點 id（批改頁「評分總覽」連回來用）：屆別代碼＋評分項目代號，不同屆別同代號的項目不撞；
+ * 字母、數字、`-`、`_` 以外的字元換成 `_`，網址 `#` 後面不用再編碼。
+ */
+export function sectionId(cohortCode: string, stageKey: string): string {
+  return `stage-${cohortCode}-${stageKey}`.replace(/[^A-Za-z0-9_-]/g, '_')
+}
+
+function StageSection({ id, title, entries, filter }: { id: string; title: string; entries: readonly TeacherQueueEntry[]; filter: GradingFilter }) {
   const list = filterQueue(entries, filter)
   const done = filterQueue(entries, 'submitted').length
-  const headingId = `stage-${stageKey}-title`
+  const headingId = `${id}-title`
   return (
-    <section id={`stage-${stageKey}`} aria-labelledby={headingId} data-testid="stage-section" className="dash-card min-w-0 overflow-hidden">
+    <section id={id} aria-labelledby={headingId} data-testid="stage-section" className="dash-card min-w-0 overflow-hidden">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-5 py-3.5">
         <h2 id={headingId} className="text-[15px] font-bold text-foreground">
-          {stageName}
+          {title}
         </h2>
         <p data-testid="grading-progress" className="tabular text-xs font-semibold text-muted-foreground">
           {`已評 ${done}／${entries.length} 組`}
@@ -68,7 +77,7 @@ function StageSection({ stageKey, stageName, entries, filter }: { stageKey: stri
         <p className="border-t border-border px-5 py-8 text-center text-sm font-semibold text-muted-foreground">這個篩選沒有組別。</p>
       ) : (
         <div className="overflow-x-auto border-t border-border">
-          <table aria-label={`${stageName}評分清單`} className="w-full min-w-[36rem] table-fixed text-sm">
+          <table aria-label={`${title}評分清單`} className="w-full min-w-[36rem] table-fixed text-sm">
             <thead className="bg-muted/40">
               <tr>
                 <th scope="col" className={`${TH} w-[32%]`}>
@@ -126,18 +135,23 @@ function StageSection({ stageKey, stageName, entries, filter }: { stageKey: stri
   )
 }
 
-/** 依隊列順序分組：每個評分項目一個區段（項目順序照第一次出現的順序）。 */
+/**
+ * 依隊列順序分組：每個「屆別＋評分項目」一個區段（順序照第一次出現的順序）。不同屆別的方案可以有同代號的評分項目
+ * （兩屆都有 `s1`），所以一定連屆別一起分；老師有兩個以上屆別的指派時，區段標題前面加屆別「名稱（代碼）」。
+ */
 export function StageSections({ entries, filter }: { entries: readonly TeacherQueueEntry[]; filter: GradingFilter }) {
-  const stages: { key: string; name: string; entries: TeacherQueueEntry[] }[] = []
+  const sections: { id: string; cohort: string; stageName: string; entries: TeacherQueueEntry[] }[] = []
   for (const e of entries) {
-    const stage = stages.find((s) => s.key === e.stageKey)
-    if (stage) stage.entries.push(e)
-    else stages.push({ key: e.stageKey, name: e.stageName, entries: [e] })
+    const id = sectionId(e.cohortCode, e.stageKey)
+    const section = sections.find((s) => s.id === id)
+    if (section) section.entries.push(e)
+    else sections.push({ id, cohort: cohortLabel({ name: e.cohortName, code: e.cohortCode }), stageName: e.stageName, entries: [e] })
   }
+  const multiCohort = new Set(entries.map((e) => e.cohortCode)).size > 1
   return (
     <div className="flex flex-col gap-5">
-      {stages.map((s) => (
-        <StageSection key={s.key} stageKey={s.key} stageName={s.name} entries={s.entries} filter={filter} />
+      {sections.map((s) => (
+        <StageSection key={s.id} id={s.id} title={multiCohort ? `${s.cohort}・${s.stageName}` : s.stageName} entries={s.entries} filter={filter} />
       ))}
     </div>
   )

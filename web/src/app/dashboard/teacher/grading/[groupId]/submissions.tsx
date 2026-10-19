@@ -104,6 +104,7 @@ function toViewerVersion(v: SubmissionRow, benchHref: string): ViewerVersion {
 }
 
 export function StageDocuments({
+  viewerKey,
   linkedItem,
   stageName,
   description,
@@ -114,6 +115,11 @@ export function StageDocuments({
   railClassName,
   docClassName,
 }: {
+  /**
+   * 這份指派的 id：當 `SubmissionViewer` 的 key。站內換評分項目（`?stage=`）時同一個位置換成另一份作業的版本，
+   * 不換 key 的話會沿用上一個項目選的版本與檔案（例如兩份都是第 1 版，選到的檔卻不在新的那份裡 →「這一版沒有附件」）。
+   */
+  viewerKey: string
   /** 這個評分項目對應的作業；沒有是 null。 */
   linkedItem: { readonly itemId: string; readonly title: string } | null
   stageName: string
@@ -162,6 +168,7 @@ export function StageDocuments({
   }
   return (
     <SubmissionViewer
+      key={viewerKey}
       versions={versions}
       opened={opened ? <div className="px-5 py-4">{opened}</div> : null}
       railTop={railTop}

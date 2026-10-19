@@ -10,6 +10,7 @@ import { GroupRail } from '@/app/dashboard/teacher/grading/[groupId]/group-rail'
 import { StageDocuments } from '@/app/dashboard/teacher/grading/[groupId]/submissions'
 import { filterQueue, neighbours, parseFilter } from '@/app/dashboard/teacher/grading/filter'
 import { GradingBench } from '@/app/dashboard/teacher/grading/grading-bench'
+import { sectionId } from '@/app/dashboard/teacher/grading/stage-sections'
 import { myStatusOf } from '@/app/dashboard/teacher/grading/rules'
 import type { ResolvedActor } from '@/application/accounts'
 import type { BenchEntry } from '@/application/grading'
@@ -110,18 +111,19 @@ export default async function TeacherGradingGroupPage({
   const hrefOf = (id: string) => `${BASE}/${id}?stage=${encodeURIComponent(stageKey)}${filter === 'all' ? '' : `&filter=${filter}`}`
   const benchHref = hrefOf(groupId)
 
-  // 左欄組別清單是同評分項目的全部組；上一組／下一組：同評分項目、同篩選（從總覽帶來的 `?filter=`）的前後一組；這一組已不在篩選裡（例如剛送出）就看同階段全部。
-  const sameStage = queue.filter((e) => e.stageKey === stageKey)
+  // 左欄組別清單是同屆別、同評分項目的全部組（不同屆別的方案可以有同代號的項目，一定連屆別一起比）；
+  // 上一組／下一組：同屆別、同評分項目、同篩選（從總覽帶來的 `?filter=`）的前後一組；這一組已不在篩選裡（例如剛送出）就看同階段全部。
+  const sameStage = queue.filter((e) => e.cohortCode === cohortCode && e.stageKey === stageKey)
   const filtered = filterQueue(sameStage, filter)
   const around = neighbours(filtered.some((e) => e.groupId === groupId) ? filtered : sameStage, groupId)
   const link = (e: (typeof queue)[number] | null): NeighbourLink => (e ? { href: hrefOf(e.groupId), groupCode: e.groupCode } : null)
-  const mine = queue.find((e) => e.groupId === groupId && e.stageKey === stageKey)
+  const mine = sameStage.find((e) => e.groupId === groupId)
   const status = mine ? myStatusOf(mine) : null
 
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current={BASE}>
       <div className="flex flex-col gap-5 pb-48 lg:pb-0">
-        <BackLink href={`${BASE}${filter === 'all' ? '' : `?filter=${filter}`}#stage-${encodeURIComponent(stageKey)}`}>
+        <BackLink href={`${BASE}${filter === 'all' ? '' : `?filter=${filter}`}#${sectionId(cohortCode, stageKey)}`}>
           評分總覽
         </BackLink>
         <PageTitle
@@ -139,6 +141,7 @@ export default async function TeacherGradingGroupPage({
         {/* 三欄（≥ xl）：左＝組別＋繳交版本與檔案、中＝文件預覽、右＝評分卡。lg～xl 兩欄（左上組別、左下預覽、右評分卡），更窄上下三段。 */}
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[15rem_minmax(0,1fr)_380px]">
           <StageDocuments
+            viewerKey={entry.assignmentId}
             linkedItem={page.linkedItem}
             stageName={entry.stage.name}
             description={page.stageDescription}
