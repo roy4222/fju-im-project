@@ -1,6 +1,7 @@
 import type { ResolvedActor } from '@/application/accounts'
 import type { DeclaredUpload, UploadTicket } from '@/application/ops'
 import type { HomeSettings, HomeSettingsInput } from '@/application/site/home-settings'
+import type { SiteTextInput, SiteTextKey, SiteTexts } from '@/application/site/site-texts'
 import type { Result } from '@/shared/result'
 
 /**
@@ -35,4 +36,27 @@ export interface HomeSettingsCommand {
 export interface HomeSettingsQuery {
   /** 目前的設定；還沒存過回 null。 */
   current(): Promise<HomeSettings | null>
+}
+
+/**
+ * 站內文字的 port（C 階段規格② §6.5；C2-17）：頁尾聯絡、三張卡、隱私權政策。
+ *
+ * 寫入只有系辦（授權在實作裡判）；讀取是公開的（每個前台頁都讀，訪客也一樣，一次讀全部 key）。
+ * 存了就生效；`revision` 樂觀鎖沿用首頁設定那套（還沒有列時畫面帶 0）。
+ */
+
+export type SiteTextReceipt = {
+  readonly key: SiteTextKey
+  /** 存完之後的版本（樂觀鎖用）。 */
+  readonly revision: number
+}
+
+export interface SiteTextsCommand {
+  /** 存一個 key 的文字；表單原始值在這裡收斂（`normalizeSiteText`）。版本不符 → `CONFLICT`。 */
+  save(actor: ResolvedActor, key: SiteTextKey, value: SiteTextInput, revision: number, requestId: string): Promise<Result<SiteTextReceipt>>
+}
+
+export interface SiteTextsQuery {
+  /** 全部站內文字（照 key 取；沒存過的 key 不在裡面）。 */
+  all(): Promise<SiteTexts>
 }

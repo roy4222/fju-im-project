@@ -1,6 +1,6 @@
 'use server'
 import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
+import { redirect, RedirectType } from 'next/navigation'
 import { currentActor } from '@/app/_ui/guard'
 import type { AvatarChoice } from '@/application/accounts'
 import type { DeclaredUpload, UploadTicket } from '@/application/ops'
@@ -98,13 +98,17 @@ function verifyFailure(error: unknown, fallback: string): { code: string; messag
   return { code: code || 'INTERNAL', message: fallback }
 }
 
+/** 已驗證的人還在舊分頁送碼或按重寄時的那一句。 */
+const ALREADY_VERIFIED = '這個 Email 已經驗證，不用再輸入驗證碼。'
+
 /** 按「驗證 Email」或「重寄驗證碼」：寄一封 6 碼到自己的登入 Email。 */
 export async function sendAccountVerifyOtpAction(state: VerifyEmailSendState): Promise<VerifyEmailSendState> {
   const attempt = (state?.attempt ?? 0) + 1
   const incoming = await headers()
   const me = await getSelfAccountCommand().viewMine(incoming)
   if (!me) redirect(`/login?next=${encodeURIComponent('/account')}`)
-  if (me.emailVerified) redirect('/account')
+  // 另一個分頁先驗證過了：明講，不靜默導走（C ⑤-01）。
+  if (me.emailVerified) return { error: ALREADY_VERIFIED, code: 'ALREADY_VERIFIED', attempt }
   try {
     await sendOwnVerificationOtp(new Headers(incoming))
   } catch (error) {
@@ -121,13 +125,15 @@ export async function verifyAccountOtpAction(state: AccountFormState, formData: 
   const incoming = await headers()
   const me = await getSelfAccountCommand().viewMine(incoming)
   if (!me) redirect(`/login?next=${encodeURIComponent('/account')}`)
-  if (me.emailVerified) redirect('/account?verified=email')
+  // 剛送的碼沒有被接受：是錯誤行，不是「Email 已驗證」的成功通知（C ⑤-01）。
+  if (me.emailVerified) return failed(state, { message: ALREADY_VERIFIED, code: 'ALREADY_VERIFIED' })
   try {
     await verifyEmailWithOtp({ email: me.loginEmail, otp }, authCallHeaders({ ip: clientIpFrom(incoming) }))
   } catch (error) {
     return failed(state, verifyFailure(error, '驗證暫時無法完成，請稍後再試。'))
   }
-  redirect('/account?verified=email')
+  // replace：按上一頁不會回到還開著驗證表單的帳號頁。
+  redirect('/account?verified=email', RedirectType.replace)
 }
 
 // ── 頭像（VB-10；SH-9 的用例，B 設計方案 §2.2.1）──────────────────────────────

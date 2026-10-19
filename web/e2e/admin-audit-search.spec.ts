@@ -40,13 +40,11 @@ async function expectSettingsTabs(page: Page, current: string) {
   }
 }
 
-test('首頁設定與操作紀錄：h1「設定」、三個分頁、目前頁標 aria-current，點分頁切頁（AC-AD-24）', async ({ page }) => {
+test('專題時程與操作紀錄：h1「設定」、三個分頁、目前頁標 aria-current，點分頁切頁（AC-AD-24）', async ({ page }) => {
+  // C2-17 起首頁設定改在前台編輯，起點改用分頁列上的「專題時程」。
   await signIn(page, 'admin')
-  await page.goto('/dashboard/admin/home-settings')
-  await expectSettingsTabs(page, '/dashboard/admin/home-settings')
-  // description 只留第一句（第二句「按『儲存並更新首頁』後立刻生效…」砍掉）。
-  await expect(page.getByRole('main')).toContainText('前台首頁最上面的大圖與兩行標語。')
-  await expect(page.getByRole('main')).not.toContainText('後立刻生效，所有訪客重新整理就會看到')
+  await page.goto('/dashboard/admin/timeline')
+  await expectSettingsTabs(page, '/dashboard/admin/timeline')
 
   await page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '操作紀錄', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`${AUDIT}$`))

@@ -1,0 +1,8 @@
+{
+  "ticket": "C1-13",
+  "set": {
+    "/dashboard/admin/grading/rules": { "as": "admin", "baseline": 13, "max": 13, "identity": 0 },
+    "/dashboard/admin/grading/teachers": { "as": "admin", "baseline": 17, "max": 17, "identity": 0 },
+    "/dashboard/admin/grading/settle": { "as": "admin", "baseline": 13, "max": 13, "identity": 0 }
+  }
+}

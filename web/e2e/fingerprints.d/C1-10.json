@@ -1,0 +1,4 @@
+{
+  "ticket": "C1-10",
+  "override": { "/dashboard/teacher/affairs": { "from": "base", "value": "系辦發給你的作業：按「交作業」寫作業、上傳、繳交。" } }
+}

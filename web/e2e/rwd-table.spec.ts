@@ -50,12 +50,12 @@ test('AC-58：768 寬競賽頁，圖片在上全寬、文字欄 ≥ 400px', asyn
   await page.locator('#ed-title').fill(TITLE)
   await page.locator('#ed-body').fill('報名請洽系辦。')
   await page.getByLabel('誰看得到').selectOption('public')
+  await page.getByTestId('advanced-settings').locator('summary').first().click() // C1-06：分類在「進階設定」（預設收合）
   await page.getByTestId('category-competition').click()
   await page.getByLabel(/報名截止日/).fill('2099-12-31')
+  // C1-06：按「發布」直接發布（沒有發布前檢查視窗），成功回到清單。
   await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('已發布')
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
 
   await page.context().clearCookies()
   await page.setViewportSize({ width: 768, height: 1024 })

@@ -295,6 +295,95 @@ describe('列表與統計（做完的樣子 1）', () => {
   })
 })
 
+describe('寄重設密碼信（C2-11；AC-C2-24、25）', () => {
+  const googleOnly = async (): Promise<{ userId: string; email: string }> => {
+    const email = uniqueEmail('g')
+    const id = String((await db.sql(
+      `insert into users (id, name, email, email_verified, status) values (gen_random_uuid(), 'Google 人', $1, true, 'active') returning id`,
+      [email],
+    )).rows[0]!.id)
+    await db.sql(
+      `insert into accounts (id, account_id, provider_id, user_id, created_at, updated_at) values (gen_random_uuid(), 'g-sub-1', 'google', $1, now(), now())`,
+      [id],
+    )
+    return { userId: id, email }
+  }
+  const withStub = (calls: { email: string }[], fail = false) =>
+    makeCommandWithReset(async (_h, input) => {
+      calls.push(input)
+      if (fail) throw new Error('boom')
+    })
+
+  async function makeCommandWithReset(reset: (h: Headers, i: { email: string }) => Promise<unknown>): Promise<AccountDirectoryCommand> {
+    const { PgAccountDirectoryCommand } = await import('@/infrastructure/accounts/account-directory-command')
+    const { PgAuditWriter } = await import('@/infrastructure/ops/audit-writer')
+    const { PgOperationLedger } = await import('@/infrastructure/ops/operation-ledger')
+    return new PgAccountDirectoryCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      db: () => app,
+      requestPasswordReset: reset,
+    })
+  }
+
+  it('列表帶 hasPassword：有帳密的 true，只有 Google 的 false', async () => {
+    const pw = await student('411099001', '有密碼的人')
+    const g = await googleOnly()
+    const all = await command.list(adminActor(), filter({ q: pw.email }))
+    expect(all.ok && all.receipt.rows[0]).toMatchObject({ userId: pw.userId, hasPassword: true })
+    const gl = await command.list(adminActor(), filter({ q: g.email }))
+    expect(gl.ok && gl.receipt.rows[0]).toMatchObject({ userId: g.userId, hasPassword: false })
+  })
+
+  it('有密碼：寄出一次、回執帶 Email 與 30 分鐘、寫稽核 account.reset_mail_sent（不含連結）', async () => {
+    const calls: { email: string }[] = []
+    const cmd = await withStub(calls)
+    const pw = await student('411099002', '要寄信的人')
+    const result = await cmd.sendResetMail(adminActor(), { userId: pw.userId }, { headers: admin.headers })
+    expect(result).toMatchObject({ ok: true, receipt: { userId: pw.userId, email: pw.email, validMinutes: 30 } })
+    expect(calls).toEqual([{ email: pw.email }])
+    const audit = await one<{ n: string; payload: unknown; actor_user_id: string }>(
+      `select count(*) as n, min(actor_user_id::text) as actor_user_id, min(payload::text) as payload from audit_events where action = 'account.reset_mail_sent' and target_id = $1`,
+      [pw.userId],
+    )
+    expect(Number(audit.n)).toBe(1)
+    expect(audit.actor_user_id).toBe(admin.userId)
+    expect(String(audit.payload)).not.toMatch(/token|http/i)
+  })
+
+  it('只有 Google 的帳號：VALIDATION_FAILED、不寄、不寫稽核', async () => {
+    const calls: { email: string }[] = []
+    const cmd = await withStub(calls)
+    const g = await googleOnly()
+    expect(await cmd.sendResetMail(adminActor(), { userId: g.userId }, { headers: admin.headers })).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      message: expect.stringContaining('Google'),
+    })
+    expect(calls).toEqual([])
+    expect(Number((await one<{ n: string }>(`select count(*) as n from audit_events where action = 'account.reset_mail_sent' and target_id = $1`, [g.userId])).n)).toBe(0)
+  })
+
+  it('停用的帳號不寄；寄信失敗不寫稽核；非系辦被擋', async () => {
+    const calls: { email: string }[] = []
+    const cmd = await withStub(calls)
+    const off = await student('411099003', '停用的人')
+    await db.sql(`update users set status = 'disabled' where id = $1`, [off.userId])
+    expect(await cmd.sendResetMail(adminActor(), { userId: off.userId }, { headers: admin.headers })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+
+    const failing = await makeCommandWithReset(async () => {
+      throw new Error('mail down')
+    })
+    const pw = await student('411099004', '寄不出去的人')
+    expect(await failing.sendResetMail(adminActor(), { userId: pw.userId }, { headers: admin.headers })).toMatchObject({ ok: false, code: 'INTERNAL' })
+    expect(Number((await one<{ n: string }>(`select count(*) as n from audit_events where action = 'account.reset_mail_sent' and target_id = $1`, [pw.userId])).n)).toBe(0)
+
+    expect(await cmd.sendResetMail(teacherActor(), { userId: pw.userId }, { headers: admin.headers })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await cmd.sendResetMail({ kind: 'anonymous' }, { userId: pw.userId }, { headers: admin.headers })).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+    expect(calls).toEqual([])
+  })
+})
+
 describe('停用即失效、恢復可再登入（做完的樣子 2；ACC-09）', () => {
   it('停用：狀態、事件、釋出學號、撤 session、稽核一次寫齊；舊 session 下一個動作就是未登入', async () => {
     const s = await student('0411400201', '停用甲')

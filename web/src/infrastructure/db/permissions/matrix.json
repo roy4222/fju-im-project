@@ -52,7 +52,7 @@
     { "slice": "S05", "table": "submission_versions", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": true, "note": "不可變：每次正式送出一列；截止快照 worker 只讀" },
     { "slice": "S06", "table": "advisor_assignments", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason"], "delete": false, "immutable": false, "worker": false, "note": "主指導有效區間列：只更新結束欄（解除、重派）" },
     { "slice": "S06", "table": "industry_opportunities", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "合作案頭列（票 20 才寫）；下架只改狀態，不刪列" },
-    { "slice": "S06", "table": "opportunity_links", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason"], "delete": false, "immutable": false, "worker": false, "note": "連結有效區間列：只更新結束欄（解除、換案）" },
+    { "slice": "S06", "table": "opportunity_links", "select": true, "insert": true, "update": ["valid_to", "ended_real_at", "ended_by_user_id", "end_reason", "state"], "updateAddedIn": { "C3": ["state"] }, "delete": false, "immutable": false, "worker": false, "note": "連結有效區間列：只更新結束欄（解除、換案）" },
     { "slice": "S07", "table": "submission_files", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：每次正式送出帶的檔案與當時 checksum" },
     { "slice": "S07", "table": "advisor_visibility_settings", "select": true, "insert": true, "update": "none", "delete": false, "immutable": true, "worker": false, "note": "不可變：主指導閱覽設定只插不改，最新一列是目前的設定" },
     { "slice": "S10", "table": "grading_schemes", "select": true, "insert": true, "update": ["name", "current_version_id", "revision", "updated_at", "updated_by_user_id"], "delete": false, "immutable": false, "worker": false, "note": "評分方案頭列（一屆一個）：只改名稱、目前版本與通用欄；屆別寫了就不動，不刪列" },
@@ -76,7 +76,8 @@
     { "slice": "W0", "table": "home_settings", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "首頁設定（固定一列 id=1；第三波 W3 才寫）：存了就生效，恢復預設是把內容欄清成 NULL，不刪列" },
     { "slice": "VB1", "table": "mail_outbox", "select": true, "insert": true, "update": "all", "delete": true, "immutable": false, "worker": true, "note": "寄信紀錄（B 階段 VB-1）：每封信先寫一列再寄，正式列不存內文；保存 90 天後由 worker 刪（R5，VB-13），不是稽核表" },
     { "slice": "B17", "table": "grade_settlements", "select": true, "insert": true, "update": ["released_at", "released_by_user_id", "release_reason"], "delete": false, "immutable": false, "worker": false, "note": "系辦結算（B 階段 A-01）：一屆一階段一筆現行結算；解除只填解除三欄，結算列不刪" },
-    { "slice": "C1", "table": "grading_stage_settings", "select": true, "insert": true, "update": ["item_id", "description", "panel_key", "updated_by_user_id", "updated_at"], "delete": true, "immutable": false, "worker": false, "note": "評分項目側表（C 階段 C1-01）：對應作業、說明、評審組，改了不建版不重算；屆別與項目 key 寫了就不動，三欄都清空＝刪列" }
+    { "slice": "C1", "table": "grading_stage_settings", "select": true, "insert": true, "update": ["item_id", "description", "panel_key", "updated_by_user_id", "updated_at"], "delete": true, "immutable": false, "worker": false, "note": "評分項目側表（C 階段 C1-01）：對應作業、說明、評審組，改了不建版不重算；屆別與項目 key 寫了就不動，三欄都清空＝刪列" },
+    { "slice": "C2", "table": "site_texts", "select": true, "insert": true, "update": "all", "delete": false, "immutable": false, "worker": false, "note": "站內文字（C 階段 C2-17）：一個 key 一列，沒有列用程式內預設；只改不刪，版本欄樂觀鎖同 home_settings" }
   ],
   "backupWrites": [
     { "slice": "S00", "table": "backup_runs", "insert": true, "note": "備份結果的唯一寫入通道；該表在 S12 才建，屆時補這條 GRANT 與測試" }

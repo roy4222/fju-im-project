@@ -733,6 +733,14 @@ const SAMPLES: Record<string, Sample> = {
     }),
     updatable: { column: 'tagline_line1', value: '改過的標語' },
   },
+  site_texts: {
+    insert: () => ({
+      // 一個 key 一列（C2-17）：整套只有 INSERT 那一格會插 footer_contact。
+      sql: `insert into site_texts (key, value, updated_by_user_id) values ('footer_contact', '{"phone":"02-2905-2666"}'::jsonb, $1)`,
+      values: [userId],
+    }),
+    updatable: { column: 'revision', value: 2 },
+  },
   mail_outbox: {
     insert: () => ({
       sql: `insert into mail_outbox (id, to_email, template, subject, status) values (gen_random_uuid(), $1, 'email_otp', '【專題管理平台】Email 驗證碼', 'queued')`,
@@ -1008,6 +1016,27 @@ describe('showcase_entries 補欄（第三波 W0）', () => {
     await owner.sql(`update showcase_entries set home_position = null, deleted_at = null, deleted_by_user_id = null where id = $1`, [
       showcaseEntryId,
     ])
+  })
+})
+
+describe('名片欄與產學確認欄（③-1，C3-01）', () => {
+  it('fju_app 真的改得動 user_profiles 的 bio／skills 與 opportunity_links.state（逐欄驗只用 where false，這裡實際改一列）', async () => {
+    const profile = SAMPLES.user_profiles!.insert()
+    await app.query(profile.sql, profile.values as never[])
+    const card = await app.query(
+      `update user_profiles set bio = $2, skills = $3::jsonb where contact_email = $1 returning bio, skills`,
+      [profile.values[0], '做過三個 Next.js 專案', JSON.stringify(['前端', '資料庫', 'Figma'])],
+    )
+    expect(card.rows).toEqual([{ bio: '做過三個 Next.js 專案', skills: ['前端', '資料庫', 'Figma'] }])
+
+    const link = SAMPLES.opportunity_links!.insert()
+    await app.query(link.sql, link.values as never[])
+    const confirmed = await app.query(
+      `update opportunity_links set state = 'pending'
+        where group_id = (select id from groups where code = $1) returning state`,
+      [link.values[1]],
+    )
+    expect(confirmed.rows).toEqual([{ state: 'pending' }])
   })
 })
 

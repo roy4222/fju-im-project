@@ -19,7 +19,7 @@ export function CohortSelect({ options, current }: { options: readonly CohortOpt
       <span className="text-muted-foreground">屆別</span>
       <select
         value={current}
-        onChange={(e) => router.push(e.target.value === DEFAULT ? pathname : `${pathname}?cohort=${encodeURIComponent(e.target.value)}`)}
+        onChange={(e) => router.push(e.target.value === DEFAULT ? `${pathname}?tab=submissions` : `${pathname}?cohort=${encodeURIComponent(e.target.value)}`)}
         className="h-10 rounded-md border border-input bg-background px-2.5 text-sm font-semibold outline-none focus-visible:border-primary"
         aria-label="選擇屆別"
         data-testid="cohort-select"
