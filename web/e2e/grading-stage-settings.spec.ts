@@ -209,7 +209,8 @@ async function removeOnly(page: Page, row: ReturnType<typeof unitRow>, who: Who)
   await expect(page.getByRole('heading', { name: '移除或改派評分老師' })).toBeVisible()
   await page.getByTestId('choice-replace').getByRole('radio').check()
   await page.getByRole('button', { name: '確認執行' }).click()
-  await expect(page.getByRole('link', { name: /計算明細/ })).toBeVisible()
+  // 成功後回到這一組的計算明細，頁頂寫已移除誰。
+  await expect(page.getByText(`已移除 ${NAMES[who]} 老師`)).toBeVisible()
 }
 
 test('AC-26：評分規則改對應作業與說明 → 立刻生效、不建新版、版本號與分數不變；用詞是評分項目／細項；改結構才提示建新版', async ({ page }) => {
@@ -390,7 +391,7 @@ test('AC-30a：同一組評審在評分老師分頁合成一列；要 3 位、�
   for (const who of ['甲', '乙', '丙'] as const) {
     await row.getByLabel('G01「系統驗收＋專題發表」評分老師').selectOption({ label: NAMES[who] })
     await row.getByRole('button', { name: '指派' }).click()
-    await expect(row.getByRole('status')).toContainText(`已指派 ${NAMES[who]} 老師評 G01「系統驗收＋專題發表」`)
+    await expect(row.getByRole('status')).toContainText(`已指派 ${NAMES[who]} 老師評 G01「系統驗收」（同一組評審的 2 個評分項目一起設定）`)
   }
   await expect(row.getByTestId('evaluator')).toHaveCount(3)
 
