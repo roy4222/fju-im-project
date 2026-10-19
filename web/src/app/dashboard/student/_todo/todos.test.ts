@@ -158,11 +158,11 @@ describe('itemTodo：作業對到待辦狀態', () => {
     expect(t).toMatchObject({ status: 'done', label: '已交', late: false })
   })
 
-  it('連結、草稿、整組（Q128）', () => {
+  it('連結、整組（Q128）；草稿是隱形的：有草稿還沒交照樣是待交（C 階段規格① §5.2）', () => {
     const t = itemTodo(item({ itemId: 'it-1', hasDraft: true, receiverUnit: 'group', groupCode: 'G07' }), NOW)
-    expect(t).toMatchObject({ kind: 'item', id: 'it-1', href: '/dashboard/student/affairs/it-1', draft: true, unit: 'group' })
-    // 已送出後的草稿不算「繼續填寫」。
-    expect(itemTodo(item({ itemId: 'a', hasDraft: true, latestVersionNo: 1 }), NOW).draft).toBe(false)
+    expect(t).toMatchObject({ kind: 'item', id: 'it-1', href: '/dashboard/student/affairs/it-1', status: 'open', label: '待交', unit: 'group' })
+    expect(t).not.toHaveProperty('draft')
+    expect(pick(itemTodo(item({ itemId: 'a', hasDraft: true, latestVersionNo: 1 }), NOW))).toEqual({ status: 'done', label: '已交' })
   })
 })
 
@@ -177,7 +177,6 @@ describe('consentTodo：同意書（Q123）', () => {
       status: 'open',
       label: '待你同意',
       href: '/dashboard/student/signoff?version=v9',
-      draft: false,
       unit: null,
       late: false,
     })

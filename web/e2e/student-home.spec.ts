@@ -219,7 +219,7 @@ test.beforeAll(async () => {
   const a = people.a.session.userId
   const c = people.c.session.userId
 
-  // 甲：G01 整組一份的「期中報告」9 天後截止，已存草稿 → 「繼續填寫」。
+  // 甲：G01 整組一份的「期中報告」9 天後截止，已存草稿 → 草稿是隱形的，按鈕一律「去交」（C 階段規格① §5.2）。
   const g01 = await newGroup('G01', [a])
   const [midterm, midtermSchema] = await publishedItem({ title: `${CODE} 期中報告`, dueAt: at(9), unit: 'group', receiver: g01 })
   ids.midterm = midterm
@@ -285,7 +285,7 @@ test.afterAll(async () => {
   await pool?.end()
 })
 
-test('AC-ST-03：橫幅「現在階段」：階段字、還有 18 天、看完整時程 → /timeline；下一件要交的「繼續填寫」', async ({ page }) => {
+test('AC-ST-03：橫幅「現在階段」：階段字、還有 18 天、看完整時程 → /timeline；下一件要交的「去交」', async ({ page }) => {
   await signIn(page, people.a.session)
   const response = await page.goto(HOME)
   expect(response?.status()).toBe(200)
@@ -300,7 +300,7 @@ test('AC-ST-03：橫幅「現在階段」：階段字、還有 18 天、看完�
   const next = hero.getByTestId('hero-next')
   await expect(next).toContainText(`${CODE} 期中報告`)
   await expect(next).toContainText(`${monthDay(at(9))} 截止・剩 9 天`)
-  await expect(next.getByRole('link', { name: '繼續填寫' })).toHaveAttribute('href', `${HOME}/affairs/${ids.midterm}`)
+  await expect(next.getByRole('link', { name: '去交' })).toHaveAttribute('href', `${HOME}/affairs/${ids.midterm}`)
 
   // 整組一份的卡在小字標「整組」（Q128）。
   const card = page.getByTestId(`todo-${ids.midterm}`)
@@ -441,7 +441,7 @@ test('AC-ST-24（規格④ C4-02 改 Pixel Card）：Pixel Card 掛在首頁「�
   await page.mouse.move(box.x + 40, box.y + 40)
   await expect(pixel).toHaveAttribute('data-state', 'pulse')
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 })
-  await hero.getByTestId('hero-next').getByRole('link', { name: '繼續填寫' }).click()
+  await hero.getByTestId('hero-next').getByRole('link', { name: '去交' }).click()
   await expect(page).toHaveURL(new RegExp(`${HOME}/affairs/${ids.midterm}$`))
   await page.goto(HOME)
   await page.mouse.move(box.x + 60, box.y + 60, { steps: 5 })

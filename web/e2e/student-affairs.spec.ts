@@ -7,8 +7,8 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 學生規格 ST-3：交作業列表（AC-ST-09、10、13 列表段、15）。
  *
  * - AC-ST-09：S 在 G07，有待交（20 天後）、快到期（3 天後）、尚未開放（5 天後開）各一、逾期兩件（一件整組一份）、
- *   已交一件、一份輪到 S 的同意書（期中結果確認） → 「待交 4」「已交 1」「逾期 2」；預設待交四張卡、同意書卡「沒有截止日」「待你同意」。
- * - AC-ST-10：逾期／已交篩選的卡、「已交第 2 次」、「以前的紀錄」只在已交下方（含被移出名單那件）、`?tab=all` 當待交、空狀態一句。
+ *   已交一件、一份輪到 S 的同意書（期中結果確認） → 「待交 4」「已交 1」「逾期 2」；預設待交四列、同意書列「沒有截止日」「待你同意」。
+ * - AC-ST-10：逾期／已交篩選的列、「已交第 2 次」、「以前的紀錄」只在已交下方（含被移出名單那件）、`?tab=all` 當待交、空狀態一句。
  * - AC-ST-13：免繳的作業在「已交」、膠囊「免繳」，不在「待交」。
  * - AC-ST-15：不在任何組別的學生沒有同意書卡、沒有「請聯絡系辦」。
  *
@@ -252,9 +252,10 @@ async function signIn(page: Page, session: TestSession) {
 }
 
 const filters = (page: Page) => page.getByRole('navigation', { name: '篩選作業' })
-const cards = (page: Page) => page.getByRole('list', { name: '作業列表' }).getByRole('listitem')
+/** 交作業清單的列（C 階段規格① §5.1：卡片改成表格）。 */
+const cards = (page: Page) => page.getByRole('table', { name: '作業列表' }).locator('tbody tr')
 
-test('AC-ST-09 預設「待交」：標題、三個篩選與數字、四張卡（含尚未開放與同意書）', async ({ page }) => {
+test('AC-ST-09 預設「待交」：標題、三個篩選與數字、四列（含尚未開放與同意書）；AC-16 欄有形式、沒有成績', async ({ page }) => {
   await signIn(page, viewer)
   await page.goto(AFFAIRS)
   await expect(page.getByRole('heading', { level: 1, name: '交作業', exact: true })).toBeVisible()
@@ -270,7 +271,7 @@ test('AC-ST-09 預設「待交」：標題、三個篩選與數字、四張卡�
   await expect(cards(page)).toHaveCount(4)
   for (const key of ['open', 'soon', 'notOpen'] as const) {
     await expect(page.getByTestId(`affair-${ids[key]}`)).toContainText(title(key))
-    await expect(page.getByTestId(`affair-${ids[key]}`)).toContainText('作業')
+    await expect(page.getByTestId(`affair-${ids[key]}`).getByTestId('affair-form')).toHaveText('表單')
   }
   await expect(page.getByTestId(`affair-${ids.open}`)).toContainText('待交')
   await expect(page.getByTestId(`affair-${ids.open}`)).toContainText(/截止・剩 \d+ 天/)
@@ -283,11 +284,12 @@ test('AC-ST-09 預設「待交」：標題、三個篩選與數字、四張卡�
   await expect(consent).toContainText('期中結果確認')
   await expect(consent).toContainText('沒有截止日')
   await expect(consent).toContainText('待你同意')
-  await expect(consent).toHaveAttribute('href', `/dashboard/student/signoff?version=${consentId}`)
+  await expect(consent.getByRole('link', { name: '交作業' })).toHaveAttribute('href', `/dashboard/student/signoff?version=${consentId}`)
 
-  // 卡片只有種類、標題、截止字、膠囊：沒有表格的「形式」「動作」欄。
-  await expect(page.locator('main table')).toHaveCount(0)
-  await expect(page.getByRole('main')).not.toContainText('形式')
+  // C 階段規格① §5.1：表格欄是名稱、形式、狀態、截止、動作；不放成績欄（AC-16）。
+  const table = page.getByRole('table', { name: '作業列表' })
+  await expect(table.getByRole('columnheader')).toHaveText(['名稱', '形式', '狀態', '截止', '動作'])
+  await expect(page.getByRole('main')).not.toContainText('成績')
 
   // 整組一份的逾期作業：標「整組」。
   await page.goto(`${AFFAIRS}?tab=overdue`)
@@ -317,8 +319,8 @@ test('AC-ST-10 逾期／已交篩選、「以前的紀錄」只在已交下方�
   await expect(page.getByRole('heading', { name: '以前的紀錄' })).toBeVisible()
   await expect(page.getByTestId('my-records')).toContainText(title('removed'))
   await expect(page.getByTestId(`affair-${ids.removed}`)).toHaveCount(0)
-  // 「以前的紀錄」在卡片格下方。
-  const listBox = await page.getByRole('list', { name: '作業列表' }).boundingBox()
+  // 「以前的紀錄」在清單下方。
+  const listBox = await page.getByRole('table', { name: '作業列表' }).boundingBox()
   const recordsBox = await page.getByTestId('my-records').boundingBox()
   expect(recordsBox!.y).toBeGreaterThan(listBox!.y + listBox!.height)
 
@@ -336,7 +338,7 @@ test('AC-ST-10 逾期／已交篩選、「以前的紀錄」只在已交下方�
   await signIn(page, loner)
   await page.goto(`${AFFAIRS}?tab=overdue`)
   await expect(page.getByText('沒有逾期的作業', { exact: true })).toBeVisible()
-  await expect(page.getByRole('list', { name: '作業列表' })).toHaveCount(0)
+  await expect(page.getByRole('table', { name: '作業列表' })).toHaveCount(0)
 })
 
 test('AC-ST-13 免繳的作業在「已交」、膠囊「免繳」，不在「待交」', async ({ page }) => {

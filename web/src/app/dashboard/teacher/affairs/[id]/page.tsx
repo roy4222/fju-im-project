@@ -1,15 +1,16 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { IconClock, IconFileText, IconHistory } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
+import { AssignmentView } from '@/app/dashboard/_submissions/assignment-view'
 import { VersionContent, VersionTable } from '@/app/dashboard/_submissions/version-parts'
 import { BackLink, PageTitle, Panel, Pill, Ring, SegmentBar, type PillTone } from '@/app/dashboard/teacher/_ui/dash'
 import { EntryList, type EntryView } from '@/app/dashboard/teacher/affairs/[id]/entry-list'
 import type { ItemWindow, RosterEntry, StatusTone } from '@/application/submissions'
 import { cohortLabel, getBusinessClock } from '@/composition/cohorts'
-import { RECEIVER_UNIT_LABEL } from '@/composition/items'
-import { answerFields, categoryOf, completionOf, getAdvisorSubmissionQuery, receiverStatus } from '@/composition/submissions'
+import { getItemQuery, RECEIVER_UNIT_LABEL } from '@/composition/items'
+import { answerFields, categoryOf, completionOf, getAdvisorSubmissionQuery, getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
 
 export const metadata = { title: '繳交狀態｜資管系專題平台' }
@@ -25,6 +26,9 @@ function one(value: string | string[] | undefined): string | undefined {
 /**
  * 老師看某一份收件（票 22；票 37 照原型 `/dashboard/teacher/affairs/[id]`：左邊我的指導組別、右邊收件進度與欄位）。
  *
+ * - **老師自己要交的作業**（C 階段規格① §5.3；AC-20）：老師在這份作業目前的收件名單上 → 跟學生同一套作業頁（`AssignmentView`：
+ *   作業內容｜繳交歷史、寫作業、繳交作業）；寫入走同一組 Server Action，授權在用例（`authorizeReceiver`）。
+ *   發給老師的作業、但這位老師不在名單上 → 403（`/403`）；其他看不到的照舊 404。
  * - 整組一份：只列自己**此刻**指導的組；點一組（`?group=`）看它每一次正式送出，再點（`&version=`）看那一次的內容與附件。
  * - 個人一份：系辦開了主指導閱覽才看得到，只列自己指導的組裡的學生（`?person=`），只算開放那一版欄位以後的正式送出。
  * - 草稿一律不給老師（連有沒有草稿都不透露）。換掉的老師、別組的老師直接打網址一律 404（查詢自己再判一次授權）。
@@ -35,18 +39,46 @@ export default async function TeacherAffairPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ group?: string | string[]; person?: string | string[]; version?: string | string[] }>
+  searchParams: Promise<{
+    group?: string | string[]
+    person?: string | string[]
+    version?: string | string[]
+    tab?: string | string[]
+    write?: string | string[]
+  }>
 }) {
   const { id } = await params
   const actor = await requireRole(`/dashboard/teacher/affairs${UUID.test(id) ? `/${id}` : ''}`, 'teacher')
   if (!UUID.test(id)) notFound()
+  const userId = actor.kind === 'authenticated' ? actor.userId : ''
   const search = await searchParams
   const receiverId = one(search.group) ?? one(search.person)
   const versionText = one(search.version)
 
   const query = getAdvisorSubmissionQuery()
-  const [view, businessNow] = await Promise.all([query.item(actor, id), getBusinessClock().now()])
-  if (!view) notFound()
+  const [mine, view, businessNow] = await Promise.all([getSubmissionQuery().myItem(userId, id), query.item(actor, id), getBusinessClock().now()])
+  if (mine) {
+    return (
+      <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/affairs">
+        <AssignmentView
+          base="/dashboard/teacher/affairs"
+          listLabel="作業區"
+          userId={userId}
+          item={mine}
+          businessNow={businessNow}
+          tab={one(search.tab) === 'history' ? 'history' : 'content'}
+          versionNo={Number(versionText ?? NaN)}
+          write={one(search.write) === '1'}
+        />
+      </DashboardShell>
+    )
+  }
+  if (!view) {
+    // 發給老師的作業（發布中），這位老師卻不在名單上：明確拒絕（AC-20）。其他一律不透露存在。
+    const target = await getItemQuery().get(id)
+    if (target && target.status === 'published' && target.audienceKind === 'teachers') redirect('/403')
+    notFound()
+  }
   const { item } = view
   const individual = item.receiverUnit === 'individual'
   const base = `/dashboard/teacher/affairs/${item.itemId}`
@@ -142,7 +174,7 @@ export default async function TeacherAffairPage({
   const fields = answerFields(item.fields)
 
   return shell(
-    { href: '/dashboard/teacher/affairs', label: '各組繳交狀態' },
+    { href: '/dashboard/teacher/affairs?tab=submissions', label: '各組繳交狀態' },
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
       <EntryList
         title={individual ? '我指導的學生' : '我的指導組別'}
