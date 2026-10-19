@@ -71,6 +71,26 @@ describe('notificationsFor：事件投影成通知', () => {
     expect(() => notificationsFor(event({ type: 'calendar.changed' }))).toThrow(/沒有登記通知的樣子/)
   })
 
+  it('C1-05 三個新事件：催繳作業（截止類）、催評分（評分類）、同意書內容已更新（簽核類），都投影成通知', () => {
+    const cohort = { scope: 'cohort' as const, cohortId: SOURCE }
+    const item = notificationsFor(event({ ...cohort, type: 'item.reminded', sourceType: 'item', payload: { title: '期中報告 尚未繳交，截止 2026/11/15 23:59' } }))
+    expect(item.map((d) => [d.recipientUserId, d.kind, d.title])).toEqual([
+      [A, 'due', '期中報告 尚未繳交，截止 2026/11/15 23:59'],
+      [B, 'due', '期中報告 尚未繳交，截止 2026/11/15 23:59'],
+    ])
+    expect(item[0]!.sourceRef).toEqual({ type: 'item', id: SOURCE, version: 1 })
+    const grading = notificationsFor(event({ ...cohort, type: 'grading.reminded', sourceType: 'grading_cohort', recipients: [A], payload: { title: '您還有 3 份評分未送出' } }))
+    expect(grading.map((d) => [d.kind, d.title])).toEqual([['grading', '您還有 3 份評分未送出']])
+    const changed = notificationsFor(event({ ...cohort, type: 'signoff.content_changed', sourceType: 'signoff_version', payload: {} }))
+    expect(changed.map((d) => [d.kind, d.title])).toEqual([
+      ['signoff', '同意書內容已更新，請重新閱讀並同意'],
+      ['signoff', '同意書內容已更新，請重新閱讀並同意'],
+    ])
+    for (const type of ['item.reminded', 'grading.reminded', 'signoff.content_changed'] as const) {
+      expect(EVENT_CATALOG[type].consumers).toEqual(['notifications'])
+    }
+  })
+
   it('目錄裡有 notifications 消費者的事件都要有通知的樣子', () => {
     for (const [type, entry] of Object.entries(EVENT_CATALOG)) {
       if ((entry.consumers as readonly string[]).includes('notifications')) {

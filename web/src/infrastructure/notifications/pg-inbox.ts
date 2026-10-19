@@ -118,6 +118,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
     ref.roles.includes('teacher')
       ? { state: 'ok', href: context.grading_group_listed === true ? '/dashboard/teacher/grading' : null }
       : { state: 'forbidden' },
+  // 評分催繳（C1-05；來源＝屆別）：老師點進自己的評分清單；其他身分不給看。
+  grading_cohort: (ref) => (ref.roles.includes('teacher') ? { state: 'ok', href: '/dashboard/teacher/grading' } : { state: 'forbidden' }),
   // 成績更正待復核（票 24）：只有管理員點得進評分頁（那一頁的「待復核」清單就是管理待辦）。
   grade_override: (ref) => (ref.roles.includes('admin') ? { state: 'ok', href: '/dashboard/admin/grading' } : { state: 'forbidden' }),
   // 簽核版本（票 25、26）：學生點進自己的簽核頁（那一頁依本人此刻所在組別查目前版本，失效的版本會標示原因）；
