@@ -9,9 +9,9 @@
 }
 /* 不用 hidden 屬性：Tailwind 的 [hidden] 在 cascade layer 裡帶 !important，沒分層的規則蓋不過。 */
 html[data-nav-pending] .nav-skeleton { display: block; }
-/* 後台：頂列 3.5rem；側欄（md 起才固定在左邊）露出來，收合時只讓出圖示寬。 */
+/* 後台：頂列 3.5rem；側欄（lg 起才固定在左邊）露出來，收合時只讓出圖示寬。 */
 html:has(.dash-frame) .nav-skeleton { top: 3.5rem; }
-@media (min-width: 48rem) {
+@media (min-width: 64rem) {
   html:has(.dash-frame) .nav-skeleton { left: 16.5rem; }
   html:has(.dash-frame [data-state='collapsed']) .nav-skeleton { left: 3.75rem; }
 }

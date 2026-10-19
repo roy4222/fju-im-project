@@ -220,7 +220,7 @@ export function HomeHero({
   return (
     <section aria-label="現在階段" className="hero">
       {trail ? <HeroPixel /> : null}
-      <div className={cn('grid gap-6 p-6 md:p-8', hasNext && 'md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:items-center')}>
+      <div className={cn('grid gap-6 p-6 md:p-8', hasNext && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-center')}>
         <div className="min-w-0">
           <h1 className="text-[15px] font-bold text-white/85">歡迎回來，{name}</h1>
           <p className="mt-0.5 text-[12px] font-semibold text-white/70 tabular-nums">

@@ -104,7 +104,7 @@ export function DashThemeToggle() {
         toggle({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
       }}
       aria-label={dark ? '切換為淺色' : '切換為深色'}
-      className="relative inline-flex size-9 items-center justify-center overflow-hidden rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="relative inline-flex size-9 items-center justify-center overflow-hidden rounded-lg pointer-coarse:size-11 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       <IconSun
         aria-hidden
