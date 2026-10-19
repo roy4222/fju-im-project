@@ -16,8 +16,9 @@ import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } 
  *
  * - 預設只列公告（含競賽資訊）。欄：標題（置頂圖示）、對象、狀態、發布時間、編輯／刪除；置頂放在列上的「⋯」。
  * - 工具列：搜尋（標題、對象；`?q=`）、狀態篩選（`?status=`），都是網址參數、伺服器篩好，不多查資料庫。
- * - 「種類」篩選暫留（②§12.3）：「榮譽」（跨屆，`honor-list-hint`）在 C1-09 搬到成果展示前留著；「全部」是全頁編輯器送出後
- *   回來的地方（`placement=all`），「逾期」是已截止還有人沒交的收件（AD-B7，只有這個篩選多讀一次全屆名單事實）。
+ * - 「種類」篩選暫留（②§12.3）：「全部」是全頁編輯器送出後回來的地方（`placement=all`），「逾期」是已截止還有人沒交的收件
+ *   （AD-B7，只有這個篩選多讀一次全屆名單事實）。「榮譽」已搬到「成果展示」分頁的榮譽榜區（C1-09），
+ *   舊的 `?placement=honor` 由殼先轉址（`legacy-redirects.ts`）。
  * - 刪除：不能刪時按鈕本身寫原因（`deleteBlockedText`）；已下架的收件要看有沒有人交過才知道，只對那幾份讀名單。
  */
 
@@ -34,6 +35,9 @@ const STATUS_FILTERS = [
   { key: 'archived', label: '已下架' },
 ] as const
 
+/** 這裡的「種類」篩選：榮譽搬到成果展示（C1-09），其餘照 `AFFAIRS_FILTERS`。 */
+const NEWS_FILTERS = AFFAIRS_FILTERS.filter((f) => f.key !== 'honor')
+
 const GRID = 'md:grid-cols-[minmax(14rem,1fr)_9rem_7rem_7.5rem_minmax(9rem,auto)]'
 
 function one(value: string | string[] | undefined): string | undefined {
@@ -42,14 +46,13 @@ function one(value: string | string[] | undefined): string | undefined {
 
 /** 這個元件認得的篩選（預設是公告）。殼與它用同一個函式決定屆別選單要不要列封存屆別。 */
 export function newsFilterOf(searchParams: NewsListSearchParams): AffairsFilter {
-  return AFFAIRS_FILTERS.find((f) => f.key === one(searchParams.placement))?.key ?? 'news'
+  return NEWS_FILTERS.find((f) => f.key === one(searchParams.placement))?.key ?? 'news'
 }
 
 export async function AffairsNewsList({ cohortId, searchParams }: { cohortId: string; searchParams: NewsListSearchParams }) {
   const filter = newsFilterOf(searchParams)
   const status = STATUS_FILTERS.find((s) => s.key === one(searchParams.status))?.key ?? 'any'
   const q = (one(searchParams.q) ?? '').trim().slice(0, 100)
-  const honorView = filter === 'honor'
 
   const actor = await renderActor()
   const [rows, businessNow, facts] = await Promise.all([
@@ -92,21 +95,10 @@ export async function AffairsNewsList({ cohortId, searchParams }: { cohortId: st
         ? '這一屆還沒有任何項目。按「新增」建立第一筆公告。'
         : filter === 'news'
           ? '這一屆還沒有公告。按「新增」建立第一筆。'
-          : honorView
-            ? '這一屆還沒有榮譽。按「新增榮譽」建立第一則。'
-            : '這一屆目前沒有逾期未繳的文件繳交。'
+          : '這一屆目前沒有逾期未繳的文件繳交。'
 
   return (
     <>
-      {honorView ? (
-        <p className="text-sm text-muted-foreground" data-testid="honor-list-hint">
-          榮譽是跨屆的公開紀錄：上方屆別含已封存的屆別，選那一屆就看得到歷屆榮譽，可以編輯、下架、重新發布或刪除。發布中的會出現在前台
-          <Link href="/honors" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
-            「榮譽榜」
-          </Link>
-          。
-        </p>
-      ) : null}
       <Panel title={filter === 'news' ? '公告' : (AFFAIRS_FILTERS.find((f) => f.key === filter)!.label)} icon={<IconSpeakerphone />}>
         <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
           <form action="/dashboard/admin/affairs" className="relative block max-sm:w-full" role="search">
@@ -132,7 +124,7 @@ export async function AffairsNewsList({ cohortId, searchParams }: { cohortId: st
             ))}
           </nav>
           <nav aria-label="種類" className="flex flex-wrap gap-1 md:ml-auto">
-            {AFFAIRS_FILTERS.map((f) => (
+            {NEWS_FILTERS.map((f) => (
               <Link key={f.key} href={href({ placement: f.key, status: '', q: '' })} aria-current={filter === f.key ? 'page' : undefined} className={pillClass(filter === f.key)}>
                 {f.label}
               </Link>

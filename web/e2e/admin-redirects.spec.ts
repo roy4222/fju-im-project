@@ -9,7 +9,7 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * - 舊網址（`/dashboard/admin/settings`、`/dashboard/admin/affairs?placement=resource|submission|requirement|rules`、
  *   C2-07 加的 `/dashboard/admin/accounts?status=pending|disabled`）每條三種回應：
  *   沒登入→登入頁、學生→`/403`、系辦→**307** 到新位置（頁面 `redirect()` 的 digest；用 `REDIRECT` 陣列斷，再斷 location），
- *   其餘 query 照帶；`?placement=honor` 不轉（①做完榮譽榜才轉）。
+ *   其餘 query 照帶；①C1-09 加 `?placement=honor` → 成果展示（榮譽榜同頁，AC-14a）。
  * - 五個側欄項目的分頁列：標籤、順序、href、`aria-current`、側欄那一項亮；新分頁都 200。
  * - 作業、資源下載、專題規則三個分頁接的是既有清單：列出那一類的既有項目（`affair-row`），不是空外殼。
  *
@@ -91,6 +91,8 @@ const OLD_URLS = [
   { from: '/dashboard/admin/accounts?status=disabled', to: '/dashboard/admin/accounts/disabled' },
   // C2-17（AC-C2-04）：首頁設定搬到前台編輯模式，舊網址回前台首頁。
   { from: '/dashboard/admin/home-settings', to: '/' },
+  // ①C1-09（AC-14a）：「榮譽」篩選搬到成果展示分頁的榮譽榜區。
+  { from: '/dashboard/admin/affairs?placement=honor', to: '/dashboard/admin/showcase' },
 ] as const
 
 for (const { from, to } of OLD_URLS) {
@@ -116,13 +118,17 @@ for (const { from, to } of OLD_URLS) {
   })
 }
 
-test('?placement=honor 不轉：200 留在公告頁，仍是「榮譽」篩選（①做完榮譽榜才轉）', async ({ page }) => {
+test('AC-14a：公告頁「種類」沒有「榮譽」、沒有榮譽說明與「新增榮譽」「管理歷屆榮譽」；榮譽在成果展示的榮譽榜區', async ({ page }) => {
   await asAdmin(page)
-  const response = await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}&placement=honor`)
+  const response = await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   expect(response?.status()).toBe(200)
-  expect(new URL(page.url()).pathname).toBe('/dashboard/admin/affairs')
-  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '榮譽', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('affair-row').filter({ hasText: TITLE.honor })).toHaveCount(1)
+  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '公告', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '榮譽', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('honor-list-hint')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '新增榮譽' })).toHaveCount(0)
+  await expect(page.getByText('管理歷屆榮譽')).toHaveCount(0)
+  await page.goto(`/dashboard/admin/showcase?honor=${cohortId}`)
+  await expect(page.getByTestId('honor-row').filter({ hasText: TITLE.honor })).toHaveCount(1)
 })
 
 test('帳號列表還在用的 ?status=active 不轉：200 留在全部帳號', async ({ request }) => {
