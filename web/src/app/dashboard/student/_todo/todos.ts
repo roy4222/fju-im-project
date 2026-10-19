@@ -14,6 +14,7 @@ import { getSubmissionQuery, phaseOf, receiverStatus } from '@/composition/submi
  * 首頁待辦卡與「下一件要交的」、交作業三個篩選的數字、側欄「交作業」徽章全部從 `studentTodos` 算，不各自推。
  *
  * - 作業的狀態由既有 `receiverStatus`（名單頁、作業區同一個）決定，這裡只把它對到待辦的六種狀態。
+ *   草稿是隱形的（C 階段規格① §5.2 拿掉「儲存草稿」鈕）：有草稿還沒交就是「待交」，首頁按鈕一律「去交」。
  * - 同意書只列簽核包目前那一版、而且不是失效／作廢（Q123）；`isCurrent` 只是指標，不代表有效。
  * - 三個讀取都用 React `cache`、以 `userId` 字串當 key：頁面的 actor 與徽章的 actor 是兩個物件，
  *   拿物件當 key 會各查一次。呼叫端一律傳 `actor.userId`。
@@ -32,8 +33,6 @@ export type StudentTodo = {
   /** 膠囊字：逾期／快到期／待交／尚未開放／免繳／已交／補交／待你同意／已同意／不同意／（signoffStateLabel）。 */
   label: string
   href: string
-  /** 有草稿、還沒送出 → 首頁卡按鈕字「繼續填寫」。 */
-  draft: boolean
   /** `group` → 卡片小字「整組」（Q128）；同意書是 null。 */
   unit: 'individual' | 'group' | null
   /** 系辦開的補交期限生效中、還沒交 → 膠囊「補交」、截止字「補交到 M/D」（Q128）。 */
@@ -85,7 +84,6 @@ export function itemTodo(row: MyItemRow, now: Date): StudentTodo {
     status,
     label: late ? '補交' : ITEM_LABEL[status],
     href: `${BASE}/affairs/${row.itemId}`,
-    draft: view.pending && row.hasDraft,
     unit: row.receiverUnit,
     late,
   }
@@ -105,7 +103,6 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
     title: PURPOSE_LABEL[version.purpose],
     due: null,
     href: `${BASE}/signoff?version=${version.versionId}`,
-    draft: false,
     unit: null,
     late: false,
   }

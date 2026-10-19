@@ -54,7 +54,7 @@ export default async function StudentHomePage() {
 
   const upNext = nextDue(todos)
   const next: HeroNext | undefined = upNext
-    ? { title: upNext.title, due: dueText(upNext, now), href: upNext.href, label: upNext.draft ? '繼續填寫' : '去交' }
+    ? { title: upNext.title, due: dueText(upNext, now), href: upNext.href, label: '去交' }
     : undefined
   const cards = homeTodos(todos)
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '同學'

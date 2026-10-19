@@ -1,4 +1,4 @@
-import type { ResolvedActor } from '@/application/accounts'
+import type { AvatarUser, ResolvedActor } from '@/application/accounts'
 import type { FormField, ItemStatus, ReceiverUnit } from '@/application/items'
 import type { DeclaredUpload, UploadTicket } from '@/application/ops'
 import type { ReceiverFacts } from '@/application/submissions/roster'
@@ -202,6 +202,8 @@ export type VersionSummary = {
   readonly receivedBusinessAt: Date
   readonly receivedRealAt: Date
   readonly submittedByName: string
+  /** 繳交人頭像（C1-10 繳交歷史「頭像＋姓名」）；`name` 同 `submittedByName`。 */
+  readonly submittedBy: AvatarUser
   readonly schemaVersionNo: number
   /** 回執編號（就是送出時的請求編號）。 */
   readonly requestId: string
