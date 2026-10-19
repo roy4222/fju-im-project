@@ -79,10 +79,10 @@ function writeBaseline(budgetFile, result) {
   console.log(`已寫入 ${budgetFile}（${result.routes.size} 個路由）。`)
 }
 
-/** 基底＋小檔合併後的預算；小檔撞鍵就 exit 1。 */
-function readBudget(budgetFile) {
+/** 小檔撞鍵、格式錯 → 印訊息、exit 1（不噴 stack）。 */
+function overlayOrFail(fn) {
   try {
-    return mergeFromBaseFile(budgetFile, 'budget').merged
+    return fn()
   } catch (e) {
     if (e instanceof OverlayError) fail(e.message)
     throw e
@@ -93,13 +93,13 @@ function main() {
   const opts = parseArgs(process.argv.slice(2))
   const webDir = path.resolve(opts.dir ?? WEB_ROOT)
   const budgetFile = path.resolve(opts.budget ?? path.join(import.meta.dirname, 'budget.json'))
-  if (opts['write-baseline'] && hasOverlayFiles(budgetFile)) {
+  if (opts['write-baseline'] && overlayOrFail(() => hasOverlayFiles(budgetFile))) {
     fail(`${path.basename(budgetFile, '.json')}.d/ 還有小檔，--write-baseline 會重寫基底、跟小檔撞鍵。先 pnpm -C web overlay fold budget 再跑。`)
   }
   const result = measure(webDir)
   if (opts['write-baseline']) writeBaseline(budgetFile, result)
   if (!fs.existsSync(budgetFile)) fail(`找不到預算檔 ${budgetFile}。`)
-  const budget = readBudget(budgetFile)
+  const budget = overlayOrFail(() => mergeFromBaseFile(budgetFile, 'budget').merged)
 
   const problems = []
   const lines = []

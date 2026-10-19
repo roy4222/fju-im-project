@@ -10,7 +10,7 @@
  * `--base` 讓 print／fold 對別的基底檔跑（測試用；小檔資料夾照同一規則找它旁邊的 `.d/`）。
  */
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { fingerprintsLiteral, foldBaseFile, kindOf, mergeFromBaseFile, mergeFromDir, overlayDirFor } from './merge.mjs'
 
 const WEB_ROOT = path.join(import.meta.dirname, '..', '..')
@@ -82,4 +82,4 @@ async function main() {
   }
 }
 
-if (import.meta.url === pathToFileURL(fileURLToPath(import.meta.url)).href) await main()
+await main()
