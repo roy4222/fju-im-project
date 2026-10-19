@@ -355,7 +355,7 @@ describe('收件人', () => {
     const g3m = [await newUser('四號', 'student', cohortId)]
     const g1 = await newGroup(cohortId, g1m, t1)
     const g2 = await newGroup(cohortId, g2m, t2)
-    await newGroup(cohortId, g3m) // 沒有主指導 → 沒建包
+    const g3 = await newGroup(cohortId, g3m) // 沒有主指導 → 沒建包
     const itemId = await published(cohortId, { receiverUnit: 'group', title: '期中結果確認' })
     await owner.sql(`update managed_items set consent_mode = 'form', consent_purpose = 'result_confirmation' where id = $1`, [itemId])
     // 包由 C1-03 的 hook 在發布時建；這裡用既有建版用例建好再接上作業。
@@ -367,6 +367,15 @@ describe('收件人', () => {
     // 第二組唯一的學生同意 → 等老師。
     const checksum2 = String((await rows('select content_checksum from signoff_package_versions where id = $1', [v2.versionId]))[0]!.content_checksum)
     must(await signoff.respond(actor(g2m[0]!.id, ['student']), { versionId: v2.versionId, contentChecksum: checksum2, decision: 'agree', reason: null }, randomUUID()))
+
+    // 只有沒建包的組：沒人有票可投。
+    const lonely = await published(cohortId, { receiverUnit: 'group', title: '只有沒老師的組', audienceKind: 'groups', groupIds: [g3.id] })
+    await owner.sql(`update managed_items set consent_mode = 'form', consent_purpose = 'result_confirmation' where id = $1`, [lonely])
+    expect(await reminders.remindItem(admin(), { itemId: lonely }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'CONFLICT',
+      message: '「只有沒老師的組」沒有要催的人：各組都已完成，或對象組還沒建立同意書（沒有指導老師）。',
+    })
 
     const r = must(await reminders.remindItem(admin(), { itemId }, randomUUID()))
     expect(r.notified).toBe(2)

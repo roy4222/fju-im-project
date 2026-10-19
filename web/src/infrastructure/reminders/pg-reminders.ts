@@ -185,7 +185,14 @@ export class PgReminders implements ReminderCommand, ReminderQuery {
       if (last && next) return coolingDown(`「${item.title}」`, last, next)
 
       const targets = await this.#itemTargets(tx, item, businessNow, 'all')
-      if (targets.recipients.length === 0) return err('CONFLICT', `「${item.title}」名單上的人都已完成，不需要催繳。`)
+      if (targets.recipients.length === 0) {
+        return err(
+          'CONFLICT',
+          item.consent_mode === 'form'
+            ? `「${item.title}」沒有要催的人：各組都已完成，或對象組還沒建立同意書（沒有指導老師）。`
+            : `「${item.title}」名單上的人都已完成，不需要催繳。`,
+        )
+      }
       await this.#publishItem(tx, { item, cohort, adminId, realAt, businessNow, recipients: targets.recipients, scope: 'item' })
       mails = targets.mails
       const receipt: RemindItemReceipt = {
