@@ -1,0 +1,6 @@
+{
+  "ticket": "C2-17",
+  "override": {
+    "/dashboard/admin/home-settings": { "from": "base", "value": { "baseline": 224.1, "limit": 247 } }
+  }
+}

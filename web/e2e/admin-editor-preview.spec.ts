@@ -1,16 +1,17 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { sanitizeBody } from '../src/application/items/rich-text'
+import { formReady } from './create-item'
 import { rawHtml, richMode } from './item-body'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
- * 系辦編輯器正文旁的即時預覽（系辦 AD-16；AC-AD-28）：
+ * 系辦共用表單右欄的「即時預覽：學生看到的樣子」（AD-16、AC-AD-28；C1-06 起搬進一頁式表單 `ItemForm`，AC-3）：
  *
- * 1. 新建頁沒填標題：窗格寫「填好標題、開始打正文就會出現預覽」與檢查原因「請填標題。」，不渲染正文。
- * 2. 填好標題：窗格渲染伺服器淨化後的正文（粗體在）；正文裡的 `<script>`、`onerror` 不執行，也不出現原字。
- * 3. 標題清空：窗格寫「請填標題。」並清掉上一版預覽。
- * 4. 頂列「預覽」只開關窗格、不多打伺服器；手機寬預設收起、按了才展開。
+ * 1. 正文停手後渲染伺服器淨化後的正文（粗體在），不必先填標題（標題空著時預覽寫「（未命名）」）；
+ *    正文裡的 `<script>`、`onerror` 不執行，也不出現原字。
+ * 2. 寬螢幕預覽在正文右側；手機寬在正文下方（一欄）。
+ * 3. 預覽連線中斷：寫原因、清掉上一版預覽。
  *
  * 所見即所得正文（AD-B5，設計方案 §8.2；AC-A-29、30、49）：預設是 Tiptap 工具列，「原始 HTML」切成 textarea；
  * 上面幾個預覽案例要直接填 HTML，先切「原始 HTML」再填。
@@ -63,16 +64,12 @@ async function asAdmin(page: Page) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
 }
 
-/** 數 Server Action 請求（自動檢查 `reviewItemAction` 就是走這個）。 */
-function countActions(page: Page) {
-  const counter = { n: 0 }
-  page.on('request', (r) => {
-    if (r.method() === 'POST' && r.headers()['next-action']) counter.n += 1
-  })
-  return counter
+/** 右欄即時預覽的正文區（伺服器淨化後的版本）。 */
+function previewBody(page: Page) {
+  return page.getByRole('region', { name: '即時預覽：學生看到的樣子' }).getByTestId('body-preview')
 }
 
-test('正文旁預覽：先填標題才渲染、只渲染淨化後的正文、檢查失敗清掉舊預覽、按鈕只開關窗格', async ({ page }) => {
+test('即時預覽：只渲染淨化後的正文（不用先填標題）、腳本不執行、標題跟著變；寬螢幕在正文右側', async ({ page }) => {
   const alerts: string[] = []
   page.on('dialog', async (d) => {
     alerts.push(d.message())
@@ -80,10 +77,10 @@ test('正文旁預覽：先填標題才渲染、只渲染淨化後的正文、�
   })
   await page.setViewportSize({ width: 1440, height: 900 })
   await asAdmin(page)
-  const actions = countActions(page)
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  await formReady(page)
 
-  const pane = page.getByRole('region', { name: '預覽', exact: true })
+  const pane = previewBody(page)
   await rawHtml(page)
   const body = page.getByLabel('正文（網頁排版格式，可直接打字）', { exact: true })
   await expect(body).toBeVisible()
@@ -92,26 +89,19 @@ test('正文旁預覽：先填標題才渲染、只渲染淨化後的正文、�
     `/dashboard/admin/affairs?cohort=${cohortId}&placement=all`,
   )
 
-  // 一開始與步驟 1：還沒有標題，只有提示句與原因，正文沒有渲染。
-  await expect(pane).toContainText('填好標題、開始打正文就會出現預覽')
-  await expect(pane).toContainText('請填標題。')
+  // 一開始：正文空的。標題還沒填也照樣渲染正文（預覽標題寫「（未命名）」）。
+  await expect(pane).toContainText('正文還是空的。')
   await body.fill('<p>期中<strong>報告</strong></p>')
-  await page.waitForTimeout(1000)
-  await expect(pane).toContainText('請填標題。')
-  await expect(pane.locator('strong')).toHaveCount(0)
-  await expect(pane).not.toContainText('期中')
+  await expect(pane.locator('strong')).toHaveText('報告')
+  await expect(page.getByTestId('preview-title')).toHaveText('（未命名）')
 
-  // 1440 寬：窗格在正文右側。
+  // 1440 寬：預覽在正文右側。
   const bodyBox = (await body.boundingBox())!
   const paneBox = (await pane.boundingBox())!
   expect(paneBox.x).toBeGreaterThanOrEqual(bodyBox.x + bodyBox.width)
-  expect(paneBox.y).toBeLessThan(bodyBox.y + bodyBox.height)
 
-  // 步驟 2：填標題 → 渲染淨化後的正文。
   await page.locator('#ed-title').fill('期中報告說明')
-  await expect(pane.locator('strong')).toHaveText('報告')
-  await expect(pane).not.toContainText('填好標題')
-  await expect(pane).not.toContainText('請填標題。')
+  await expect(page.getByTestId('preview-title')).toHaveText('期中報告說明')
 
   // 含 <script> 與 onerror：不執行、不出現原字。
   await body.fill('<p>第二版<strong>報告</strong></p><script>window.__ad16=1;alert(1)</script><img src=x onerror="window.__ad16=2;alert(2)">')
@@ -121,67 +111,40 @@ test('正文旁預覽：先填標題才渲染、只渲染淨化後的正文、�
   expect(await pane.innerHTML()).not.toMatch(/<script|onerror/i)
   expect(await page.evaluate(() => (window as unknown as { __ad16?: number }).__ad16)).toBeUndefined()
   expect(alerts, '正文裡的腳本不能執行').toEqual([])
-
-  // 步驟 3：清空標題 → 原因出現、上一版預覽清掉。
-  await page.locator('#ed-title').fill('')
-  await expect(pane).toContainText('請填標題。')
-  await expect(pane).toContainText('填好標題、開始打正文就會出現預覽')
-  await expect(pane).not.toContainText('第二版')
-  await expect(pane.locator('strong')).toHaveCount(0)
-
-  // 頂列「預覽」：只開關窗格，不多打伺服器。
-  await page.waitForTimeout(1000)
-  const before = actions.n
-  const toggle = page.locator('button[aria-controls="ed-body-preview"]')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await toggle.click()
-  await expect(pane).toBeHidden()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await toggle.click()
-  await expect(pane).toBeVisible()
-  await page.waitForTimeout(1000)
-  expect(actions.n, '按「預覽」不應多打伺服器').toBe(before)
 })
 
-test('手機寬：預覽窗格預設收起，頂列「預覽」可以展開', async ({ page }) => {
+test('手機寬：預覽在正文下方（一欄）', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  await formReady(page)
   await page.locator('#ed-title').fill('手機預覽')
   await (await rawHtml(page)).fill('<p>手機<strong>看得到</strong></p>')
 
-  const pane = page.locator('#ed-body-preview')
-  const toggle = page.locator('button[aria-controls="ed-body-preview"]')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(pane).toBeHidden()
-
-  // 先切到別的分頁，按「預覽」也會回到窗格所在的「內容」分頁。
-  await page.getByRole('navigation', { name: '編輯區段' }).getByRole('button', { name: '發布' }).click()
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(pane).toBeVisible()
+  const pane = previewBody(page)
   await expect(pane.locator('strong')).toHaveText('看得到')
-  // 窄螢幕窗格在正文下方。
   const bodyBox = (await page.locator('#ed-body').boundingBox())!
   const paneBox = (await pane.boundingBox())!
   expect(paneBox.y).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height)
 })
 
-test('成功預覽後手動「檢查與預覽」斷線：窗格寫原因、清掉舊預覽', async ({ page }) => {
+test('成功預覽後連線中斷：預覽寫原因、清掉舊預覽', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
+  await formReady(page)
   await page.locator('#ed-title').fill('斷線預覽')
-  await (await rawHtml(page)).fill('<p>斷線前<strong>看得到</strong></p>')
-  const pane = page.getByRole('region', { name: '預覽', exact: true })
+  const area = await rawHtml(page)
+  await area.fill('<p>斷線前<strong>看得到</strong></p>')
+  const pane = previewBody(page)
   await expect(pane.locator('strong')).toHaveText('看得到')
 
-  // 之後的 Server Action 都斷線（頁面不重新載入）。
+  // 之後的 Server Action 都斷線（頁面不重新載入）；再改一次正文，停手後重問就斷線。
   await page.route('**/dashboard/admin/editor/new**', (route) =>
     route.request().method() === 'POST' && route.request().headers()['next-action'] ? route.abort('failed') : route.continue(),
   )
-  await page.getByRole('region', { name: '預覽確認' }).getByRole('button', { name: '檢查與預覽' }).click()
-  await expect(pane).toContainText('連線中斷，請再按一次。')
+  await area.fill('<p>斷線後<strong>看不到</strong></p>')
+  await expect(pane).toContainText('預覽連線中斷；停手後會再試一次。')
   await expect(pane.locator('strong')).toHaveCount(0)
   await expect(pane).not.toContainText('斷線前')
 })
@@ -199,20 +162,21 @@ async function bodyOf(title: string): Promise<{ id: string; body: string }> {
   return { id: found.rows[0]!.id, body: found.rows[0]!.body_html }
 }
 
-/** 存草稿並等到「已儲存」。 */
+/** 「儲存（先不發布）」並等到這一次真的存好（表單的 `data-revision` 變了）。 */
 async function saveDraft(page: Page) {
-  await page.getByRole('button', { name: '存草稿', exact: true }).click()
-  await expect(page.getByText('已儲存', { exact: true })).toBeVisible()
+  const form = await formReady(page)
+  const before = await form.getAttribute('data-revision')
+  await form.getByRole('button', { name: '儲存（先不發布）', exact: true }).click()
+  await expect(form).not.toHaveAttribute('data-revision', before ?? '')
+  await expect(page.getByRole('status').filter({ hasText: '已存成草稿' })).toBeVisible()
 }
 
-/** 發布（公開），等到「已發布」。 */
+/** 發布（公開）：發布成功回到清單（C1-06 共用表單）。 */
 async function publishPublic(page: Page) {
-  await page.getByLabel('誰看得到').selectOption('public')
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('已發布')
+  const form = await formReady(page)
+  await form.getByLabel('誰看得到').selectOption('public')
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
 }
 
 test('所見即所得：工具列打字、設標題、插連結 → 預覽一致；發布後前台只含白名單標籤（AC-A-29）', async ({ page }) => {
@@ -257,7 +221,7 @@ test('所見即所得：工具列打字、設標題、插連結 → 預覽一致
   await expect(editor.locator('a')).toHaveAttribute('href', 'https://example.com/form')
 
   // 預覽與編輯器一致（伺服器淨化後的版本）。
-  const pane = page.getByRole('region', { name: '預覽', exact: true })
+  const pane = previewBody(page)
   await expect(pane.locator('h2')).toHaveText('期末報告說明')
   await expect(pane.locator('strong')).toHaveText('逾期不收')
   await expect(pane.locator('a')).toHaveText('報名表')

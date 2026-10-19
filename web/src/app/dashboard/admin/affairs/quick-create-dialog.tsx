@@ -1,80 +1,47 @@
 'use client'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
-import { IconAlignLeft, IconArrowLeft, IconArrowRight, IconCalendar, IconCheck, IconCursorText, IconFileUpload, IconLink, IconPencilPlus, type Icon } from '@tabler/icons-react'
-import { createItemAction, publishItemAction, reviewItemAction, saveDraftAction } from './actions'
+import { useEffect, useRef, useState } from 'react'
 import {
-  AttachmentPicker,
-  CheckList,
-  DIALOG,
-  Feedback,
-  INPUT,
-  LABEL,
-  newField,
-  newRequestId,
-  PRIMARY,
-  RecipientList,
-  SECONDARY,
-  StudentView,
-  toPayload,
-  type EditorState,
-  type EditorVocabulary,
-  type FieldDraft,
-  IMPORTANT_LABEL,
-  broadAudience,
-} from './item-form-parts'
-import { SettingsFields } from './item-settings'
-import { HONOR } from './item-form-model'
-import { BTN_INK } from '@/app/_ui/dashboard-kit'
-import type { ItemReview } from '@/application/items'
+  IconArrowRight,
+  IconBell,
+  IconBook,
+  IconClipboardText,
+  IconSignature,
+  IconFolders,
+  IconPencilPlus,
+  IconTrophy,
+  type Icon,
+} from '@tabler/icons-react'
+import { ItemFormDialog } from './_form/item-form-dialog'
+import { DIALOG, PRIMARY, SECONDARY } from './item-form-parts'
+import { ITEM_FLASH_KEY, type ConsentModeValue, type EditorVocabulary, type ItemFormPlacement } from './item-form-model'
 import { cn } from '@/shared/cn'
 
 /**
- * 新增項目（快速建立三步驟；原型 `NewItemDialog`）：1 類型與對象 → 2 內容 → 3 發布前檢查。
+ * 「新增」鈕的相容包裝（C 階段規格① C1-06）：同名 export、同 props，給②四個公告與作業分頁殼繼續掛；C1-07 換掉掛載後就刪。
  *
- * 第 1 步按「下一步」就建立草稿（之後每一步都存回同一筆）；第 3 步的檢查清單、實際名單與
- * 「學生看到的樣子」都是伺服器算的。發布後可以「回列表」或「細調欄位」（進完整編輯器，同一個 ID）。
+ * 按鈕與類型選單保留（第 1 步選類型；作業另有兩種同意書）；按「下一步」起開共用表單 `ItemFormDialog`（一頁式、按需載入）。
+ * 表單送出後關窗、刷新清單、在右下角提示一句；全頁編輯器（`/editor/*`）送出回到清單時留下的提示也在這裡顯示一次。
  */
 
-const QUICK_FIELDS: { type: string; label: string; icon: Icon }[] = [
-  { type: 'file', label: '檔案上傳', icon: IconFileUpload },
-  { type: 'text', label: '短文字', icon: IconCursorText },
-  { type: 'textarea', label: '長文字', icon: IconAlignLeft },
-  { type: 'url', label: '網址', icon: IconLink },
-  { type: 'date', label: '日期', icon: IconCalendar },
-]
-
-const STEPS = ['類型', '內容', '發布'] as const
-
-/** 原型「上一步」是 ghost 鈕。 */
-const GHOST =
-  'press inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors hover:bg-muted disabled:opacity-40'
-
-function emptyState(cohortId: string, placement: string): EditorState {
-  return {
-    cohortId,
-    placement,
-    title: '',
-    summary: '',
-    body: '',
-    category: '',
-    cover: null,
-    attachments: [],
-    audienceKind: 'cohort_students',
-    groupIds: [],
-    receiverUnit: 'none',
-    stageId: '',
-    opensAt: '',
-    dueAt: '',
-    registrationDeadline: '',
-    eventDate: '',
-    awardedOn: '',
-    fields: [],
-  }
+const PLACEMENT_ICON: Record<string, Icon> = {
+  news: IconBell,
+  resource: IconFolders,
+  submission: IconClipboardText,
+  rules: IconBook,
+  honor: IconTrophy,
 }
 
-/** `label`：按鈕、對話框名稱與標題（各分頁用「新增公告／作業／資源／規則」）；`placement`：開窗時預選的發布位置，步驟 1 仍可改。 */
+type Kind = { placement: ItemFormPlacement; consentMode: ConsentModeValue | null; label: string; hint?: string; icon: Icon }
+const keyOf = (k: Pick<Kind, 'placement' | 'consentMode'>) => `${k.placement}:${k.consentMode ?? ''}`
+
+/** 作業的兩種同意書（§6.1）：站內表單（整組、我同意／不同意）、下載 PDF 再上傳（一般個人作業）。 */
+const CONSENT_KINDS: readonly Kind[] = [
+  { placement: 'submission', consentMode: 'form', label: '同意書（站內表單）', hint: '每組在站內按「我同意」，全員同意後輪到指導老師', icon: IconSignature },
+  { placement: 'submission', consentMode: 'upload', label: '同意書（下載 PDF 再上傳）', hint: '附空白同意書，學生簽好上傳', icon: IconSignature },
+]
+
+/** `label`：按鈕、對話框名稱與標題（各分頁用「新增公告／作業／資源／規則」）；`placement`：開窗時預選的類型。 */
 export function QuickCreateDialog({
   cohortId,
   vocabulary,
@@ -87,294 +54,120 @@ export function QuickCreateDialog({
   placement?: string
 }) {
   const router = useRouter()
-  const dialog = useRef<HTMLDialogElement>(null)
-  const [step, setStep] = useState(0)
-  const [state, setState] = useState<EditorState>(() => emptyState(cohortId, placement))
-  const [saved, setSaved] = useState<{ itemId: string; revision: number } | null>(null)
-  const [review, setReview] = useState<ItemReview | null>(null)
-  const [notify, setNotify] = useState(true)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-  const requestId = useRef(newRequestId())
+  const picker = useRef<HTMLDialogElement>(null)
+  const kinds: Kind[] = [
+    ...vocabulary.placements.map((p) => ({
+      placement: p.value as ItemFormPlacement,
+      consentMode: null,
+      label: p.label,
+      hint: p.hint,
+      icon: PLACEMENT_ICON[p.value] ?? IconClipboardText,
+    })),
+    ...CONSENT_KINDS,
+  ]
+  const preset = keyOf(kinds.find((k) => k.placement === placement && k.consentMode === null) ?? kinds[0]!)
+  const [choice, setChoice] = useState(preset)
+  const [form, setForm] = useState<Kind | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
 
-  const collects = state.placement === 'submission'
-  // 榮譽榜不發通知（第三波 W1）：不出現「重要公告」勾選，送出一律不通知。
-  const honor = state.placement === HONOR
-  const patch = (next: Partial<EditorState>) => setState((s) => ({ ...s, ...next }))
+  // 全頁編輯器送出後回到清單：把它留下的那一句顯示一次。
+  useEffect(() => {
+    const flash = window.sessionStorage.getItem(ITEM_FLASH_KEY)
+    if (!flash) return
+    window.sessionStorage.removeItem(ITEM_FLASH_KEY)
+    setToast(flash)
+  }, [])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   function open() {
-    setStep(0)
-    setState(emptyState(cohortId, placement))
-    setSaved(null)
-    setReview(null)
-    setNotify(true)
-    setError(null)
-    setDone(null)
-    requestId.current = newRequestId()
-    dialog.current?.showModal()
+    setChoice(preset)
+    picker.current?.showModal()
   }
 
-  /** 每一步按「下一步」：第一次建立，之後存回同一筆。 */
-  async function persist(): Promise<{ itemId: string; revision: number } | null> {
-    const payload = toPayload(state)
-    const result = saved
-      ? await saveDraftAction(saved.itemId, saved.revision, payload, requestId.current)
-      : await createItemAction(payload, requestId.current)
-    requestId.current = newRequestId()
-    if (!result.ok) {
-      setError(result.message)
-      return null
-    }
-    const next = { itemId: result.data.itemId, revision: result.data.revision }
-    setSaved(next)
-    return next
+  function next() {
+    picker.current?.close()
+    setForm(kinds.find((k) => keyOf(k) === choice) ?? null)
   }
-
-  async function next() {
-    setBusy('儲存中…')
-    setError(null)
-    try {
-      const ok = await persist()
-      if (!ok) return
-      if (step === 1) {
-        const checked = await reviewItemAction(toPayload(state), ok.itemId)
-        if (!checked.ok) {
-          setError(checked.message)
-          return
-        }
-        setReview(checked.data)
-        // 公開、所有登入者的公告預設不逐人通知（Roy 2026-09-25：只有勾「重要」的才發）；其他對象維持預設通知。
-        // 對象裡沒有人可以通知時也不預設勾（設計方案 §14-3）。
-        setNotify(!broadAudience(state.audienceKind) && checked.data.recipients.notifyCount > 0)
-      }
-      setStep((s) => s + 1)
-    } catch {
-      setError('連線中斷，請再按一次。')
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function publish() {
-    if (!saved) return
-    setBusy('發布中…')
-    setError(null)
-    try {
-      const result = await publishItemAction(saved.itemId, saved.revision, (notify && !honor) || collects, requestId.current)
-      if (!result.ok) {
-        setError(result.message)
-        return
-      }
-      requestId.current = newRequestId()
-      setDone(result.message ?? '已發布。')
-    } catch {
-      setError('連線中斷；結果尚未確認，請回列表看這一筆的狀態。')
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  function toggleQuickField(type: string, label: string) {
-    const has = state.fields.some((f) => f.type === type)
-    const fields: FieldDraft[] = has ? state.fields.filter((f) => f.type !== type) : [...state.fields, newField(type, label)]
-    patch({ fields })
-  }
-
-  const failing = review ? review.checks.filter((c) => !c.ok).length : 0
-  const canNext = step === 0 ? state.title.trim() !== '' : true
 
   return (
     <>
       <button type="button" className={cn(PRIMARY, 'h-10')} onClick={open}>
         <IconPencilPlus aria-hidden /> {label}
       </button>
-      {/* 關掉時刷新列表（建立、存草稿、發布都可能改了列表）。 */}
-      <dialog ref={dialog} aria-label={label} className={DIALOG} onClose={() => router.refresh()}>
-        {done ? (
-          <div className="flex flex-col items-center gap-3 px-8 py-10 text-center">
-            <span className="inline-flex size-14 items-center justify-center rounded-full bg-success-subtle text-success-on-subtle">
-              <IconCheck aria-hidden className="size-7" />
-            </span>
-            <h2 className="text-xl font-extrabold">已發布</h2>
-            <Feedback tone="ok">{done}</Feedback>
-            <div className="mt-1 flex justify-center gap-2">
-              <button type="button" className={SECONDARY} onClick={() => dialog.current?.close()}>
-                回列表
-              </button>
-              <Link href={`/dashboard/admin/editor/${saved?.itemId}`} className={BTN_INK}>
-                細調欄位
-              </Link>
-            </div>
+      <dialog ref={picker} aria-label={label} className={cn(DIALOG, 'w-[min(44rem,calc(100vw-2rem))]')}>
+        <div className="flex flex-col gap-4 px-6 py-5">
+          <div>
+            <h2 className="text-lg font-extrabold">{label}</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">選要新增哪一種，下一步就是完整的表單（左邊填、右邊即時預覽）。</p>
           </div>
-        ) : (
-          <div className="flex max-h-[85vh] flex-col">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
-              <div>
-                <h2 className="text-lg font-extrabold">{label}</h2>
-                <p className="mt-0.5 text-sm text-muted-foreground">{['選類型、寫標題、定對象', '內容與附件', '發布前檢查'][step]}</p>
-              </div>
-              <ol className="flex shrink-0 items-center gap-2 whitespace-nowrap" aria-label="步驟">
-                {STEPS.map((label, i) => (
-                  <li key={label} aria-current={i === step ? 'step' : undefined} className="flex items-center gap-2 text-xs font-semibold">
+          <fieldset>
+            <legend className="sr-only">類型</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {kinds.map((k) => {
+                const on = choice === keyOf(k)
+                const KindIcon = k.icon
+                return (
+                  <label
+                    key={keyOf(k)}
+                    className={cn(
+                      'press flex cursor-pointer items-start gap-3 rounded-xl border-2 p-4 text-left transition-colors',
+                      on ? 'border-primary bg-primary-subtle/40' : 'border-border hover:border-ink/40',
+                    )}
+                  >
                     <span
-                      className={cn(
-                        'inline-flex size-6 items-center justify-center rounded-full',
-                        i < step ? 'bg-success text-success-foreground' : i === step ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
-                      )}
+                      aria-hidden
+                      className={cn('inline-flex size-10 shrink-0 items-center justify-center rounded-lg', on ? 'bg-primary text-primary-foreground' : 'bg-muted')}
                     >
-                      {i < step ? <IconCheck aria-hidden className="size-3.5" strokeWidth={3} /> : i + 1}
+                      <KindIcon className="size-5" />
                     </span>
-                    <span className={i === step ? '' : 'text-muted-foreground'}>{label}</span>
-                    {i < STEPS.length - 1 ? <span aria-hidden className="h-px w-5 bg-border" /> : null}
-                  </li>
-                ))}
-              </ol>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 text-sm font-bold">
+                        <input type="radio" name="qc-kind" checked={on} className="size-4 accent-primary" onChange={() => setChoice(keyOf(k))} />
+                        {k.label}
+                      </span>
+                      {k.hint ? <span className="mt-0.5 block text-xs text-muted-foreground">{k.hint}</span> : null}
+                    </span>
+                  </label>
+                )
+              })}
             </div>
-
-            <div className="flex min-h-[340px] flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
-              {step === 0 ? (
-                <SettingsFields
-                  state={state}
-                  onChange={patch}
-                  vocabulary={vocabulary}
-                  published={false}
-                  unitLocked={false}
-                  idPrefix="qc"
-                  afterPlacement={
-                    <>
-                      <label htmlFor="qc-title" className={LABEL}>
-                        標題
-                      </label>
-                      <input
-                        id="qc-title"
-                        className={INPUT}
-                        value={state.title}
-                        onChange={(e) => patch({ title: e.target.value })}
-                        placeholder="例：114 學年度專題說明會"
-                      />
-                    </>
-                  }
-                />
-              ) : null}
-
-              {step === 1 ? (
-                <>
-                  <div>
-                    <label htmlFor="qc-body" className={LABEL}>
-                      說明
-                    </label>
-                    <textarea
-                      id="qc-body"
-                      rows={5}
-                      className={INPUT}
-                      value={state.body}
-                      onChange={(e) => patch({ body: e.target.value })}
-                      placeholder={collects ? '要交什麼、格式、上限。學生在作業說明看到的就是這段。' : '公告內容；要排版、加封面再進完整編輯器。'}
-                    />
-                  </div>
-                  <div>
-                    <p className={LABEL}>附件</p>
-                    <AttachmentPicker
-                      cohortId={state.cohortId}
-                      attachments={state.attachments}
-                      onChange={(attachments) => patch({ attachments })}
-                      accept={vocabulary.uploads.attachment.accept}
-                      maxMiB={vocabulary.uploads.attachment.maxMiB}
-                    />
-                  </div>
-                  {collects ? (
-                    <fieldset>
-                      <legend className={LABEL}>
-                        要學生交什麼 <span className="font-normal text-muted-foreground">・勾幾個就有幾個欄位；要細調再進完整編輯器</span>
-                      </legend>
-                      <div className="mt-1.5 flex flex-wrap gap-2">
-                        {QUICK_FIELDS.map((f) => {
-                          const on = state.fields.some((x) => x.type === f.type)
-                          const FieldIcon = f.icon
-                          return (
-                            <button
-                              key={f.type}
-                              type="button"
-                              aria-pressed={on}
-                              onClick={() => toggleQuickField(f.type, f.label)}
-                              className={cn(
-                                'press inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-colors',
-                                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:border-ink/40',
-                              )}
-                            >
-                              <FieldIcon aria-hidden className="size-4" />
-                              {f.label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </fieldset>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">這是公告或資源，不收資料；要學生繳交請回上一步改成「文件繳交」。</p>
-                  )}
-                </>
-              ) : null}
-
-              {step === 2 && review ? (
-                <>
-                  <CheckList checks={review.checks} />
-                  <p className="text-sm text-muted-foreground">
-                    {review.openText}
-                    {review.deadlineText ? `・${review.deadlineText}` : ''}
-                  </p>
-                  <RecipientList recipients={review.recipients} notifyWhen={honor ? 'never' : 'important'} />
-                  <StudentView state={state} review={review} vocabulary={vocabulary} />
-                  {collects ? (
-                    <p className="text-sm">新的作業一定會通知名單上需要繳交的人（站內通知）。</p>
-                  ) : honor ? (
-                    <p className="text-sm text-muted-foreground">榮譽榜不發站內通知；發布後訪客在前台「榮譽榜」就看得到。</p>
-                  ) : (
-                    <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
-                      <input type="checkbox" checked={notify} className="size-4 accent-primary" onChange={(e) => setNotify(e.target.checked)} />
-                      {IMPORTANT_LABEL}
-                    </label>
-                  )}
-                </>
-              ) : null}
-
-              {error ? <Feedback tone="error">{error}</Feedback> : null}
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-6 py-4">
-              <button
-                type="button"
-                className={GHOST}
-                onClick={() => (step === 0 ? dialog.current?.close() : setStep((s) => s - 1))}
-                disabled={busy !== null}
-              >
-                {step === 0 ? '取消' : (
-                  <>
-                    <IconArrowLeft aria-hidden className="size-4" /> 上一步
-                  </>
-                )}
-              </button>
-              <div className="flex items-center gap-2">
-                {busy ? <span className="text-xs text-muted-foreground">{busy}</span> : null}
-                {step === 2 ? (
-                  <button type="button" className={SECONDARY} onClick={() => dialog.current?.close()} disabled={busy !== null}>
-                    先存成草稿
-                  </button>
-                ) : null}
-                {step < 2 ? (
-                  <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={next} disabled={busy !== null || !canNext}>
-                    下一步 <IconArrowRight aria-hidden className="size-4" />
-                  </button>
-                ) : (
-                  <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={publish} disabled={busy !== null || failing > 0}>
-                    {failing > 0 ? `還缺 ${failing} 項` : '發布'}
-                  </button>
-                )}
-              </div>
-            </div>
+          </fieldset>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" className={SECONDARY} onClick={() => picker.current?.close()}>
+              取消
+            </button>
+            <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={next}>
+              下一步 <IconArrowRight aria-hidden className="size-4" />
+            </button>
           </div>
-        )}
+        </div>
       </dialog>
+      {form ? (
+        <ItemFormDialog
+          open
+          title={label}
+          placement={form.placement}
+          consentMode={form.consentMode ?? undefined}
+          cohortId={cohortId}
+          options={vocabulary}
+          onCancel={() => setForm(null)}
+          onDone={(result) => {
+            setForm(null)
+            setToast(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
+            router.refresh()
+          }}
+        />
+      ) : null}
+      {toast ? (
+        <p role="status" className="fixed right-4 bottom-4 z-50 rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-ink-foreground shadow-lg" data-testid="item-toast">
+          {toast}
+        </p>
+      ) : null}
     </>
   )
 }

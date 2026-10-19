@@ -4,12 +4,14 @@
  * - `paths`：整頁拿掉的舊路由 → 新路由。
  * - `queries`：同一條路由、舊的篩選參數改成分頁 → 對應分頁（這個參數拿掉，其餘 query 照帶）。
  *
- * 轉址跟目標頁的內容同一票交付：`?status=`（帳號）在 C2-07、`/home-settings` 在 C2-17、`?placement=honor` 在①、
+ * 轉址跟目標頁的內容同一票交付：`?status=`（帳號）在 C2-07、`/home-settings` 在 C2-17（已加）、`?placement=honor` 在①、
  * `/signoff` 在 C2-22 才加進來。頁面要先 `requireRole` 再轉（沒登入到登入頁、角色不對到 `/403`，不會先被轉走）。
  */
 export const ADMIN_LEGACY_REDIRECTS = {
   paths: {
     '/dashboard/admin/settings': '/dashboard/admin/cohorts',
+    // 首頁設定（C2-17）：大圖與標語改在前台直接編輯（編輯模式的「首頁橫幅」），舊網址回前台首頁。
+    '/dashboard/admin/home-settings': '/',
   },
   queries: {
     '/dashboard/admin/accounts': {

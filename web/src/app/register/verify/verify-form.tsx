@@ -44,9 +44,12 @@ export function VerifyForm({
       <input type="hidden" name="mode" value={mode} />
       <OtpInput value={code} onChange={setCode} invalid={Boolean(state?.error)} describedBy={state?.error ? 'otp-error' : undefined} />
       {state?.error ? (
-        <p id="otp-error" role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
-          {state.error}
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p id="otp-error" role="alert" className="w-full rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
+            {state.error}
+          </p>
+          {state.nextHref ? <NextStepLink href={state.nextHref} /> : null}
+        </div>
       ) : null}
       <button type="submit" disabled={pending} className="btn-fju h-12 w-full text-base">
         {pending ? '驗證中…' : '驗證'}
@@ -55,10 +58,20 @@ export function VerifyForm({
   )
 }
 
+/** Email 其實已經驗證（另一個分頁先填了）：錯誤行旁邊給整頁導航到第 3 步。 */
+function NextStepLink({ href }: { href: string }) {
+  return (
+    <a href={href} className="text-sm font-bold text-primary underline">
+      到第 3 步
+    </a>
+  )
+}
+
 /**
  * 「重寄驗證碼」：載入時與每次寄出後倒數 120 秒，倒數中按鈕 disabled。
  * Turnstile 由頁面當 `turnstile` 傳進來（每次送出後 widget 自己 reset 拿新 token）。
  * 續辦過了絕對截止時伺服器回 `restartHref`：錯誤句旁邊多一個「重新開始」連結回第 1 步（整頁導航、Email 帶著）。
+ * Email 其實已經驗證時回 `nextHref`：錯誤句旁邊多一個「到第 3 步」連結。
  */
 export function ResendForm({
   action,
@@ -102,6 +115,12 @@ export function ResendForm({
                 <a href={state.restartHref} className="font-bold text-primary underline">
                   重新開始
                 </a>
+              </>
+            ) : null}
+            {state.nextHref ? (
+              <>
+                {' '}
+                <NextStepLink href={state.nextHref} />
               </>
             ) : null}
           </>

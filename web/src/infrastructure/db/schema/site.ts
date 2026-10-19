@@ -1,6 +1,6 @@
 import 'server-only'
 import { sql } from 'drizzle-orm'
-import { check, integer, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { check, integer, jsonb, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { users } from '@/infrastructure/db/schema/auth'
 import { storedFiles } from '@/infrastructure/db/schema/files'
 
@@ -41,5 +41,31 @@ export const homeSettings = pgTable(
       sql`${t.taglineLine2} is null or char_length(${t.taglineLine2}) between 1 and 120`,
     ),
     check('home_settings_revision_check', sql`${t.revision} >= 1`),
+  ],
+)
+
+/**
+ * 系辦可改的站內文字（0022，C 階段規格② §6.5；C2-17）：頁尾聯絡、三張快速入口卡、隱私權政策內文。
+ *
+ * 一個 `key` 一列，`value` 是那一種文字的 JSON（形狀由 `application/site/site-texts.ts` 定）；
+ * 沒有列就用程式內預設（`site-contact.ts`、`privacy/page.tsx`），所以 seed-demo 不插資料。
+ * 首頁橫幅不在這裡，沿用上面的 `home_settings`。`revision` 是樂觀鎖，同 `home_settings`。
+ */
+export const SITE_TEXT_KEYS = ['footer_contact', 'quick_card_1', 'quick_card_2', 'quick_card_3', 'privacy'] as const
+
+export const siteTexts = pgTable(
+  'site_texts',
+  {
+    key: text('key').primaryKey(),
+    value: jsonb('value').notNull(),
+    revision: integer('revision').notNull().default(1),
+    updatedAt: timestamp('updated_at', tz).notNull().defaultNow(),
+    updatedByUserId: uuid('updated_by_user_id')
+      .notNull()
+      .references(() => users.id, restrict),
+  },
+  (t) => [
+    check('site_texts_key_check', sql`${t.key} in ('footer_contact', 'quick_card_1', 'quick_card_2', 'quick_card_3', 'privacy')`),
+    check('site_texts_revision_check', sql`${t.revision} >= 1`),
   ],
 )

@@ -1,8 +1,7 @@
 'use client'
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
-import { INPUT, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
-import { cn } from '@/shared/cn'
+import { cx, INPUT_SM, SECONDARY_SM } from '@/app/dashboard/admin/affairs/item-form-parts'
 
 /**
  * 正文欄（AD-B5，設計方案 §8.2）：預設所見即所得（Tiptap，動態載入、不進 First Load JS），
@@ -22,8 +21,9 @@ const TiptapEditor = dynamic(() => import('./tiptap-editor').then((m) => m.Tipta
 type Mode = 'rich' | 'html'
 
 const LABEL_ID = 'ed-body-label'
-const LINK_INPUT = cn(INPUT, 'mt-0 h-8 min-h-8 min-w-0 flex-1 py-1')
-const LINK_BUTTON = cn(SECONDARY, 'h-8')
+// 正文欄跟著 `ItemForm` 按需載入：不 import `@/shared/cn`（理由見 `item-form-parts.tsx` 樣式段）。
+const LINK_INPUT = INPUT_SM
+const LINK_BUTTON = SECONDARY_SM
 
 export function RichEditor({
   value,
@@ -44,9 +44,9 @@ export function RichEditor({
         setLossy(null)
         setMode(m)
       }}
-      className={cn(
-        'rounded px-2 py-0.5 text-xs font-semibold text-muted-foreground hover:text-foreground',
-        mode === m && 'bg-background text-foreground shadow-sm',
+      className={cx(
+        'rounded px-2 py-0.5 text-xs font-semibold',
+        mode === m ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
       )}
     >
       {text}

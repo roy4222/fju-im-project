@@ -72,6 +72,7 @@ import {
 } from '@/application/ops'
 import { authorizeAdmin, badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { audienceUserIds, expandRecipients as expandAudience, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
@@ -241,6 +242,17 @@ function fingerprintOf(draft: ItemDraft, extra: Record<string, unknown> = {}): s
       ...extra,
     }),
   )
+}
+
+/** 欄位的「結構」：拿掉欄名與說明（AC-5 有人作答後仍可改）。空的選項清單當成沒有，檔案型別不看勾選順序。 */
+function fieldStructure(field: FormField) {
+  return {
+    key: field.key,
+    type: field.type,
+    required: field.required,
+    options: field.options && field.options.length > 0 ? field.options : null,
+    fileRules: field.fileRules ? { allowedTypes: [...field.fileRules.allowedTypes].sort(), maxMiB: field.fileRules.maxMiB } : null,
+  }
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -765,6 +777,9 @@ export class PgItemCommand implements ItemCommand {
         draft.coverFileId !== item.cover_file_id ||
         !sameIds(draft.attachmentFileIds, locked.attachmentIds)
       const schemaChanged = canonicalJson(draft.fields) !== canonicalJson(item.draft_schema.fields ?? [])
+      // 有人作答後只鎖「結構」（C 階段規格① AC-5）：key、型別、必填、選項、檔案規則、順序與欄位數。欄名與說明可以改，
+      // 照樣切新的欄位版本（學生看到新欄名，交過的版本仍指向當時那一版）。
+      const structureChanged = canonicalJson(draft.fields.map(fieldStructure)) !== canonicalJson((item.draft_schema.fields ?? []).map(fieldStructure))
       const unitChanged = draft.receiverUnit !== item.receiver_unit
       const audienceChanged = draft.audienceKind !== item.audience_kind || !sameSet(draft.groupIds, groupIds)
       const stageChanged = draft.stageId !== item.stage_id
@@ -781,7 +796,7 @@ export class PgItemCommand implements ItemCommand {
       }
 
       // 有人作答後：收件單位鎖定，對象與欄位結構也不在這裡改（產品模組 04 §4.5；改結構與受眾變更在後面的票）。
-      if ((unitChanged || audienceChanged || schemaChanged) && (await this.#responses.hasAnyResponse(tx, itemId))) {
+      if ((unitChanged || audienceChanged || structureChanged) && (await this.#responses.hasAnyResponse(tx, itemId))) {
         if (unitChanged) {
           return err('ITEM_HAS_RESPONSES', '已經有人作答，繳交方式（個人一份／整組一份）不能再切換；需要另一種繳交方式請另建一筆。')
         }
@@ -2140,8 +2155,17 @@ export class PgItemQuery implements ItemQuery {
           order by a.sort nulls last`,
         [itemId, item.cover_file_id],
       ),
-      db.query<{ action: string; notify: boolean; actor_name: string; real_at: Date }>(
-        `select p.action, p.notify, coalesce(pp.display_name, u.name) as actor_name, p.real_at
+      db.query<{
+        action: string
+        notify: boolean
+        actor_user_id: string
+        actor_name: string
+        avatar_preset: number | null
+        avatar_file_id: string | null
+        real_at: Date
+      }>(
+        // 操作者頭像（C 階段③§2.3、總表 Y-4）：同一句多選兩欄，查詢數不變。
+        `select p.action, p.notify, p.actor_user_id, coalesce(pp.display_name, u.name) as actor_name, ${personAvatar('pp')}, p.real_at
            from item_publications p
            join users u on u.id = p.actor_user_id
            left join user_profiles pp on pp.user_id = p.actor_user_id
@@ -2189,7 +2213,10 @@ export class PgItemQuery implements ItemQuery {
       publications: publications.rows.map((p) => ({
         action: p.action,
         notify: p.notify,
+        actorUserId: p.actor_user_id,
         actorName: p.actor_name,
+        actorAvatarPreset: p.avatar_preset,
+        actorAvatarFileId: p.avatar_file_id,
         realAt: p.real_at,
       })),
     }
