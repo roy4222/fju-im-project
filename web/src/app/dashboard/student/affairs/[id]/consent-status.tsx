@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconSignature } from '@tabler/icons-react'
+import { IconArrowLeft, IconSignature } from '@tabler/icons-react'
 import { GroupStatus } from '@/app/dashboard/_signoff/group-status'
 import { RespondForm } from '@/app/dashboard/_signoff/respond-form'
 import { Invalidated, MyResponse } from '@/app/dashboard/_signoff/version-view'
-import { BackLink } from '@/app/dashboard/_submissions/assignment-view'
 import type { VersionDetail } from '@/application/signoff'
 import { BUTTON_TEXT, MAX_REASON_CHARS, PURPOSE_LABEL } from '@/composition/signoff'
 import { cn } from '@/shared/cn'
@@ -38,7 +37,13 @@ export function ConsentStatus({
   const at = taipeiParts(v.createdAt)
   return (
     <div className="flex flex-col gap-5">
-      <BackLink href={back.href} label={back.label} />
+      {/* 不從 `assignment-view` 拿 BackLink：那個模組帶著繳交表單的 client 元件，老師同意書頁會多載一包。 */}
+      <Link
+        href={back.href}
+        className="inline-flex w-fit items-center gap-1 rounded-md text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconArrowLeft className="size-4" aria-hidden /> {back.label}
+      </Link>
       <article className="dash-card overflow-hidden" aria-label={v.itemTitle ?? PURPOSE_LABEL[v.purpose]} data-testid="consent-item">
         <header className="flex flex-wrap items-center gap-4 px-6 pt-5 pb-3">
           <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-2xl bg-ink text-ink-foreground">
