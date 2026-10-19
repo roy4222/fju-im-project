@@ -3,22 +3,23 @@ import { PageTitle } from '@/app/_ui/dashboard-kit'
 import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { HONOR, HONOR_AUDIENCE, type EditorState } from '@/app/dashboard/admin/affairs/item-form-model'
+import { ItemFormPage } from '@/app/dashboard/admin/affairs/_form/item-form'
+import { formPlacementOf, HONOR } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
-import { ItemEditor } from '@/app/dashboard/admin/editor/item-editor'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { ITEM_TEMPLATES } from '@/composition/items'
 
 export const metadata = { title: '新增公告或作業｜資管系專題平台' }
 
 /**
- * 完整編輯器（新建）。這一頁**不在 GET 時建資料**：畫空白表單，第一次按「存草稿」或「發布」才建立項目，
- * 之後網址換成 `/dashboard/admin/editor/<id>`，一直是同一筆。
+ * 新增公告或作業（全頁版共用表單 `ItemForm layout='page'`；C 階段規格① §2）。這一頁**不在 GET 時建資料**：
+ * 畫空白表單，第一次按「儲存（先不發布）」或「發布」才建立項目；儲存後網址換成 `/dashboard/admin/editor/<id>`，一直是同一筆。
+ * 沒有分頁脈絡，所以表單上方可以選「顯示在哪一區」（`?placement=` 預選；`?consent=form|upload` 開同意書作業）。
  */
 export default async function NewItemPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cohort?: string | string[]; placement?: string | string[] }>
+  searchParams: Promise<{ cohort?: string | string[]; placement?: string | string[]; consent?: string | string[] }>
 }) {
   await requireRole('/dashboard/admin/editor/new', 'admin')
 
@@ -38,48 +39,29 @@ export default async function NewItemPage({
   if (!cohort) {
     return shell(
       <div className="flex flex-col gap-5">
-        <PageTitle title="新增公告或作業" description="寫內容、設繳交欄位與誰看得到，檢查過再發布；存草稿之前沒有人看得到。" />
+        <PageTitle title="新增公告或作業" description="寫內容、設繳交欄位與誰看得到，再發布；儲存之前沒有人看得到。" />
         <EmptyState
-        title="還沒有屆別"
-        description="公告與作業要綁在某一屆；先到屆別頁新增一屆。"
-        action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }}
+          title="還沒有屆別"
+          description="公告與作業要綁在某一屆；先到屆別頁新增一屆。"
+          action={{ href: '/dashboard/admin/cohorts', label: '前往屆別' }}
         />
       </div>,
     )
   }
 
-  const initial: EditorState = {
-    cohortId: cohort.id,
-    placement: honor ? HONOR : 'news',
-    title: '',
-    summary: '',
-    body: '',
-    category: '',
-    cover: null,
-    attachments: [],
-    audienceKind: honor ? HONOR_AUDIENCE : 'cohort_students',
-    groupIds: [],
-    receiverUnit: 'none',
-    stageId: '',
-    opensAt: '',
-    dueAt: '',
-    registrationDeadline: '',
-    eventDate: '',
-    awardedOn: '',
-    fields: [],
-  }
+  const placement = formPlacementOf(typeof params.placement === 'string' ? params.placement : 'news')
+  const consent = params.consent === 'form' || params.consent === 'upload' ? params.consent : undefined
 
   return shell(
-    <ItemEditor
-      initial={initial}
-      itemId={null}
-      revision={0}
-      status="draft"
-      hasResponses={false}
-      vocabulary={await editorVocabulary(cohort.id)}
+    <ItemFormPage
+      placement={consent ? 'submission' : placement}
+      consentMode={consent}
+      cohortId={cohort.id}
+      options={await editorVocabulary(cohort.id)}
       templates={ITEM_TEMPLATES}
+      placementSelectable={!consent}
       heading="新增公告或作業"
-      meta={`綁定屆別：${cohortLabel(cohort)}（建立後不能換）・存草稿之前沒有人看得到`}
+      meta={`綁定屆別：${cohortLabel(cohort)}（建立後不能換）・儲存之前沒有人看得到`}
     />,
   )
 }

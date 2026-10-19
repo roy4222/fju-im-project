@@ -16,10 +16,11 @@ import {
   RECEIVER_UNIT_LABEL,
   SUBMISSION_FILE_TYPES,
 } from '@/composition/items'
-import { formatTaipeiDate } from '@/shared/time'
+import type { ConsentPurpose } from '@/application/items'
 
 /**
- * 伺服器頁面替編輯器準備的標籤與選項（Client Component 不能直接拿 application 的執行期值）。
+ * 伺服器頁面替共用表單 `ItemForm` 準備的標籤與選項（Client Component 不能直接拿 application 的執行期值）。
+ * C 階段起作業不再選「所屬階段」（規格① §2），所以不再帶階段清單。
  */
 
 const EXTENSION: Record<string, string> = {
@@ -31,6 +32,12 @@ const EXTENSION: Record<string, string> = {
   jpg: '.jpg,.jpeg',
   zip: '.zip',
   csv: '.csv',
+}
+
+/** 站內同意書的用途（跟 `application/items` 的 `CONSENT_PURPOSE_LABEL` 同字；app 對 application 只能帶型別，鍵由型別鎖住）。 */
+const CONSENT_PURPOSE_OPTIONS: Readonly<Record<ConsentPurpose, string>> = {
+  result_confirmation: '期中結果確認',
+  final_document: '最終文件授權',
 }
 
 const AUDIENCE_ORDER = ['cohort_students', 'groups', 'signed_in', 'teachers', 'public'] as const
@@ -48,6 +55,7 @@ export async function editorVocabulary(cohortId: string): Promise<EditorVocabula
     fileMaxMiB: FILE_FIELD_MAX_MIB,
     emptyCollectionMessage: EMPTY_COLLECTION_MESSAGE,
     competitionCategory: COMPETITION_CATEGORY,
+    consentPurposes: (Object.keys(CONSENT_PURPOSE_OPTIONS) as ConsentPurpose[]).map((p) => ({ value: p, label: CONSENT_PURPOSE_OPTIONS[p] })),
     uploads: {
       attachment: {
         accept: ITEM_UPLOAD.attachment.allowedTypes.map((t) => EXTENSION[t]).join(','),
@@ -58,7 +66,6 @@ export async function editorVocabulary(cohortId: string): Promise<EditorVocabula
         maxMiB: ITEM_UPLOAD.cover.maxBytes / (1024 * 1024),
       },
     },
-    stages: options.stages.map((s) => ({ id: s.id, label: `第 ${s.seq} 階段・${s.name}（${formatTaipeiDate(s.startDate)} 起）` })),
     groups: options.groups,
   }
 }
