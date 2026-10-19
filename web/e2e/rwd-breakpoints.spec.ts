@@ -108,6 +108,26 @@ test.describe('後台側欄與橫幅斷點', () => {
       }
     })
   }
+
+  test('骨架對齊（C4-06）：768／1023 換頁骨架從左邊 0 開始，1024 起讓出側欄', async ({ page }) => {
+    await signInAs(page, 'admin')
+    await page.setViewportSize({ width: 768, height: 1024 })
+    await page.goto(HOMES.admin)
+    const skeleton = page.locator('.nav-skeleton')
+    const lefts: Record<number, number> = {}
+    for (const width of [768, 1023, 1024]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.evaluate(() => document.documentElement.setAttribute('data-nav-pending', '1'))
+      await expect(skeleton).toBeVisible()
+      lefts[width] = await skeleton.evaluate((el) => el.getBoundingClientRect().left)
+      await page.evaluate(() => document.documentElement.removeAttribute('data-nav-pending'))
+    }
+    console.log('骨架左緣', JSON.stringify(lefts))
+    expect(lefts[768]).toBe(0)
+    expect(lefts[1023]).toBe(0)
+    // 1024 起側欄常駐：展開 16.5rem、收合 3.75rem，兩種都要讓出來。
+    expect([264, 60]).toContain(lefts[1024])
+  })
 })
 
 test.describe('觸控目標 44px', () => {
