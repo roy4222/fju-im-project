@@ -18,7 +18,7 @@ export const GROUP_TYPE_LABEL: Record<GroupType, string> = { general: '一般專
 
 export type ProposalState = 'open' | 'established' | 'terminated'
 export const PROPOSAL_STATE_LABEL: Record<ProposalState, string> = {
-  open: '組隊中（等全員確認）',
+  open: '建立中（等全員確認）',
   established: '已成立',
   terminated: '沒有成立',
 }
@@ -34,7 +34,7 @@ export const INVITATION_STATE_LABEL: Record<InvitationState, string> = {
 
 /**
  * 提案終止的種類（Q-GRP01 的五種＋成立瞬間撞到別組的 `conflict`）。
- * 標籤就是產品文件寫的紀錄名稱。
+ * 標籤就是產品文件寫的紀錄名稱；C3-05 照規格③ §1 用詞改成「發起人撤回」「系辦終止」。
  */
 export type TerminationKind =
   | 'declined'
@@ -46,9 +46,9 @@ export type TerminationKind =
 export const TERMINATION_KIND_LABEL: Record<TerminationKind, string> = {
   declined: '被拒絕',
   member_withdrew: '成員撤回同意',
-  proposer_withdrew: '提案人撤回',
+  proposer_withdrew: '發起人撤回',
   expired: '逾期',
-  admin_voided: '管理員作廢',
+  admin_voided: '系辦終止',
   conflict: '成員已在其他組',
 }
 
@@ -127,9 +127,9 @@ export function proposalExpiry(businessNow: Date, defaultDays: number, groupingD
   return byDays.getTime() <= groupingDeadline.getTime() ? byDays : new Date(groupingDeadline.getTime())
 }
 
-/** 管理員作廢的理由：必填、去前後空白、有長度上限（和其他管理員動作同一條規則）。 */
+/** 系辦終止建立中組別的理由：選填、去前後空白、有長度上限（和其他管理員動作同一條規則）。 */
 export function normalizeVoidReason(reason: string): { ok: true; value: string } | Err {
-  return normalizeReason(reason, '作廢')
+  return normalizeReason(reason, '終止建立')
 }
 
 /** 學生的屆別（模組 01：學生的屆別在個人資料；老師與管理員沒有）。 */
@@ -201,7 +201,7 @@ export function describeConfirmReceipt(receipt: ConfirmReceipt): string {
     case 'established':
       return `全員確認，組別 ${receipt.groupCode} 成立了。`
     case 'conflict':
-      return '有成員剛剛已經加入別的組，這次組隊沒有成立，大家都可以重新組隊。'
+      return '有成員剛剛已經加入別的組，這次建立組別沒有成立，大家都可以重新組隊。'
     case 'already_confirmed':
       return `你之前已經確認過了（${receipt.confirmedCount}／${receipt.memberCount} 已確認）。`
     case 'confirmed':
@@ -210,7 +210,7 @@ export function describeConfirmReceipt(receipt: ConfirmReceipt): string {
 }
 
 export function describeTerminateReceipt(receipt: TerminateReceipt): string {
-  return `這次組隊沒有成立（${TERMINATION_KIND_LABEL[receipt.terminationKind]}），大家都可以重新組隊：重新發起或接受邀請。`
+  return `這次建立組別沒有成立（${TERMINATION_KIND_LABEL[receipt.terminationKind]}），大家都可以重新組隊：重新建立組別或接受邀請。`
 }
 
 /** 到期處理器（背景工作呼叫）的結果；不是給使用者看的回執。 */
