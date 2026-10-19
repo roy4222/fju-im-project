@@ -1101,6 +1101,9 @@ export type VersionRow = {
   received_business_at: Date
   received_real_at: Date
   submitted_by_name: string
+  submitted_by_user_id: string
+  submitted_by_avatar_preset: number | null
+  submitted_by_avatar_file_id: string | null
   schema_version_no: number
   request_id: string
 }
@@ -1112,7 +1115,8 @@ export type VersionRow = {
  */
 export const VERSION_COLUMNS = `
   v.id as version_id, v.version_no, v.received_business_at, v.received_real_at, v.request_id,
-  coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no`
+  coalesce(p.display_name, u.name) as submitted_by_name, sv.version_no as schema_version_no,
+  u.id as submitted_by_user_id, p.avatar_preset as submitted_by_avatar_preset, p.avatar_file_id as submitted_by_avatar_file_id`
 
 export const VERSION_JOINS = `
   join users u on u.id = v.submitted_by_user_id
@@ -1157,6 +1161,13 @@ export function toSummary(row: VersionRow, lateVersionIds: ReadonlySet<string>):
     receivedBusinessAt: row.received_business_at,
     receivedRealAt: row.received_real_at,
     submittedByName: row.submitted_by_name,
+    // 繳交人頭像（C1-10 繳交歷史）：跟版本同一句帶出，看得到這一版的人才看得到。
+    submittedBy: {
+      id: row.submitted_by_user_id,
+      name: row.submitted_by_name,
+      avatarPreset: row.submitted_by_avatar_preset,
+      avatarFileId: row.submitted_by_avatar_file_id,
+    },
     schemaVersionNo: row.schema_version_no,
     requestId: row.request_id,
     late: lateVersionIds.has(row.version_id),

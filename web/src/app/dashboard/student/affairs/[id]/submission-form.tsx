@@ -2,40 +2,32 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
-import { IconCloudUpload, IconDeviceFloppy, IconPaperclip, IconSend } from '@tabler/icons-react'
+import { IconSend } from '@tabler/icons-react'
 import { requestUploadAction, saveDraftAction, submitAction } from '@/app/dashboard/student/affairs/actions'
 import type { FileMeta, ReceiptView } from '@/app/dashboard/student/affairs/types'
 import type { FormField } from '@/application/items'
 import { ChecksumDisclosure, ReceiptNoDisclosure } from '@/app/dashboard/_submissions/proof-disclosure'
+import { SECONDARY_BUTTON, SubmissionFields, type FieldUpload, type FieldValue } from '@/app/dashboard/_submissions/submission-fields'
 import { cn } from '@/shared/cn'
-import { formatBytes } from '@/shared/format-bytes'
 
 /**
- * 收件的填寫、上傳與送出（票 17 個人版；票 21 組別版：原型 `group-form.tsx` 的共用表單、上傳進度、收件章回執）。
+ * 「寫作業」表單（C 階段規格① §5.2，S6；學生與名單上的老師共用）：欄位照作業的欄位結構畫（`SubmissionFields`），
+ * 底部只有一顆「繳交作業」。
  *
- * - 「儲存草稿」：伺服器存好才顯示「已儲存 時間」；草稿帶版本號，別的分頁、裝置或**別的組員**先存過就被要求重新載入（不無聲覆蓋）。
- * - 檔案欄位：選檔 → 向伺服器要上傳憑證（欄位的類型與大小規則）→ 串流上傳、顯示進度 → 上傳完成自動存一次草稿才算附上。
- *   類型不符（含改副檔名的偽裝檔）、超過上限、傳到一半斷掉都說清楚，不會顯示成已附上。
- * - 「正式送出」：有沒存的修改先存草稿，再把**已存的**那一份送出。必填、格式由伺服器驗，缺的欄位標紅並列出來。
- *   整組一份時任一位組員送出就代表全組。
- * - 成功拿到收件章回執（對話框），不是只有按鈕變色。
- * - 同一次送出用同一個請求編號：連點、斷線後按「再送一次」都只算一次；斷線時顯示「結果尚未確認」，可以去繳交歷史查回執。
- *
- * 規則不在這裡判：錯誤訊息、缺哪幾欄、回執的字都是伺服器回來的。
+ * - **沒有「儲存草稿」鈕**：`submission_drafts` 留作隱形機制。檔案上傳完成就自動存一次草稿（檔案在這一步才附上，
+ *   整組一份時其他組員再開「寫作業」也帶得到）；離開頁面不提示。再開「寫作業」時，伺服器只帶草稿裡的檔案（標「上次選的檔案」），
+ *   文字欄是空的。
+ * - 「繳交作業」：一律先把**畫面上現在的內容**存進草稿、再把那一份送出（草稿裡可能有畫面沒帶出來的舊文字，不能直接送舊草稿）。
+ *   兩個分頁同時改用草稿的 `revision` 擋（被要求重新載入，不無聲覆蓋）。必填、格式由伺服器驗，缺的欄位標紅並列出來。
+ * - 選檔當下先在瀏覽器檢查大小與類型（`SubmissionFields` → `checkPickedFile`），不合不上傳。
+ * - 成功拿到回執（對話框）：整組一份寫「已代表 {組別} 送出第 N 次」。
+ * - 同一次送出用同一個請求編號：連點、斷線後按「再送一次」都只算一次；斷線時顯示「結果尚未確認」，可以去繳交歷史查。
  */
 
-type Value = string | string[]
+type UploadState = FieldUpload
 
-type UploadState = { status: 'uploading'; percent: number; name: string } | { status: 'error'; message: string }
-
-// 外觀照原型 `group-form.tsx`（票 38）：主要動作是系網橘實心（btn-fju），次要是白底細框；輸入框 44px 高、橘色焦點環。
+// 主要動作是系網橘實心（btn-fju）。
 const PRIMARY = 'btn-fju h-11 rounded-lg px-5 text-sm disabled:opacity-50'
-const SECONDARY =
-  'press inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-medium ' +
-  'text-foreground transition-colors hover:bg-muted disabled:opacity-50 [&_svg]:size-4'
-const CONTROL =
-  'h-11 w-full rounded-lg border bg-background px-3 text-sm outline-none transition-[border-color,box-shadow] ' +
-  'focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/25 disabled:bg-muted disabled:text-muted-foreground'
 
 const UPLOAD_ERRORS: Record<number, string> = {
   401: '登入已過期，請重新登入後再上傳。',
@@ -85,64 +77,59 @@ export function SubmissionForm({
   initialAnswers,
   initialFiles,
   initialRevision,
-  initialSavedText,
-  editable,
-  lockedText,
-  lockedHint,
-  submittedVersion: initialSubmittedVersion,
-  groupCode,
+  carriedOver,
+  listHref,
+  historyHref,
 }: {
   itemId: string
   fields: readonly FormField[]
-  initialAnswers: Record<string, Value>
+  /** 草稿帶過來的值（只有檔案欄；文字欄不帶）。 */
+  initialAnswers: Record<string, FieldValue>
   /** 已附上的檔（檔案 ID → 檔名與大小）。 */
   initialFiles: Record<string, FileMeta>
+  /** 草稿目前的版本號（沒有草稿是 0）。 */
   initialRevision: number
-  initialSavedText: string | null
-  editable: boolean
-  /** 不能填的原因（尚未開放、已截止、免填）；可以填時是 null。 */
-  lockedText: string | null
-  /** 唯讀原因下面的補充一句（逾期：可向系辦申請補交）。 */
-  lockedHint: string | null
-  submittedVersion: number | null
-  /** 整組一份時的組別代號；個人收件是 null。 */
-  groupCode: string | null
+  /** 從草稿帶過來的檔案欄（標「上次選的檔案」）。 */
+  carriedOver: readonly string[]
+  /** 回清單（學生「交作業」、老師「作業區」）。 */
+  listHref: string
+  /** 這一份作業的繳交歷史。 */
+  historyHref: string
 }) {
   const router = useRouter()
-  const [values, setValues] = useState<Record<string, Value>>(initialAnswers)
+  const [values, setValues] = useState<Record<string, FieldValue>>(initialAnswers)
   const [fileMeta, setFileMeta] = useState<Record<string, FileMeta>>(initialFiles)
   const [uploads, setUploads] = useState<Record<string, UploadState>>({})
-  const [revision, setRevision] = useState(initialRevision)
-  const [savedText, setSavedText] = useState<string | null>(initialSavedText)
-  const [dirty, setDirty] = useState(false)
-  const [busy, setBusy] = useState<'save' | 'submit' | 'upload' | null>(null)
+  const [kept, setKept] = useState<readonly string[]>(carriedOver)
+  const [busy, setBusy] = useState<'submit' | 'upload' | null>(null)
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   const [conflict, setConflict] = useState<string | null>(null)
   const [unknown, setUnknown] = useState(false)
   const [badFields, setBadFields] = useState<readonly string[]>([])
   const [receipt, setReceipt] = useState<ReceiptView | null>(null)
-  const [submittedVersion, setSubmittedVersion] = useState(initialSubmittedVersion)
   const dialog = useRef<HTMLDialogElement>(null)
   const requestIds = useRef({ save: newRequestId(), submit: newRequestId() })
   // 存草稿讀的是「最新的」答案：上傳完成後在同一個事件裡自動存，state 還沒重新渲染。所有修改都經 `set`，兩邊一起更新。
   const latest = useRef(initialAnswers)
+  // 草稿版本號同理（上傳自動存完、馬上按繳交）；只拿來送，畫面不顯示。
+  const revisionRef = useRef(initialRevision)
 
-  const readOnly = !editable || conflict !== null
+  const readOnly = conflict !== null
 
-  function set(key: string, value: Value) {
+  function set(key: string, value: FieldValue) {
     const next = { ...latest.current, [key]: value }
     latest.current = next
     setValues(next)
-    setDirty(true)
+    setKept((k) => k.filter((x) => x !== key))
     setBadFields((f) => f.filter((k) => k !== key))
     // 內容變了就是新的一次儲存／送出，換新的請求編號（舊編號配新內容會被當成 REQUEST_MISMATCH）。
     requestIds.current = { save: newRequestId(), submit: newRequestId() }
     setUnknown(false)
   }
 
-  /** 存草稿；回傳存好之後的版本號（失敗回 null，訊息已經顯示）。 */
+  /** 把畫面上的內容存進（隱形的）草稿；回傳存好之後的版本號（失敗回 null，訊息已經顯示）。 */
   async function save(): Promise<number | null> {
-    const result = await saveDraftAction(itemId, revision, latest.current, requestIds.current.save)
+    const result = await saveDraftAction(itemId, revisionRef.current, latest.current, requestIds.current.save)
     if (!result.ok) {
       if (result.code === 'CONFLICT') setConflict(result.message)
       else {
@@ -153,29 +140,8 @@ export function SubmissionForm({
       return null
     }
     requestIds.current.save = newRequestId()
-    setRevision(result.data.revision)
-    setSavedText(result.data.savedAtText)
-    setDirty(false)
+    revisionRef.current = result.data.revision
     return result.data.revision
-  }
-
-  async function onSave() {
-    setBusy('save')
-    setMessage(null)
-    try {
-      if ((await save()) !== null) {
-        setMessage({
-          tone: 'ok',
-          text: groupCode
-            ? '共用草稿已存到伺服器；同組的人打開會看到同一份。'
-            : '草稿已存到伺服器；重新登入或換一台裝置打開都還在。',
-        })
-      }
-    } catch {
-      setMessage({ tone: 'error', text: '連線中斷，草稿可能沒有存到；請再按一次「儲存草稿」。' })
-    } finally {
-      setBusy(null)
-    }
   }
 
   async function onPickFile(field: FormField, file: File) {
@@ -192,14 +158,14 @@ export function SubmissionForm({
       if (!sent.ok) return fail(sent.message)
       setFileMeta((m) => ({ ...m, [grant.data.fileId]: { name: file.name, sizeBytes: file.size } }))
       set(field.key, grant.data.fileId)
-      // 上傳完成就存一次草稿：檔案在這一步才真正附到（共用）草稿上，其他組員打開才看得到。
+      // 上傳完成就自動存一次草稿：檔案在這一步才真正附上，離開再回來（或其他組員）按「寫作業」都帶得到。
       const saved = await save()
       setUploads((u) => {
         const next = { ...u }
         delete next[field.key]
         return next
       })
-      if (saved !== null) setMessage({ tone: 'ok', text: `「${file.name}」已上傳並附到草稿。` })
+      if (saved !== null) setMessage({ tone: 'ok', text: `「${file.name}」已上傳。按「繳交作業」才算交出。` })
     } catch {
       fail('上傳中斷（連線斷了），檔案沒有附上；請重新上傳。')
     } finally {
@@ -223,7 +189,6 @@ export function SubmissionForm({
     requestIds.current.submit = newRequestId()
     setUnknown(false)
     setReceipt(result.data)
-    setSubmittedVersion(result.data.versionNo)
     dialog.current?.showModal()
   }
 
@@ -232,8 +197,8 @@ export function SubmissionForm({
     setMessage(null)
     setBadFields([])
     try {
-      let draftRevision: number | null = revision
-      if (dirty || revision === 0) draftRevision = await save()
+      // 一律先存畫面上的內容：送出的就是學生眼前這一份。內容沒變時同一個請求編號重存只拿回原結果。
+      const draftRevision = await save()
       if (draftRevision === null) return
       await sendSubmit(draftRevision)
     } catch {
@@ -243,45 +208,20 @@ export function SubmissionForm({
     }
   }
 
-  /** 關掉回執（`onClose` 會重新整理伺服器端的狀態：橫幅、繳交歷史的筆數）。 */
-  function closeReceipt() {
-    dialog.current?.close()
-  }
-
-  const status =
-    busy === 'save'
-      ? '儲存中…'
-      : busy === 'submit'
-        ? '送出中…'
-        : busy === 'upload'
-          ? '上傳中…'
-          : dirty
-            ? '有未儲存的修改'
-            : savedText
-              ? `已儲存 ${savedText}`
-              : '尚未儲存'
-
   return (
     <form
       noValidate
       className="flex flex-col gap-5"
-      aria-label="填寫與繳交"
+      aria-label="寫作業"
       onSubmit={(e) => {
         e.preventDefault()
         if (!busy && !readOnly) void onSubmit()
       }}
     >
-      {lockedText ? (
-        <div className="rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" role="status">
-          <p>{lockedText}</p>
-          {lockedHint ? <p className="mt-1 text-muted-foreground">{lockedHint}</p> : null}
-        </div>
-      ) : null}
-
       {conflict ? (
         <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive-subtle px-4 py-3 text-sm text-destructive-on-subtle">
           <p className="font-semibold">{conflict}</p>
-          <button type="button" className={cn(SECONDARY, 'mt-3 h-10')} onClick={() => window.location.reload()}>
+          <button type="button" className={cn(SECONDARY_BUTTON, 'mt-3 h-10')} onClick={() => window.location.reload()}>
             重新載入
           </button>
         </div>
@@ -294,10 +234,9 @@ export function SubmissionForm({
             可能已經收到了。先到「繳交歷史」看有沒有這一次；沒有看到這一次，再按「再送一次」——同一次送出重送也只算一次。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href={`/dashboard/student/affairs/${itemId}?tab=history`} className={cn(SECONDARY, 'h-10')}>
+            <Link href={historyHref} className={cn(SECONDARY_BUTTON, 'h-10')}>
               看繳交歷史
             </Link>
-            {/* 走跟「正式送出」同一條路：斷在存草稿那一步時先補存，再送；兩個請求編號都沒換，已送到的只會拿回原回執。 */}
             <button type="button" className={cn(PRIMARY, 'h-10')} onClick={onSubmit} disabled={busy !== null}>
               再送一次
             </button>
@@ -317,70 +256,43 @@ export function SubmissionForm({
         </p>
       ) : null}
 
-      {fields.map((field) =>
-        field.type === 'file' ? (
-          <FileInput
-            key={field.key}
-            field={field}
-            fileId={typeof values[field.key] === 'string' ? (values[field.key] as string) : ''}
-            meta={fileMeta}
-            upload={uploads[field.key]}
-            readOnly={readOnly || busy !== null}
-            bad={badFields.includes(field.key)}
-            onPick={(file) => void onPickFile(field, file)}
-            onRemove={() => set(field.key, '')}
-          />
-        ) : (
-          <FieldInput
-            key={field.key}
-            field={field}
-            value={values[field.key]}
-            readOnly={readOnly}
-            bad={badFields.includes(field.key)}
-            onChange={(v) => set(field.key, v)}
-          />
-        ),
-      )}
+      <SubmissionFields
+        fields={fields}
+        values={values}
+        files={fileMeta}
+        uploads={uploads}
+        readOnly={readOnly || busy !== null}
+        badFields={badFields}
+        carriedOver={kept}
+        onChange={set}
+        onPickFile={(field, file) => void onPickFile(field, file)}
+      />
 
-      <div className="sticky bottom-4 z-10 mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background/95 p-3 backdrop-blur">
-        <span className="inline-flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite" data-testid="save-status">
-          <span
-            aria-hidden
-            className={cn(
-              'inline-block size-2 rounded-full border-2',
-              !dirty && savedText ? 'border-success bg-success' : 'border-muted-foreground/60',
-            )}
-          />
-          {status}
-        </span>
-        {editable ? (
-          <div className="ml-auto flex flex-wrap gap-2">
-            <button type="button" className={SECONDARY} onClick={onSave} disabled={busy !== null || readOnly}>
-              <IconDeviceFloppy aria-hidden /> 儲存草稿
-            </button>
-            <button type="submit" className={PRIMARY} disabled={busy !== null || readOnly}>
-              <IconSend className="size-4" aria-hidden /> {submittedVersion ? '重新送出' : groupCode ? '代表全組正式送出' : '正式送出'}
-            </button>
-          </div>
-        ) : (
-          <span className="ml-auto text-xs font-semibold text-muted-foreground">{lockedText ? '唯讀' : ''}</span>
-        )}
+      <div className="sticky bottom-4 z-10 mt-2 flex flex-wrap items-center justify-end gap-3 rounded-xl border border-border bg-background/95 p-3 backdrop-blur">
+        {busy ? (
+          <span className="mr-auto text-xs text-muted-foreground" aria-live="polite">
+            {busy === 'submit' ? '送出中…' : '上傳中…'}
+          </span>
+        ) : null}
+        <button type="submit" className={PRIMARY} disabled={busy !== null || readOnly}>
+          <IconSend className="size-4" aria-hidden /> 繳交作業
+        </button>
       </div>
 
       <dialog
         ref={dialog}
         aria-labelledby="receipt-title"
         className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-6 shadow-xl backdrop:bg-ink/40"
-        onClose={() => router.refresh()}
+        onClose={() => router.push(historyHref)}
       >
-        {receipt ? <ReceiptStamp receipt={receipt} onClose={closeReceipt} /> : null}
+        {receipt ? <ReceiptStamp receipt={receipt} listHref={listHref} onClose={() => dialog.current?.close()} /> : null}
       </dialog>
     </form>
   )
 }
 
-/** 收件章回執（原型 `ReceiptStamp`）：印章感的「已收件」＋版本、送出者（代表全組）、收件時間、附件、繳交證明編號（收合）。 */
-function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () => void }) {
+/** 收件章回執（原型 `ReceiptStamp`）：印章感的「已送出」＋送出者（代表全組）、收件時間、附件、繳交證明編號（收合）。 */
+function ReceiptStamp({ receipt, listHref, onClose }: { receipt: ReceiptView; listHref: string; onClose: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 text-center" data-testid="receipt">
       <span
@@ -391,18 +303,13 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
       </span>
       <div>
         <h2 id="receipt-title" className="text-xl font-extrabold">
-          已正式送出
+          {receipt.groupCode ? `已代表 ${receipt.groupCode} 送出第 ${receipt.versionNo} 次` : `已送出第 ${receipt.versionNo} 次`}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">{receipt.title}</p>
       </div>
       <dl className="grid w-full grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-y border-border py-3 text-left text-sm">
-        <dt className="text-muted-foreground">版本</dt>
-        <dd className="font-semibold tabular-nums">第 {receipt.versionNo} 次</dd>
-        <dt className="text-muted-foreground">送出者</dt>
-        <dd className="font-semibold">
-          {receipt.submittedByName}
-          {receipt.groupCode ? <span className="ml-1 font-normal text-muted-foreground">（代表 {receipt.groupCode} 全組）</span> : null}
-        </dd>
+        <dt className="text-muted-foreground">繳交人</dt>
+        <dd className="font-semibold">{receipt.submittedByName}</dd>
         <dt className="text-muted-foreground">送出時間</dt>
         <dd className="font-semibold tabular-nums">{receipt.receivedText}（臺灣時間）</dd>
         {receipt.files.length > 0 ? (
@@ -426,239 +333,13 @@ function ReceiptStamp({ receipt, onClose }: { receipt: ReceiptView; onClose: () 
         {receipt.groupCode ? '全組已繳；其他組員會收到一則通知。' : ''}截止前可重送，以最後一次為準。每一次送出都記在「繳交歷史」。
       </p>
       <div className="flex w-full gap-2">
-        <button type="button" className={cn(SECONDARY, 'flex-1')} onClick={onClose}>
+        <button type="button" className={cn(SECONDARY_BUTTON, 'flex-1')} onClick={onClose}>
           關閉
         </button>
-        <Link href="/dashboard/student/affairs" className={cn(PRIMARY, 'flex-1')}>
-          回我的繳交
+        <Link href={listHref} className={cn(PRIMARY, 'flex-1')}>
+          回清單
         </Link>
       </div>
     </div>
   )
-}
-
-function FieldLabel({ field, htmlFor }: { field: FormField; htmlFor: string }) {
-  return (
-    <label htmlFor={htmlFor} className="block text-sm font-semibold">
-      {field.label}
-      {field.required ? (
-        <span className="ml-1 text-destructive" aria-hidden>
-          *
-        </span>
-      ) : null}
-      {field.help ? <span className="ml-2 text-xs font-normal text-muted-foreground">{field.help}</span> : null}
-    </label>
-  )
-}
-
-/** 檔案欄位：上傳區、進度、已附上的檔（可下載、可移除）、錯誤說明。 */
-function FileInput({
-  field,
-  fileId,
-  meta,
-  upload,
-  readOnly,
-  bad,
-  onPick,
-  onRemove,
-}: {
-  field: FormField
-  fileId: string
-  meta: Record<string, FileMeta>
-  upload: UploadState | undefined
-  readOnly: boolean
-  bad: boolean
-  onPick: (file: File) => void
-  onRemove: () => void
-}) {
-  const id = `field-${field.key}`
-  const rules = field.fileRules ?? { allowedTypes: ['pdf'], maxMiB: 20 }
-  const accept = rules.allowedTypes.map((t) => (t === 'jpg' ? '.jpg,.jpeg' : `.${t}`)).join(',')
-  const hint = `${rules.allowedTypes.map((t) => t.toUpperCase()).join('、')}・單檔 ${formatBytes(rules.maxMiB * 1024 * 1024)} 以內`
-  const attached = fileId ? meta[fileId] : undefined
-  return (
-    <div className="flex flex-col gap-1.5" data-testid={`file-field-${field.key}`}>
-      <FieldLabel field={field} htmlFor={id} />
-      {attached ? (
-        <div className={cn('flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm', bad ? 'border-destructive' : 'border-border')}>
-          <IconPaperclip className="size-4 shrink-0 text-brand" aria-hidden />
-          <a href={`/api/files/${fileId}`} className="min-w-0 break-all font-semibold text-ink underline-offset-2 hover:underline">
-            {attached.name}
-          </a>
-          <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(attached.sizeBytes)}</span>
-          {!readOnly ? (
-            <span className="ml-auto flex gap-2">
-              <label className={cn(SECONDARY, 'h-9 cursor-pointer px-3 text-xs')}>
-                換檔案
-                <input type="file" className="sr-only" accept={accept} onChange={(e) => e.target.files?.[0] && onPick(e.target.files[0])} />
-              </label>
-              <button type="button" className={cn(SECONDARY, 'h-9 px-3 text-xs')} onClick={onRemove}>
-                移除
-              </button>
-            </span>
-          ) : null}
-        </div>
-      ) : (
-        <label
-          className={cn(
-            'flex min-h-11 items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors',
-            bad ? 'border-destructive' : 'border-border',
-            readOnly ? 'pointer-events-none cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-brand hover:bg-brand-subtle/30',
-          )}
-        >
-          <IconCloudUpload className="size-5 shrink-0 text-brand" aria-hidden />
-          <span className="font-semibold">{readOnly ? '沒有附檔' : '點擊選擇檔案上傳'}</span>
-          <span className="text-xs text-muted-foreground">{hint}</span>
-          <input
-            id={id}
-            type="file"
-            className="sr-only"
-            accept={accept}
-            disabled={readOnly}
-            aria-invalid={bad || undefined}
-            aria-required={field.required || undefined}
-            onChange={(e) => e.target.files?.[0] && onPick(e.target.files[0])}
-          />
-        </label>
-      )}
-      {upload?.status === 'uploading' ? (
-        <div className="mt-1" role="status" aria-live="polite" data-testid={`upload-progress-${field.key}`}>
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span className="truncate">正在上傳 {upload.name}</span>
-            <span className="tabular-nums">{upload.percent}%</span>
-          </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-            <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${upload.percent}%` }} />
-          </div>
-        </div>
-      ) : null}
-      {upload?.status === 'error' ? (
-        <p role="alert" className="rounded-lg bg-destructive-subtle px-4 py-2.5 text-sm text-destructive-on-subtle" data-testid={`upload-error-${field.key}`}>
-          {upload.message}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function FieldInput({
-  field,
-  value,
-  readOnly,
-  bad,
-  onChange,
-}: {
-  field: FormField
-  value: Value | undefined
-  readOnly: boolean
-  bad: boolean
-  onChange: (value: Value) => void
-}) {
-  const id = `field-${field.key}`
-  const text = typeof value === 'string' ? value : ''
-  const picked = Array.isArray(value) ? value : []
-  const border = bad ? 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/25' : 'border-input'
-  const aria = { 'aria-invalid': bad || undefined, 'aria-required': field.required || undefined }
-  const label = <FieldLabel field={field} htmlFor={id} />
-
-  switch (field.type) {
-    case 'heading':
-      return <h3 className="mt-2 border-b border-border pb-2 text-base font-bold">{field.label}</h3>
-    case 'paragraph':
-      return <p className="border-l-[3px] border-border pl-3 text-sm leading-relaxed text-muted-foreground">{field.label}</p>
-    case 'textarea':
-      return (
-        <div className="flex flex-col gap-1.5">
-          {label}
-          <textarea
-            id={id}
-            rows={5}
-            className={cn(CONTROL, 'h-auto resize-y py-2.5', border)}
-            value={text}
-            disabled={readOnly}
-            onChange={(e) => onChange(e.target.value)}
-            {...aria}
-          />
-        </div>
-      )
-    case 'radio':
-    case 'checkbox':
-      return (
-        <fieldset aria-invalid={bad || undefined} className="flex flex-col gap-2">
-          <legend className="mb-2 text-sm font-semibold">
-            {field.label}
-            {field.required ? (
-              <span className="ml-1 text-destructive" aria-hidden>
-                *
-              </span>
-            ) : null}
-          </legend>
-          <div className="flex flex-wrap gap-2">
-            {(field.options ?? []).map((option, index) => {
-              const checked = field.type === 'radio' ? text === option : picked.includes(option)
-              return (
-                <label
-                  key={option}
-                  className={cn(
-                    'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
-                    checked ? 'border-brand bg-brand-subtle/50' : bad ? 'border-destructive' : 'border-border',
-                  )}
-                >
-                  <input
-                    type={field.type}
-                    id={index === 0 ? id : undefined}
-                    name={field.key}
-                    checked={checked}
-                    disabled={readOnly}
-                    className="accent-[var(--color-primary)]"
-                    onChange={() =>
-                      onChange(
-                        field.type === 'radio'
-                          ? option
-                          : checked
-                            ? picked.filter((p) => p !== option)
-                            : [...picked, option],
-                      )
-                    }
-                  />
-                  {option}
-                </label>
-              )
-            })}
-          </div>
-        </fieldset>
-      )
-    case 'select':
-      return (
-        <div className="flex flex-col gap-1.5">
-          {label}
-          <select id={id} className={cn(CONTROL, border)} value={text} disabled={readOnly} onChange={(e) => onChange(e.target.value)} {...aria}>
-            <option value="">請選擇</option>
-            {(field.options ?? []).map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
-      )
-    default: {
-      const type = { number: 'text', email: 'email', url: 'url', date: 'date', time: 'time' }[field.type as string] ?? 'text'
-      return (
-        <div className="flex flex-col gap-1.5">
-          {label}
-          <input
-            id={id}
-            type={type}
-            inputMode={field.type === 'number' ? 'decimal' : undefined}
-            className={cn(CONTROL, border)}
-            value={text}
-            disabled={readOnly}
-            onChange={(e) => onChange(e.target.value)}
-            {...aria}
-          />
-        </div>
-      )
-    }
-  }
 }
