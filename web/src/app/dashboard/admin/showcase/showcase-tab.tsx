@@ -31,8 +31,9 @@ export type ShowcaseSearchParams = {
 }
 
 const STATUS_TONE: Record<'draft' | 'published' | 'withdrawn', PillTone> = { draft: 'default', published: 'success', withdrawn: 'danger' }
-const GRID = 'md:grid-cols-[4rem_minmax(12rem,1fr)_6rem_5.5rem_minmax(7rem,10rem)_4.5rem_minmax(8rem,auto)]'
-const HONOR_GRID = 'md:grid-cols-[minmax(14rem,1fr)_7rem_6rem_minmax(9rem,auto)]'
+// 每列各自是一個 grid：欄寬要固定（不用 auto），列與列才對得齊。
+const GRID = 'md:grid-cols-[4rem_minmax(12rem,1fr)_6rem_5.5rem_minmax(7rem,10rem)_4.5rem_12rem]'
+const HONOR_GRID = 'md:grid-cols-[minmax(14rem,1fr)_7rem_6rem_12rem]'
 const BASE = '/dashboard/admin/showcase'
 
 function href(params: { cohort?: string | null; honor?: string | null }): string {
@@ -121,7 +122,8 @@ export async function ShowcaseTab({ cohortId, searchParams }: { cohortId: string
             </Link>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
+        {/* 換行時也靠右：「新增」下拉是靠右展開的。 */}
+        <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">草稿不會公開。</span>
           <ShowcaseNewMenu
             config={config}

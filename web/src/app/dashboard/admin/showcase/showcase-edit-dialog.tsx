@@ -400,7 +400,7 @@ export function ShowcaseEditDialog({
               step={1}
               value={fields.homePosition}
               onChange={(e) => set({ homePosition: e.target.value })}
-              className={`${INPUT} max-w-32`}
+              className={`${INPUT} block max-w-32`}
             />
           </label>
 

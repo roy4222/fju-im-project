@@ -253,7 +253,7 @@ function DeleteEntryButton({ entry, onDeleted }: { entry: ShowcaseEntryView; onD
 
   if (entry.deleteBlocked) {
     return (
-      <button type="button" className={ROW_BTN} disabled data-testid="delete-blocked">
+      <button type="button" className={cn(ROW_BTN, 'whitespace-normal')} disabled data-testid="delete-blocked">
         {entry.deleteBlocked}
       </button>
     )
