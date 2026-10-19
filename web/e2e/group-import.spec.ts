@@ -149,6 +149,8 @@ async function openImport(page: Page) {
 }
 
 async function choose(dialog: ReturnType<Page['getByRole']>, name: string, csv: string) {
+  // 對話框按「匯入」才載入，文字與上限載入後才能選檔。
+  await expect(dialog.getByText(/上限 /)).toBeVisible()
   await dialog.getByLabel('選擇分組匯入 CSV 檔').setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') })
   await expect(dialog.getByRole('heading', { name: `預覽・${name}` })).toBeVisible()
 }
