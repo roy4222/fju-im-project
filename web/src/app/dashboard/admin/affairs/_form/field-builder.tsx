@@ -1,8 +1,7 @@
 'use client'
 import { useRef, useState } from 'react'
-import { IconArrowDown, IconArrowUp, IconCheck, IconDots, IconGripVertical, IconLock, IconPlus, IconTrash } from '@tabler/icons-react'
-import { BTN_ICON } from '@/app/_ui/dashboard-kit'
-import { INPUT, LABEL, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
+import { IconArrowDown, IconArrowUp, IconDots, IconGripVertical, IconLock, IconPlus, IconTrash } from '@tabler/icons-react'
+import { CheckIcon, cx, ICON_BUTTON, ICON_DANGER, INPUT, LABEL, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
 import {
   fieldFromSchema,
   fieldLock,
@@ -18,7 +17,6 @@ import {
   type FieldDraft,
 } from '@/app/dashboard/admin/affairs/item-form-model'
 import type { ItemTemplate } from '@/application/items'
-import { cn } from '@/shared/cn'
 
 /**
  * 拖拉式表單產生器（C 階段規格① §2.4、A13）：每列「拖柄｜型別｜欄名｜必填｜⋯（說明、選項、檔案規則）｜上移／下移｜刪除」，底部「＋ 新增欄位」。
@@ -126,7 +124,7 @@ export function FieldBuilder({
           <p className="flex items-center gap-1.5 text-xs font-semibold empty:hidden" aria-live="polite" data-testid="template-note">
             {templateNote ? (
               <>
-                <IconCheck aria-hidden className="size-3.5 text-primary" />
+                <CheckIcon aria-hidden className="size-3.5 text-primary" />
                 {templateNote}
               </>
             ) : null}
@@ -171,13 +169,13 @@ export function FieldBuilder({
                   dragFrom.current = null
                   setOver(null)
                 }}
-                className={cn('bg-background transition-colors', expanded && 'bg-primary-subtle/25', over === index && 'bg-primary-subtle/50')}
+                className={cx('transition-colors', over === index ? 'bg-primary-subtle/50' : expanded ? 'bg-primary-subtle/25' : 'bg-background')}
               >
                 <div className="flex flex-wrap items-center gap-2 px-2 py-2 sm:flex-nowrap">
                   <span
                     aria-hidden
                     data-testid="drag-handle"
-                    className={cn('inline-flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground', lock.structure ? 'opacity-30' : 'cursor-grab')}
+                    className={cx('inline-flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground', lock.structure ? 'opacity-30' : 'cursor-grab')}
                   >
                     <IconGripVertical className="size-4" />
                   </span>
@@ -225,7 +223,7 @@ export function FieldBuilder({
                   <span className="ml-auto flex shrink-0 items-center gap-0.5">
                     <button
                       type="button"
-                      className={BTN_ICON}
+                      className={ICON_BUTTON}
                       onClick={() => setOpen(expanded ? null : f.key)}
                       aria-expanded={expanded}
                       aria-label={`編輯欄位：${name}`}
@@ -234,7 +232,7 @@ export function FieldBuilder({
                     </button>
                     <button
                       type="button"
-                      className={BTN_ICON}
+                      className={ICON_BUTTON}
                       onClick={() => onChange(shiftField(fields, index, -1))}
                       disabled={lock.structure || index === 0}
                       aria-label={`上移 ${name}`}
@@ -243,7 +241,7 @@ export function FieldBuilder({
                     </button>
                     <button
                       type="button"
-                      className={BTN_ICON}
+                      className={ICON_BUTTON}
                       onClick={() => onChange(shiftField(fields, index, 1))}
                       disabled={lock.structure || index === fields.length - 1}
                       aria-label={`下移 ${name}`}
@@ -252,7 +250,7 @@ export function FieldBuilder({
                     </button>
                     <button
                       type="button"
-                      className={cn(BTN_ICON, 'hover:bg-destructive-subtle hover:text-destructive')}
+                      className={ICON_DANGER}
                       onClick={() => onChange(fields.filter((_, i) => i !== index))}
                       disabled={!lock.removable}
                       aria-label={`刪除 ${name}`}
@@ -301,7 +299,7 @@ export function FieldBuilder({
                             return (
                               <label
                                 key={t}
-                                className={cn(
+                                className={cx(
                                   'inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 py-1 text-sm font-semibold',
                                   on ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border',
                                 )}

@@ -6,6 +6,7 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { LazyItemFormPage } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
 import { toInitial } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
+import { avatarUrl } from '@/composition/avatar-url'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getGradingStageSettingQuery } from '@/composition/grading'
 import { getItemQuery, ITEM_STATUS_LABEL, ITEM_TEMPLATES } from '@/composition/items'
@@ -44,7 +45,11 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
       ? `內容第 ${item.contentVersionNo} 版・表單第 ${item.schemaVersionNo} 版${item.receiverUnit === 'none' ? '' : `・需要繳交 ${item.rosterCount} ${item.receiverUnit === 'group' ? '組' : '位'}`}`
       : '還沒發布過'
   const opened = item.actualOpenedAt ? `・實際開放 ${formatTaipeiMinute(item.actualOpenedAt)}` : ''
-  const initial = toInitial(item, responseCount)
+  // 發布紀錄的操作者頭像網址在伺服器算好（表單是按需載入的 chunk，不在 client 引頭像元件；`item-form-model.ts` 的 `PublicationLog`）。
+  const avatarUrls = item.publications.map((p) =>
+    avatarUrl({ id: p.actorUserId, name: p.actorName, avatarPreset: p.actorAvatarPreset, avatarFileId: p.actorAvatarFileId }),
+  )
+  const initial = toInitial(item, responseCount, avatarUrls)
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">

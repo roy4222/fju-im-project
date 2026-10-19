@@ -4,6 +4,7 @@ import type { EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-m
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import type { ItemDetail } from '@/application/items'
 import { actorHasRole } from '@/composition/accounts'
+import { avatarUrl } from '@/composition/avatar-url'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery } from '@/composition/items'
 
@@ -20,7 +21,7 @@ import { getItemQuery } from '@/composition/items'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type FrontEditContext =
-  | { ok: true; cohortId: string; options: EditorVocabulary; detail: ItemDetail | null }
+  | { ok: true; cohortId: string; options: EditorVocabulary; detail: ItemDetail | null; avatarUrls: readonly string[] }
   | { ok: false; message: string }
 
 export async function frontEditContextAction(input: { cohortId: string | null; itemId?: string | null }): Promise<FrontEditContext> {
@@ -33,12 +34,19 @@ export async function frontEditContextAction(input: { cohortId: string | null; i
     if (!UUID.test(itemId)) return { ok: false, message: '找不到這一筆，請重新整理頁面。' }
     const detail = await getItemQuery().get(itemId)
     if (!detail) return { ok: false, message: '這一筆已經不在了（可能剛被刪除），請重新整理頁面。' }
-    return { ok: true, cohortId: detail.cohortId, options: await editorVocabulary(detail.cohortId), detail }
+    return { ok: true, cohortId: detail.cohortId, options: await editorVocabulary(detail.cohortId), detail, avatarUrls: publicationAvatarUrls(detail) }
   }
   const wanted = typeof input?.cohortId === 'string' && UUID.test(input.cohortId) ? input.cohortId : null
   // 區塊標了屆別就用它（榮譽可以補登到封存屆別，能不能發由用例判）；沒標就用預設工作屆別。
   const cohorts = await getCohortStatusQuery().list()
   const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts.find((c) => c.isDefaultWorking && c.status !== 'archived') ?? null
   if (!cohort) return { ok: false, message: '還沒有可以發布的屆別；先到後台「屆別」設定工作屆別。' }
-  return { ok: true, cohortId: cohort.id, options: await editorVocabulary(cohort.id), detail: null }
+  return { ok: true, cohortId: cohort.id, options: await editorVocabulary(cohort.id), detail: null, avatarUrls: [] }
+}
+
+/** 發布紀錄操作者的頭像網址（`toInitial` 的第三個參數；表單不在 client 算頭像，見 `item-form-model.ts` 的 `PublicationLog`）。 */
+function publicationAvatarUrls(detail: ItemDetail): string[] {
+  return detail.publications.map((p) =>
+    avatarUrl({ id: p.actorUserId, name: p.actorName, avatarPreset: p.actorAvatarPreset, avatarFileId: p.actorAvatarFileId }),
+  )
 }

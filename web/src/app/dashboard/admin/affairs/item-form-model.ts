@@ -86,14 +86,17 @@ export type ItemFormPlacement = 'news' | 'submission' | 'resource' | 'rules' | '
 export type ConsentModeValue = 'form' | 'upload'
 export type ItemStatusValue = 'draft' | 'published' | 'archived'
 
-/** 發布紀錄一筆（進階設定最下方「發布紀錄」；操作者頭像見總表 Y-4）。 */
+/**
+ * 發布紀錄一筆（進階設定最下方「發布紀錄」；操作者頭像見總表 Y-4）。
+ * 頭像網址由伺服器算好（`toInitial` 的 `avatarUrls`）：表單是按需載入的 chunk，不在 client 引 `AvatarImg`／頭像規則（`item-form-parts.tsx` 樣式段）。
+ */
 export type PublicationLog = {
   readonly action: string
   readonly notify: boolean
   readonly actorUserId: string
   readonly actorName: string
-  readonly actorAvatarPreset: number | null
-  readonly actorAvatarFileId: string | null
+  /** 空字串＝呼叫端沒給（只畫灰色圓）。 */
+  readonly actorAvatarUrl: string
   readonly realAt: Date
 }
 
@@ -146,8 +149,11 @@ export function formPlacementOf(placement: string): ItemFormPlacement {
   return (['news', 'submission', 'resource', 'rules', 'honor'] as const).find((p) => p === placement) ?? 'news'
 }
 
-/** `ItemQuery.get` 的結果 → 表單初值（§2.7）。附件、指定組別、繳交欄位整份帶進來，前台只改標題也不會清掉（AC-6a）。 */
-export function toInitial(detail: ItemDetail, responseCount: number | null = null): ItemFormInitial {
+/**
+ * `ItemQuery.get` 的結果 → 表單初值（§2.7）。附件、指定組別、繳交欄位整份帶進來，前台只改標題也不會清掉（AC-6a）。
+ * `avatarUrls`：發布紀錄操作者的頭像網址，跟 `detail.publications` 同順序（伺服器用 `@/composition/avatar-url` 算）。
+ */
+export function toInitial(detail: ItemDetail, responseCount: number | null = null, avatarUrls: readonly string[] = []): ItemFormInitial {
   return {
     cohortId: detail.cohortId,
     placement: formPlacementOf(detail.placement),
@@ -175,7 +181,14 @@ export function toInitial(detail: ItemDetail, responseCount: number | null = nul
     awardedOn: detail.awardedOn ?? '',
     hasResponses: detail.hasResponses,
     responseCount: detail.hasResponses ? responseCount : 0,
-    publications: detail.publications.map((p) => ({ ...p })),
+    publications: detail.publications.map((p, index) => ({
+      action: p.action,
+      notify: p.notify,
+      actorUserId: p.actorUserId,
+      actorName: p.actorName,
+      actorAvatarUrl: avatarUrls[index] ?? '',
+      realAt: p.realAt,
+    })),
   }
 }
 

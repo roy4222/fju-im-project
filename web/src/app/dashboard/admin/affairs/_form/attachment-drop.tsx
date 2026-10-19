@@ -1,9 +1,7 @@
 'use client'
 import { useState, type DragEvent } from 'react'
-import { IconArrowDown, IconArrowUp, IconFileUpload, IconPaperclip, IconX } from '@tabler/icons-react'
-import { BTN_ICON } from '@/app/_ui/dashboard-kit'
-import { formatSize, uploadItemFile, type FileChip } from '@/app/dashboard/admin/affairs/item-form-parts'
-import { cn } from '@/shared/cn'
+import { IconArrowDown, IconArrowUp, IconFileUpload, IconPaperclip, IconTrash } from '@tabler/icons-react'
+import { cx, formatSize, ICON_BUTTON, ICON_DANGER, uploadItemFile, type FileChip } from '@/app/dashboard/admin/affairs/item-form-parts'
 
 /**
  * 附件區（C 階段規格① §2.3）：拖檔案進虛線框（原生 `drop`）或點選，都走同一條上傳（ticket → `/api/files/upload`）。
@@ -84,12 +82,12 @@ export function AttachmentDrop({
                 {a.name}
               </a>
               <span className="text-xs text-muted-foreground tabular-nums">{formatSize(a.sizeBytes)}</span>
-              <button type="button" className={BTN_ICON} onClick={() => move(index, -1)} disabled={disabled || index === 0} aria-label={`上移 ${a.name}`}>
+              <button type="button" className={ICON_BUTTON} onClick={() => move(index, -1)} disabled={disabled || index === 0} aria-label={`上移 ${a.name}`}>
                 <IconArrowUp />
               </button>
               <button
                 type="button"
-                className={BTN_ICON}
+                className={ICON_BUTTON}
                 onClick={() => move(index, 1)}
                 disabled={disabled || index === attachments.length - 1}
                 aria-label={`下移 ${a.name}`}
@@ -98,12 +96,12 @@ export function AttachmentDrop({
               </button>
               <button
                 type="button"
-                className={cn(BTN_ICON, 'hover:bg-destructive-subtle hover:text-destructive')}
+                className={ICON_DANGER}
                 onClick={() => onChange(attachments.filter((x) => x.fileId !== a.fileId))}
                 disabled={disabled}
                 aria-label={`移除 ${a.name}`}
               >
-                <IconX />
+                <IconTrash />
               </button>
             </li>
           ))}
@@ -118,9 +116,9 @@ export function AttachmentDrop({
         }}
         onDragLeave={() => setOver(false)}
         onDrop={dropFiles}
-        className={cn(
-          'flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-left text-sm transition-colors hover:border-primary hover:bg-primary-subtle/30',
-          over && 'border-primary bg-primary-subtle/40',
+        className={cx(
+          'flex cursor-pointer items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-left text-sm transition-colors hover:border-primary',
+          over ? 'border-primary bg-primary-subtle/40' : 'border-border hover:bg-primary-subtle/30',
           (busy || disabled || full) && 'pointer-events-none opacity-50',
         )}
       >

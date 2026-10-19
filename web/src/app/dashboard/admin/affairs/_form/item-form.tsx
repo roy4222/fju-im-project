@@ -2,7 +2,6 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { IconSend, IconTrash } from '@tabler/icons-react'
-import { Pill } from '@/app/_ui/dashboard-kit'
 import { AdvancedSettings } from '@/app/dashboard/admin/affairs/_form/advanced-settings'
 import { AttachmentDrop } from '@/app/dashboard/admin/affairs/_form/attachment-drop'
 import { FieldBuilder } from '@/app/dashboard/admin/affairs/_form/field-builder'
@@ -16,7 +15,19 @@ import {
   saveDraftAction,
   updatePublishedAction,
 } from '@/app/dashboard/admin/affairs/actions'
-import { DIALOG, Feedback, IMPORTANT_LABEL, INPUT, LABEL, PRIMARY, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
+import {
+  cx,
+  DANGER_OUTLINE,
+  DIALOG_SHELL,
+  Feedback,
+  IMPORTANT_LABEL,
+  INPUT,
+  LABEL,
+  PRIMARY,
+  PRIMARY_LG,
+  SECONDARY,
+  STATUS_PILL,
+} from '@/app/dashboard/admin/affairs/item-form-parts'
 import {
   blurError,
   broadAudience,
@@ -43,7 +54,6 @@ import {
 } from '@/app/dashboard/admin/affairs/item-form-model'
 import { RichEditor } from '@/app/dashboard/admin/editor/rich-editor'
 import type { ItemReview, ItemTemplate } from '@/application/items'
-import { cn } from '@/shared/cn'
 
 /**
  * 共用一頁式新增／編輯表單（C 階段規格① §2；A11、A3、A4、A5、A13、R2、G2）。
@@ -449,7 +459,7 @@ export function ItemForm(props: ItemFormProps) {
       </div>
       {state.audienceKind === 'groups' && !fixedPublic ? (
         <fieldset>
-          <legend className={cn(LABEL, 'mb-1.5')}>
+          <legend className={cx(LABEL, 'mb-1.5')}>
             指定組別 <span className="font-normal text-muted-foreground">・已選 {state.groupIds.length} 組</span>
           </legend>
           {vocabulary.groups.length === 0 ? (
@@ -461,10 +471,10 @@ export function ItemForm(props: ItemFormProps) {
                 return (
                   <label
                     key={g.id}
-                    className={cn(
-                      'inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold tabular-nums transition-colors',
+                    className={cx(
+                      'inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold tabular-nums transition-colors',
                       on ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border hover:border-ink/40',
-                      (hasResponses || archived) && 'cursor-not-allowed opacity-60',
+                      hasResponses || archived ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
                     )}
                   >
                     <input
@@ -485,7 +495,7 @@ export function ItemForm(props: ItemFormProps) {
       {errorText('audience')}
       {collects && state.consentMode === null ? (
         <fieldset>
-          <legend className={cn(LABEL, 'mb-1.5')}>繳交方式</legend>
+          <legend className={cx(LABEL, 'mb-1.5')}>繳交方式</legend>
           <div className="flex flex-wrap gap-2">
             {vocabulary.units
               .filter((u) => u.value !== 'none')
@@ -494,10 +504,10 @@ export function ItemForm(props: ItemFormProps) {
                 return (
                   <label
                     key={u.value}
-                    className={cn(
-                      'inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors',
+                    className={cx(
+                      'inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors',
                       on ? 'border-primary bg-primary-subtle text-primary-on-subtle' : 'border-border hover:border-ink/40',
-                      hasResponses && 'cursor-not-allowed opacity-60',
+                      hasResponses ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
                     )}
                   >
                     <input
@@ -687,7 +697,7 @@ export function ItemForm(props: ItemFormProps) {
           <button type="button" className={SECONDARY} onClick={onSaveDraft} disabled={busy !== null}>
             儲存（先不發布）
           </button>
-          <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={onPublish} disabled={busy !== null}>
+          <button type="button" className={PRIMARY_LG} onClick={onPublish} disabled={busy !== null}>
             <IconSend aria-hidden /> 發布
           </button>
         </>
@@ -696,12 +706,12 @@ export function ItemForm(props: ItemFormProps) {
           <button type="button" className={SECONDARY} onClick={() => openConfirm('archive')} disabled={busy !== null}>
             下架
           </button>
-          <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={onUpdate} disabled={busy !== null}>
+          <button type="button" className={PRIMARY_LG} onClick={onUpdate} disabled={busy !== null}>
             儲存更新
           </button>
         </>
       ) : (
-        <button type="button" className={cn(PRIMARY, 'h-10 px-5')} onClick={() => openConfirm('republish')} disabled={busy !== null}>
+        <button type="button" className={PRIMARY_LG} onClick={() => openConfirm('republish')} disabled={busy !== null}>
           重新發布
         </button>
       )}
@@ -720,9 +730,9 @@ export function ItemForm(props: ItemFormProps) {
         // 全頁的返回連結、標題與屆別說明由伺服器頁面畫（表單按需載入，首屏先有這幾行）；這裡只放會變的狀態。
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           狀態
-          <Pill tone={status === 'published' ? 'success' : 'default'} data-testid="item-status">
+          <span className={STATUS_PILL[status === 'published' ? 'success' : 'default']} data-testid="item-status">
             {STATUS_LABEL[status]}
-          </Pill>
+          </span>
         </p>
       ) : null}
 
@@ -736,7 +746,7 @@ export function ItemForm(props: ItemFormProps) {
         <p className="rounded-lg bg-muted px-3 py-2 text-sm">已下架：前台看不到，內容不能在這裡改；要修改請先重新發布。</p>
       ) : null}
 
-      <div className={cn('grid gap-6', !inline && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]')}>
+      <div className={cx('grid gap-6', !inline && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]')}>
         {leftColumn}
         {inline ? null : (
           <LivePreview
@@ -753,7 +763,7 @@ export function ItemForm(props: ItemFormProps) {
         <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4" data-testid="item-delete">
           <button
             type="button"
-            className={cn(SECONDARY, 'border-destructive/50 text-destructive hover:bg-destructive-subtle hover:text-destructive-on-subtle')}
+            className={DANGER_OUTLINE}
             onClick={() => openConfirm('delete')}
             disabled={busy !== null || deleteBlocked !== null}
             aria-describedby={deleteBlocked ? 'delete-blocked' : undefined}
@@ -771,7 +781,7 @@ export function ItemForm(props: ItemFormProps) {
       ) : null}
 
       <div
-        className={cn(
+        className={cx(
           'border-t border-border pt-4',
           layout === 'page' && 'sticky bottom-0 z-10 -mx-1 bg-background/95 px-1 pb-3 backdrop-blur',
           layout === 'dialog' && 'sticky bottom-0 bg-popover pb-1',
@@ -783,7 +793,7 @@ export function ItemForm(props: ItemFormProps) {
       <dialog
         ref={confirmDialog}
         aria-label={confirming === 'archive' ? '下架這個項目？' : confirming === 'republish' ? '重新發布？' : `${deleteLabel}？`}
-        className={cn(DIALOG, 'w-[min(30rem,calc(100vw-2rem))]')}
+        className={cx(DIALOG_SHELL, 'w-[min(30rem,calc(100vw-2rem))]')}
         onClose={() => setConfirming(null)}
       >
         {confirming ? (
@@ -818,7 +828,7 @@ export function ItemForm(props: ItemFormProps) {
               </button>
               <button
                 type="button"
-                className={cn(PRIMARY, confirming === 'delete' && 'bg-destructive text-destructive-foreground hover:bg-destructive/90')}
+                className={cx(PRIMARY, confirming === 'delete' && 'bg-destructive text-destructive-foreground hover:bg-destructive/90')}
                 onClick={() => (confirming === 'delete' ? confirmDelete() : confirmLifecycle(confirming))}
                 disabled={busy !== null}
               >

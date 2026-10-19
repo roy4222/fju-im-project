@@ -88,7 +88,7 @@ function detail(overrides: Partial<ItemDetail> = {}): ItemDetail {
 
 describe('toInitial：ItemDetail → 表單初值（§2.7、AC-6a）', () => {
   it('附件、指定組別、繳交欄位整份帶進來；時間轉成臺灣時間的 datetime-local；revision 取自 detail', () => {
-    const initial = toInitial(detail())
+    const initial = toInitial(detail(), null, ['/avatars/003.webp'])
     expect(initial).toMatchObject({
       placement: 'submission',
       revision: 7,
@@ -112,7 +112,8 @@ describe('toInitial：ItemDetail → 表單初值（§2.7、AC-6a）', () => {
       ['fa', 'text', '組名', 20],
       ['fb', 'file', '報告', 30],
     ])
-    expect(initial.publications[0]).toMatchObject({ actorUserId: 'u1', actorAvatarPreset: 3 })
+    expect(initial.publications[0]).toMatchObject({ actorUserId: 'u1', actorAvatarUrl: '/avatars/003.webp' })
+    expect(toInitial(detail()).publications[0]!.actorAvatarUrl).toBe('')
   })
 
   it('只改標題後送出：附件、組別、欄位、舊階段原樣送回（不會被清掉）', () => {

@@ -1,10 +1,6 @@
 'use client'
-import { IconChevronRight, IconHistory } from '@tabler/icons-react'
-import { pillClass } from '@/app/_ui/dashboard-kit'
-import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
-import { CoverPicker, IMPORTANT_LABEL, INPUT, LABEL } from '@/app/dashboard/admin/affairs/item-form-parts'
+import { ChevronIcon, CoverPicker, cx, HistoryIcon, IMPORTANT_LABEL, INPUT, LABEL, pillClass } from '@/app/dashboard/admin/affairs/item-form-parts'
 import { HONOR, type EditorState, type EditorVocabulary, type PublicationLog } from '@/app/dashboard/admin/affairs/item-form-model'
-import { cn } from '@/shared/cn'
 import { formatTaipeiMinute } from '@/shared/time'
 
 /**
@@ -72,7 +68,7 @@ export function AdvancedSettings({
       data-testid="advanced-settings"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-        <IconChevronRight aria-hidden className="size-4 transition-transform group-open:rotate-90" />
+        <ChevronIcon aria-hidden className="size-4 transition-transform group-open:rotate-90" />
         進階設定
         <span className="text-xs font-normal text-muted-foreground">
           {placement === 'submission' ? '摘要、評分項目' : placement === HONOR ? '得獎日期、封面' : placement === 'rules' ? '發布紀錄' : '摘要、分類、通知'}
@@ -105,7 +101,7 @@ export function AdvancedSettings({
                 <div className="flex items-center gap-2">
                   <input
                     id="ed-category"
-                    className={cn(INPUT, 'min-w-0 flex-1')}
+                    className={cx(INPUT, 'min-w-0 flex-1')}
                     value={state.category}
                     aria-describedby="ed-category-hint"
                     onChange={(e) => onChange({ category: e.target.value })}
@@ -113,7 +109,7 @@ export function AdvancedSettings({
                   <button
                     type="button"
                     data-testid="category-competition"
-                    className={cn(pillClass(state.category.trim() === vocabulary.competitionCategory), 'shrink-0')}
+                    className={cx(pillClass(state.category.trim() === vocabulary.competitionCategory), 'shrink-0')}
                     onClick={() => onChange({ category: vocabulary.competitionCategory })}
                   >
                     {vocabulary.competitionCategory}
@@ -241,18 +237,27 @@ export function AdvancedSettings({
         {publications.length > 0 ? (
           <details className="rounded-lg border border-border">
             <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-semibold">
-              <IconHistory aria-hidden className="size-4" /> 發布紀錄
+              <HistoryIcon aria-hidden className="size-4" /> 發布紀錄
               <span className="text-xs font-normal text-muted-foreground">{publications.length} 筆</span>
             </summary>
             <ul aria-label="發布紀錄" className="divide-y divide-border border-t border-border text-sm">
               {publications.map((p, index) => (
                 <li key={index} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 tabular-nums">
-                  <AvatarImg
-                    user={{ id: p.actorUserId, name: p.actorName, avatarPreset: p.actorAvatarPreset, avatarFileId: p.actorAvatarFileId }}
-                    size={24}
-                    decorative
-                    className="size-6"
-                  />
+                  {/* 頭像網址由伺服器算好帶進來（`toInitial` 的 `avatarUrls`）；樣式同 `AvatarImg`，姓名就在旁邊所以 alt 留空。 */}
+                  {p.actorAvatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.actorAvatarUrl}
+                      alt=""
+                      width={24}
+                      height={24}
+                      loading="lazy"
+                      decoding="async"
+                      className="size-6 shrink-0 rounded-full bg-muted object-cover"
+                    />
+                  ) : (
+                    <span aria-hidden className="size-6 shrink-0 rounded-full bg-muted" />
+                  )}
                   <span className="font-semibold">{ACTION_LABEL[p.action] ?? p.action}</span>
                   <span className="text-muted-foreground">
                     {formatTaipeiMinute(new Date(p.realAt))}・{p.actorName}

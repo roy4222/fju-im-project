@@ -59,7 +59,7 @@ export function ItemAdapter({ placement, ...props }: FeFormProps & { placement: 
   }
 
   const detail = context.detail
-  const initial = detail ? toInitial(detail) : undefined
+  const initial = detail ? toInitial(detail, null, context.avatarUrls) : undefined
   return (
     <ItemForm
       placement={initial ? formPlacementOf(detail!.placement) : placement}

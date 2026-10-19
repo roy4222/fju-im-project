@@ -1,10 +1,9 @@
 'use client'
 import { IconPaperclip } from '@tabler/icons-react'
-import { BodyPreview, RecipientList } from '@/app/dashboard/admin/affairs/item-form-parts'
+import { BodyPreview, cx, RecipientList } from '@/app/dashboard/admin/affairs/item-form-parts'
 import type { LiveReview } from '@/app/dashboard/admin/affairs/_form/item-form'
 import { HONOR, toFormField, type EditorState, type EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-model'
 import { SubmissionFields } from '@/app/dashboard/_submissions/submission-fields'
-import { cn } from '@/shared/cn'
 
 /**
  * 右欄「即時預覽：學生看到的樣子」（C 階段規格① §2.3、AC-3、AC-4）：標題、對象與截止、淨化後正文、附件、繳交欄位的樣子。
@@ -41,7 +40,7 @@ export default function LivePreview({
   const fields = collects ? state.fields.map(toFormField) : []
 
   return (
-    <section aria-labelledby="live-preview-title" className={cn('flex min-w-0 flex-col gap-3', className)}>
+    <section aria-labelledby="live-preview-title" className={cx('flex min-w-0 flex-col gap-3', className)}>
       <h3 id="live-preview-title" className="text-xs font-bold tracking-[0.06em] text-muted-foreground">
         即時預覽：學生看到的樣子
       </h3>
