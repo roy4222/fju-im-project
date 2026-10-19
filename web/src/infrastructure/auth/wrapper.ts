@@ -1,6 +1,6 @@
 import 'server-only'
 import { toNextJsHandler } from 'better-auth/next-js'
-import { getAuth, withMailOutcome, withSetupMailVariant } from '@/infrastructure/auth/auth-instance'
+import { getAuth, withAdminResetMailVariant, withMailOutcome, withSetupMailVariant } from '@/infrastructure/auth/auth-instance'
 import { authPathFromUrl, routeAccess } from '@/infrastructure/auth/route-matrix'
 import { runAsInternalCall } from '@/infrastructure/auth/internal-call'
 import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
@@ -513,6 +513,20 @@ export function requestPasswordReset(input: { email: string }, headers: Headers)
 export function sendSetupPasswordMail(input: { email: string }, headers: Headers) {
   return withMailOutcome(() =>
     withSetupMailVariant(() =>
+      runAsInternalCall(() =>
+        getAuth().api.requestPasswordReset({ body: { email: input.email, redirectTo: '/reset-password' }, headers }),
+      ),
+    ),
+  )
+}
+
+/**
+ * 系辦在帳號列替人寄「重設密碼」信（C2-11）：跟忘記密碼同一封信、同一條連結（30 分鐘、用完作廢）。
+ * 內部呼叫，不掛 Turnstile、不扣每 IP 桶；每個 Email 的寄信桶照扣。呼叫端要先驗證管理員身分。
+ */
+export function sendAdminResetMail(input: { email: string }, headers: Headers) {
+  return withMailOutcome(() =>
+    withAdminResetMailVariant(() =>
       runAsInternalCall(() =>
         getAuth().api.requestPasswordReset({ body: { email: input.email, redirectTo: '/reset-password' }, headers }),
       ),

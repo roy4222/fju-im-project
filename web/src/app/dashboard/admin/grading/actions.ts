@@ -1,9 +1,11 @@
 'use server'
+import { randomUUID } from 'node:crypto'
 import { refresh } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { currentActor } from '@/app/_ui/guard'
 import type { GradingActionState } from '@/app/dashboard/admin/grading/grading-forms'
 import type { ResultsActionState } from '@/app/dashboard/admin/grading/results-forms'
+import type { StageSettingActionState } from '@/app/dashboard/admin/grading/stage-settings-form'
 import type { SchemeStageInput } from '@/application/grading'
 import type { RemovalChoice } from '@/application/grading'
 import {
@@ -16,12 +18,15 @@ import {
   getGradingCommand,
   getGradingResultsCommand,
   getGradingSettlementCommand,
+  getGradingStageSettingCommand,
+  getGradingStageSettingQuery,
 } from '@/composition/grading'
 import { formatTaipeiMinute } from '@/shared/time'
 
 /**
  * 管理員「評分」頁的動作（票 23）：建立方案版本、發布、設定每組每階段要幾份評分、指派評分老師。
  * 票 24：退回、移除／改派三選一、更正最終結果、復核待復核的更正、套用新方案版本。
+ * C 階段 C1-13：評分項目的對應作業、說明、評審組（側表，不建新版）。
  * 規則全在用例裡判（權重合計、鎖定、重複指派、帳本冪等）；這裡只把表單收斂成用例要的形狀、把結果翻成一句話。
  */
 
@@ -92,6 +97,52 @@ export async function assignEvaluatorAction(_state: GradingActionState, formData
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
   return { ok: true, message: describeAssignEvaluatorReceipt(result.receipt) }
+}
+
+/**
+ * 評分規則分頁一個評分項目的對應作業、說明、評審組（C 階段規格① §1.3、§7.4）：存側表，不建新版、不受鎖定影響。
+ *
+ * 評審組在畫面上是「與『X』同一組評審」（`panelWith`＝X 的代號），這裡換成側表的 `panelKey`：X 已在某個評審組就沿用它的代號；
+ * X 還沒有評審組就先替 X 開一個新代號再把這一項加進去——加進去被擋（兩邊評審不一致）時把 X 改回原樣，DB 跟按之前一樣。
+ */
+export async function setStageSettingAction(_state: StageSettingActionState, formData: FormData): Promise<StageSettingActionState> {
+  const actor = await currentActor()
+  const command = getGradingStageSettingCommand()
+  const cohortId = text(formData, 'cohortId')
+  const stageKey = text(formData, 'stageKey', 40)
+  const panelWith = text(formData, 'panelWith', 40)
+  const itemId = text(formData, 'itemId').trim()
+  const description = text(formData, 'description', 600)
+
+  let panelKey: string | null = null
+  let undoPartner: (() => Promise<unknown>) | null = null
+  if (panelWith !== '' && panelWith !== stageKey) {
+    const settings = await getGradingStageSettingQuery().stageSettings(actor, cohortId)
+    if (!settings.ok) return { ok: false, message: settings.message }
+    const partner = settings.receipt.find((s) => s.stageKey === panelWith)
+    if (partner?.panelKey) {
+      panelKey = partner.panelKey
+    } else {
+      panelKey = randomUUID()
+      const keep = { cohortId, stageKey: panelWith, itemId: partner?.itemId ?? null, description: partner?.description ?? null }
+      const opened = await command.setStageSetting(actor, { ...keep, panelKey }, randomUUID())
+      if (!opened.ok) return { ok: false, message: opened.message }
+      undoPartner = () => command.setStageSetting(actor, { ...keep, panelKey: null }, randomUUID())
+    }
+  }
+
+  const result = await command.setStageSetting(
+    actor,
+    { cohortId, stageKey, itemId: itemId === '' ? null : itemId, description: description.trim() === '' ? null : description, panelKey },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) {
+    await undoPartner?.()
+    const details = result.details as { field?: unknown; groups?: unknown } | undefined
+    return { ok: false, message: result.message, panelBlocked: details?.field === 'panelKey' && Array.isArray(details.groups) }
+  }
+  refresh()
+  return { ok: true, message: `已儲存「${text(formData, 'stageName', 80)}」：不用建新版，老師馬上看得到。` }
 }
 
 // ── 票 24 ────────────────────────────────────────────────────────────────────
@@ -194,7 +245,7 @@ export async function settleStageAction(_state: ResultsActionState, formData: Fo
   if (!result.ok) return { ok: false, message: result.message, code: result.code }
   refresh()
   const r = result.receipt
-  return { ok: true, message: `已結算「${r.stageName}」：${formatTaipeiMinute(r.settledAt)}，採計 ${r.countedEvaluations} 份。結算期間老師不能再改這個階段的分數。` }
+  return { ok: true, message: `已結算「${r.stageName}」：${formatTaipeiMinute(r.settledAt)}，採計 ${r.countedEvaluations} 份。結算期間老師不能再改這個評分項目的分數。` }
 }
 
 export async function releaseSettlementAction(_state: ResultsActionState, formData: FormData): Promise<ResultsActionState> {
