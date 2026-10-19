@@ -1,6 +1,6 @@
 import 'server-only'
 import { toNextJsHandler } from 'better-auth/next-js'
-import { getAuth, withMailOutcome } from '@/infrastructure/auth/auth-instance'
+import { getAuth, withMailOutcome, withSetupMailVariant } from '@/infrastructure/auth/auth-instance'
 import { authPathFromUrl, routeAccess } from '@/infrastructure/auth/route-matrix'
 import { runAsInternalCall } from '@/infrastructure/auth/internal-call'
 import { EMAIL_UNAVAILABLE_CODE } from '@/infrastructure/auth/login-methods'
@@ -503,6 +503,21 @@ export function verifyEmailWithOtp(input: { email: string; otp: string }, header
  */
 export function requestPasswordReset(input: { email: string }, headers: Headers) {
   return getAuth().api.requestPasswordReset({ body: { email: input.email, redirectTo: '/reset-password' }, headers })
+}
+
+/**
+ * 系辦新增成員後替他寄「請設定密碼」信（C2-09）：跟忘記密碼同一條路（同一種連結、30 分鐘、用完作廢），
+ * 信的主旨與開頭不同。伺服器內部呼叫，所以不掛 Turnstile、不扣每 IP 桶；每個 Email 的寄信桶照扣。
+ * `headers` 帶發動的管理員那次請求的標頭。
+ */
+export function sendSetupPasswordMail(input: { email: string }, headers: Headers) {
+  return withMailOutcome(() =>
+    withSetupMailVariant(() =>
+      runAsInternalCall(() =>
+        getAuth().api.requestPasswordReset({ body: { email: input.email, redirectTo: '/reset-password' }, headers }),
+      ),
+    ),
+  )
 }
 
 /** 用重設連結的 token 設新密碼（VB-4 的重設頁用）：成功後這個人全部 session 被撤掉；長度在 hook。 */

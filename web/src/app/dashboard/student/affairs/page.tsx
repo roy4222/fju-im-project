@@ -1,10 +1,12 @@
 import Link from 'next/link'
-import { IconFileText, IconHistory, IconSignature } from '@tabler/icons-react'
-import { StatusPill, TodoCard, type Tone } from '@/app/_ui/dashboard/cards'
+import { IconHistory } from '@tabler/icons-react'
+import { StatusPill } from '@/app/_ui/dashboard/cards'
 import { PageTitle, Panel } from '@/app/_ui/dashboard/primitives'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
+import { formLabel } from '@/app/dashboard/_submissions/assignment-kind'
+import { AffairsList, toneOf, type AffairsListEntry } from '@/app/dashboard/student/affairs/affairs-list'
 import { dueText } from '@/app/dashboard/student/_todo/due-text'
 import { studentItems, studentSignoff, studentTodos, todoCounts, type StudentTodo } from '@/app/dashboard/student/_todo/todos'
 import type { MyRecordRow } from '@/application/submissions'
@@ -29,32 +31,13 @@ const IN_TAB: Readonly<Record<TabKey, (t: StudentTodo) => boolean>> = {
   overdue: (t) => t.status === 'overdue',
 }
 
-/** 卡片顏色（學生規格 §3.2 的對應）：同意書待你同意是紫色，其他照狀態。 */
-function toneOf(todo: StudentTodo): Tone {
-  if (todo.kind === 'consent' && todo.status === 'open') return 'violet'
-  switch (todo.status) {
-    case 'overdue':
-      return 'overdue'
-    case 'soon':
-      return 'soon'
-    case 'open':
-      return 'open'
-    case 'notOpen':
-      return 'neutral'
-    default:
-      return 'done'
-  }
-}
-
-const KIND_LABEL: Readonly<Record<StudentTodo['kind'], string>> = { item: '作業', consent: '同意書' }
-const GROUP_LABEL = '整組'
-
 /**
- * 學生「交作業」（學生規格 §3.3，ST-3）：三個篩選（待交／已交／逾期）＋一張一張的卡，同意書也是一張卡。
+ * 學生「交作業」（學生規格 §3.3，ST-3；C 階段規格① §5.1 改成清單）：三個篩選（待交／已交／逾期）＋一張表
+ * （名稱、形式、狀態、截止、「交作業」／「查看」），同意書也是一列。**不放成績欄**（AC-16）。
  *
  * - 清單與三個數字都來自 ST-1 的 `studentTodos`（首頁待辦、側欄徽章同一份口徑），這頁不自己判狀態。
  * - 篩選是連結（`?tab=`），不是 client state；舊的 `?tab=all` 與不認得的值都當成「待交」。
- * - 作業卡保留 `affair-<itemId>`；同意書卡用 `consent-<versionId>`（被移出名單後 `affair-` 要數到 0）。
+ * - 作業列保留 `affair-<itemId>`；同意書列用 `consent-<versionId>`（被移出名單後 `affair-` 要數到 0）。
  * - 「以前的紀錄」（票 22；Q121）：已經不在作業區、但本人讀得到的正式版本，只在「已交」下方，也只在那裡查。
  */
 export default async function StudentAffairsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
@@ -73,16 +56,29 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
   ])
   const counts = todoCounts(todos)
   const list = todos.filter(IN_TAB[tab])
-  const versionNo = new Map(rows.map((row) => [row.itemId, row.latestVersionNo]))
+  const rowOf = new Map(rows.map((row) => [row.itemId, row]))
   // 副標是自己此刻所在的組；同意書查詢已經讀過（沒分組就不顯示）。
   const groupCode = signoff.groupCode ?? rows.find((row) => row.groupCode)?.groupCode ?? null
   const active = TABS.find((t) => t.key === tab)!
 
   /** 第二行：已交的作業寫第幾次，其他寫截止字（補交期限生效時「補交到 M/D」）。 */
   const secondLine = (todo: StudentTodo) => {
-    const no = todo.kind === 'item' && todo.status === 'done' ? versionNo.get(todo.id) : null
+    const no = todo.kind === 'item' && todo.status === 'done' ? rowOf.get(todo.id)?.latestVersionNo : null
     return no ? `已交第 ${no} 次` : dueText(todo, now)
   }
+  const entries: AffairsListEntry[] = list.map((todo) => {
+    const row = todo.kind === 'item' ? rowOf.get(todo.id) : undefined
+    return {
+      testId: todo.kind === 'consent' ? `consent-${todo.id}` : `affair-${todo.id}`,
+      title: todo.title,
+      form: todo.kind === 'consent' ? '同意書' : formLabel(row ?? {}),
+      group: todo.unit === 'group',
+      status: { label: todo.label, tone: toneOf(todo) },
+      due: secondLine(todo),
+      href: todo.href,
+      action: todo.status === 'done' || todo.status === 'exempt' ? '查看' : '交作業',
+    }
+  })
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
@@ -114,35 +110,7 @@ export default async function StudentAffairsPage({ searchParams }: { searchParam
           }
         />
 
-        {list.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border px-5 py-8 text-center text-sm text-muted-foreground">
-            沒有{active.label}的作業
-          </p>
-        ) : (
-          <ul aria-label="作業列表" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {list.map((todo) => (
-              <li key={`${todo.kind}:${todo.id}`} className="min-w-0">
-                <TodoCard
-                  tone={toneOf(todo)}
-                  icon={todo.kind === 'consent' ? <IconSignature /> : <IconFileText />}
-                  title={todo.title}
-                  meta={
-                    <>
-                      <span className="block font-semibold">
-                        {KIND_LABEL[todo.kind]}
-                        {todo.unit === 'group' ? `・${GROUP_LABEL}` : ''}
-                      </span>
-                      <span className="tabular block">{secondLine(todo)}</span>
-                    </>
-                  }
-                  href={todo.href}
-                  pill={{ label: todo.label }}
-                  testId={todo.kind === 'consent' ? `consent-${todo.id}` : `affair-${todo.id}`}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
+        <AffairsList entries={entries} label="作業列表" empty={`沒有${active.label}的作業`} />
 
         {tab === 'done' && records.length > 0 ? <Records records={records} /> : null}
       </div>
