@@ -73,4 +73,16 @@ pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seco
 ## 5. 基準檔
 
 - `budget.json` 的 `baseline` 是在 `c0f32bd` 用本工具量的（normal 資料集）。`sql-expect.json`、`sql-expect.timeline-*.json` 在 SH-B1 全表重基準（stage-b＋SH-B1，normal 資料集、快取開著）。`c0f32bd` 之後才有的路由，baseline 是加列當下的 main 量的（PR 說明裡註明）。
-- 角色規格新增路由：在 `budget.json`、`sql-expect.json`、`lab-routes.json` 加自己的列，不改既有列。
+- 角色規格新增路由：在 `budget.d/`、`sql-expect.d/` 放自己的小檔（見 §6），`lab-routes.json` 照舊加自己的列；不改既有列。
+
+## 6. 每票一個小檔（overlay，D-23 放寬）
+
+`budget.json`、`sql-expect.json` 是基底，**票不改它們**：要加、改、刪列，在 `budget.d/`、`sql-expect.d/` 放自己的 `<票號>.json`（`set` 新增、`override`／`delete` 要寫 `from`）。`perf:bundle`、`perf:sql --expect` 讀的是基底＋小檔合併後的結果，撞鍵或格式錯 exit 1。格式與規則看兩個資料夾的 `README.md`（e2e 指紋同理在 `e2e/fingerprints.d/`），全文在 `docs/plans/2026-10-19-c-總表/D-23-放寬.md` §1。
+
+```sh
+pnpm -C web overlay check                 # 三個資料夾的小檔都合法（交件前跑，exit 0）
+pnpm -C web overlay print budget          # 看合併後的預算（sql-expect、fingerprints 同理）
+pnpm -C web overlay fold budget           # 收尾才用：把小檔併回基底（沒有開著的 PR 動到小檔時）
+```
+
+- 預算列的 `limit` 必須等於 `limitFor(baseline)`（`limits.mjs`）；`budget.d/` 有小檔時 `--write-baseline` 拒絕執行。
