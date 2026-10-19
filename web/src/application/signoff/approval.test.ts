@@ -96,10 +96,10 @@ describe('狀態轉移', () => {
     expect(roleIn(participants, 'admin')).toBeNull()
   })
 
-  it('理由：要理由的沒填或只有空白被拒；太長被拒；不要理由的空字串變 null', () => {
-    expect(normalizeReason('  ', true, '不同意')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    expect(normalizeReason('x'.repeat(501), true, '不同意')).toMatchObject({ ok: false })
-    expect(normalizeReason(' 有錯字 ', true, '不同意')).toEqual({ ok: true, reason: '有錯字' })
+  it('理由選填（C 階段規格① §1.4 X2）：沒填或只有空白變 null；太長被拒；有填去頭尾空白', () => {
+    expect(normalizeReason('  ', false, '不同意')).toEqual({ ok: true, reason: null })
+    expect(normalizeReason('x'.repeat(501), false, '不同意')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(normalizeReason(' 有錯字 ', false, '不同意')).toEqual({ ok: true, reason: '有錯字' })
     expect(normalizeReason('', false, '同意')).toEqual({ ok: true, reason: null })
   })
 })

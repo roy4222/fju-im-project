@@ -1,19 +1,23 @@
 import 'server-only'
 import type { PoolClient } from 'pg'
+import type { ConsentPublishHook } from '@/application/items'
 import type { SignoffCommand, SignoffParticipantHook, SignoffQuery } from '@/application/signoff'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
 import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
+import { PgConsentPublishHook } from '@/infrastructure/signoff/pg-consent-bridge'
 import { PgSignoffCommand, PgSignoffQuery } from '@/infrastructure/signoff/pg-signoff'
 
 /**
  * 模組 07 線上簽核的實例組裝（票 25：建版、參與者變更時的失效、三角色讀取；票 26：表態、重置、重開、作廢、提醒、匯出）。
  *
  * `getSignoffParticipantHook` 給 `composition/groups.ts` 注入分組的組員異動用例：成員集合改變時同一筆交易讓目前簽核版本失效。
- * 這裡不 import 分組的 composition（不會繞成循環）。
+ * `getConsentPublishHook` 給 `composition/items.ts` 注入作業模組：站內同意書發布建包、改內容建新版、補建、移出對象作廢（C1-03）。
+ * 這裡不 import 分組或作業的 composition（不會繞成循環）。
  */
 let signoffCommand: PgSignoffCommand | undefined
 let signoffQuery: SignoffQuery | undefined
+let consentHook: PgConsentPublishHook | undefined
 
 function command(): PgSignoffCommand {
   signoffCommand ??= new PgSignoffCommand({
@@ -32,6 +36,11 @@ export function getSignoffCommand(): SignoffCommand {
 
 export function getSignoffParticipantHook(): SignoffParticipantHook<PoolClient> {
   return command()
+}
+
+export function getConsentPublishHook(): ConsentPublishHook<PoolClient> {
+  consentHook ??= new PgConsentPublishHook({ signoff: command(), ledger: getOperationLedger(), businessClock: getBusinessClock() })
+  return consentHook
 }
 
 export function getSignoffQuery(): SignoffQuery {
