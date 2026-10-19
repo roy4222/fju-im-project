@@ -188,15 +188,17 @@ describe('seed-demo.mjs', () => {
 
   it('N-01：內文提到的日期跟活動、截止日同一條時間線（原型 8/20 的說明會，平移 +39 天後兩邊都是 9/28），沒有留下記號', async () => {
     const events = await db.sql(
-      `select title, to_char(starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts
+      `select title, to_char(starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts,
+              to_char(ends_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as ends
          from project_events where title in ('114 學年度專題說明會', '雲端服務實務工作坊', '全國大專資訊應用服務創新競賽報名截止', '智慧製造大數據分析競賽決賽')
         order by starts_at`,
     )
-    expect(events.rows.map((e) => [e.title, e.starts])).toEqual([
-      ['114 學年度專題說明會', '2026-09-28 13:10'],
-      ['雲端服務實務工作坊', '2026-10-06 09:00'],
-      ['智慧製造大數據分析競賽決賽', '2026-10-11 00:00'],
-      ['全國大專資訊應用服務創新競賽報名截止', '2026-11-11 00:00'],
+    // C3-01：每筆都有結束；全天的結束＝次日 00:00。
+    expect(events.rows.map((e) => [e.title, e.starts, e.ends])).toEqual([
+      ['114 學年度專題說明會', '2026-09-28 13:10', '2026-09-28 15:00'],
+      ['雲端服務實務工作坊', '2026-10-06 09:00', '2026-10-06 12:00'],
+      ['智慧製造大數據分析競賽決賽', '2026-10-11 00:00', '2026-10-12 00:00'],
+      ['全國大專資訊應用服務創新競賽報名截止', '2026-11-11 00:00', '2026-11-12 00:00'],
     ])
     const text = async (title: string) => {
       const r = await db.sql(
@@ -225,6 +227,65 @@ describe('seed-demo.mjs', () => {
     const archived = await archivedNewsDates(db.sql)
     expect(archived.body).toContain('已於 9 月 8 日結束')
     expect(archived.published < '2026-09-08' && '2026-09-08' < archived.archived).toBe(true)
+  })
+
+  it('C3-01（AC-C3-49 前置）：活動都有結束、含跨三天的佈展；頭像、名片、g-03 待確認、提案是產學', async () => {
+    const open = await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)
+    expect(open.rows).toEqual([{ n: 0 }])
+    const setup = await db.sql(
+      `select e.audience_kind, e.all_day, to_char(e.starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts,
+              to_char(e.ends_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as ends
+         from project_events e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114' and e.title = '成果展佈展'`,
+    )
+    expect(setup.rows).toEqual([{ audience_kind: 'teachers', all_day: true, starts: '2027-06-11 00:00', ends: '2027-06-14 00:00' }])
+    const events = await db.sql(
+      `select count(*)::int as n from project_events e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114'`,
+    )
+    expect(events.rows).toEqual([{ n: 6 }])
+
+    // 示範屆別的老師與學生都有預設頭像，而且彼此不同。
+    const avatars = await db.sql(
+      `select count(*)::int as people, count(p.avatar_preset)::int as with_avatar, count(distinct p.avatar_preset)::int as distinct_avatar
+         from user_profiles p join users u on u.id = p.user_id join role_assignments r on r.user_id = u.id and r.revoked_real_at is null
+        where u.email like '%@demo.invalid' and r.role in ('teacher', 'student')
+          and (p.cohort_id is null or p.cohort_id in (select id from cohorts where code = 'DEMO-114'))`,
+    )
+    expect(avatars.rows[0]).toMatchObject({ with_avatar: avatars.rows[0]!.people, distinct_avatar: avatars.rows[0]!.people })
+    expect(Number(avatars.rows[0]!.people)).toBeGreaterThan(50)
+
+    // 未分組四人有名片；至少兩人公開找隊員；技能涵蓋預設清單至少 6 種。
+    const cards = await db.sql(
+      `select p.display_name, p.bio, p.skills, p.open_to_join from user_profiles p join users u on u.id = p.user_id
+        where u.email like '%@demo.invalid' and p.bio <> '' order by p.student_no`,
+    )
+    expect(cards.rows.map((r) => r.display_name)).toEqual(['應宥丞', '解雨萱', '鞠柏宇', '冷佳霓'])
+    for (const row of cards.rows) {
+      expect([...String(row.bio)].length).toBeLessThanOrEqual(50)
+      expect((row.skills as string[]).length).toBeGreaterThanOrEqual(2)
+    }
+    expect(cards.rows.filter((r) => r.open_to_join).length).toBeGreaterThanOrEqual(2)
+    const presets = ['前端', '後端', '資料庫', '資料分析', 'AI', 'UI 設計', '簡報', '企劃', 'Python', 'JavaScript', 'Figma']
+    const used = new Set(cards.rows.flatMap((r) => r.skills as string[]))
+    expect(presets.filter((p) => used.has(p)).length).toBeGreaterThanOrEqual(6)
+
+    // g-02 已確認（有指導老師＝負責老師）；g-03 待老師確認、沒有指導老師。
+    const links = await db.sql(
+      `select g.code, l.state, (select count(*)::int from advisor_assignments a where a.group_id = g.id and a.valid_to is null) as advisors,
+              (select a.teacher_user_id = o.owner_teacher_user_id from advisor_assignments a where a.group_id = g.id and a.valid_to is null) as owner_advises
+         from opportunity_links l join groups g on g.id = l.group_id join industry_opportunities o on o.id = l.opportunity_id
+         join cohorts c on c.id = g.cohort_id where c.code = 'DEMO-114' and g.code in ('G02', 'G03') order by g.code`,
+    )
+    expect(links.rows).toEqual([
+      { code: 'G02', state: 'active', advisors: 1, owner_advises: true },
+      { code: 'G03', state: 'pending', advisors: 0, owner_advises: null },
+    ])
+
+    // 建立中的那份提案是產學合作、選了 ind-03（昱鋼精機）。
+    const proposal = await db.sql(
+      `select p.group_type, p.state, o.company_name from group_proposals p join cohorts c on c.id = p.cohort_id
+         left join industry_opportunities o on o.id = p.opportunity_id where c.code = 'DEMO-114'`,
+    )
+    expect(proposal.rows).toEqual([{ group_type: 'industry', state: 'open', company_name: '昱鋼精機工業' }])
   })
 
   it('第一批已在時再跑：只補第二批（歷屆專題、榮譽榜、競賽），第一批一列不動', async () => {
@@ -628,6 +689,50 @@ describe('seed-demo.mjs', () => {
     const query = new PgPublicItemQuery(clock, () => db.pool)
     const competitions = await query.list(ANONYMOUS, 'news', { category: '競賽資訊', limit: 20 })
     expect(competitions.map((c) => competitionStatus(c, ANCHOR))).toEqual(['open', 'result', 'closed'])
+
+    const again = runSeed()
+    expect(again.code, again.stderr).toBe(0)
+    expect(again.stdout).toContain('不做任何事')
+  })
+
+  it('0023 之前就灌過的測試站（C3-01）：再跑只補頭像、名片、產學待確認、提案、活動結束與佈展（空著的才填、改過的不動），重跑第二次不變', async () => {
+    const demoCohort = `(select id from cohorts where code = 'DEMO-114')`
+    // 模擬「部署 0023 前已經灌好」：新欄位都是預設值、全天活動沒有結束、提案是一般組、沒有佈展那筆。
+    await db.sql(`update user_profiles set avatar_preset = null, bio = '', skills = '[]'::jsonb
+                   where user_id in (select id from users where email like '%@demo.invalid')`)
+    await db.sql(`update opportunity_links set state = 'active'`)
+    await db.sql(`update group_proposals set group_type = 'general', opportunity_id = null where cohort_id = ${demoCohort}`)
+    await db.sql(`update project_events set ends_at = null where all_day and cohort_id = ${demoCohort}`)
+    await db.sql(`delete from project_events where title = '成果展佈展' and cohort_id = ${demoCohort}`)
+    // 本人改過的：解雨萱自己選了頭像、寫了名片，不能被蓋掉。
+    await db.sql(`update user_profiles set avatar_preset = 99, bio = '本人寫的', skills = '["Go"]'::jsonb
+                   where user_id = (select id from users where email = '411410422@demo.invalid')`)
+    const before = await tableCounts()
+
+    const r = runSeed()
+    expect(r.code, r.stderr).toBe(0)
+    expect(r.stdout).toMatch(/補上 C3-01 的頭像、名片、產學待確認與活動結束 \d+ 列/)
+    expect(await tableCounts()).toEqual({ ...before, project_events: before.project_events! + 1 })
+
+    const open = await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)
+    expect(open.rows).toEqual([{ n: 0 }])
+    const self = await db.sql(`select avatar_preset, bio, skills from user_profiles where user_id = (select id from users where email = '411410422@demo.invalid')`)
+    expect(self.rows).toEqual([{ avatar_preset: 99, bio: '本人寫的', skills: ['Go'] }])
+    const missing = await db.sql(
+      `select count(*)::int as n from user_profiles p join role_assignments r on r.user_id = p.user_id and r.revoked_real_at is null
+        where r.role in ('teacher', 'student')
+          and p.user_id in (select id from users where email like '%@demo.invalid') and p.avatar_preset is null
+          and (p.cohort_id is null or p.cohort_id = ${demoCohort})`,
+    )
+    expect(missing.rows).toEqual([{ n: 0 }])
+    const cards = await db.sql(`select count(*)::int as n from user_profiles where bio <> '' and user_id in (select id from users where email like '%@demo.invalid')`)
+    expect(cards.rows).toEqual([{ n: 4 }])
+    const links = await db.sql(
+      `select g.code, l.state from opportunity_links l join groups g on g.id = l.group_id where g.cohort_id = ${demoCohort} and l.state = 'pending'`,
+    )
+    expect(links.rows).toEqual([{ code: 'G03', state: 'pending' }])
+    const proposal = await db.sql(`select group_type, opportunity_id is not null as has_opportunity from group_proposals where cohort_id = ${demoCohort}`)
+    expect(proposal.rows).toEqual([{ group_type: 'industry', has_opportunity: true }])
 
     const again = runSeed()
     expect(again.code, again.stderr).toBe(0)
