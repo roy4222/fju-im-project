@@ -115,6 +115,7 @@ export {
 export type {
   AccountCommand,
   AccountLookup,
+  MemberReceipt,
   NewMemberInput,
   NewMemberKind,
   NormalizedNewMember,

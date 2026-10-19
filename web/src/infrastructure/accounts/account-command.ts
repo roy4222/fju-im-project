@@ -22,6 +22,8 @@ import {
   type Role,
   type RoleChangeInput,
   type RoleChangeReceipt,
+  type MemberReceipt,
+  type NewMemberInput,
   type StudentAccountReceipt,
   type TeacherAccountInput,
   type TeacherAccountReceipt,
@@ -111,6 +113,8 @@ function denied(code: ErrorCode): Err {
   }
   return err(code, messages[code] ?? '無法執行這個動作。', { next: defaultNextStep(code) })
 }
+
+const MEMBER_MAIL_NOTICE = '帳號已建好，但「請設定密碼」信沒有寄出。請到列上按「發臨時密碼」，把臨時密碼交給他。'
 
 const EMAIL_TAKEN_MESSAGE = '這個 Email 已經有帳號了，不能再新增一個。'
 
@@ -257,6 +261,135 @@ export class PgAccountCommand implements AccountCommand {
 
       if (!password) return ok(receipt, meta(now, input.requestId))
       return { ...secretOnce(password, now, input.requestId, actor.userId), account: receipt }
+    } catch (error) {
+      await tx.query('rollback').catch(() => undefined)
+      throw error
+    } finally {
+      tx.release()
+    }
+  }
+
+  // ── 新增成員（三選一） ────────────────────────────────────────────────────
+
+  /**
+   * 整件事一把帳本（`account.create_member`）：外層交易先占住 `(管理員, 請求編號)`，再依序做
+   * 建帳號、授權管理員、寄信，最後把回執寫回再 commit。
+   *
+   * - 指紋含身分：同編號換身分 → `REQUEST_MISMATCH`。
+   * - 同編號同內容同時送兩次：後到的卡在外層帳本的唯一鍵上，等前一個 commit 後讀到回執（重播）。
+   * - 重播只回第一次的回執：不再建、不再授權、不再寄信。
+   * - 裡面三步各用由同一個編號推出來的子編號，外層萬一中途失敗、系辦重送，已建好的步驟也是重播不重做。
+   * - 子步驟失敗（例如 Email 已有帳號、學號撞號）→ 外層回滾、原樣回錯誤。
+   */
+  async createMember(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: NewMemberInput & { requestId: string },
+  ): Promise<Result<MemberReceipt>> {
+    const blocked = accountAdminDenied(actor)
+    if (blocked || actor.kind !== 'authenticated') return denied(blocked ?? 'UNAUTHENTICATED')
+    if (!isRequestId(input.requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新打開對話框再試。')
+    const normalized = normalizeNewMember(input)
+    if (!normalized.ok) return normalized
+    const member = normalized.value
+
+    const now = this.#clock.now()
+    const fingerprint = sha256(
+      canonicalJson(
+        member.kind === 'student'
+          ? { kind: member.kind, name: member.name, email: member.email, studentNo: member.studentNo.toUpperCase(), cohortId: member.cohortId }
+          : { kind: member.kind, name: member.name, email: member.email },
+      ),
+    )
+    const childId = (purpose: string) => {
+      const h = sha256(`${input.requestId}:${purpose}`)
+      return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
+    }
+
+    const tx = await this.#deps.db().connect()
+    try {
+      await tx.query('begin')
+      const begun = await this.#deps.ledger.begin(
+        tx,
+        { actorUserId: actor.userId, operationKind: 'account.create_member', requestId: input.requestId, fingerprint, scope: 'global' },
+        now,
+      )
+      if (begun.outcome === 'mismatch') {
+        await tx.query('rollback')
+        return err('REQUEST_MISMATCH', '這個請求編號已經用在別的操作上，請重新打開對話框再試。')
+      }
+      if (begun.outcome === 'replay') {
+        await tx.query('commit')
+        if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這個成員已經建好了，回執已過期；請看帳號列表。')
+        return ok({ ...(begun.receipt as MemberReceipt), setupMailRequested: null }, meta(now, input.requestId))
+      }
+
+      let receipt: MemberReceipt
+      if (member.kind === 'student') {
+        const created = await this.createStudent(actor, authHeaders, {
+          name: member.name,
+          email: member.email,
+          studentNo: member.studentNo,
+          cohortId: member.cohortId,
+          requestId: childId('student'),
+        })
+        if (!created.ok) {
+          await tx.query('rollback')
+          return created
+        }
+        const mail = created.receipt.setupMailRequested
+        receipt = {
+          kind: 'student',
+          userId: created.receipt.userId,
+          name: created.receipt.name,
+          email: created.receipt.email,
+          setupMailRequested: mail,
+          notice: mail === false ? MEMBER_MAIL_NOTICE : null,
+        }
+      } else {
+        // 老師、管理員：只用 Email 預先建立（不發密碼），本人用信裡的連結設定密碼，或用 Google 登入。
+        const created = await this.createTeacher(actor, authHeaders, {
+          mode: 'preauthorize',
+          email: member.email,
+          name: member.name,
+          verificationMethod: '',
+          verificationNote: '',
+          requestId: childId('teacher'),
+        })
+        if ('secret' in created) {
+          await tx.query('rollback')
+          return err('INTERNAL', '新增失敗，請稍後再試。')
+        }
+        if (!created.ok) {
+          await tx.query('rollback')
+          return created
+        }
+        const account = created.receipt
+        let notice: string | null = null
+        if (member.kind === 'admin') {
+          const granted = await this.grantRole(actor, {
+            userId: account.userId,
+            role: 'admin',
+            reason: '新增成員',
+            requestId: childId('grant-admin'),
+          })
+          if (!granted.ok) notice = `帳號已建好，但還沒設成管理員（${granted.message}）。請到列上按「設為管理員」。`
+        }
+        const requested = await this.#requestSetupMail(authHeaders, account.email)
+        if (!requested && !notice) notice = MEMBER_MAIL_NOTICE
+        receipt = {
+          kind: member.kind,
+          userId: account.userId,
+          name: account.name ?? member.name,
+          email: account.email,
+          setupMailRequested: requested,
+          notice,
+        }
+      }
+
+      await this.#deps.ledger.commit(tx, begun.recordId, { receipt, resultRef: { userId: receipt.userId } })
+      await tx.query('commit')
+      return ok(receipt, meta(now, input.requestId))
     } catch (error) {
       await tx.query('rollback').catch(() => undefined)
       throw error

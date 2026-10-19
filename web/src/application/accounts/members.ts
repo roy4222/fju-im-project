@@ -157,6 +157,22 @@ export function normalizeNewMember(input: NewMemberInput): { ok: true; value: No
   return { ok: true, value: { kind, name, email, studentNo, cohortId } }
 }
 
+/**
+ * 「新增成員」整件事的回執（帳本存的就是這個；**不含秘密**）。
+ * 建帳號、授權管理員、寄「請設定密碼」信三步共用一個請求編號與一把帳本：重送同一個請求只回這份，
+ * 不會再寄信、不會再授權。
+ */
+export type MemberReceipt = {
+  readonly kind: NewMemberKind
+  readonly userId: string
+  readonly name: string
+  readonly email: string
+  /** 信有沒有交給寄信那一層；重播時不知道，是 `null`。 */
+  readonly setupMailRequested: boolean | null
+  /** 帳號建好、但後面某一步沒完成時要告訴系辦的那句話。 */
+  readonly notice: string | null
+}
+
 /** 新增學生的回執（**不含秘密**；帳本存的就是這個）。直接開通，所以沒有密碼，也沒有臨時密碼。 */
 export type StudentAccountReceipt = {
   readonly userId: string
@@ -274,6 +290,16 @@ export interface AccountCommand {
     authHeaders: Headers,
     input: TeacherAccountInput & { requestId: string },
   ): Promise<Result<TeacherAccountReceipt> | TeacherCreatedWithSecret>
+  /**
+   * 新增成員（C2-09）：學生、老師、管理員三選一，整件事一個請求編號、一筆帳本
+   * （身分也算進指紋：同編號換身分 → `REQUEST_MISMATCH`）。
+   * 學生＝`createStudent`；老師＝預授權建帳號；管理員＝老師再設為管理員。最後寄「請設定密碼」信。
+   */
+  createMember(
+    actor: ResolvedActor,
+    authHeaders: Headers,
+    input: NewMemberInput & { requestId: string },
+  ): Promise<Result<MemberReceipt>>
   /**
    * 新增學生（C2-09）：系辦親手加的人直接開通（不走申請），同一個交易建個人資料、占用學號、
    * 給學生角色，然後寄「請設定密碼」信。同屆同學號已有人 → `STUDENT_NO_TAKEN`。

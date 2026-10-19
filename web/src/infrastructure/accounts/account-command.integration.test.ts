@@ -579,6 +579,197 @@ describe('新增學生與「請設定密碼」信（AC-C2-27）', () => {
   })
 })
 
+describe('新增成員整件事一把帳本（AC-C2-27、共用冪等契約）', () => {
+  let cohortId: string
+  beforeAll(async () => {
+    cohortId = (
+      await one<{ id: string }>(
+        `insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), 'c209m', '116 學年度專題', 'system') returning id`,
+      )
+    ).id
+  })
+
+  const member = (kind: string, email: string, extra: Record<string, string> = {}) => ({
+    kind,
+    name: '新成員',
+    email,
+    studentNo: '',
+    cohortId: '',
+    ...extra,
+  })
+  const countOf = async (sql: string, email: string) => (await one<{ n: number }>(sql, [email])).n
+
+  it('老師：同 payload 同 requestId 重送 → 還是一個帳號、一封信；重播只回第一次的回執', async () => {
+    const email = uniqueEmail('m-t')
+    const input = { ...member('teacher', email), requestId: requestId() }
+    const first = await command.createMember(admin(), adminHeaders, input)
+    expect(first).toMatchObject({ ok: true, receipt: { kind: 'teacher', email, setupMailRequested: true } })
+    const replay = await command.createMember(admin(), adminHeaders, input)
+    expect(replay).toMatchObject({ ok: true, receipt: { kind: 'teacher', email, userId: (first as { receipt: { userId: string } }).receipt.userId, setupMailRequested: null } })
+    expect(await countOf('select count(*)::int as n from users where lower(email) = $1', email)).toBe(1)
+    await waitForMail(email)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await countOf('select count(*)::int as n from mail_outbox where to_email = $1', email)).toBe(1)
+    expect(await countOf(`select count(*)::int as n from operation_records where operation_kind = 'account.create_member' and fingerprint is not null and receipt->>'email' = $1`, email)).toBe(1)
+  })
+
+  it('管理員：重送不會再授權、不會再寄信；admin 角色只有一列、授權稽核只有一筆', async () => {
+    const email = uniqueEmail('m-a')
+    const input = { ...member('admin', email), requestId: requestId() }
+    const first = await command.createMember(admin(), adminHeaders, input)
+    expect(first).toMatchObject({ ok: true, receipt: { kind: 'admin', notice: null } })
+    const userId = (first as { receipt: { userId: string } }).receipt.userId
+    expect(await command.createMember(admin(), adminHeaders, input)).toMatchObject({ ok: true, receipt: { userId, setupMailRequested: null } })
+    await waitForMail(email)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await countOf('select count(*)::int as n from mail_outbox where to_email = $1', email)).toBe(1)
+    expect(await one(`select count(*)::int as n from role_assignments where user_id = $1 and role = 'admin' and revoked_real_at is null`, [userId])).toEqual({ n: 1 })
+    expect(await one(`select count(*)::int as n from audit_events where action = 'account.grant_role' and target_id = $1`, [userId])).toEqual({ n: 1 })
+  })
+
+  it('學生：重送一樣只有一個帳號、一封信', async () => {
+    const email = uniqueEmail('m-s')
+    const input = { ...member('student', email, { studentNo: 'F4444444', cohortId }), requestId: requestId() }
+    const first = await command.createMember(admin(), adminHeaders, input)
+    expect(first).toMatchObject({ ok: true, receipt: { kind: 'student', setupMailRequested: true } })
+    expect(await command.createMember(admin(), adminHeaders, input)).toMatchObject({ ok: true, receipt: { setupMailRequested: null } })
+    await waitForMail(email)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await countOf('select count(*)::int as n from mail_outbox where to_email = $1', email)).toBe(1)
+    expect(await countOf('select count(*)::int as n from users where lower(email) = $1', email)).toBe(1)
+  })
+
+  it('同時送兩次一模一樣的請求：後到的等前一個做完再讀到回執，一個帳號、一封信', async () => {
+    const email = uniqueEmail('m-c')
+    const input = { ...member('admin', email), requestId: requestId() }
+    const [a, b] = await Promise.all([command.createMember(admin(), adminHeaders, input), command.createMember(admin(), adminHeaders, input)])
+    expect(a).toMatchObject({ ok: true })
+    expect(b).toMatchObject({ ok: true })
+    expect([a, b].filter((r) => (r as { receipt: { setupMailRequested: boolean | null } }).receipt.setupMailRequested === true)).toHaveLength(1)
+    await waitForMail(email)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await countOf('select count(*)::int as n from mail_outbox where to_email = $1', email)).toBe(1)
+    expect(await countOf('select count(*)::int as n from users where lower(email) = $1', email)).toBe(1)
+  })
+
+  it('同 requestId 把老師換成管理員 → REQUEST_MISMATCH，不會被偷偷授權', async () => {
+    const email = uniqueEmail('m-m')
+    const rid = requestId()
+    const first = await command.createMember(admin(), adminHeaders, { ...member('teacher', email), requestId: rid })
+    const userId = (first as { receipt: { userId: string } }).receipt.userId
+    expect(await command.createMember(admin(), adminHeaders, { ...member('admin', email), requestId: rid })).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
+    expect(await one(`select count(*)::int as n from role_assignments where user_id = $1 and role = 'admin'`, [userId])).toEqual({ n: 0 })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await countOf('select count(*)::int as n from mail_outbox where to_email = $1', email)).toBe(1)
+  })
+
+  it('學生或老師身分呼叫新增成員（三種身分都試）→ 被拒、沒建帳號、沒寄信', async () => {
+    const email = uniqueEmail('m-f')
+    for (const roles of [['student'], ['teacher'], ['student', 'teacher']] as ('student' | 'teacher')[][]) {
+      for (const kind of ['student', 'teacher', 'admin']) {
+        const result = await command.createMember(actorOf(adminId, roles), adminHeaders, {
+          ...member(kind, email, { studentNo: 'G5555555', cohortId }),
+          requestId: requestId(),
+        })
+        expect(result, `${roles.join('+')} 新增${kind}`).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await countOf('select count(*)::int as n from users where lower(email) = $1', email)).toBe(0)
+    expect(await countOf('select count(*)::int as n from mail_outbox where to_email = $1', email)).toBe(0)
+  })
+})
+
+describe('「請設定密碼」信的寄送邊界（主腦安全案例）', () => {
+  const subjectsOf = async (email: string) =>
+    (await db.sql(`select subject from mail_outbox where to_email = $1 order by created_at, id`, [email])).rows.map((r) => String(r.subject))
+  const preauth = async (tag: string) => {
+    const email = uniqueEmail(tag)
+    const created = await command.createTeacher(admin(), adminHeaders, { mode: 'preauthorize', email, name: '邊界', verificationMethod: '', verificationNote: '', requestId: requestId() })
+    return { email, userId: (created as { receipt: { userId: string } }).receipt.userId }
+  }
+
+  it('每個 Email 的寄信桶照扣：同一 Email 第 6 次被限流（回 requested=false、不多寄信）', async () => {
+    const { email, userId } = await preauth('rl')
+    const results: boolean[] = []
+    for (let i = 0; i < 6; i += 1) {
+      const sent = await command.sendSetupMail(admin(), adminHeaders, { userId })
+      results.push((sent as { receipt: { requested: boolean } }).receipt.requested)
+    }
+    expect(results).toEqual([true, true, true, true, true, false])
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(await subjectsOf(email)).toHaveLength(5)
+  })
+
+  it('variant 不外洩：設定密碼信之後的一般忘記密碼信、以及並行的兩種信，各用各的主旨', async () => {
+    const wrapper = await import('@/infrastructure/auth/wrapper')
+    const setupMail = '【專題管理平台】請設定密碼'
+    const resetMail = '【專題管理平台】重設密碼'
+    const ip = (n: number) => new Headers({ 'x-real-ip': `198.51.100.${n}` })
+
+    const a = await preauth('v-a')
+    const b = await preauth('v-b')
+    await wrapper.sendSetupPasswordMail({ email: a.email }, adminHeaders)
+    await wrapper.requestPasswordReset({ email: b.email }, ip(1))
+    await waitForMail(a.email)
+    await waitForMail(b.email)
+    expect(await subjectsOf(a.email)).toEqual([setupMail])
+    expect(await subjectsOf(b.email)).toEqual([resetMail])
+
+    // 並行：一個設定密碼夾在三個一般忘記密碼之間。
+    const people = [await preauth('v-c'), await preauth('v-d'), await preauth('v-e'), await preauth('v-f')]
+    await Promise.all([
+      wrapper.requestPasswordReset({ email: people[0]!.email }, ip(2)),
+      wrapper.sendSetupPasswordMail({ email: people[1]!.email }, adminHeaders),
+      wrapper.requestPasswordReset({ email: people[2]!.email }, ip(3)),
+      wrapper.requestPasswordReset({ email: people[3]!.email }, ip(4)),
+    ])
+    for (const p of people) await waitForMail(p.email)
+    expect(await subjectsOf(people[0]!.email)).toEqual([resetMail])
+    expect(await subjectsOf(people[1]!.email)).toEqual([setupMail])
+    expect(await subjectsOf(people[2]!.email)).toEqual([resetMail])
+    expect(await subjectsOf(people[3]!.email)).toEqual([resetMail])
+  })
+})
+
+describe('開了人機驗證的環境：外部 HTTP 不能借「設定密碼」的豁免', () => {
+  afterAll(() => {
+    vi.stubEnv('TURNSTILE_SITE_KEY', '')
+    vi.stubEnv('TURNSTILE_SECRET_KEY', '')
+    vi.resetModules()
+  })
+
+  it('外部 /request-password-reset 仍要 Turnstile、仍吃每 IP 桶（帶 setup 字樣也一樣）；內部設定密碼信不吃 IP 桶、不要 token', async () => {
+    vi.resetModules()
+    vi.stubEnv('TURNSTILE_SITE_KEY', '1x00000000000000000000AA')
+    vi.stubEnv('TURNSTILE_SECRET_KEY', '1x0000000000000000000000000000000AA')
+    const wrapper = await import('@/infrastructure/auth/wrapper')
+    ;(await import('@/infrastructure/auth/auth-instance')).getAuth()
+    const ip = '203.0.113.201'
+    const external = (email: string) =>
+      wrapper.authRouteHandlers.POST(
+        new Request(`${BASE_URL}/api/auth/request-password-reset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: BASE_URL, 'x-real-ip': ip, 'x-setup': '1' },
+          body: JSON.stringify({ email, redirectTo: '/reset-password', variant: 'setup' }),
+        }),
+      )
+
+    // 內部呼叫連寄 25 位不同的人（每 IP 上限 20）：全部通過，也沒扣到外部要用的 IP 桶。
+    for (let i = 0; i < 25; i += 1) {
+      await expect(wrapper.sendSetupPasswordMail({ email: `t209-int-${Date.now()}-${i}@example.com` }, new Headers({ 'x-real-ip': ip }))).resolves.toBeDefined()
+    }
+
+    // 外部：沒有 token → 400 TURNSTILE_REQUIRED；前 20 次都是，第 21 次起被 IP 桶擋成 429。
+    for (let i = 0; i < 20; i += 1) {
+      const response = await external(`t209-ext-${Date.now()}-${i}@example.com`)
+      expect(response.status, `第 ${i + 1} 次`).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'TURNSTILE_REQUIRED' })
+    }
+    expect((await external(`t209-ext-${Date.now()}-over@example.com`)).status).toBe(429)
+  })
+})
+
 describe('秘密不進 log（契約 03 §3）', () => {
   it('這個檔核發過的每一組臨時密碼，都沒有出現在任何 console 輸出裡', () => {
     expect(issuedSecrets.length).toBeGreaterThanOrEqual(4)
