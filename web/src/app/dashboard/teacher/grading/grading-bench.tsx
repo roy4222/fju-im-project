@@ -417,7 +417,8 @@ export function GradingBench({
   // 沒有改過（或唯讀）時顯示計入成績的分數；正式送出後又改了，顯示新分數的預覽。
   const showCounted = hasFinal && finalScore !== null && (readOnly || (!dirty && !draftAfterFinal))
   const shownScore = showCounted ? finalScore : formatScore(result.score)
-  const submitWord = hasFinal ? '重新送出' : '正式送出'
+  // C1-12（設計方案① §7.3）：按鈕「送出」，送出過是「重新送出」。
+  const submitWord = hasFinal ? '重新送出' : '送出'
   const percent = Math.max(0, Math.min(100, Number(shownScore) || 0))
   const savedText = state.ack?.savedAtText ?? savedAtText
 
