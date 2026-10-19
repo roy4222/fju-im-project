@@ -704,6 +704,7 @@ async function seed(db, phases) {
   const rosterId = demoId('roster:1')
   const rosterRows = [...students.map((s) => ({ key: s.key, studentNo: s.studentNo, name: s.name }))]
   for (const p of demo.PENDING) if (p.rosterName) rosterRows.push({ key: p.key, studentNo: p.studentNo, name: p.rosterName })
+  for (const a of demo.AUTO_APPROVED) rosterRows.push({ key: a.key, studentNo: a.studentNo, name: a.name })
   const rosterAt = at('2026-08-04', '08:30')
   await insert(db, 'roster_versions', {
     id: rosterId,
@@ -791,6 +792,69 @@ async function seed(db, phases) {
     })
   }
   count('待審申請', demo.PENDING.length)
+
+  // Email 註冊且已驗證、名單同一列而自動開通的學生（C2-12）：已核准的申請，核實方式 `email_roster_match`。
+  for (const a of demo.AUTO_APPROVED) {
+    const created = at(a.created, '20:15')
+    const id = await addUser(a.key, a.name, a.studentNo, { createdAt: created })
+    await role(id, 'student', created)
+    await profile(id, a.name, email(a.studentNo), {
+      completedAt: created,
+      studentNo: a.studentNo,
+      departmentClass: '資管三甲',
+      cohortId: COHORT_ID,
+    })
+    await insert(db, 'student_identities', { cohort_id: COHORT_ID, student_no: a.studentNo, user_id: id, created_at: created })
+    const hit = {
+      rosterVersionId: rosterId,
+      cohortId: COHORT_ID,
+      cohortCode: demo.COHORT.code,
+      cohortName: demo.COHORT.name,
+      nameRaw: a.name,
+      email: email(a.studentNo),
+      departmentClass: '資管三甲',
+      nameMatches: true,
+    }
+    const match = { status: 'matched', hit, hits: [hit], emailComparison: 'same', departmentClassComparison: 'same' }
+    const fields = {
+      appliedName: a.name,
+      studentNo: a.studentNo,
+      departmentClass: '資管三甲',
+      phone: '0900-000-000',
+      contactEmail: email(a.studentNo),
+    }
+    const appId = demoId(`application:${a.key}`)
+    await insert(db, 'registration_applications', {
+      id: appId,
+      user_id: id,
+      revision: 1,
+      applied_name: a.name,
+      student_no: a.studentNo,
+      department_class: fields.departmentClass,
+      phone: fields.phone,
+      contact_email: fields.contactEmail,
+      login_email: email(a.studentNo),
+      roster_version_id: rosterId,
+      roster_match: json(match),
+      state: 'approved',
+      verification_method: 'email_roster_match',
+      decided_real_at: created,
+      assigned_cohort_id: COHORT_ID,
+      created_at: created,
+      created_by_kind: 'user',
+      created_by_user_id: id,
+      updated_at: created,
+      updated_by_user_id: id,
+    })
+    await insert(db, 'application_revisions', {
+      id: demoId(`application-revision:${a.key}:1`),
+      application_id: appId,
+      revision: 1,
+      snapshot: json({ ...fields, loginEmail: email(a.studentNo), rosterMatch: match }),
+      created_at: created,
+    })
+  }
+  count('自動開通申請', demo.AUTO_APPROVED.length)
 
   // ── 組別、組長、主指導、提案 ──
   for (const g of demo.GROUPS) {

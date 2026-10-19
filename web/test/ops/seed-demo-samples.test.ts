@@ -28,6 +28,7 @@ type DemoData = {
   UNGROUPED: { studentNo: string; name: string }[]
   DISABLED: { studentNo: string }[]
   PENDING: { studentNo: string }[]
+  AUTO_APPROVED: { studentNo: string }[]
 }
 const demo = (await import(pathToFileURL(path.join(webRoot, 'scripts', 'demo', 'data.mjs')).href)) as DemoData
 
@@ -109,6 +110,9 @@ describe('範例檔原樣上傳：預覽沒有格式錯誤', () => {
       expect(harmless.has(no), no).toBe(true)
       expect(grouped.has(no), no).toBe(false)
     }
+    // C2-12：自動開通的新人不在批次停用樣本裡。
+    const autoApproved = new Set(demo.AUTO_APPROVED.map((s) => s.studentNo))
+    for (const no of nos) expect(autoApproved.has(no), no).toBe(false)
   })
 })
 
