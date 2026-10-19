@@ -1,0 +1,7 @@
+{
+  "ticket": "C1-06",
+  "override": {
+    "/dashboard/admin/editor/[id]": { "from": "base", "value": { "baseline": 228.4, "limit": 250 } },
+    "/dashboard/admin/editor/new": { "from": "base", "value": { "baseline": 228.4, "limit": 250 } }
+  }
+}

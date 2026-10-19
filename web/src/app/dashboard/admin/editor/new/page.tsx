@@ -1,9 +1,9 @@
 import { requireRole } from '@/app/_ui/guard'
-import { PageTitle } from '@/app/_ui/dashboard-kit'
+import { BackLink, PageTitle } from '@/app/_ui/dashboard-kit'
 import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { ItemFormPage } from '@/app/dashboard/admin/affairs/_form/item-form'
+import { LazyItemFormPage } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
 import { formPlacementOf, HONOR } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
@@ -53,15 +53,31 @@ export default async function NewItemPage({
   const consent = params.consent === 'form' || params.consent === 'upload' ? params.consent : undefined
 
   return shell(
-    <ItemFormPage
-      placement={consent ? 'submission' : placement}
-      consentMode={consent}
-      cohortId={cohort.id}
-      options={await editorVocabulary(cohort.id)}
-      templates={ITEM_TEMPLATES}
-      placementSelectable={!consent}
-      heading="新增公告或作業"
-      meta={`綁定屆別：${cohortLabel(cohort)}（建立後不能換）・儲存之前沒有人看得到`}
-    />,
+    <div className="flex flex-col gap-4">
+      <EditorHeader
+        cohortId={cohort.id}
+        heading="新增公告或作業"
+        meta={`綁定屆別：${cohortLabel(cohort)}（建立後不能換）・儲存之前沒有人看得到`}
+      />
+      <LazyItemFormPage
+        placement={consent ? 'submission' : placement}
+        consentMode={consent}
+        cohortId={cohort.id}
+        options={await editorVocabulary(cohort.id)}
+        templates={ITEM_TEMPLATES}
+        placementSelectable={!consent}
+      />
+    </div>,
+  )
+}
+
+/** 全頁的頁首（伺服器畫；表單按需載入，首屏先有返回連結、標題與屆別說明）。回到這一筆所屬的屆別，不落回預設工作屆（設計方案 §13-2）。 */
+function EditorHeader({ cohortId, heading, meta }: { cohortId: string; heading: string; meta: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <BackLink href={`/dashboard/admin/affairs?cohort=${cohortId}&placement=all`} label="公告與作業" />
+      <h1 className="text-xl font-extrabold tracking-tight">{heading}</h1>
+      <p className="text-xs text-muted-foreground tabular-nums">{meta}</p>
+    </div>
   )
 }

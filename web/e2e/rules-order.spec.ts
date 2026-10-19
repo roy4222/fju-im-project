@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createItemInDialog } from './create-item'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -54,26 +55,10 @@ async function asAdmin(page: Page) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
 }
 
-/** 三步驟快速建立一章公開的規則：發布，或在第 3 步「先存成草稿」。 */
+/** 清單「新增公告」→ 選「專題規則」→ 一頁式表單建立一章公開的規則：發布，或「儲存（先不發布）」（C1-06 共用表單）。 */
 async function quickRule(page: Page, code: string, n: number, publish: boolean) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohorts[code]}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /專題規則/ }).check()
-  await dialog.getByLabel('標題').fill(title(code, n))
-  await dialog.getByLabel('誰看得到').selectOption('public')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill(`第 ${n} 章的規則內容。`)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  if (publish) {
-    await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
-    await dialog.getByRole('button', { name: '發布', exact: true }).click()
-    await expect(dialog.getByRole('status')).toContainText(`「${title(code, n)}」已發布`)
-  } else {
-    await dialog.getByRole('button', { name: '先存成草稿' }).click()
-    await expect(dialog).toBeHidden()
-  }
+  await createItemInDialog(page, { kind: /專題規則/, title: title(code, n), body: `第 ${n} 章的規則內容。`, publish })
 }
 
 async function openRulesFilter(page: Page, code: string) {

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { fillItemForm, formReady } from './create-item'
 import { sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -60,30 +61,30 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-test('三步驟對話框選「榮譽／競賽」：對象鎖公開、沒有收件與通知、可填得獎日期；發布後出現在 /honors', async ({ page, browser }) => {
+test('清單「新增公告」選「榮譽／競賽」：對象鎖公開、沒有收件與通知、可填得獎日期；發布後出現在 /honors', async ({ page, browser }) => {
   const title = `${CODE} 校內專題競賽第一名`
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  const honor = dialog.getByRole('radio', { name: /榮譽／競賽/ })
-  await expect(dialog).toContainText('前台「榮譽榜」的一則得獎消息，可附照片')
+  const picker = page.getByRole('dialog', { name: '新增公告' })
+  const honor = picker.getByRole('radio', { name: /榮譽／競賽/ })
+  await expect(picker).toContainText('前台「榮譽榜」的一則得獎消息，可附照片')
   await honor.check()
-  await expect(dialog.getByLabel('誰看得到')).toBeDisabled()
-  await expect(dialog.getByLabel('誰看得到')).toHaveValue('public')
-  await expect(dialog.getByTestId('honor-where')).toContainText('榮譽榜')
-  await expect(dialog.getByText('繳交方式')).toHaveCount(0)
-  await dialog.getByLabel(/得獎日期/).fill('2026-09-30')
-  await dialog.getByLabel('標題').fill(title)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('恭喜本系專題組獲獎。')
-  await expect(dialog.getByText('要學生交什麼')).toHaveCount(0)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  await expect(dialog.getByRole('checkbox', { name: /重要公告/ })).toHaveCount(0)
-  await expect(dialog).toContainText('榮譽榜不發站內通知')
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${title}」已發布`)
+  await picker.getByRole('button', { name: '下一步' }).click()
+  // C1-06：下一步就是一頁式共用表單。
+  const dialog = page.getByRole('dialog', { name: '新增公告' })
+  const form = await formReady(dialog)
+  await expect(form.getByLabel('誰看得到')).toBeDisabled()
+  await expect(form.getByLabel('誰看得到')).toHaveValue('public')
+  await expect(form.getByTestId('honor-where')).toContainText('榮譽榜')
+  await expect(form.getByText('繳交方式')).toHaveCount(0)
+  await expect(form.locator('section[aria-labelledby="sec-fields"]')).toHaveCount(0)
+  await fillItemForm(page, form, { title, body: '恭喜本系專題組獲獎。', awardedOn: '2026-09-30' })
+  await expect(form.getByRole('checkbox', { name: /重要公告/ })).toHaveCount(0)
+  await expect(dialog.getByTestId('recipient-preview')).toHaveCount(0)
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('item-toast')).toHaveText('已發布')
 
   const found = await pool.query<{ awarded_on: string; audience_kind: string; receiver_unit: string }>(
     `select to_char(awarded_on, 'YYYY-MM-DD') as awarded_on, audience_kind, receiver_unit from managed_items where title = $1`,
@@ -102,21 +103,19 @@ test('屆別封存後的榮譽：下架、重新發布、改標題都可以，/h
   const title = `${CODE} 歷屆榮譽`
   const renamed = `${CODE} 歷屆榮譽（改過）`
   await asAdmin(page)
-  // 完整編輯器建立榮譽（`?placement=honor`），發布後再把屆別封存。
+  // 全頁共用表單建立榮譽（`?placement=honor`），發布後再把屆別封存。
   await page.goto(`/dashboard/admin/editor/new?cohort=${historyCohortId}&placement=honor`)
-  await expect(page.getByLabel('顯示在哪一區', { exact: true })).toHaveValue('honor')
-  await expect(page.getByLabel('誰看得到')).toBeDisabled()
-  await page.locator('#ed-title').fill(title)
-  await page.locator('#ed-body').fill('歷屆得獎紀錄。')
-  await page.getByLabel(/得獎日期/).fill('2025-05-20')
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.getByRole('checkbox')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toBeVisible()
-  await check.getByRole('button', { name: '繼續編輯' }).click()
-  await expect(page.getByTestId('item-status')).toHaveText('發布中')
+  const form = await formReady(page)
+  await expect(form.getByLabel('顯示在哪一區', { exact: true })).toHaveValue('honor')
+  await expect(form.getByLabel('誰看得到')).toBeDisabled()
+  await fillItemForm(page, form, { title, body: '歷屆得獎紀錄。', awardedOn: '2025-05-20' })
+  await expect(form.getByRole('checkbox')).toHaveCount(0)
+  await form.getByRole('button', { name: '儲存（先不發布）' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/editor\/[0-9a-f-]{36}$/)
   const itemId = page.url().split('/').pop()!
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  expect((await pool.query('select status from managed_items where id = $1', [itemId])).rows[0].status).toBe('published')
   await pool.query(`update cohorts set status = 'archived' where id = $1`, [historyCohortId])
 
   const guest = await browser.newContext({ baseURL: BASE_URL })
@@ -138,10 +137,9 @@ test('屆別封存後的榮譽：下架、重新發布、改標題都可以，/h
   await expect(visitor.getByRole('main')).toContainText(title)
 
   await page.locator('#ed-title').fill(renamed)
-  await page.getByRole('button', { name: '發布更新' }).click()
-  const update = page.getByRole('dialog', { name: '發布更新前檢查' })
-  await update.getByRole('button', { name: '確認更新' }).click()
-  await expect(update.getByRole('status')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: /通知對象/ })).toHaveCount(0)
+  await page.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
   await visitor.goto('/honors?year=2025')
   await expect(visitor.getByRole('main')).toContainText(renamed)
   await guest.close()

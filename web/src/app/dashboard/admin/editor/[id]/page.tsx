@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation'
 import { currentActor, requireRole } from '@/app/_ui/guard'
+import { BackLink } from '@/app/_ui/dashboard-kit'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
-import { ItemFormPage } from '@/app/dashboard/admin/affairs/_form/item-form'
+import { LazyItemFormPage } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
 import { toInitial } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
@@ -47,17 +48,23 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current="/dashboard/admin/affairs">
-      <ItemFormPage
-        placement={initial.placement}
-        cohortId={item.cohortId}
-        itemId={item.id}
-        initial={initial}
-        options={vocabulary}
-        templates={ITEM_TEMPLATES}
-        linkedStages={linkedStages}
-        heading="編輯公告或作業"
-        meta={`${cohort ? cohortLabel(cohort) : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}
-      />
+      <div className="flex flex-col gap-4">
+        {/* 頁首由伺服器畫（表單按需載入）；回到這一筆所屬的屆別，不落回預設工作屆（設計方案 §13-2）。 */}
+        <div className="flex flex-col gap-2">
+          <BackLink href={`/dashboard/admin/affairs?cohort=${item.cohortId}&placement=all`} label="公告與作業" />
+          <h1 className="text-xl font-extrabold tracking-tight">編輯公告或作業</h1>
+          <p className="text-xs text-muted-foreground tabular-nums">{`${cohort ? cohortLabel(cohort) : ''}・${ITEM_STATUS_LABEL[item.status]}・${versions}${opened}`}</p>
+        </div>
+        <LazyItemFormPage
+          placement={initial.placement}
+          cohortId={item.cohortId}
+          itemId={item.id}
+          initial={initial}
+          options={vocabulary}
+          templates={ITEM_TEMPLATES}
+          linkedStages={linkedStages}
+        />
+      </div>
     </DashboardShell>
   )
 }

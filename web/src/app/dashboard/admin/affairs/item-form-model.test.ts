@@ -172,11 +172,11 @@ describe('defaultItemDraft：新增的預設值', () => {
 })
 
 describe('switchPlacement：新增頁換位置時保留已填的內容', () => {
-  it('公告換成作業：標題正文保留、對象改成合法值、補一個檔案欄', () => {
+  it('公告換成作業：標題正文保留、對象改成合法值；欄位不自動補（接著套範本才不會多一欄）', () => {
     const news = { ...stateFromInitial(defaultItemDraft('news', 'c1')), title: 'T', body: 'B', audienceKind: 'public' }
     const work = switchPlacement(news, 'submission', ['cohort_students', 'groups', 'teachers'])
     expect(work).toMatchObject({ placement: 'submission', title: 'T', body: 'B', audienceKind: 'cohort_students', receiverUnit: 'group' })
-    expect(work.fields).toHaveLength(1)
+    expect(work.fields).toEqual([])
     expect(switchPlacement(work, 'rules', [])).toMatchObject({ audienceKind: 'public', receiverUnit: 'none' })
   })
 })

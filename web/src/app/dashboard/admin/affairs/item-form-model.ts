@@ -265,7 +265,7 @@ export function stateFromInitial(initial: ItemFormInitial): EditorState {
 
 /**
  * 新增頁換位置（`/editor/new` 的「顯示在哪一區」）：其他已填的內容保留，只把對象與繳交方式調成那個位置合法的值。
- * 換成作業時補一個檔案欄（沒有欄位時），換成不收件時欄位留著但不送出（`toPayload` 只送作業的欄位）。
+ * 欄位不自動補（換過來的人多半接著套範本或自己加；沒有欄位時發布會擋並說明），換成不收件時欄位留著但不送出。
  */
 export function switchPlacement(state: EditorState, placement: ItemFormPlacement, collectionAudiences: readonly string[]): EditorState {
   const collects = placement === 'submission'
@@ -279,7 +279,6 @@ export function switchPlacement(state: EditorState, placement: ItemFormPlacement
     audienceKind,
     groupIds: audienceKind === 'groups' ? state.groupIds : [],
     receiverUnit: collects ? (state.receiverUnit === 'none' ? 'group' : state.receiverUnit) : 'none',
-    fields: collects && state.fields.length === 0 ? [newField('file', '上傳檔案')] : state.fields,
   }
 }
 

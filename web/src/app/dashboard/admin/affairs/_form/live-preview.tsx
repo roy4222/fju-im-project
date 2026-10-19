@@ -1,54 +1,19 @@
 'use client'
-import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconPaperclip } from '@tabler/icons-react'
-import { reviewItemAction } from '@/app/dashboard/admin/affairs/actions'
 import { BodyPreview, RecipientList } from '@/app/dashboard/admin/affairs/item-form-parts'
-import { HONOR, toFormField, toPayload, type EditorState, type EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-model'
+import type { LiveReview } from '@/app/dashboard/admin/affairs/_form/item-form'
+import { HONOR, toFormField, type EditorState, type EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-model'
 import { SubmissionFields } from '@/app/dashboard/_submissions/submission-fields'
-import type { ItemReview } from '@/application/items'
 import { cn } from '@/shared/cn'
 
 /**
  * 右欄「即時預覽：學生看到的樣子」（C 階段規格① §2.3、AC-3、AC-4）：標題、對象與截止、淨化後正文、附件、繳交欄位的樣子。
  *
  * **預覽走伺服器**：停手 500 ms 後呼叫 `reviewItemAction`，只渲染回傳的 `bodyHtml`（淨化在伺服器；CSP 沒有 unsafe-inline），
- * 不在 client 直接渲染原字。繳交欄位用學生「寫作業」同一套 `SubmissionFields`（唯讀）。舊的回應晚到就丟掉。
- * 標題還空著時用「（未命名）」去問，正文預覽不必等標題。
+ * 不在 client 直接渲染原字（問伺服器的是 `item-form.tsx` 的 `useLiveReview`）。繳交欄位用學生「寫作業」同一套 `SubmissionFields`（唯讀）。
  */
 
-export type LiveReview = { review: ItemReview | null; error: string | null }
-
-/** 停手 500 ms 才問伺服器；開窗當下先問一次。回傳最近一次的結果（同一份也給名單與「會通知幾人」用）。 */
-export function useLiveReview(state: EditorState, itemId: string | null, enabled = true): LiveReview {
-  const [result, setResult] = useState<LiveReview>({ review: null, error: null })
-  const seq = useRef(0)
-  const payload = useMemo(() => {
-    const p = toPayload(state)
-    return { ...p, title: p.title.trim() === '' ? '（未命名）' : p.title }
-  }, [state])
-  useEffect(() => {
-    if (!enabled) return
-    const mine = ++seq.current
-    const timer = setTimeout(
-      () => {
-        reviewItemAction(payload, itemId)
-          .then((r) => {
-            if (mine !== seq.current) return
-            setResult(r.ok ? { review: r.data, error: null } : { review: null, error: r.message })
-          })
-          .catch(() => {
-            if (mine !== seq.current) return
-            setResult({ review: null, error: '預覽連線中斷；停手後會再試一次。' })
-          })
-      },
-      mine === 1 ? 0 : 500,
-    )
-    return () => clearTimeout(timer)
-  }, [payload, itemId, enabled])
-  return result
-}
-
-export function LivePreview({
+export default function LivePreview({
   state,
   vocabulary,
   live,
@@ -93,7 +58,7 @@ export function LivePreview({
           <BodyPreview html={review ? review.bodyHtml : null} error={error} />
         </div>
         {state.attachments.length > 0 ? (
-          <ul className="mt-3 flex flex-col gap-1 text-xs" aria-label="預覽的附件">
+          <ul className="mt-3 flex flex-col gap-1 text-xs" aria-label="學生會看到的檔案">
             {state.attachments.map((a) => (
               <li key={a.fileId} className="flex items-center gap-1.5 text-muted-foreground">
                 <IconPaperclip aria-hidden className="size-3.5" />

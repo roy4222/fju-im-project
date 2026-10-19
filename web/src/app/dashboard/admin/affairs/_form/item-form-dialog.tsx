@@ -3,20 +3,31 @@ import dynamic from 'next/dynamic'
 import { useEffect, useRef } from 'react'
 import { IconX } from '@tabler/icons-react'
 import { BTN_ICON, DIALOG } from '@/app/_ui/dashboard-kit'
-import type { ItemFormProps } from '@/app/dashboard/admin/affairs/_form/item-form'
+import type { ItemFormPage as ItemFormPageType, ItemFormProps } from '@/app/dashboard/admin/affairs/_form/item-form'
 import { cn } from '@/shared/cn'
 
 /**
- * 分頁內（與相容包裝 `QuickCreateDialog`）開的對話框版 `ItemForm`（C 階段規格① §2.2、§2.6）。
+ * `ItemForm` 的按需載入外殼（C 階段規格① §2.2、§2.6）：表單本體（含 Tiptap、表單產生器、預覽）一律用 `next/dynamic`（`ssr:false`）載入。
  *
- * 表單本體（含 Tiptap、表單產生器、預覽）用 `next/dynamic`（`ssr:false`）**按需載入**：清單頁首載只有這個外殼，
- * 打開對話框那一刻才下載表單（`/dashboard/admin/affairs*` 的打包預算）。關掉就卸載，下次打開是乾淨的新表單。
+ * - `ItemFormDialog`：分頁內（與相容包裝 `QuickCreateDialog`）開的對話框版。清單頁首載只有這個外殼，打開那一刻才下載表單
+ *   （`/dashboard/admin/affairs*` 的打包預算）。關掉就卸載，下次打開是乾淨的新表單。
+ * - `LazyItemFormPage`：全頁 `/editor/*` 也從同一個 async chunk 載表單（`/editor/*` 預算；清單、前台、全頁三處共用同一份，
+ *   不會因為各自靜態引用而讓打包器多切一次共用 chunk）。
  */
 
 const ItemForm = dynamic(() => import('@/app/dashboard/admin/affairs/_form/item-form').then((m) => m.ItemForm), {
   ssr: false,
   loading: () => <p className="px-1 py-10 text-center text-sm text-muted-foreground">表單載入中…</p>,
 })
+
+const ItemFormPage = dynamic(() => import('@/app/dashboard/admin/affairs/_form/item-form').then((m) => m.ItemFormPage), {
+  ssr: false,
+  loading: () => <p className="py-16 text-center text-sm text-muted-foreground">表單載入中…</p>,
+})
+
+export function LazyItemFormPage(props: Parameters<typeof ItemFormPageType>[0]) {
+  return <ItemFormPage {...props} />
+}
 
 export function ItemFormDialog({ open, title, ...props }: Omit<ItemFormProps, 'layout'> & { open: boolean; title: string }) {
   const dialog = useRef<HTMLDialogElement>(null)

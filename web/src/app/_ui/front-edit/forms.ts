@@ -53,11 +53,11 @@ export const notProvided = (): Promise<FeFormModule> => Promise.reject(new Error
 
 export const FE_FORMS: Record<FeKind, () => Promise<FeFormModule>> = {
   // ①（C1-06／C1-07／C1-09 登錄）
-  news: notProvided,
-  submission: notProvided,
-  rules: notProvided,
-  resource: notProvided,
-  honor: notProvided,
+  news: () => import('@/app/dashboard/admin/affairs/front-edit/news'),
+  submission: () => import('@/app/dashboard/admin/affairs/front-edit/submission'),
+  rules: () => import('@/app/dashboard/admin/affairs/front-edit/rules'),
+  resource: () => import('@/app/dashboard/admin/affairs/front-edit/resource'),
+  honor: () => import('@/app/dashboard/admin/affairs/front-edit/honor'),
   showcase: notProvided,
   resource_category: notProvided,
   // ③（C3-08、C3-10 登錄）

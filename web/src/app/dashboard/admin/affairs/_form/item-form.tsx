@@ -1,17 +1,18 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { IconSend, IconTrash } from '@tabler/icons-react'
-import { BackLink, Pill } from '@/app/_ui/dashboard-kit'
+import { Pill } from '@/app/_ui/dashboard-kit'
 import { AdvancedSettings } from '@/app/dashboard/admin/affairs/_form/advanced-settings'
 import { AttachmentDrop } from '@/app/dashboard/admin/affairs/_form/attachment-drop'
 import { FieldBuilder } from '@/app/dashboard/admin/affairs/_form/field-builder'
-import { LivePreview, useLiveReview } from '@/app/dashboard/admin/affairs/_form/live-preview'
+import LivePreview from '@/app/dashboard/admin/affairs/_form/live-preview'
 import {
   changeItemStatusAction,
   createItemAction,
   deleteItemAction,
   publishItemAction,
+  reviewItemAction,
   saveDraftAction,
   updatePublishedAction,
 } from '@/app/dashboard/admin/affairs/actions'
@@ -41,7 +42,7 @@ import {
   type ItemStatusValue,
 } from '@/app/dashboard/admin/affairs/item-form-model'
 import { RichEditor } from '@/app/dashboard/admin/editor/rich-editor'
-import type { ItemTemplate } from '@/application/items'
+import type { ItemReview, ItemTemplate } from '@/application/items'
 import { cn } from '@/shared/cn'
 
 /**
@@ -81,13 +82,12 @@ export type ItemFormProps = {
   templates?: readonly ItemTemplate[]
   /** `/editor/new`：沒有分頁脈絡，可以在表單上方選「顯示在哪一區」（換位置時已填的內容保留）。 */
   placementSelectable?: boolean
-  /** 全頁的頁首。 */
-  heading?: string
-  meta?: string
   /** 有幾個評分項目把這份作業設成對應作業（進階設定唯讀顯示）；算不到是 null。 */
   linkedStages?: number | null
   /** 全頁刪除成功（刪除鈕只在全頁；清單列的刪除歸 C1-07）。 */
   onDeleted?: (cohortId: string) => void
+  /** 全頁留在原頁的變更（下架、重新發布）之後：全頁重新讀一次（頁首版本、發布紀錄）。 */
+  onChanged?: () => void
 }
 
 const STATUS_LABEL: Record<ItemStatusValue, string> = { draft: '草稿', published: '發布中', archived: '已下架' }
@@ -350,8 +350,10 @@ export function ItemForm(props: ItemFormProps) {
       setRevision(result.data.revision)
       setStatus(result.data.status)
       setConfirming(null)
-      if (layout === 'page') setMessage({ tone: 'ok', text: result.message ?? '已完成。' })
-      else onDone({ itemId, status: result.data.status === 'published' ? 'published' : 'draft', message: action === 'archive' ? '已下架' : '已重新發布' })
+      if (layout === 'page') {
+        setMessage({ tone: 'ok', text: result.message ?? '已完成。' })
+        props.onChanged?.()
+      } else onDone({ itemId, status: result.data.status === 'published' ? 'published' : 'draft', message: action === 'archive' ? '已下架' : '已重新發布' })
     } catch {
       setConfirmError('連線中斷；結果尚未確認，請重新整理頁面看狀態再決定要不要再按一次。')
     } finally {
@@ -653,7 +655,7 @@ export function ItemForm(props: ItemFormProps) {
         onImportant={setImportantChoice}
         notifyCount={notifyCount}
         linkedStages={props.linkedStages ?? null}
-        publications={initial.publications}
+        publications={props.initial?.publications ?? initial.publications}
         consentPurposeError={errors.consentPurpose}
       />
     </fieldset>
@@ -706,18 +708,21 @@ export function ItemForm(props: ItemFormProps) {
   )
 
   return (
-    <div className="flex min-w-0 flex-col gap-4" data-testid="item-form" data-hydrated={hydrated ? '' : undefined} data-layout={layout}>
+    <div
+      className="flex min-w-0 flex-col gap-4"
+      data-testid="item-form"
+      data-hydrated={hydrated ? '' : undefined}
+      data-layout={layout}
+      data-revision={revision}
+    >
       {layout === 'page' ? (
-        <div className="flex flex-col gap-2">
-          <BackLink href={`/dashboard/admin/affairs?cohort=${state.cohortId}&placement=all`} label="公告與作業" />
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-xl font-extrabold tracking-tight">{props.heading ?? (itemId ? '編輯公告或作業' : '新增公告或作業')}</h1>
-            <Pill tone={status === 'published' ? 'success' : 'default'} data-testid="item-status">
-              {STATUS_LABEL[status]}
-            </Pill>
-          </div>
-          {props.meta ? <p className="text-xs text-muted-foreground tabular-nums">{props.meta}</p> : null}
-        </div>
+        // 全頁的返回連結、標題與屆別說明由伺服器頁面畫（表單按需載入，首屏先有這幾行）；這裡只放會變的狀態。
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          狀態
+          <Pill tone={status === 'published' ? 'success' : 'default'} data-testid="item-status">
+            {STATUS_LABEL[status]}
+          </Pill>
+        </p>
       ) : null}
 
       {summary ? (
@@ -826,8 +831,11 @@ export function ItemForm(props: ItemFormProps) {
   )
 }
 
-/** 全頁（`/editor/new`、`/editor/<id>`）：發布、儲存更新後回清單；刪除後也回清單。提示字放 sessionStorage，清單頁的「新增」鈕讀出來顯示。 */
-export function ItemFormPage(props: Omit<ItemFormProps, 'layout' | 'onDone' | 'onCancel' | 'onDeleted'>) {
+/**
+ * 全頁（`/editor/new`、`/editor/<id>`）：發布、儲存更新後回清單；刪除後也回清單。提示字放 sessionStorage，清單頁的「新增」鈕讀出來顯示。
+ * 存草稿、下架、重新發布留在原頁；下架與重新發布後重新讀一次頁面（頁首版本、發布紀錄）。
+ */
+export function ItemFormPage(props: Omit<ItemFormProps, 'layout' | 'onDone' | 'onCancel' | 'onDeleted' | 'onChanged'>) {
   const router = useRouter()
   const back = (cohortId: string, flash?: string) => {
     if (flash) window.sessionStorage.setItem(ITEM_FLASH_KEY, flash)
@@ -840,6 +848,43 @@ export function ItemFormPage(props: Omit<ItemFormProps, 'layout' | 'onDone' | 'o
       onDone={(result) => back(props.cohortId, result.message)}
       onCancel={() => back(props.cohortId)}
       onDeleted={(cohortId) => back(cohortId, '已刪除')}
+      onChanged={() => router.refresh()}
     />
   )
 }
+
+/**
+ * 即時預覽問伺服器的那一半（§2.3）：停手 500 ms 才呼叫 `reviewItemAction`，開窗當下先問一次；舊的回應晚到就丟掉。
+ * 淨化後正文給右欄預覽，名單與「會通知幾人」給表單用。標題還空著時用「（未命名）」去問，正文預覽不必等標題。
+ */
+export type LiveReview = { review: ItemReview | null; error: string | null }
+
+export function useLiveReview(state: EditorState, itemId: string | null, enabled = true): LiveReview {
+  const [result, setResult] = useState<LiveReview>({ review: null, error: null })
+  const seq = useRef(0)
+  const payload = useMemo(() => {
+    const p = toPayload(state)
+    return { ...p, title: p.title.trim() === '' ? '（未命名）' : p.title }
+  }, [state])
+  useEffect(() => {
+    if (!enabled) return
+    const mine = ++seq.current
+    const timer = setTimeout(
+      () => {
+        reviewItemAction(payload, itemId)
+          .then((r) => {
+            if (mine !== seq.current) return
+            setResult(r.ok ? { review: r.data, error: null } : { review: null, error: r.message })
+          })
+          .catch(() => {
+            if (mine !== seq.current) return
+            setResult({ review: null, error: '預覽連線中斷；停手後會再試一次。' })
+          })
+      },
+      mine === 1 ? 0 : 500,
+    )
+    return () => clearTimeout(timer)
+  }, [payload, itemId, enabled])
+  return result
+}
+
