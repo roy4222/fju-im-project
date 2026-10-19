@@ -299,6 +299,7 @@ const ACTION_LABEL: Record<string, string> = {
   'home.update': '更新首頁設定',
   'home.updated': '更新首頁設定',
   'home.reset': '首頁設定恢復預設',
+  'site_text.updated': '更新站內文字',
   // 維運（模組 10）
   'ops.worker_alert': '背景工作警示',
   'notification.test.send': '發送測試通知',
@@ -332,6 +333,7 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   cohort: '屆別',
   business_clock: '測試用時間',
   home_settings: '首頁設定',
+  site_text: '站內文字',
   project_event: '活動',
   group: '組別',
   group_roster: '組別名單',
