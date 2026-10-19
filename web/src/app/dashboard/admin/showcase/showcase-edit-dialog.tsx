@@ -408,30 +408,32 @@ export function ShowcaseEditDialog({
             <p className="text-sm font-semibold text-foreground">
               公開狀態：{status === 'draft' ? '草稿（不公開）' : status === 'published' ? '公開中' : '已下架'}
             </p>
-            <label className="flex items-start gap-2 text-sm text-ink">
-              <input
-                type="checkbox"
-                checked={lifecycle}
-                onChange={(e) => setLifecycle(e.target.checked)}
-                disabled={lifecycleBlocked !== null}
-                className="mt-0.5 size-4"
-              />
-              <span>
+            <div>
+              <label className="flex items-start gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={lifecycle}
+                  onChange={(e) => setLifecycle(e.target.checked)}
+                  disabled={lifecycleBlocked !== null}
+                  className="mt-0.5 size-4"
+                  aria-describedby="showcase-lifecycle-hint"
+                />
                 {lifecycleKind === 'publish'
                   ? '儲存後發布：已取得這組同學同意公開'
                   : lifecycleKind === 'publish_update'
                     ? '儲存後發布更新：已取得這組同學同意公開'
                     : '儲存後重新發布'}
-                <span className="block text-xs text-muted-foreground">
-                  {lifecycleBlocked ??
-                    (lifecycleKind === 'publish'
-                      ? '系統會記下是你勾的。發布後登入的師生在「歷屆專題一覽」看得到；有選獎項的訪客也看得到。'
-                      : lifecycleKind === 'publish_update'
-                        ? '把草稿目前的內容換上前台；之前的版本保留在紀錄裡。系統會記下是你勾的。'
-                        : '用下架前的那一版重新公開，不會換成目前的草稿內容。')}
-                </span>
-              </span>
-            </label>
+              </label>
+              {/* 說明放在 label 外面：放裡面會變成勾選框名稱的一部分。 */}
+              <p id="showcase-lifecycle-hint" className="mt-1 pl-6 text-xs text-muted-foreground">
+                {lifecycleBlocked ??
+                  (lifecycleKind === 'publish'
+                    ? '系統會記下是你勾的。發布後登入的師生在「歷屆專題一覽」看得到；有選獎項的訪客也看得到。'
+                    : lifecycleKind === 'publish_update'
+                      ? '把草稿目前的內容換上前台；之前的版本保留在紀錄裡。系統會記下是你勾的。'
+                      : '用下架前的那一版重新公開，不會換成目前的草稿內容。')}
+              </p>
+            </div>
             {status === 'published' && entry ? (
               confirmWithdraw ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm">

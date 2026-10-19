@@ -274,8 +274,8 @@ test('專題規則分頁每列有上移、下移（只有一章時都停用）',
   await expect(row.getByRole('button', { name: `下移「${TITLE.rules}」` })).toBeDisabled()
 })
 
-test('公告頁的「種類」只剩 全部／公告／榮譽／逾期', async ({ page }) => {
+test('公告頁的「種類」只剩 全部／公告／逾期（榮譽搬到成果展示，C1-09）', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link')).toHaveText(['全部', '公告', '榮譽', '逾期'])
+  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link')).toHaveText(['全部', '公告', '逾期'])
 })
