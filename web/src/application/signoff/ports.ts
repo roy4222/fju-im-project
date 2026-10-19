@@ -236,6 +236,8 @@ export type ConsentBoardRow = {
   readonly students: readonly ConsentBoardPerson[]
   readonly advisor: ConsentBoardPerson | null
   readonly skipped: ConsentSkipReason | null
+  /** 這一版上一次「提醒未同意者」的時間（24 小時冷卻；沒包或沒提醒過是 null）。 */
+  readonly lastRemindedAt: Date | null
 }
 
 export type ConsentSkipReason = 'no_advisor' | 'no_members'

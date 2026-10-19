@@ -2198,6 +2198,17 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         packages.rows.map((p) => p.participants),
       )
+      // 每一版上一次提醒的時間（看板的 24 小時冷卻；口徑同 `lastRemindedAt`），一句查完。
+      const reminded = new Map(
+        (
+          await db.query<{ source_id: string; at: Date }>(
+            `select source_id, max(occurred_real_at) as at from domain_events
+              where type = 'signoff.reminded' and source_type = 'signoff_version' and source_id = any($1::uuid[])
+              group by source_id`,
+            [packages.rows.map((p) => p.version_id)],
+          )
+        ).rows.map((r) => [r.source_id, r.at] as const),
+      )
       const rows: ConsentBoardRow[] = groups.rows.map((g) => {
         const pkg = packages.rows.find((p) => p.group_id === g.group_id)
         if (!pkg) {
@@ -2212,6 +2223,7 @@ export class PgSignoffQuery implements SignoffQuery {
             students: [],
             advisor: null,
             skipped: consentSkipReason({ memberCount: g.member_count, hasAdvisor: g.has_advisor }),
+            lastRemindedAt: null,
           }
         }
         const summary = summaryOf(pkg, votes, profiles)
@@ -2234,6 +2246,7 @@ export class PgSignoffQuery implements SignoffQuery {
           students: summary.progress.students.map(person),
           advisor: summary.progress.advisor.userId ? person(summary.progress.advisor) : null,
           skipped: null,
+          lastRemindedAt: reminded.get(summary.versionId) ?? null,
         }
       })
       return ok({ itemId: item.id, itemTitle: item.title, purpose: item.consent_purpose, rows }, { requestId: uuidv7(), serverTime: new Date().toISOString() })

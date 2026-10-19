@@ -3,7 +3,8 @@ import { IconCheck, IconMinus, IconX } from '@tabler/icons-react'
 import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { CreatePackageButton, type DangerFacts, RemindButton, RestartButton, VoidButton } from '@/app/dashboard/admin/signoff/manage-forms'
 import type { ConsentBoardPerson, ConsentBoardRow, ConsentItemBoard, RestartKind } from '@/application/signoff'
-import { MAX_REASON_CHARS, PURPOSE_LABEL, restartKindFor } from '@/composition/signoff'
+import { MAX_REASON_CHARS, nextRemindAt, PURPOSE_LABEL, restartKindFor, VOTE_RESULT_LABEL } from '@/composition/signoff'
+import { formatTaipeiMinute } from '@/shared/time'
 import { cn } from '@/shared/cn'
 
 /**
@@ -69,6 +70,19 @@ function facts(board: ConsentItemBoard, row: ConsentBoardRow, effect: string, un
   }
 }
 
+/** 24 小時冷卻（§6.3、§9）：上次提醒後還沒滿 24 小時 → 按鈕停用並寫時間（同舊版本頁的句子）。 */
+function remindBlocked(row: ConsentBoardRow, now: Date): string | null {
+  const next = nextRemindAt(row.lastRemindedAt, now)
+  return row.lastRemindedAt && next ? `已於 ${formatTaipeiMinute(row.lastRemindedAt)} 提醒，${formatTaipeiMinute(next)} 之後可以再提醒。` : null
+}
+
+/** 重新收集／重開時將作廢（不計入新版）的回覆：這一版已表態的人（同舊版本頁 `affectedVotes`）；已完成、失效、作廢的不列。 */
+function affectedVotes(row: ConsentBoardRow): string[] {
+  if (row.state === 'complete' || row.state === 'superseded' || row.state === 'void') return []
+  const people = row.advisor ? [...row.students, row.advisor] : row.students
+  return people.filter((p) => p.result !== null).map((p) => `${p.name}（${VOTE_RESULT_LABEL[p.result!]}）`)
+}
+
 function RowActions({ board, row, archived }: { board: ConsentItemBoard; row: ConsentBoardRow; archived: boolean }) {
   if (!row.versionId || !row.state) {
     return archived ? null : <CreatePackageButton itemId={board.itemId} groupId={row.groupId} groupCode={row.groupCode} requestId={randomUUID()} />
@@ -77,7 +91,7 @@ function RowActions({ board, row, archived }: { board: ConsentItemBoard; row: Co
   const pending = row.state === 'collecting' || row.state === 'teacher_pending'
   return (
     <div className="flex flex-wrap items-start gap-2">
-      {pending && !archived ? <RemindButton versionId={row.versionId} requestId={randomUUID()} blockedReason={null} /> : null}
+      {pending && !archived ? <RemindButton versionId={row.versionId} requestId={randomUUID()} blockedReason={remindBlocked(row, new Date())} /> : null}
       {(['csv', 'printable'] as const).map((format) => (
         <form key={format} method="post" action={`/api/admin/signoff/${row.versionId}/export`} target="_blank">
           <input type="hidden" name="format" value={format} />
@@ -93,7 +107,7 @@ function RowActions({ board, row, archived }: { board: ConsentItemBoard; row: Co
             requestId={randomUUID()}
             kind={kind}
             label={RESTART_UI[kind]}
-            affected={[]}
+            affected={affectedVotes(row)}
             facts={facts(
               board,
               row,

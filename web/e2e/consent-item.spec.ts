@@ -237,6 +237,18 @@ test('看板「提醒未同意者」：收件人是還沒表態的組員（從�
   const row = boardRow(page, 'G01')
   await row.getByRole('button', { name: '提醒未同意者' }).click()
   await expect(row.getByRole('status').filter({ hasText: '已提醒' })).toContainText('已提醒 G01')
+  // 24 小時冷卻（§6.3、§9）：重新整理後按鈕停用、寫上次提醒時間。
+  await page.reload()
+  await expect(boardRow(page, 'G01').getByRole('button', { name: '提醒未同意者' })).toBeDisabled()
+  await expect(boardRow(page, 'G01').getByTestId('remind-blocked')).toContainText('已於')
+
+  // 重新收集的確認框（AC-25a、AC-37）：寫對象／範圍／後果／能不能恢復，列出將作廢的回覆（甲已同意）。
+  await boardRow(page, 'G01').getByRole('button', { name: '重新收集', exact: true }).click()
+  const reset = page.getByRole('dialog', { name: '重新收集同意？' })
+  for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(reset.getByTestId('danger-facts')).toContainText(k)
+  await expect(reset.getByTestId('restart-affected')).toContainText(`一組甲${stamp.slice(-3)}（同意）`)
+  await reset.getByRole('button', { name: '先不要' }).click()
+  await expect(reset).toBeHidden()
 
   await signIn(page, g1[2]!)
   await expect(async () => {
@@ -327,6 +339,12 @@ test('AC-25／AC-25a：指派主指導後按「建立」；作廢、重開、重
   await expect(voidDialog.getByLabel('理由（選填）')).toHaveValue('')
   await voidDialog.getByRole('button', { name: '確定作廢' }).click()
   await expect(boardRow(page, 'G02').getByTestId('consent-board-state')).toHaveText('已作廢')
+  // 作廢後學生的狀態分頁：寫已作廢、沒有表態表單。
+  await openStatus(page, g2[0]!)
+  await expect(page.getByTestId('signoff-invalidated')).toContainText('已作廢')
+  await expect(page.getByTestId('respond-form')).toHaveCount(0)
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/affairs/${itemId}`)
   const voided = await pool.query(`select s.state, s.cause from signoff_version_status s where s.version_id = $1`, [(await currentVersion('G02')).id])
   expect(voided.rows).toEqual([{ state: 'void', cause: 'void' }])
 
