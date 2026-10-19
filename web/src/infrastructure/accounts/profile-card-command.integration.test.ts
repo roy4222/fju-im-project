@@ -216,6 +216,17 @@ describe('名片卡', () => {
     expect(await profile(s.id)).toMatchObject({ bio: input.bio, skills: input.skills, open_to_join: false })
   })
 
+  it('r1：另一個分頁先按「公開找隊員」開關，拿舊 revision 存名片回 CONFLICT，公開不會被默默關掉', async () => {
+    const s = await newStudent()
+    const stale = (await command.mine(studentActor(s)))!.revision
+    expect(await groups.setOpenToJoin(studentActor(s), true, randomUUID())).toMatchObject({ ok: true })
+    expect(await command.save(studentActor(s), { ...input, openToJoin: false, revision: stale }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'CONFLICT',
+    })
+    expect(await profile(s.id)).toMatchObject({ bio: '', open_to_join: true })
+  })
+
   it('舊版本回 CONFLICT；同一個請求編號重送只做一次', async () => {
     const s = await newStudent()
     const rev = (await profile(s.id)).revision

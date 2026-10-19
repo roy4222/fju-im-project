@@ -60,6 +60,19 @@ export function ProfileCardDialog({
   const [skills, setSkills] = useState<string[]>([...card.skills])
   const [custom, setCustom] = useState('')
   const [hint, setHint] = useState<string | null>(null)
+  const [email, setEmail] = useState(card.contactEmail)
+  const [open, setOpen] = useState(card.openToJoin)
+  // 伺服器那邊的名片變了（頁面上的開關、別的分頁存過）：欄位跟著換成最新的，不會把舊狀態存回去（C3-07 r1）。
+  // 不用 key 重掛：自己存完也會變版本，重掛會把視窗關掉、「名片已更新」也跟著不見。
+  const serverKey = `${card.revision}-${card.openToJoin}`
+  const [seenKey, setSeenKey] = useState(serverKey)
+  if (seenKey !== serverKey) {
+    setSeenKey(serverKey)
+    setBio(card.bio)
+    setSkills([...card.skills])
+    setEmail(card.contactEmail)
+    setOpen(card.openToJoin)
+  }
 
   const options = [...limits.presets, ...skills.filter((s) => !limits.presets.includes(s))]
   const bioLength = length(bio)
@@ -188,12 +201,22 @@ export function ProfileCardDialog({
             <label htmlFor="profile-card-email" className={LABEL}>
               聯絡 Email
             </label>
-            <input id="profile-card-email" name="contactEmail" type="email" defaultValue={card.contactEmail} className={cn(INPUT, 'h-11')} />
+            <input id="profile-card-email" name="contactEmail" type="email" value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={cn(INPUT, 'h-11')}
+            />
           </div>
 
           <div>
             <label className="inline-flex items-center gap-2 text-sm font-semibold">
-              <input type="checkbox" name="openToJoin" value="true" defaultChecked={card.openToJoin} disabled={!card.canOpenToJoin} />
+              <input
+                type="checkbox"
+                name="openToJoin"
+                value="true"
+                checked={open}
+                onChange={(e) => setOpen(e.target.checked)}
+                disabled={!card.canOpenToJoin}
+              />
               公開找隊員
             </label>
             {!card.canOpenToJoin ? <p className="mt-1 text-xs text-muted-foreground">已經有組別，不會出現在找隊員名單</p> : null}

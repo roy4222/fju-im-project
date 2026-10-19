@@ -314,7 +314,8 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
 
       if (profile.rows[0].open_to_join !== open) {
         await tx.query(
-          'update user_profiles set open_to_join = $2, updated_at = $3, updated_by_user_id = $1 where user_id = $1',
+          // 跟名片儲存（`profile-card-command.ts`）寫同一欄：版本號一起加，拿舊頁面存名片會回 CONFLICT，不會默默蓋回去（C3-07 r1）。
+          'update user_profiles set open_to_join = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $1 where user_id = $1',
           [userId, open, realAt],
         )
         await this.#audit.append(tx, {

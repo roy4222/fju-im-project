@@ -279,6 +279,26 @@ test('AC-C3-06：存名片（自介、勾「前端」「資料庫」、自訂「
   await expect(cardE.getByRole('list', { name: '技能' }).getByRole('listitem')).toHaveText(['前端', '資料庫', 'Figma'])
 })
 
+test('r1：先按「公開找隊員」開關、再開名片視窗只改自介儲存，公開狀態不變', async ({ page }) => {
+  // 頁面載入時是未公開（視窗以未公開的狀態掛上），再按開關打開。
+  await pool.query('update user_profiles set open_to_join = false where user_id = $1', [e.userId])
+  await signIn(page, seeker)
+  await page.goto(TEAM)
+  await expect(page.getByText('公開找隊員：未公開')).toBeVisible()
+  await page.getByRole('button', { name: '公開找隊員' }).click()
+  await expect(page.getByText('公開找隊員：已公開')).toBeVisible()
+
+  await page.getByRole('button', { name: '編輯我的名片' }).click()
+  const dialog = page.getByRole('dialog', { name: '編輯我的名片' })
+  await expect(dialog.getByRole('checkbox', { name: '公開找隊員' })).toBeChecked()
+  await dialog.getByLabel('一句話自我介紹').fill('只改自介')
+  await dialog.getByRole('button', { name: '儲存' }).click()
+  await expect(dialog.getByRole('status')).toHaveText('名片已更新')
+  expect(await profileOf(e.userId)).toMatchObject({ bio: '只改自介', open_to_join: true })
+  await page.reload()
+  await expect(page.getByText('公開找隊員：已公開')).toBeVisible()
+})
+
 test('AC-C3-10：已成組的 D 能改名片，「公開找隊員」disabled 並寫原因', async ({ page }) => {
   await signIn(page, grouped)
   await page.goto(TEAM)
