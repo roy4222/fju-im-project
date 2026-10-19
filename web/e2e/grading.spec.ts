@@ -163,12 +163,14 @@ async function openRules(page: Page) {
   await expect(page.getByRole('heading', { name: '評分規則', exact: true })).toBeVisible()
 }
 
-const row = (page: Page, code: string) => page.getByTestId(`grading-row-${code}`)
+/** C1-13：評分老師分頁每組一張卡、卡裡每個評分項目一列；這裡都是「系統驗收」那一列。 */
+const row = (page: Page, code: string) => page.getByTestId(`grading-row-${code}`).getByRole('group', { name: `${code}「系統驗收」` })
 
-/** 評分要求與指派、版本紀錄在子頁是頁內區塊（AD-08）。 */
+/** C1-13：每組要幾位老師評與指派搬到「評分老師」分頁。 */
 async function openAssign(page: Page) {
-  await openRules(page)
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toBeVisible()
+  await signIn(page, await sharedTestSession(page.request, 'admin'))
+  await page.goto(`/dashboard/admin/grading/teachers?cohort=${cohortId}`)
+  await expect(page.getByRole('region', { name: '評分老師' })).toBeVisible()
 }
 async function openVersions(page: Page) {
   await expect(page.getByRole('region', { name: '版本紀錄' })).toBeVisible()
@@ -180,10 +182,10 @@ test('管理員建方案：階段 60／50 被擋、沒有建立任何版本；�
   await openRules(page)
   await expect(page.getByTestId('scheme-status')).toHaveText('還沒有發布的評分規則')
 
-  await page.getByRole('button', { name: '建立新版評分規則' }).click()
-  const dialog = page.getByRole('dialog', { name: '建立新版評分規則' })
+  await page.getByRole('button', { name: '修改評分規則' }).click()
+  const dialog = page.getByRole('dialog', { name: '修改評分規則' })
   await dialog.getByLabel('占總成績 %').nth(1).fill('50')
-  await expect(dialog.getByTestId('weight-sum').first()).toContainText('階段合計 110%（要 100%）')
+  await expect(dialog.getByTestId('weight-sum').first()).toContainText('評分項目合計 110%（要 100%）')
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(dialog.getByRole('alert')).toContainText('各階段占總成績的合計是 110%，要剛好 100% 才能建立')
   const versions = await pool.query(
@@ -193,12 +195,12 @@ test('管理員建方案：階段 60／50 被擋、沒有建立任何版本；�
   expect(versions.rows[0]!.n).toBe(0)
 
   await dialog.getByLabel('占總成績 %').nth(1).fill('40')
-  await dialog.getByLabel('第 1 階段第 1 項權重').fill('50')
-  await expect(dialog.getByTestId('weight-sum').nth(1)).toContainText('項目合計 50%（要 100%）')
-  await dialog.getByRole('button', { name: '＋ 新增項目' }).first().click()
-  await dialog.getByLabel('第 1 階段第 2 項名稱').fill('文件')
-  await dialog.getByLabel('第 1 階段第 2 項權重').fill('50')
-  await expect(dialog.getByTestId('weight-sum').nth(1)).toContainText('項目合計 100%')
+  await dialog.getByLabel('第 1 個評分項目第 1 個細項權重').fill('50')
+  await expect(dialog.getByTestId('weight-sum').nth(1)).toContainText('細項合計 50%（要 100%）')
+  await dialog.getByRole('button', { name: '＋ 新增細項' }).first().click()
+  await dialog.getByLabel('第 1 個評分項目第 2 個細項名稱').fill('文件')
+  await dialog.getByLabel('第 1 個評分項目第 2 個細項權重').fill('50')
+  await expect(dialog.getByTestId('weight-sum').nth(1)).toContainText('細項合計 100%')
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已建立評分規則第 1 版（草稿）' })).toBeVisible()
 
@@ -215,9 +217,9 @@ test('管理員建方案：階段 60／50 被擋、沒有建立任何版本；�
 
 test('設要求份數並指派：G01「系統驗收」要 2 份、指派評一與評二；G02 指派評三；老師收到評分指派通知', async ({ page }) => {
   await openAssign(page)
-  await expect(page.getByRole('navigation', { name: '選擇階段' }).getByRole('link', { name: '系統驗收' })).toHaveAttribute('aria-current', 'page')
+  await expect(row(page, 'G01')).toBeVisible()
 
-  await row(page, 'G01').getByLabel('G01「系統驗收」需要幾位老師評分').fill('2')
+  await row(page, 'G01').getByLabel('G01「系統驗收」要幾位老師評').fill('2')
   await row(page, 'G01').getByRole('button', { name: '儲存' }).click()
   await expect(row(page, 'G01')).toContainText('已正式送出 0／2 份')
 
@@ -231,7 +233,7 @@ test('設要求份數並指派：G01「系統驗收」要 2 份、指派評一�
   await expect(row(page, 'G02').getByRole('status')).toContainText(`已指派 ${NAME_3} 老師評 G02「系統驗收」`)
 
   await page.reload()
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '評分老師' })).toBeVisible()
   await expect(row(page, 'G01').getByTestId('evaluator')).toHaveCount(2)
   await expect(row(page, 'G01')).toContainText(`${NAME_1}未開始`)
   // 已指派的老師不在下拉裡，不能重複指派（伺服器另外也擋，見整合測試）。
@@ -293,6 +295,7 @@ test('老師工作台只看到自己的指派；101 標紅擋住；合法分數�
   // 管理員：這一格是暫存、未正式；第一位老師開始填，方案就鎖定（產品 7.5）。
   await openRules(page)
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
+  await openAssign(page)
   await expect(row(page, 'G01')).toContainText('評分草稿（未送出）・1／2 項')
   await expect(row(page, 'G01')).toContainText('40.00（未正式）')
   await expect(row(page, 'G01')).toContainText('已正式送出 0／2 份')
@@ -338,14 +341,15 @@ test('正式送出：收件章回執；欄位仍可改、出現「重新送出�
   )
   expect(counted.rows[0]!.n).toBe(1)
 
-  await openRules(page)
-  await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
+  await openAssign(page)
   await expect(row(page, 'G01')).toContainText('已正式送出 1／2 份')
   await expect(row(page, 'G01')).toContainText(`${NAME_1}已正式送出84.29`)
+  await openRules(page)
+  await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已鎖定')
 
   // 鎖定後建新版本可以（草稿），但不能直接發布換掉。
-  await page.getByRole('button', { name: '建立新版評分規則' }).click()
-  const dialog = page.getByRole('dialog', { name: '建立新版評分規則' })
+  await page.getByRole('button', { name: '修改評分規則' }).click()
+  const dialog = page.getByRole('dialog', { name: '修改評分規則' })
   await expect(dialog).toContainText('從第 1 版複製起草')
   await dialog.getByRole('button', { name: '建立草稿' }).click()
   await expect(page.getByRole('status').filter({ hasText: '已建立評分規則第 2 版（草稿）' })).toBeVisible()
@@ -404,7 +408,7 @@ test('AC-A-2：正式送出後只「儲存草稿」→ 出現「有尚未送出�
   await expect(card).toContainText('已送出')
   await expect(card.getByTestId('card-draft-after-final')).toHaveText('有未送出修改')
 
-  await openRules(page)
+  await openAssign(page)
   await expect(row(page, 'G01')).toContainText(`${NAME_1}已正式送出84.29`)
 })
 
@@ -484,7 +488,7 @@ test('AC-A-1：改分數與評語後「重新送出」→ 第 2 次、送出紀�
   )
   expect(adminEvents.rows[0]!.n).toBe(0)
 
-  await openRules(page)
+  await openAssign(page)
   await expect(row(page, 'G01')).toContainText(`${NAME_1}已正式送出89.29`)
 })
 

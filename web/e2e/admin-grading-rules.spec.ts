@@ -6,9 +6,9 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * AD-08：成績頁瘦身＋評分規則子頁 `/dashboard/admin/grading/rules`。
  *
  * - AC-AD-15：`/grading` 的 h1「成績」、分頁「成績表」「評分規則」「評分老師」「結算」（C 階段規格② §2.2）、右端「評分規則 ↗」連結；評分規則、版本紀錄、
- *   評分要求與指派都不在這頁；評分進度是卡片（階段一張、老師一張），除了成績表沒有 `<table>`。
- * - AC-AD-03（成績頁段）：老師卡預設「全部階段」，已解散的組不算進分母；選某階段只算那一階段。
- * - AC-AD-16、17、29：子頁 h1「評分規則」＋「← 回成績」、沒有分頁列；版本紀錄每版一張卡；每組一張指派卡。
+ *   評分老師都不在這頁；評分進度是卡片（評分項目一張、老師一張），除了成績表沒有 `<table>`。
+ * - AC-AD-03（成績頁段）：老師卡預設「全部評分項目」，已解散的組不算進分母；選某一項只算那一項。
+ * - AC-AD-16、17、29：評分規則分頁 h1「評分規則」＋「← 回成績」；版本紀錄每版一張卡；每組一張指派卡在「評分老師」分頁（C1-13）。
  * - AC-AD-23（成績表段）：1280 寬兩頁都不出現橫向捲軸。
  *
  * 資料用 owner 連線直接種（評分規則、指派、一份正式評分）；建立與發布評分規則走真的畫面。
@@ -156,18 +156,18 @@ test('成績頁：h1「成績」、分頁與「評分規則」連結；設定都
   await expect(rulesLink(page)).toHaveAttribute('href', `/dashboard/admin/grading/rules?cohort=${cohortId}`)
 
   // 搬到子頁的東西都不在這頁。
-  for (const name of ['建立新版評分規則', '評分要求與指派']) await expect(page.getByRole('button', { name })).toHaveCount(0)
+  for (const name of ['修改評分規則', '指派']) await expect(page.getByRole('button', { name })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^版本紀錄/ })).toHaveCount(0)
-  for (const name of ['評分規則', '目前版本', '版本紀錄', '評分要求與指派']) await expect(page.getByRole('region', { name, exact: true })).toHaveCount(0)
+  for (const name of ['評分規則', '目前版本', '版本紀錄', '評分老師']) await expect(page.getByRole('region', { name, exact: true })).toHaveCount(0)
   await expect(page.getByTestId('scheme-status')).toHaveCount(0)
   // 表格只剩成績表。
   await expect(page.locator('main table')).toHaveCount(1)
   await expect(page.getByRole('table', { name: '成績表' })).toBeVisible()
   await expect(page.getByTestId('gradebook-count')).toHaveText('顯示 3／3 組')
 
-  // 評分進度：全部階段 → 王老師 1／4（已解散的 G03 不算）；期中卡 1／2（只有 G01 設了要 2 份）。
+  // 評分進度：全部評分項目 → 王老師 1／4（已解散的 G03 不算）；期中卡 1／2（只有 G01 設了要 2 份）。
   const progress = page.getByRole('region', { name: '評分進度' })
-  await expect(progress.getByRole('link', { name: '全部階段' })).toHaveAttribute('aria-current', 'page')
+  await expect(progress.getByRole('link', { name: '全部評分項目' })).toHaveAttribute('aria-current', 'page')
   const card = progress.getByTestId('teacher-progress').filter({ hasText: TEACHER })
   await expect(card).toContainText('1／4')
   await expect(progress.getByTestId('stage-progress-mid')).toContainText('1／2')
@@ -181,7 +181,7 @@ test('成績頁：h1「成績」、分頁與「評分規則」連結；設定都
   await expect(progress.getByTestId('stage-progress-final')).toHaveCount(0)
 })
 
-test('評分規則子頁：h1、← 回成績、成績分頁列；目前版本、版本卡；每組一張指派卡，改派連到 reassign', async ({ page }) => {
+test('評分規則分頁：h1、← 回成績、成績分頁列；目前版本、版本卡；評分老師分頁每組一張指派卡，改派連到 reassign', async ({ page }) => {
   await asAdmin(page)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
@@ -200,34 +200,44 @@ test('評分規則子頁：h1、← 回成績、成績分頁列；目前版本�
   await expect(versions.getByRole('article')).toHaveCount(1)
   await expect(versions.getByRole('article').filter({ hasText: '第 1 版' })).toContainText('已鎖定・目前使用')
 
-  const assign = page.getByRole('region', { name: '評分要求與指派' })
-  await expect(assign).toContainText('每組要幾份評分、指派哪位老師評')
-  await expect(assign.getByRole('navigation', { name: '選擇階段' }).getByRole('link', { name: '期中' })).toHaveAttribute('aria-current', 'page')
-  // 每組一張卡（進行中的組；解散的 G03 不在）：組別、需要幾份、老師與狀態、改派、指派。
+  // C1-13：每組要幾位老師評與指派不在評分規則分頁，搬到「評分老師」分頁。
+  await expect(page.getByRole('region', { name: '評分老師' })).toHaveCount(0)
+  await noHorizontalOverflow(page)
+
+  await tabs.getByRole('link', { name: '評分老師' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/grading\/teachers/)
+  await page.goto(`/dashboard/admin/grading/teachers?cohort=${cohortId}`)
+  const assign = page.getByRole('region', { name: '評分老師' })
+  await expect(assign).toContainText('每組每個評分項目要幾位老師評、指派哪位老師評')
+  // 每組一張卡（進行中的組；解散的 G03 不在），卡裡每個評分項目一列：要幾位、老師與狀態、改派、指派。
   const g01 = page.getByTestId('grading-row-G01')
   await expect(g01).toHaveJSProperty('tagName', 'ARTICLE')
   await expect(page.getByTestId('grading-row-G03')).toHaveCount(0)
-  await expect(g01.getByLabel('G01「期中」需要幾位老師評分')).toHaveValue('2')
-  await expect(g01).toContainText('已正式送出 1／2 份')
-  await expect(g01.getByTestId('evaluator')).toContainText(`${TEACHER}已正式送出`)
-  await expect(g01.getByRole('link', { name: `移除或改派 ${TEACHER} 老師` })).toHaveAttribute(
+  const mid = g01.getByRole('group', { name: 'G01「期中」' })
+  await expect(mid.getByLabel('G01「期中」要幾位老師評')).toHaveValue('2')
+  await expect(mid).toContainText('已正式送出 1／2 份')
+  await expect(mid.getByTestId('evaluator')).toContainText(`${TEACHER}已正式送出`)
+  await expect(mid.getByRole('link', { name: `移除或改派 ${TEACHER} 老師` })).toHaveAttribute(
     'href',
     `/dashboard/admin/grading/reassign/${assignmentIds.get('G01:mid')}`,
   )
-  await expect(g01.getByRole('button', { name: '指派' })).toBeVisible()
+  await expect(mid.getByRole('button', { name: '指派' })).toBeVisible()
+  await expect(g01.getByRole('group', { name: 'G01「期末」' }).getByLabel('G01「期末」要幾位老師評')).toHaveValue('')
   await expect(assign.locator('table')).toHaveCount(0)
   await noHorizontalOverflow(page)
 
+  await page.goto(`/dashboard/admin/grading/rules?cohort=${cohortId}`)
   await page.getByRole('link', { name: '← 回成績' }).click()
   await expect(page.getByRole('heading', { level: 1, name: '成績', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '評分老師' })).toHaveCount(0)
 })
 
 test('新屆別第一次建評分規則：成功訊息在區塊內（標題列不直排）；版本卡「發布第 1 版」→ 已發布', async ({ page }) => {
   await asAdmin(page)
+  await page.goto(`/dashboard/admin/grading/teachers?cohort=${emptyCohortId}`)
+  await expect(page.getByRole('region', { name: '評分老師' })).toContainText('先發布評分規則，才能設定每組要幾位老師評、指派哪位老師評')
   await page.goto(`/dashboard/admin/grading/rules?cohort=${emptyCohortId}`)
   await expect(page.getByTestId('scheme-status')).toHaveText('還沒有發布的評分規則')
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toContainText('先發布評分規則，才能設定每組要幾份評分、指派哪位老師評')
   const heading = page.getByRole('heading', { level: 1, name: '評分規則', exact: true })
   const lineHeight = await heading.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
   const before = (await heading.boundingBox())!
@@ -235,8 +245,8 @@ test('新屆別第一次建評分規則：成功訊息在區塊內（標題列�
   expect(before.width).toBeGreaterThan(before.height)
   expect(before.height).toBeLessThanOrEqual(lineHeight + 1)
 
-  await page.getByRole('button', { name: '建立新版評分規則' }).click()
-  await page.getByRole('dialog', { name: '建立新版評分規則' }).getByRole('button', { name: '建立草稿' }).click()
+  await page.getByRole('button', { name: '修改評分規則' }).click()
+  await page.getByRole('dialog', { name: '修改評分規則' }).getByRole('button', { name: '建立草稿' }).click()
   const current = page.getByRole('region', { name: '目前版本' })
   const hint = current.getByRole('status').filter({ hasText: '已建立評分規則第 1 版（草稿）' })
   await expect(hint).toContainText('「發布」在下方版本紀錄第 1 版那張卡')
@@ -248,5 +258,6 @@ test('新屆別第一次建評分規則：成功訊息在區塊內（標題列�
   await card.getByRole('button', { name: '發布第 1 版' }).click()
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已發布')
   await expect(card).toContainText('已發布・目前使用')
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toContainText('每組要幾份評分、指派哪位老師評')
+  await page.goto(`/dashboard/admin/grading/teachers?cohort=${emptyCohortId}`)
+  await expect(page.getByRole('region', { name: '評分老師' })).toContainText('每組每個評分項目要幾位老師評、指派哪位老師評')
 })

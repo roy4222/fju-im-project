@@ -47,8 +47,8 @@ async function openRules(page: Page) {
 test('建立方案草稿：提示指出「發布」在版本紀錄；發布後那句草稿提示消失', async ({ page }) => {
   await openRules(page)
 
-  await page.getByRole('button', { name: '建立新版評分規則' }).click()
-  const editor = page.getByRole('dialog', { name: '建立新版評分規則' })
+  await page.getByRole('button', { name: '修改評分規則' }).click()
+  const editor = page.getByRole('dialog', { name: '修改評分規則' })
   await editor.getByRole('button', { name: '建立草稿' }).click()
   await expect(editor).toBeHidden()
 
@@ -61,7 +61,7 @@ test('建立方案草稿：提示指出「發布」在版本紀錄；發布後�
   await versions.getByRole('button', { name: '發布第 1 版' }).click()
   await expect(page.getByTestId('scheme-status')).toHaveText('第 1 版・已發布')
 
-  await expect(page.getByRole('button', { name: '建立新版評分規則' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '修改評分規則' })).toBeVisible()
   await expect(page.getByText('已建立評分規則第 1 版（草稿）')).toHaveCount(0)
   await expect(page.getByText('按「發布」後老師才會用這一版')).toHaveCount(0)
 })
