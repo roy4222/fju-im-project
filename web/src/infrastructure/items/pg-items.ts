@@ -72,6 +72,7 @@ import {
 } from '@/application/ops'
 import { authorizeAdmin, badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { audienceUserIds, expandRecipients as expandAudience, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
@@ -2140,8 +2141,17 @@ export class PgItemQuery implements ItemQuery {
           order by a.sort nulls last`,
         [itemId, item.cover_file_id],
       ),
-      db.query<{ action: string; notify: boolean; actor_name: string; real_at: Date }>(
-        `select p.action, p.notify, coalesce(pp.display_name, u.name) as actor_name, p.real_at
+      db.query<{
+        action: string
+        notify: boolean
+        actor_user_id: string
+        actor_name: string
+        avatar_preset: number | null
+        avatar_file_id: string | null
+        real_at: Date
+      }>(
+        // 操作者頭像（C 階段③§2.3、總表 Y-4）：同一句多選兩欄，查詢數不變。
+        `select p.action, p.notify, p.actor_user_id, coalesce(pp.display_name, u.name) as actor_name, ${personAvatar('pp')}, p.real_at
            from item_publications p
            join users u on u.id = p.actor_user_id
            left join user_profiles pp on pp.user_id = p.actor_user_id
@@ -2189,7 +2199,10 @@ export class PgItemQuery implements ItemQuery {
       publications: publications.rows.map((p) => ({
         action: p.action,
         notify: p.notify,
+        actorUserId: p.actor_user_id,
         actorName: p.actor_name,
+        actorAvatarPreset: p.avatar_preset,
+        actorAvatarFileId: p.avatar_file_id,
         realAt: p.real_at,
       })),
     }

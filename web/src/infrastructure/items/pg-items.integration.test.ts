@@ -992,6 +992,19 @@ describe('查詢', () => {
     const detail = await query.get(collect.itemId)
     expect(detail).toMatchObject({ status: 'published', contentVersionNo: 1, schemaVersionNo: 1, rosterCount: 1, hasResponses: false })
     expect(detail?.publications.map((p) => p.action)).toEqual(['publish'])
+    // 發布紀錄帶出操作者頭像兩欄（總表 Y-4）：沒有 profile 是 null；設了預設圖就帶出那一張。
+    expect(detail?.publications[0]).toMatchObject({ actorUserId: adminId, actorAvatarPreset: null, actorAvatarFileId: null })
+    await owner.sql(
+      `insert into user_profiles (user_id, display_name, name_normalized, contact_email, avatar_preset)
+       values ($1, 'A1', 'a1', 'a1-items-profile@example.com', 7)`,
+      [adminId],
+    )
+    try {
+      const withAvatar = await query.get(collect.itemId)
+      expect(withAvatar?.publications[0]).toMatchObject({ actorUserId: adminId, actorName: 'A1', actorAvatarPreset: 7, actorAvatarFileId: null })
+    } finally {
+      await owner.sql('delete from user_profiles where user_id = $1', [adminId])
+    }
 
     const options = await query.editorOptions(cohortId)
     expect(options.stages.map((s) => s.name)).toEqual(['成組期', '期中'])
