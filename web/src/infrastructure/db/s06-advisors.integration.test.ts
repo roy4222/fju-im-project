@@ -185,7 +185,7 @@ describe('逐欄對照模組 03 附錄 A', () => {
     // 附錄 A 的 `reason` 叫 `end_reason`（和主指導同名同義）；另加 `previous_link_id`（換案前後關係）與 `ended_real_at`。
     opportunity_links: [
       'id', 'group_id', 'opportunity_id', 'valid_from', 'valid_to', 'linked_by_user_id', 'previous_link_id',
-      'ended_real_at', 'ended_by_user_id', 'end_reason', 'created_at',
+      'ended_real_at', 'ended_by_user_id', 'end_reason', 'created_at', 'state',
     ],
   }
 
@@ -213,7 +213,7 @@ describe('約束反例', () => {
     })
   })
 
-  it('來源白名單；認領一定是老師本人；管理員指派一定有理由；結束一定記誰與理由', async () => {
+  it('來源白名單；認領一定是老師本人；指派與結束理由選填（③-1）；結束一定記誰', async () => {
     await withIsolatedDatabase({ label: 'advisor-checks', setup: migratedSchema }, async (db) => {
       const s = await seedGroup(db)
       await expect(insertAdvisor(db, s, { source: 'lottery', reason: '抽籤' })).rejects.toMatchObject({
@@ -222,13 +222,7 @@ describe('約束反例', () => {
       await expect(insertAdvisor(db, s, { assignedBy: s.adminId })).rejects.toMatchObject({
         constraint: 'advisor_assignments_claim_self_check',
       })
-      await expect(insertAdvisor(db, s, { source: 'admin', assignedBy: s.adminId, reason: '  ' })).rejects.toMatchObject({
-        constraint: 'advisor_assignments_admin_reason_check',
-      })
-      await expect(insertAdvisor(db, s, { source: 'csv', assignedBy: s.adminId })).rejects.toMatchObject({
-        constraint: 'advisor_assignments_admin_reason_check',
-      })
-      const row = await insertAdvisor(db, s)
+      const row = await insertAdvisor(db, s, { source: 'admin', assignedBy: s.adminId, reason: '  ' })
       await expect(db.sql('update advisor_assignments set valid_to = now() where id = $1', [row.rows[0]!.id])).rejects.toMatchObject({
         constraint: 'advisor_assignments_ended_check',
       })
@@ -238,6 +232,16 @@ describe('約束反例', () => {
           s.adminId,
         ]),
       ).rejects.toMatchObject({ constraint: 'advisor_assignments_ended_check' })
+      await expect(
+        db.sql(`update advisor_assignments set valid_to = now(), ended_real_at = now(), end_reason = '解除' where id = $1`, [row.rows[0]!.id]),
+      ).rejects.toMatchObject({ constraint: 'advisor_assignments_ended_check' })
+      await expect(
+        db.sql(`update advisor_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, end_reason = null where id = $1`, [
+          row.rows[0]!.id,
+          s.adminId,
+        ]),
+      ).resolves.toMatchObject({ rowCount: 1 })
+      await expect(insertAdvisor(db, s, { source: 'csv', assignedBy: s.adminId })).resolves.toMatchObject({ rowCount: 1 })
     })
   })
 

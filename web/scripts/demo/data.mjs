@@ -101,6 +101,8 @@ export const GROUPS = [
     type: 'industry',
     advisor: null,
     industry: 'ind-02',
+    /** C3-01：學生選了合作案、負責老師（王雅玲）還沒確認指導——老師「待確認要帶的組」有東西看。 */
+    linkState: 'pending',
     established: '2026-08-09',
     members: members(320, ['方品瑄', '游承翰', '廖珮綺', '康柏融', '詹于萱']),
     tech: 'Laravel、MySQL',
@@ -163,17 +165,25 @@ export const GROUPS = [
   },
 ]
 
-/** 還沒分組的同學（原型 `UNGROUPED`）。 */
+/**
+ * 還沒分組的同學（原型 `UNGROUPED`）。`card` 是名片（C3-01，規格③ §4.1）：一句話自介 ≤ 50 字、技能 2～3 個，
+ * 四人合起來涵蓋預設清單（前端、後端、資料庫、資料分析、AI、UI 設計、簡報、企劃、Python、JavaScript、Figma）至少 6 種。
+ */
 export const UNGROUPED = [
-  { key: 'u-501', name: '應宥丞', studentNo: '411410411', openToJoin: true },
-  { key: 'u-502', name: '解雨萱', studentNo: '411410422', openToJoin: true },
-  { key: 'u-503', name: '鞠柏宇', studentNo: '411410433', openToJoin: false },
-  { key: 'u-504', name: '冷佳霓', studentNo: '411410444', openToJoin: true },
+  { key: 'u-501', name: '應宥丞', studentNo: '411410411', openToJoin: true, card: { bio: '做過兩個 Next.js 專案，想找會後端的夥伴。', skills: ['前端', 'JavaScript', '企劃'] } },
+  { key: 'u-502', name: '解雨萱', studentNo: '411410422', openToJoin: true, card: { bio: '喜歡整理資料、畫圖表，期末報告常負責簡報。', skills: ['資料分析', 'Python', '簡報'] } },
+  { key: 'u-503', name: '鞠柏宇', studentNo: '411410433', openToJoin: false, card: { bio: '後端與資料庫比較熟，寫過 Laravel。', skills: ['後端', '資料庫'] } },
+  { key: 'u-504', name: '冷佳霓', studentNo: '411410444', openToJoin: true, card: { bio: '設計系雙主修，會 Figma，也想學 AI 應用。', skills: ['UI 設計', 'Figma', 'AI'] } },
 ]
 
-/** 進行中的組別提案：應宥丞發起，兩人已確認、兩人還沒回覆（原型「還差 2 人確認」）。 */
+/**
+ * 進行中的組別提案：應宥丞發起，兩人已確認、兩人還沒回覆（原型「還差 2 人確認」）。
+ * C3-01：改成產學合作，選了示範合作案 ind-03（昱鋼精機，負責老師李孟儒）。
+ */
 export const PROPOSAL = {
   proposer: 'u-501',
+  type: 'industry',
+  industry: 'ind-03',
   created: '2026-08-16',
   confirmed: ['u-501', 'u-502'],
   pending: ['u-504', 'u-503'],
@@ -513,13 +523,18 @@ export const COLLECTIONS = [
   },
 ]
 
-/** 活動（原型 `CALENDAR_EVENTS` 的活動與競賽；截止日由收件項目自己帶出來）。 */
+/**
+ * 活動（原型 `CALENDAR_EVENTS` 的活動與競賽；截止日由收件項目自己帶出來）。
+ * C3-01：每筆都有結束——有時段的看 `to`；全天的看 `endDate`（不含當天，結束＝`endDate` 00:00，一天的就是次日）。
+ * 第 6 筆是跨三天的全天活動，對象是老師（補 `teachers` 的樣本）。
+ */
 export const EVENTS = [
   { key: 'c2', title: '114 學年度專題說明會', date: '2026-08-20', from: '13:10', to: '15:00', audience: 'public', description: '說明本學年度專題時程、分組方式與評分規則。' },
   { key: 'c4', title: '雲端服務實務工作坊', date: '2026-08-28', from: '09:00', to: '12:00', audience: 'cohort_students', description: '業界講師帶領半日實作，名額 40 人。' },
-  { key: 'c6', title: '全國大專資訊應用服務創新競賽報名截止', date: '2026-10-03', allDay: true, audience: 'public' },
+  { key: 'c6', title: '全國大專資訊應用服務創新競賽報名截止', date: '2026-10-03', endDate: '2026-10-04', allDay: true, audience: 'public' },
   { key: 'c8', title: '指導老師公開抽籤', date: '2026-09-25', from: '15:00', to: '16:00', audience: 'cohort_students', description: '每組至少派一員參加。' },
-  { key: 'c9', title: '智慧製造大數據分析競賽決賽', date: '2026-09-02', allDay: true, audience: 'public' },
+  { key: 'c9', title: '智慧製造大數據分析競賽決賽', date: '2026-09-02', endDate: '2026-09-03', allDay: true, audience: 'public' },
+  { key: 'c10', title: '成果展佈展', date: '2027-05-03', endDate: '2027-05-06', allDay: true, audience: 'teachers', description: '專題發表前三天佈置展場，請指導老師協助確認各組海報與展位。' },
 ]
 
 /**

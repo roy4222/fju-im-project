@@ -270,17 +270,17 @@ test('重派對話框：列出原老師（評一）在 G01 的評分指派，只
 test('老師工作台只看到自己的指派；101 標紅擋住；合法分數暫存後重新整理還在；管理員看到「未正式」、方案鎖定；評三開 G01 被拒', async ({ page }) => {
   await signIn(page, t1)
   await page.goto('/dashboard/teacher/grading')
-  const queue = page.getByRole('list', { name: '評分清單' })
+  const queue = page.getByRole('table', { name: '系統驗收評分清單' })
   await expect(queue).toContainText('G01')
   await expect(queue).not.toContainText('G02')
 
-  await queue.getByRole('link', { name: /G01/ }).click()
+  await queue.getByRole('link', { name: '批改：G01' }).click()
   const bench = page.getByRole('region', { name: 'G01「系統驗收」評分表' })
   await bench.getByLabel('1. 功能完整度').fill('101')
   await expect(bench).toContainText('第 1 項要填 0–100 的數字')
   await bench.getByRole('button', { name: '儲存草稿' }).click()
   await expect(bench.getByRole('alert')).toContainText('修正後才能儲存草稿')
-  await expect(bench.getByRole('button', { name: '正式送出' })).toBeDisabled()
+  await expect(bench.getByRole('button', { name: '送出', exact: true })).toBeDisabled()
 
   await bench.getByLabel('1. 功能完整度').fill('80')
   await expect(bench.getByTestId('score-preview')).toContainText('40.00')
@@ -312,8 +312,8 @@ test('正式送出：收件章回執；欄位仍可改、出現「重新送出�
   const bench = await openBench(page)
   await bench.getByLabel('2. 文件').fill('88.58')
   await expect(bench.getByTestId('score-preview')).toContainText('84.29')
-  await bench.getByRole('button', { name: '正式送出' }).click()
-  const confirm = page.getByRole('dialog', { name: '確認正式送出' })
+  await bench.getByRole('button', { name: '送出', exact: true }).click()
+  const confirm = page.getByRole('dialog', { name: '確認送出' })
   await expect(confirm).toContainText('84.29')
   await confirm.getByRole('button', { name: '確認送出' }).click()
   const receipt = page.getByRole('dialog', { name: '已送出' })
@@ -330,7 +330,7 @@ test('正式送出：收件章回執；欄位仍可改、出現「重新送出�
   await expect(sent.getByTestId('save-status')).toContainText('已正式送出（第 1 次）')
   await expect(sent.getByLabel('2. 文件')).toBeEnabled()
   await expect(sent.getByTestId('resubmit')).toBeVisible()
-  await expect(sent.getByRole('button', { name: '正式送出' })).toHaveCount(0)
+  await expect(sent.getByRole('button', { name: '送出', exact: true })).toHaveCount(0)
   // 「送出紀錄」是摺疊區：打開才看得到每一次送出。
   await sent.getByTestId('submit-history').getByText('送出紀錄（1 次）').click()
   await expect(sent.getByTestId('submit-history').getByRole('listitem')).toHaveCount(1)
@@ -404,7 +404,7 @@ test('AC-A-2：正式送出後只「儲存草稿」→ 出現「有尚未送出�
   expect(await evaluationStates()).toEqual({ counted: 1 })
 
   await page.goto('/dashboard/teacher/grading')
-  const card = page.getByRole('list', { name: '評分清單' }).getByTestId('grading-card').filter({ hasText: 'G01' })
+  const card = page.getByRole('table', { name: '系統驗收評分清單' }).getByTestId('grading-entry').filter({ hasText: 'G01' })
   await expect(card).toContainText('已送出')
   await expect(card.getByTestId('card-draft-after-final')).toHaveText('有未送出修改')
 
@@ -581,7 +581,7 @@ test('AC-A-6／Review #584 r1 反例①：系辦結算「系統驗收」後，�
   expect(await evaluationStates()).toEqual(storedStates)
 
   await page.goto('/dashboard/teacher/grading')
-  const card = page.getByRole('list', { name: '評分清單' }).getByTestId('grading-card').filter({ hasText: 'G01' })
+  const card = page.getByRole('table', { name: '系統驗收評分清單' }).getByTestId('grading-entry').filter({ hasText: 'G01' })
   await expect(card.getByTestId('card-settled')).toHaveText('已結算')
 })
 
@@ -1441,25 +1441,27 @@ async function seedG01Attachments(filesRoot: string): Promise<Record<keyof typeo
 /** 附件列按鈕／連結的無障礙名稱（圖示與 sr-only 檔名之間會多一個空白）。 */
 const fileAction = (word: string, file: string) => new RegExp(`^${word}\\s*：${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
 
-test('A-07 AC-A-16／AC-TE-11B（顯示段）：PDF「在頁內檢視」→ 頁內 iframe 指向 /preview、沒有 sandbox，回應 200＋inline＋SAMEORIGIN；PNG 嵌入有 sandbox 且顯示成圖片；SVG 只說請下載、不嵌入；docx 只有下載', async ({ page }) => {
+test('A-07 AC-A-16／AC-TE-11B（顯示段；C1-12 改成三欄）：左欄點 PDF → 中欄 iframe 指向 /preview、沒有 sandbox，回應 200＋inline＋SAMEORIGIN；PNG 嵌入有 sandbox 且顯示成圖片；SVG、docx 只說請下載、不嵌入', async ({ page }) => {
   const filesRoot = process.env.FILES_ROOT
   test.skip(!filesRoot, '要把檔案本體寫進 app 的 FILES_ROOT（verify 與 CI 都會設）')
   const ids = await seedG01Attachments(filesRoot!)
   await signIn(page, t1)
-  await openBench(page)
-  const list = page.getByRole('list', { name: `${CODE} 期末報告的附件` })
-  const row = (name: string) => list.getByTestId('attachment').filter({ hasText: name })
-  const pdfRow = row(PREVIEW_FILES.pdf.name)
-  await expect(pdfRow).toHaveAttribute('data-hydrated', '')
-  // 舊的「在新分頁開啟 PDF」改成頁內檢視；下載一直都在。
-  await expect(page.getByText('在新分頁開啟 PDF')).toHaveCount(0)
-  await expect(pdfRow.getByRole('link', { name: fileAction('下載', PREVIEW_FILES.pdf.name) })).toHaveAttribute('href', `/api/files/${ids.pdf}`)
-
-  // PDF：按下才嵌入；iframe 指向預覽端點、不加 sandbox（Chromium 在 sandbox 屬性下顯示不了 PDF）。
-  await expect(pdfRow.locator('iframe')).toHaveCount(0)
+  // 中欄一開頁就預覽第一個能嵌入的檔案；先掛好 PDF 預覽的回應等待（不管它是預設的、還是點了才載入）。
   const pdfLoaded = page.waitForResponse((r) => r.url().endsWith(`/api/files/${ids.pdf}/preview`))
-  await pdfRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.pdf.name) }).click()
-  const pdfFrame = pdfRow.getByTestId('preview-pane').locator('iframe')
+  await openBench(page)
+  const picker = page.getByTestId('submission-picker')
+  await expect(picker).toHaveAttribute('data-hydrated', '')
+  await expect(picker).toContainText(`${CODE} 期末報告`)
+  await expect(picker.getByLabel('繳交版本')).toHaveValue('1')
+  const list = picker.getByRole('list', { name: '檔案' })
+  const row = (name: string) => list.getByTestId('attachment').filter({ hasText: name })
+  const pane = page.getByRole('region', { name: '文件預覽' })
+  await expect(row(PREVIEW_FILES.pdf.name).getByRole('link', { name: fileAction('下載', PREVIEW_FILES.pdf.name) })).toHaveAttribute('href', `/api/files/${ids.pdf}`)
+
+  // PDF：中欄 iframe 指向預覽端點、不加 sandbox（Chromium 在 sandbox 屬性下顯示不了 PDF）。
+  await row(PREVIEW_FILES.pdf.name).getByRole('button', { name: PREVIEW_FILES.pdf.name }).click()
+  await expect(row(PREVIEW_FILES.pdf.name).getByRole('button', { name: PREVIEW_FILES.pdf.name })).toHaveAttribute('aria-pressed', 'true')
+  const pdfFrame = pane.locator('iframe')
   await expect(pdfFrame).toHaveAttribute('src', `/api/files/${ids.pdf}/preview`)
   await expect(pdfFrame).toHaveAttribute('title', PREVIEW_FILES.pdf.name)
   expect(await pdfFrame.getAttribute('sandbox')).toBeNull()
@@ -1469,15 +1471,12 @@ test('A-07 AC-A-16／AC-TE-11B（顯示段）：PDF「在頁內檢視」→ 頁�
   expect(pdf.headers()['content-disposition']).toMatch(/^inline/)
   expect(pdf.headers()['x-frame-options']).toBe('SAMEORIGIN')
   expect(pdf.headers()['content-security-policy']).toContain("frame-ancestors 'self'")
-  // 收起：iframe 拿掉。
-  await pdfRow.getByRole('button', { name: fileAction('收起檢視', PREVIEW_FILES.pdf.name) }).click()
-  await expect(pdfRow.getByTestId('preview-pane')).toHaveCount(0)
 
   // PNG：嵌入時加 sandbox（全部限制），照樣顯示成圖片（4×3）。
-  const pngRow = row(PREVIEW_FILES.png.name)
   const pngLoaded = page.waitForResponse((r) => r.url().endsWith(`/api/files/${ids.png}/preview`))
-  await pngRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.png.name) }).click()
-  const pngFrame = pngRow.getByTestId('preview-pane').locator('iframe')
+  await row(PREVIEW_FILES.png.name).getByRole('button', { name: PREVIEW_FILES.png.name }).click()
+  const pngFrame = pane.locator('iframe')
+  await expect(pngFrame).toHaveAttribute('src', `/api/files/${ids.png}/preview`)
   await expect(pngFrame).toHaveAttribute('sandbox', '')
   const png = await pngLoaded
   expect(png.status()).toBe(200)
@@ -1490,24 +1489,25 @@ test('A-07 AC-A-16／AC-TE-11B（顯示段）：PDF「在頁內檢視」→ 頁�
     })
     .toBe(4)
 
-  // SVG：是圖片但不在預覽白名單（預覽端點會 302 導下載）→ 窗格只說請下載，不嵌入、不打預覽端點。
+  // SVG：是圖片但不在預覽白名單（預覽端點會 302 導下載）→ 中欄只說請下載，不嵌入、不打預覽端點。
   const svgRequests: string[] = []
   page.on('request', (r) => {
     if (r.url().includes(`/api/files/${ids.svg}`)) svgRequests.push(r.url())
   })
-  const svgRow = row(PREVIEW_FILES.svg.name)
-  await svgRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.svg.name) }).click()
-  await expect(svgRow.getByTestId('preview-pane')).toContainText('這種檔案不能在頁內檢視，請下載')
-  await expect(svgRow.getByTestId('preview-pane').locator('iframe')).toHaveCount(0)
+  await row(PREVIEW_FILES.svg.name).getByRole('button', { name: PREVIEW_FILES.svg.name }).click()
+  await expect(pane).toContainText('這種檔案不能在頁內檢視，請下載')
+  await expect(pane.locator('iframe')).toHaveCount(0)
   expect(svgRequests).toEqual([])
 
-  // docx：只有下載。
-  const docxRow = row(PREVIEW_FILES.docx.name)
-  await expect(docxRow.getByRole('button')).toHaveCount(0)
-  await expect(docxRow.getByRole('link', { name: fileAction('下載', PREVIEW_FILES.docx.name) })).toHaveAttribute('href', `/api/files/${ids.docx}`)
+  // docx：也只說請下載；左欄有下載連結。
+  await row(PREVIEW_FILES.docx.name).getByRole('button', { name: PREVIEW_FILES.docx.name }).click()
+  await expect(pane.getByTestId('preview-pane')).toContainText(PREVIEW_FILES.docx.name)
+  await expect(pane).toContainText('這種檔案不能在頁內檢視，請下載')
+  await expect(pane.locator('iframe')).toHaveCount(0)
+  await expect(row(PREVIEW_FILES.docx.name).getByRole('link', { name: fileAction('下載', PREVIEW_FILES.docx.name) })).toHaveAttribute('href', `/api/files/${ids.docx}`)
 
   // PDF 實際顯示是人工驗收（預設的 headless shell 沒有 PDF 檢視器）：設 A07_SCREENSHOT_DIR 時另開完整版 Chromium
-  //（`channel: 'chromium'`，有內建 PDF 檢視器）以 T1 打開同一個窗格，截一張證據圖。
+  //（`channel: 'chromium'`，有內建 PDF 檢視器）以 T1 打開同一頁、點 PDF，截一張證據圖。
   const shotDir = process.env.A07_SCREENSHOT_DIR
   if (shotDir) {
     const browser = await chromium.launch({ channel: 'chromium' })
@@ -1516,12 +1516,11 @@ test('A-07 AC-A-16／AC-TE-11B（顯示段）：PDF「在頁內檢視」→ 頁�
       await desktop.addCookies([toPlaywrightCookie(t1.cookie, BASE_URL)])
       const shot = await desktop.newPage()
       await openBench(shot)
-      const shotRow = shot.getByRole('list', { name: `${CODE} 期末報告的附件` }).getByTestId('attachment').filter({ hasText: PREVIEW_FILES.pdf.name })
-      await expect(shotRow).toHaveAttribute('data-hydrated', '')
-      await shotRow.getByRole('button', { name: fileAction('在頁內檢視', PREVIEW_FILES.pdf.name) }).click()
+      const shotPicker = shot.getByTestId('submission-picker')
+      await expect(shotPicker).toHaveAttribute('data-hydrated', '')
+      await shotPicker.getByRole('button', { name: PREVIEW_FILES.pdf.name }).click()
       await expect.poll(() => shot.frames().some((f) => f.url().startsWith('chrome-extension://'))).toBe(true)
       await shot.waitForTimeout(2_000)
-      await shotRow.getByTestId('preview-pane').scrollIntoViewIfNeeded()
       await shot.screenshot({ path: path.join(shotDir, 'a07-grading-inline-pdf.png') })
     } finally {
       await browser.close()

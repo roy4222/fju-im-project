@@ -1019,6 +1019,27 @@ describe('showcase_entries 補欄（第三波 W0）', () => {
   })
 })
 
+describe('名片欄與產學確認欄（③-1，C3-01）', () => {
+  it('fju_app 真的改得動 user_profiles 的 bio／skills 與 opportunity_links.state（逐欄驗只用 where false，這裡實際改一列）', async () => {
+    const profile = SAMPLES.user_profiles!.insert()
+    await app.query(profile.sql, profile.values as never[])
+    const card = await app.query(
+      `update user_profiles set bio = $2, skills = $3::jsonb where contact_email = $1 returning bio, skills`,
+      [profile.values[0], '做過三個 Next.js 專案', JSON.stringify(['前端', '資料庫', 'Figma'])],
+    )
+    expect(card.rows).toEqual([{ bio: '做過三個 Next.js 專案', skills: ['前端', '資料庫', 'Figma'] }])
+
+    const link = SAMPLES.opportunity_links!.insert()
+    await app.query(link.sql, link.values as never[])
+    const confirmed = await app.query(
+      `update opportunity_links set state = 'pending'
+        where group_id = (select id from groups where code = $1) returning state`,
+      [link.values[1]],
+    )
+    expect(confirmed.rows).toEqual([{ state: 'pending' }])
+  })
+})
+
 describe('fju_app 的整體限制', () => {
   it('不能 SET ROLE fju_owner', async () => {
     expect(await expectDenied(app, 'set role fju_owner')).toMatch(/permission denied|is not a member/i)
