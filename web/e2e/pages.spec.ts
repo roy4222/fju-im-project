@@ -428,8 +428,6 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
     // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
-    // 首頁設定（第三波 W3）。
-    { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
     // C 階段規格② 的新分頁（C2-01）；結算之前漏列，一起補。舊設定入口頁 `/settings` 移到 admin-redirects.spec。

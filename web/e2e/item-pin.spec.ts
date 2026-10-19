@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createItemInDialog, createItemOnPage, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -96,27 +97,28 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-/** 用完整編輯器發布一則公告（預設公開）；競賽資訊另外填報名截止日與活動日。 */
+/** 用全頁共用表單（C1-06）發布一則公告（預設公開）；競賽資訊（進階設定）另外填報名截止日與活動日。 */
 async function publishNews(
   page: Page,
   title: string,
   options: { audience?: 'public' | 'cohort_students'; competition?: { deadline: string; event: string } } = {},
 ): Promise<string> {
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.locator('#ed-title').fill(title)
+  const form = await formReady(page)
+  await form.locator('#ed-title').fill(title)
   await page.locator('#ed-body').fill('置頂測試用的公告。')
-  await page.getByLabel('誰看得到').selectOption(options.audience ?? 'public')
+  await form.getByLabel('誰看得到').selectOption(options.audience ?? 'public')
   if (options.competition) {
-    await page.getByTestId('category-competition').click()
-    await page.getByLabel(/報名截止日/).fill(options.competition.deadline)
-    await page.getByLabel(/活動日/).fill(options.competition.event)
+    await openAdvanced(form)
+    await form.getByTestId('category-competition').click()
+    await form.getByLabel(/報名截止日/).fill(options.competition.deadline)
+    await form.getByLabel(/活動日/).fill(options.competition.event)
   }
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('已發布')
-  return (await itemByTitle(title)).id
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  const item = await itemByTitle(title)
+  expect(item.status).toBe('published')
+  return item.id
 }
 
 function affairRow(page: Page, title: string): Locator {
@@ -156,23 +158,12 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   await pool.query(`update managed_items set actual_opened_at = actual_opened_at - interval '3 days' where title = $1`, [A])
   await publishNews(page, B)
 
-  // 草稿 C：完整編輯器存草稿。
-  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.locator('#ed-title').fill(C)
-  await page.getByRole('button', { name: '存草稿' }).click()
-  await expect(page.getByRole('status')).toContainText('已存成草稿')
+  // 草稿 C：全頁共用表單「儲存（先不發布）」。
+  await createItemOnPage(page, cohortId, { title: C, publish: false })
 
-  // 發布中的榮譽 H：三步驟對話框選「榮譽／競賽」。
+  // 發布中的榮譽 H：清單「新增公告」選「榮譽／競賽」（C1-06 共用表單）。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /榮譽／競賽/ }).check()
-  await dialog.getByLabel('標題').fill(H)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('恭喜。')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${H}」已發布`)
+  await createItemInDialog(page, { kind: /榮譽／競賽/, title: H, body: '恭喜。' })
 
   const before = await itemByTitle(A)
   const versions = await count('select count(*) as n from item_versions where item_id = $1', [before.id])
@@ -362,12 +353,13 @@ test('AC-V09：編輯器開著 B 的時候在另一分頁置頂，回來改摘�
   await togglePin(other, B, true)
   await other.close()
 
+  const form = await formReady(page)
+  await openAdvanced(form)
   await page.locator('#ed-summary').fill('置頂之後改的摘要')
-  await page.getByRole('button', { name: '發布更新' }).click()
-  const update = page.getByRole('dialog', { name: '發布更新前檢查' })
-  await update.getByRole('checkbox', { name: /通知對象這次的修改/ }).uncheck()
-  await update.getByRole('button', { name: '確認更新' }).click()
-  await expect(update.getByRole('status')).toContainText('沒有發通知')
+  await form.getByRole('checkbox', { name: /通知對象這次的修改/ }).uncheck()
+  await form.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  expect(await count(`select count(*) as n from domain_events where type = 'item.updated' and source_id = $1`, [b.id])).toBe(0)
   const after = await pool.query<{ summary: string; pinned_at: Date | null }>('select summary, pinned_at from managed_items where id = $1', [b.id])
   expect(after.rows[0]!.summary).toBe('置頂之後改的摘要')
   expect(after.rows[0]!.pinned_at).not.toBeNull()

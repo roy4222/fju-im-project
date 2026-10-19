@@ -1,6 +1,6 @@
 import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { fillItemBody } from './item-body'
+import { createItemOnPage } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole, type TestSession } from './session'
 
 /**
@@ -187,23 +187,16 @@ test.afterAll(async () => {
 test('系辦發一份 G01 要交的「期中報告」（9 天後截止）', async ({ page }) => {
   test.setTimeout(120_000)
   await signInAs(page, 'admin')
-  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
-  await fillItemBody(page, '請上傳期中報告 PDF。')
-  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
-  await page.getByRole('radio', { name: '整組一份', exact: true }).check()
-  await page.getByLabel('誰看得到').selectOption('groups')
-  await page.getByRole('checkbox', { name: /G01/ }).check()
-  await page.getByLabel('所屬階段').selectOption({ index: 1 })
-  await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(at(DUE_DAY)))
-  await page.getByLabel('要新增的欄位類型').selectOption('file')
-  await page.getByRole('button', { name: '新增欄位' }).click()
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
-  itemId = String((await pool.query<{ id: string }>('select id from managed_items where title = $1', [SUBMISSION])).rows[0]!.id)
+  // C1-06 共用表單：沒有所屬階段；預設已有一個檔案欄。
+  itemId = await createItemOnPage(page, cohortId, {
+    placement: 'submission',
+    title: SUBMISSION,
+    body: '請上傳期中報告 PDF。',
+    unit: '整組一份',
+    audience: 'groups',
+    groups: ['G01'],
+    dueAt: localMinute(at(DUE_DAY)),
+  })
 })
 
 test('AC-ST-20 學生：前台外殼、屆別、階段軌、整月行事曆（活動／已取消／截止，只給老師的不出現）', async ({ page }) => {

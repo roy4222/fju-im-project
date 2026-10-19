@@ -89,6 +89,8 @@ const OLD_URLS = [
   // C2-07（AC-C2-08）：帳號列表的舊狀態篩選轉到「待審核」「已停用」分頁。
   { from: `/dashboard/admin/accounts?status=pending&q=${encodeURIComponent('王')}`, to: `/dashboard/admin/accounts/pending?q=${encodeURIComponent('王')}` },
   { from: '/dashboard/admin/accounts?status=disabled', to: '/dashboard/admin/accounts/disabled' },
+  // C2-17（AC-C2-04）：首頁設定搬到前台編輯模式，舊網址回前台首頁。
+  { from: '/dashboard/admin/home-settings', to: '/' },
 ] as const
 
 for (const { from, to } of OLD_URLS) {

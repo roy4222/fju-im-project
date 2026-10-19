@@ -1,7 +1,14 @@
 'use server'
 import { cookies, headers } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { clientIpFrom, EMAIL_VERIFY_PATH, getRegistrationCommand, homeForUser, resolveActor } from '@/composition/accounts'
+import { redirect, RedirectType } from 'next/navigation'
+import {
+  clientIpFrom,
+  EMAIL_VERIFY_PATH,
+  getRegistrationCommand,
+  getSelfAccountCommand,
+  homeForUser,
+  resolveActor,
+} from '@/composition/accounts'
 import {
   authCallHeaders,
   completeSignupResume,
@@ -29,13 +36,29 @@ import { isCompleteOtp } from '../_components/signup-checks'
  * 驗證碼錯、限速等訊息都由 hook 給（同一句，不透露帳號狀態）。
  */
 
-/** 本人的登入 Email（一般模式）；不是「還沒驗證、還沒送申請」的人回 null。 */
-async function pendingVerificationEmail(incoming: Headers): Promise<string | null> {
+/** 第 3 步；已驗證的錯誤行旁邊給這個連結（已送件、已開通的人由 page 再導到該去的地方）。 */
+const NEXT_STEP_HREF = '/register/apply'
+const ALREADY_VERIFIED = '這個 Email 已經驗證，請到第 3 步。'
+
+/**
+ * 這個瀏覽器的人在第 2 步是什麼處境（C ⑤-01；設計方案⑤ §1.2）。判斷順序固定「本人 session → 已驗證」：
+ * - `anonymous`：沒有本人有效 session——**絕不能說「已驗證」**，照舊導回驗證頁（由 page 導去登入）。
+ * - `pending`：還沒驗證、還沒送申請的本人，帶登入 Email。
+ * - `verified`：本人、`users.email_verified` 當下為真（另一個分頁先填了碼）。
+ * - `other`：其餘（例如有角色但沒驗證的舊帳號）——照舊導回驗證頁，由 page 導到該去的地方。
+ * `homeForUser` 的目的地只用來認出 `pending`，不能拿來推定已驗證（有角色的人先回 dashboard，Email 卻可能沒驗證）。
+ */
+type VerifyStanding = { kind: 'anonymous' } | { kind: 'pending'; email: string } | { kind: 'verified' } | { kind: 'other' }
+
+async function verifyStanding(incoming: Headers): Promise<VerifyStanding> {
   const actor = await resolveActor(incoming)
-  if (actor.kind !== 'authenticated') return null
-  if ((await homeForUser(actor.userId)) !== EMAIL_VERIFY_PATH) return null
-  const mine = await getRegistrationCommand().viewMine(actor)
-  return mine.ok ? mine.receipt.loginEmail : null
+  if (actor.kind !== 'authenticated') return { kind: 'anonymous' }
+  if ((await homeForUser(actor.userId)) === EMAIL_VERIFY_PATH) {
+    const mine = await getRegistrationCommand().viewMine(actor)
+    return mine.ok ? { kind: 'pending', email: mine.receipt.loginEmail } : { kind: 'other' }
+  }
+  const me = await getSelfAccountCommand().viewMine(incoming)
+  return me?.userId === actor.userId && me.emailVerified ? { kind: 'verified' } : { kind: 'other' }
 }
 
 export async function verifyOtpAction(state: VerifyFormState, formData: FormData): Promise<VerifyFormState> {
@@ -49,36 +72,51 @@ export async function verifyOtpAction(state: VerifyFormState, formData: FormData
 
   if (field(formData, 'mode', 10) === 'resume') {
     const resume = decodeResume(jar.get(RESUME_COOKIE)?.value)
-    if (!resume) return { error: '這次續辦已經失效（逾時或有更新的驗證信），請回第 1 步重新填一次。', attempt }
+    if (!resume) {
+      // 票不在：另一個分頁剛完成續辦（刪了票、發了本人 session、Email 已驗證）才說「可能已經驗證完成」；
+      // 沒有本人 session 或還沒驗證（真正逾時、cookie 被清、換了瀏覽器）照舊回第 1 步。
+      if ((await verifyStanding(incoming)).kind === 'verified') {
+        return {
+          error: '這個驗證碼已經用過或換過新的；如果你在另一個分頁已經驗證完成，請直接到第 3 步。',
+          nextHref: NEXT_STEP_HREF,
+          attempt,
+        }
+      }
+      return { error: '這次續辦已經失效（逾時或有更新的驗證信），請回第 1 步重新填一次。', attempt }
+    }
     try {
       await completeSignupResume({ email: resume.email, otp, ticket: resume.ticket }, callHeaders)
     } catch (error) {
       return { error: authErrorMessage(error, '驗證暫時無法完成，請稍後再試。').message, attempt }
     }
     jar.delete({ name: RESUME_COOKIE, path: '/register' })
-    redirect('/register/apply')
+    // replace：按上一頁不會回到還開著表單的驗證頁（設計方案⑤ §1.2 V4-b）。
+    redirect(NEXT_STEP_HREF, RedirectType.replace)
   }
 
-  const email = await pendingVerificationEmail(incoming)
-  // 已經驗證過（例如另一個分頁先填了）或沒登入：照自己的狀態走。
-  if (!email) redirect('/register/verify')
+  const standing = await verifyStanding(incoming)
+  // 另一個分頁先填了碼：明講，不靜默轉走（剛送的碼沒有被接受，是錯誤行不是成功）。
+  if (standing.kind === 'verified') return { error: ALREADY_VERIFIED, nextHref: NEXT_STEP_HREF, attempt }
+  // 沒登入或其他狀態：照自己的狀態走。
+  if (standing.kind !== 'pending') redirect('/register/verify')
   try {
-    await verifyEmailWithOtp({ email, otp }, callHeaders)
+    await verifyEmailWithOtp({ email: standing.email, otp }, callHeaders)
   } catch (error) {
     return { error: authErrorMessage(error, '驗證暫時無法完成，請稍後再試。').message, attempt }
   }
-  redirect('/register/apply')
+  redirect(NEXT_STEP_HREF, RedirectType.replace)
 }
 
 /** 重寄驗證碼：每次都要一個新的 Turnstile token；120 秒冷卻與寄送上限在伺服器 hook。 */
 export async function resendOtpAction(state: ResendFormState, formData: FormData): Promise<ResendFormState> {
   const attempt = (state?.attempt ?? 0) + 1
   const incoming = await headers()
-  const email = await pendingVerificationEmail(incoming)
-  if (!email) redirect('/register/verify')
+  const standing = await verifyStanding(incoming)
+  if (standing.kind === 'verified') return { error: ALREADY_VERIFIED, nextHref: NEXT_STEP_HREF, attempt }
+  if (standing.kind !== 'pending') redirect('/register/verify')
   try {
     await resendVerificationOtp(
-      { email },
+      { email: standing.email },
       authCallHeaders({ ip: clientIpFrom(incoming), turnstileToken: field(formData, 'cf-turnstile-response', 4096) }),
     )
   } catch (error) {
