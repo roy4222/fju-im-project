@@ -113,6 +113,8 @@ export function SubmissionForm({
   const latest = useRef(initialAnswers)
   // 草稿版本號同理（上傳自動存完、馬上按繳交）；只拿來送，畫面不顯示。
   const revisionRef = useRef(initialRevision)
+  // 已經存好、正在送出的那一版草稿：送出的回應斷在路上時，「再送一次」只重送這一步（同一個請求編號配同一版），不再重存。
+  const pending = useRef<number | null>(null)
 
   const readOnly = conflict !== null
 
@@ -124,6 +126,7 @@ export function SubmissionForm({
     setBadFields((f) => f.filter((k) => k !== key))
     // 內容變了就是新的一次儲存／送出，換新的請求編號（舊編號配新內容會被當成 REQUEST_MISMATCH）。
     requestIds.current = { save: newRequestId(), submit: newRequestId() }
+    pending.current = null
     setUnknown(false)
   }
 
@@ -175,6 +178,7 @@ export function SubmissionForm({
 
   async function sendSubmit(draftRevision: number) {
     const result = await submitAction(itemId, draftRevision, requestIds.current.submit)
+    pending.current = null
     if (!result.ok) {
       requestIds.current.submit = newRequestId()
       if (result.code === 'CONFLICT') setConflict(result.message)
@@ -197,9 +201,13 @@ export function SubmissionForm({
     setMessage(null)
     setBadFields([])
     try {
-      // 一律先存畫面上的內容：送出的就是學生眼前這一份。內容沒變時同一個請求編號重存只拿回原結果。
-      const draftRevision = await save()
-      if (draftRevision === null) return
+      // 一律先存畫面上的內容：送出的就是學生眼前這一份。存的回應斷掉時重按，同一個請求編號重存只拿回原結果。
+      let draftRevision = pending.current
+      if (draftRevision === null) {
+        draftRevision = await save()
+        if (draftRevision === null) return
+        pending.current = draftRevision
+      }
       await sendSubmit(draftRevision)
     } catch {
       setUnknown(true)

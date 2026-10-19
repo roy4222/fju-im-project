@@ -189,8 +189,8 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
 
 test('組長：五個必填任一欄留空送出都被拒並指出是哪一欄；填妥五欄、兩個選填留空可以送出', async ({ page }) => {
   await signIn(page, leader)
-  await page.goto(`/dashboard/student/affairs/${itemId}`)
-  const submit = page.getByRole('button', { name: '代表全組正式送出' })
+  await page.goto(`/dashboard/student/affairs/${itemId}?tab=history&write=1`)
+  const submit = page.getByRole('button', { name: '繳交作業' })
 
   for (const blank of REQUIRED) {
     for (const label of REQUIRED) await answerBox(page, label).fill(label === blank ? '' : ANSWER[label])

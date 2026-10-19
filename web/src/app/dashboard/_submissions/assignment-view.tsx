@@ -206,7 +206,7 @@ export async function AssignmentView({
                     {group ? <GroupBar group={group} /> : null}
                     {item.advisorCanView ? (
                       <p className="mb-3 rounded-lg bg-muted px-4 py-2.5 text-sm text-ink" data-testid="advisor-notice">
-                        你的指導老師可以查看這一項<strong>繳交後</strong>的回答（還沒繳交的不會給老師看）。
+                        你的指導老師可以查看這一項<strong>正式送出</strong>的回答（還沒繳交的不會給老師看）。
                       </p>
                     ) : null}
                     <WriteForm item={item} base={base} historyHref={historyHref} />
