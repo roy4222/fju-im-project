@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import { requestHeroUploadAction, saveHeroAction, saveSiteTextAction } from './forms/actions'
 import { provideFeActions } from './forms/registry'
+import { ITEM_FORM_DEPS, provideItemFormDeps } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
 
 /**
  * 前台編輯的表單登錄表（C2-16 建檔並定型別；規格② 設計方案 §6.3.1 是定版）。
@@ -47,17 +48,18 @@ export interface FeFormModule {
  * 「每頁都載」的共用 chunk 拆出來，所有路由的 gzip 都變大（AC-C2-44 步驟 7）。理由全文見 `forms/registry.ts`。
  */
 provideFeActions({ saveSiteText: saveSiteTextAction, saveHero: saveHeroAction, requestHeroUpload: requestHeroUploadAction })
+provideItemFormDeps(ITEM_FORM_DEPS) // ①（C1-06）：同理把 Server Function 與 SubmissionFields 登錄給①的延遲表單（item-form-model.ts 的 itemFormDeps）
 
 /** 「尚未提供」佔位：框架認得它，不載入任何東西，直接告訴系辦這個區塊還不能在前台改。 */
 export const notProvided = (): Promise<FeFormModule> => Promise.reject(new Error('這個區塊還不能在前台改'))
 
 export const FE_FORMS: Record<FeKind, () => Promise<FeFormModule>> = {
   // ①（C1-06／C1-07／C1-09 登錄）
-  news: notProvided,
-  submission: notProvided,
-  rules: notProvided,
-  resource: notProvided,
-  honor: notProvided,
+  news: () => import('@/app/dashboard/admin/affairs/front-edit/news'),
+  submission: () => import('@/app/dashboard/admin/affairs/front-edit/submission'),
+  rules: () => import('@/app/dashboard/admin/affairs/front-edit/rules'),
+  resource: () => import('@/app/dashboard/admin/affairs/front-edit/resource'),
+  honor: () => import('@/app/dashboard/admin/affairs/front-edit/honor'),
   showcase: notProvided,
   resource_category: notProvided,
   // ③（C3-08、C3-10 登錄）

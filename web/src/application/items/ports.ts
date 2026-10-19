@@ -267,7 +267,11 @@ export type ItemDetail = {
   readonly publications: readonly {
     readonly action: string
     readonly notify: boolean
+    readonly actorUserId: string
     readonly actorName: string
+    /** 操作者頭像兩欄（`user_profiles`；沒有 profile 是 null，畫面依帳號 hash 固定一張預設圖）。 */
+    readonly actorAvatarPreset: number | null
+    readonly actorAvatarFileId: string | null
     readonly realAt: Date
   }[]
 }

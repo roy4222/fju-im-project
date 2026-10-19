@@ -1,16 +1,14 @@
 'use client'
 import { useState } from 'react'
-import { startItemUploadAction } from './actions'
-import { formatSize, notifyPreviewText, type EditorState, type EditorVocabulary, type FileChip, type NotifyWhen } from './item-form-model'
-import { IconAlertCircle, IconArrowDown, IconArrowUp, IconCheck, IconFileUpload, IconPaperclip, IconPhoto, IconX } from '@tabler/icons-react'
-import type { ItemReview, PublishCheck, RecipientPreview } from '@/application/items'
-import { BTN_ICON, BTN_OUTLINE, BTN_PRIMARY, DIALOG as KIT_DIALOG } from '@/app/_ui/dashboard-kit'
-import { cn } from '@/shared/cn'
+import { formatSize, itemFormDeps, notifyPreviewText, type FileChip, type NotifyWhen } from './item-form-model'
+import { createReactComponent, IconPhoto } from '@tabler/icons-react'
+import type { RecipientPreview } from '@/application/items'
 
 /** 欄位與上傳上限都用整數 MiB 設定；顯示時換成位元組交給共用的 `formatSize`（KB／MB）。 */
 const MIB = 1024 * 1024
 
 export {
+  broadAudience,
   fieldFromSchema,
   formatSize,
   newField,
@@ -25,21 +23,56 @@ export {
 } from './item-form-model'
 
 /**
- * 快速建立（三步驟）與完整編輯器共用的零件（票 15）：編輯器狀態的形狀、轉成送給伺服器的內容、
- * 附件上傳、發布前檢查清單、實際名單預覽（可展開）、學生看到的樣子。
+ * 共用表單 `ItemForm`（C 階段規格① §2；`_form/*`）的零件：樣式、檔案上傳、封面、實際名單預覽（可展開）、正文預覽。
  *
- * 規則不在這裡判：檢查清單與名單都是伺服器 `reviewItemAction` 回來的，這裡只負責畫出來。
+ * 規則不在這裡判：名單與淨化後的正文都是伺服器 `reviewItemAction` 回來的，這裡只負責畫出來。
  */
 
 // ── 樣式 ────────────────────────────────────────────────────────────────────
 
 // 外觀照原型（票 35）：系網橘實心／白底細框按鈕、圓角 8px 的輸入框、原型 DialogContent 的對話框。
-export const PRIMARY = BTN_PRIMARY
-export const SECONDARY = BTN_OUTLINE
-/** 輸入框與多行輸入共用（不定高度，多行的 rows 才有效）。 */
-export const INPUT =
-  'mt-1.5 min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal outline-none ' +
+//
+// 這裡和 `_form/*` 刻意**不 import `dashboard-kit`、`@/shared/cn`、首頁也用到的 tabler 圖示與 `AvatarImg`**：表單本體是按需載入的
+// async chunk（`_form/item-form-dialog.tsx`），只要它靜態碰到「每頁首載都有」的模組，Turbopack 就把那幾個模組從共用 chunk
+// 拆成另一塊，所有路由的 gzip 都變大（C1-06 實測 `$shared` +1.0 KB；同 `tiptap-editor.tsx` 的 `cx`、C2-17 `forms/registry.ts`）。
+// 所以樣式寫成字面字串（下列字串＝`dashboard-kit` 對應常數經 tailwind-merge 之後的結果），合併 class 用不做衝突處理的 `cx`，
+// 要蓋掉的地方直接各寫一份（`PRIMARY_LG`、`DANGER_OUTLINE`…），不靠合併。
+
+/** 串 class（不做 tailwind-merge）：條件式 class 不能和前面的同性質工具類互相蓋，要蓋的用三元式二選一。 */
+export function cx(...parts: (string | false | null | undefined)[]): string {
+  return parts.filter(Boolean).join(' ')
+}
+
+const PRIMARY_SHAPE = 'btn-fju press shrink-0 whitespace-nowrap rounded-lg text-sm disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+/** `dashboard-kit` 的 `BTN_PRIMARY`。 */
+export const PRIMARY = `${PRIMARY_SHAPE} h-9 px-4`
+/** 表單底部的主要鈕（高一號）。 */
+export const PRIMARY_LG = `${PRIMARY_SHAPE} h-10 px-5`
+const OUTLINE_SHAPE =
+  'group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none ' +
+  'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 ' +
+  'aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 ' +
+  "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-background aria-expanded:bg-muted aria-expanded:text-foreground " +
+  'dark:border-input dark:bg-input/30 dark:hover:bg-input/50 gap-1.5 pointer-coarse:min-h-11 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 ' +
+  'press rounded-lg px-3 font-semibold'
+/** `dashboard-kit` 的 `BTN_OUTLINE`（白底細框）。 */
+export const SECONDARY = `${OUTLINE_SHAPE} h-9 border-border hover:bg-muted hover:text-foreground`
+/** 矮一號的白底細框（正文工具列的「插入連結」）。 */
+export const SECONDARY_SM = `${OUTLINE_SHAPE} h-8 border-border hover:bg-muted hover:text-foreground`
+/** 紅框的危險鈕（全頁的「刪除」）。 */
+export const DANGER_OUTLINE = `${OUTLINE_SHAPE} h-9 border-destructive/50 text-destructive hover:bg-destructive-subtle hover:text-destructive-on-subtle`
+const ICON_SHAPE = 'inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors disabled:opacity-30 [&_svg]:size-4'
+/** `dashboard-kit` 的 `BTN_ICON`（上移、下移）。 */
+export const ICON_BUTTON = `${ICON_SHAPE} hover:bg-muted hover:text-foreground`
+/** 刪除用的圖示小鈕。 */
+export const ICON_DANGER = `${ICON_SHAPE} hover:bg-destructive-subtle hover:text-destructive`
+const INPUT_SHAPE =
+  'w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none ' +
   'transition-[border-color,box-shadow] focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/25 disabled:opacity-60'
+/** 輸入框與多行輸入共用（不定高度，多行的 rows 才有效）。 */
+export const INPUT = `mt-1.5 min-h-10 py-2 ${INPUT_SHAPE}`
+/** 正文工具列裡的矮輸入框（連結網址）。 */
+export const INPUT_SM = `${INPUT_SHAPE} h-8 min-h-8 min-w-0 flex-1 py-1`
 export const LABEL = 'block text-sm font-semibold'
 
 /**
@@ -47,11 +80,31 @@ export const LABEL = 'block text-sm font-semibold'
  * 公開與所有登入者的對象＝全站有效帳號，預設不勾；其他對象（本屆學生、指定組別、全部老師）維持預設勾。
  */
 export const IMPORTANT_LABEL = '重要公告：逐人發站內通知給對象'
+/** 原生 `<dialog>` 的外觀（`dashboard-kit` 的 `DIALOG`，寬度另給）。 */
+export const DIALOG_SHELL = 'm-auto rounded-xl border border-border bg-popover p-0 text-foreground shadow-xl backdrop:bg-black/40'
+export const DIALOG = `${DIALOG_SHELL} w-[min(44rem,calc(100vw-2rem))]`
 
-export function broadAudience(audienceKind: string): boolean {
-  return audienceKind === 'public' || audienceKind === 'signed_in'
+/** 「狀態」小標籤（`dashboard-kit` 的 `Pill`）。 */
+export const STATUS_PILL = {
+  default: 'inline-flex h-5 w-fit shrink-0 items-center gap-1 rounded-4xl border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap border-border bg-muted text-muted-foreground',
+  success: 'inline-flex h-5 w-fit shrink-0 items-center gap-1 rounded-4xl border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap border-success/30 bg-success-subtle text-success-on-subtle',
+} as const
+
+/** 篩選 pill（`dashboard-kit` 的 `pillClass`）。 */
+export function pillClass(active: boolean): string {
+  return cx(
+    'press inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors',
+    active ? 'border-ink bg-ink text-ink-foreground' : 'border-border text-foreground hover:border-ink/40 hover:bg-accent',
+  )
 }
-export const DIALOG = cn(KIT_DIALOG, 'w-[min(44rem,calc(100vw-2rem))]')
+
+// 首頁也用到的三個圖示（`IconCheck`、`IconChevronRight`、`IconHistory`）在表單裡另建一份（同 tabler 的線條），理由見上。
+export const CheckIcon = createReactComponent('outline', 'check', 'Check', [['path', { d: 'M5 12l5 5l10 -10', key: 'svg-0' }]])
+export const ChevronIcon = createReactComponent('outline', 'chevron-right', 'ChevronRight', [['path', { d: 'M9 6l6 6l-6 6', key: 'svg-0' }]])
+export const HistoryIcon = createReactComponent('outline', 'history', 'History', [
+  ['path', { d: 'M12 8l0 4l2 2', key: 'svg-0' }],
+  ['path', { d: 'M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5', key: 'svg-1' }],
+])
 
 // ── 上傳 ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +115,7 @@ export async function uploadItemFile(
   kind: 'attachment' | 'cover',
 ): Promise<{ ok: true; chip: FileChip } | { ok: false; message: string }> {
   try {
-    const ticket = await startItemUploadAction({
+    const ticket = await itemFormDeps().startItemUploadAction({
       cohortId,
       kind,
       fileName: file.name,
@@ -84,120 +137,6 @@ export async function uploadItemFile(
   } catch {
     return { ok: false, message: '連線中斷，請重新選擇檔案。' }
   }
-}
-
-export function AttachmentPicker({
-  cohortId,
-  attachments,
-  onChange,
-  accept,
-  maxMiB,
-  disabled,
-}: {
-  cohortId: string
-  attachments: FileChip[]
-  onChange: (next: FileChip[]) => void
-  accept: string
-  maxMiB: number
-  disabled?: boolean
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function onFiles(files: FileList | null) {
-    if (!files || files.length === 0) return
-    setBusy(true)
-    setError(null)
-    const added: FileChip[] = []
-    for (const file of Array.from(files)) {
-      const result = await uploadItemFile(file, cohortId, 'attachment')
-      if (!result.ok) {
-        setError(`${file.name}：${result.message}`)
-        break
-      }
-      added.push(result.chip)
-    }
-    onChange([...attachments, ...added])
-    setBusy(false)
-  }
-
-  const move = (index: number, delta: -1 | 1) => {
-    const next = [...attachments]
-    const target = index + delta
-    if (target < 0 || target >= next.length) return
-    ;[next[index], next[target]] = [next[target]!, next[index]!]
-    onChange(next)
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      {attachments.length > 0 ? (
-        <ul className="flex flex-col gap-1.5" aria-label="附件">
-          {attachments.map((a, index) => (
-            <li key={a.fileId} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background py-1 pr-1 pl-3 text-sm">
-              <IconPaperclip aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              <a href={`/api/files/${a.fileId}`} className="min-w-0 flex-1 truncate font-semibold underline-offset-2 hover:underline">
-                {a.name}
-              </a>
-              <span className="text-xs text-muted-foreground tabular-nums">{formatSize(a.sizeBytes)}</span>
-              <button type="button" className={BTN_ICON} onClick={() => move(index, -1)} disabled={disabled || index === 0} aria-label={`上移 ${a.name}`}>
-                <IconArrowUp />
-              </button>
-              <button
-                type="button"
-                className={BTN_ICON}
-                onClick={() => move(index, 1)}
-                disabled={disabled || index === attachments.length - 1}
-                aria-label={`下移 ${a.name}`}
-              >
-                <IconArrowDown />
-              </button>
-              <button
-                type="button"
-                className={cn(BTN_ICON, 'hover:bg-destructive-subtle hover:text-destructive')}
-                onClick={() => onChange(attachments.filter((x) => x.fileId !== a.fileId))}
-                disabled={disabled}
-                aria-label={`移除 ${a.name}`}
-              >
-                <IconX />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {/* 原型「加入附件」：虛線框整塊可點。 */}
-      <label
-        className={cn(
-          'flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-left text-sm transition-colors hover:border-primary hover:bg-primary-subtle/30',
-          (busy || disabled) && 'pointer-events-none opacity-50',
-        )}
-      >
-        <IconFileUpload aria-hidden className="size-5 shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-          <span className="block font-semibold">{busy ? '上傳中…' : '加入附件'}</span>
-          <span className="block text-xs text-muted-foreground">
-            可上傳 {accept.replaceAll(',', '、')}，單檔上限 {formatSize(maxMiB * MIB)}。下載權限跟著這一筆的對象走。
-          </span>
-        </span>
-        <input
-          type="file"
-          className="sr-only"
-          multiple
-          accept={accept}
-          disabled={busy || disabled}
-          onChange={(e) => {
-            void onFiles(e.currentTarget.files)
-            e.currentTarget.value = ''
-          }}
-        />
-      </label>
-      {error ? (
-        <p role="alert" className="rounded-lg bg-destructive-subtle px-3 py-2 text-sm font-semibold text-destructive-on-subtle">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  )
 }
 
 export function CoverPicker({
@@ -230,7 +169,7 @@ export function CoverPicker({
         </div>
       ) : null}
       <label
-        className={cn(
+        className={cx(
           'flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-left text-sm transition-colors hover:border-primary hover:bg-primary-subtle/30',
           (busy || disabled) && 'pointer-events-none opacity-50',
         )}
@@ -269,43 +208,7 @@ export function CoverPicker({
   )
 }
 
-// ── 發布前檢查與名單 ────────────────────────────────────────────────────────
-
-export function CheckList({ checks, onFix }: { checks: readonly PublishCheck[]; onFix?: (key: string) => void }) {
-  return (
-    <ul aria-label="發布前檢查" className="divide-y divide-border rounded-xl border border-border text-sm">
-      {checks.map((c) => (
-        <li
-          key={c.key}
-          data-check={c.key}
-          data-ok={c.ok ? 'yes' : 'no'}
-          className={cn('flex min-h-11 items-center gap-3 px-4 py-2', !c.ok && 'bg-destructive-subtle/40')}
-        >
-          <span
-            aria-hidden
-            className={cn(
-              'inline-flex size-5 shrink-0 items-center justify-center rounded-full',
-              c.ok ? 'bg-success text-success-foreground' : 'bg-destructive text-destructive-foreground',
-            )}
-          >
-            {c.ok ? <IconCheck className="size-3" strokeWidth={3} /> : <IconAlertCircle className="size-3.5" />}
-          </span>
-          <span className="w-16 shrink-0 text-muted-foreground">{c.label}</span>
-          <span className={cn('min-w-0 flex-1 font-semibold', !c.ok && 'text-destructive')}>{c.ok ? '沒問題' : c.fix}</span>
-          {!c.ok && onFix ? (
-            <button
-              type="button"
-              onClick={() => onFix(c.key)}
-              className="shrink-0 text-xs font-semibold text-destructive underline-offset-2 hover:underline"
-            >
-              回去補<span className="sr-only">：{c.label}</span>
-            </button>
-          ) : null}
-        </li>
-      ))}
-    </ul>
-  )
-}
+// ── 名單 ────────────────────────────────────────────────────────────────────
 
 /** 實際名單：先看總數，點開看到每一位（每一組）是誰（產品模組 04：不只總數）。 */
 export function RecipientList({ recipients, notifyWhen }: { recipients: RecipientPreview; notifyWhen: NotifyWhen }) {
@@ -363,19 +266,18 @@ export function RecipientList({ recipients, notifyWhen }: { recipients: Recipien
 
 /** 正文：只吃伺服器清理過的 HTML（`review.bodyHtml`），不渲染使用者原字。 */
 function ItemBody({ html, className }: { html: string; className?: string }) {
-  return <div className={cn('prose-item space-y-2 leading-relaxed', className)} dangerouslySetInnerHTML={{ __html: html }} />
+  return <div className={cx('prose-item space-y-2 leading-relaxed', className)} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 /**
- * 正文旁的即時預覽（系辦 AD-16；Q91 A）：只渲染伺服器淨化後的 `review.bodyHtml`，不直接渲染 textarea 原字。
- * AD-16 先把這段複製在 `editor/item-editor.tsx` 裡，AD-04 合併回這裡、跟 `StudentView` 共用 `ItemBody`，編輯器改成 import。
+ * 正文的即時預覽（系辦 AD-16；Q91 A）：只渲染伺服器淨化後的 `review.bodyHtml`，不直接渲染輸入框的原字（CSP 沒有 unsafe-inline、淨化在伺服器）。
  * 檢查沒過（例如還沒填標題）時不留上一版畫面，只寫原因。
  */
 export function BodyPreview({ html, error }: { html: string | null; error: string | null }) {
   if (html === null || error) {
     return (
       <div className="text-sm text-muted-foreground">
-        <p>填好標題、開始打正文就會出現預覽</p>
+        <p>開始打正文就會出現預覽</p>
         {/* 不用 alert／status：頁面其他地方已經有一份，同名的提示會讓「唯一那一則」變兩則。 */}
         {error ? <p className="mt-2 font-semibold text-destructive">{error}</p> : null}
       </div>
@@ -385,62 +287,11 @@ export function BodyPreview({ html, error }: { html: string | null; error: strin
   return <ItemBody html={html} className="text-sm" />
 }
 
-/** 學生（或訪客）看到的樣子：用伺服器清理過的正文。 */
-export function StudentView({
-  state,
-  review,
-  vocabulary,
-}: {
-  state: EditorState
-  review: ItemReview
-  vocabulary: EditorVocabulary
-}) {
-  const placement = vocabulary.placements.find((p) => p.value === state.placement)?.label ?? ''
-  const typeLabel = (type: string) => vocabulary.fieldTypes.find((t) => t.value === type)?.label ?? type
-  return (
-    <article className="rounded-xl bg-muted/40 p-4 text-sm" aria-label="學生看到的樣子">
-      <p className="text-xs font-bold tracking-[0.06em] text-muted-foreground">學生看到的樣子</p>
-      <p className="mt-2 text-xs font-semibold text-muted-foreground">
-        {placement}
-        {review.deadlineText ? `・${review.deadlineText}` : ''}
-      </p>
-      <h3 className="mt-1 text-[17px] font-extrabold">{state.title || '（未命名）'}</h3>
-      {state.summary ? <p className="mt-1 text-muted-foreground">{state.summary}</p> : null}
-      {review.bodyHtml ? <ItemBody html={review.bodyHtml} className="mt-3" /> : null}
-      {state.attachments.length > 0 ? (
-        <p className="mt-3 text-xs text-muted-foreground">附件：{state.attachments.map((a) => a.name).join('、')}</p>
-      ) : null}
-      {state.placement === 'submission' && state.fields.length > 0 ? (
-        <ul className="mt-4 space-y-2 border-t border-border pt-3">
-          {state.fields.map((f) => (
-            <li key={f.key}>
-              {f.type === 'heading' ? (
-                <span className="font-bold">{f.label}</span>
-              ) : f.type === 'paragraph' ? (
-                <span className="text-muted-foreground">{f.label}</span>
-              ) : (
-                <span>
-                  {f.label}
-                  {f.required ? <span className="ml-1 text-destructive">*</span> : null}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {typeLabel(f.type)}
-                    {f.type === 'file' ? `・${f.allowedTypes.join('、')}・上限 ${formatSize(f.maxMiB * MIB)}` : ''}
-                  </span>
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </article>
-  )
-}
-
 export function Feedback({ tone, children }: { tone: 'ok' | 'error'; children: React.ReactNode }) {
   return (
     <p
       role={tone === 'ok' ? 'status' : 'alert'}
-      className={cn(
+      className={cx(
         'rounded-lg px-3 py-2 text-sm font-semibold',
         tone === 'ok' ? 'bg-success-subtle text-success-on-subtle' : 'bg-destructive-subtle text-destructive-on-subtle',
       )}

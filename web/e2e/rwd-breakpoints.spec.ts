@@ -154,11 +154,11 @@ test.describe('觸控目標 44px', () => {
       await page.locator('#ed-title').fill(`${CODE} 公告 ${n}`)
       await page.locator('#ed-body').fill('觸控目標測試。')
       await page.getByLabel('誰看得到').selectOption('public')
+      await page.getByTestId('advanced-settings').locator('summary').first().click() // C1-06：分類在「進階設定」
       await page.locator('#ed-category').fill(CATEGORY)
+      // C1-06：按「發布」直接發布（沒有發布前檢查視窗），成功回到清單。
       await page.getByRole('button', { name: '發布', exact: true }).click()
-      const check = page.getByRole('dialog', { name: '發布前檢查' })
-      await check.getByRole('button', { name: '確認發布' }).click()
-      await expect(check.getByRole('status')).toContainText('已發布')
+      await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
     }
   })
 

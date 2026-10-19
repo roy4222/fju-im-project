@@ -4,6 +4,7 @@ import path from 'node:path'
 import { expect, request as playwrightRequest, test, type APIResponse, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { PUBLIC_IMAGE_MAX_AGE_SECONDS } from '../src/application/ops/files'
+import { createItemInDialog, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -133,20 +134,14 @@ async function snapshot(response: APIResponse) {
 test('系辦發布「本屆學生」公告並附 PDF', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /公告/ }).check()
-  await dialog.getByLabel('標題').fill(TITLE)
-  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('<p>附件是說明會簡章。</p>')
-  await dialog.locator('input[type=file]').setInputFiles({ name: '說明會簡章.pdf', mimeType: 'application/pdf', buffer: PDF })
-  await expect(dialog.getByRole('link', { name: '說明會簡章.pdf' })).toBeVisible()
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${TITLE}」已發布`)
+  // C1-06：清單「新增公告」→ 選類型 → 一頁式共用表單。
+  await createItemInDialog(page, {
+    kind: /公告/,
+    title: TITLE,
+    audience: 'cohort_students',
+    html: '<p>附件是說明會簡章。</p>',
+    file: { name: '說明會簡章.pdf', buffer: PDF },
+  })
 
   itemId = (
     await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, TITLE])
@@ -307,30 +302,28 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     }
   }
 
-  /** 完整編輯器發布一則公告（可帶封面與附件），回項目 ID。 */
+  /** 全頁共用表單（C1-06）發布一則公告（可帶封面與附件），回項目 ID。封面在進階設定。 */
   async function publishItem(
     page: Page,
     input: { title: string; audience: 'public' | 'cohort_students'; cover?: Buffer; attachment?: { name: string; mimeType: string; buffer: Buffer } },
   ): Promise<string> {
     await asAdmin(page)
     await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-    await page.locator('#ed-title').fill(input.title)
+    const form = await formReady(page)
+    await form.locator('#ed-title').fill(input.title)
     await page.locator('#ed-body').fill('V4 快取標頭的測試公告。')
-    await page.getByLabel('誰看得到').selectOption(input.audience)
+    await form.getByLabel('誰看得到').selectOption(input.audience)
     if (input.cover) {
-      await page.locator('label', { hasText: '上傳封面' }).locator('input[type=file]').setInputFiles({ name: 'cover.png', mimeType: 'image/png', buffer: input.cover })
-      await expect(page.getByRole('img', { name: '封面預覽' })).toBeVisible()
+      await openAdvanced(form)
+      await form.locator('label', { hasText: '上傳封面' }).locator('input[type=file]').setInputFiles({ name: 'cover.png', mimeType: 'image/png', buffer: input.cover })
+      await expect(form.getByRole('img', { name: '封面預覽' })).toBeVisible()
     }
     if (input.attachment) {
-      await page.locator('label', { hasText: '加入附件' }).locator('input[type=file]').setInputFiles(input.attachment)
-      await expect(page.getByRole('list', { name: '附件' })).toContainText(input.attachment.name)
+      await form.getByLabel('加入附件').setInputFiles(input.attachment)
+      await expect(form.getByRole('list', { name: '附件' })).toContainText(input.attachment.name)
     }
-    await page.getByRole('button', { name: '發布', exact: true }).click()
-    const check = page.getByRole('dialog', { name: '發布前檢查' })
-    await check.getByRole('button', { name: '確認發布' }).click()
-    await expect(check.getByRole('status')).toBeVisible()
-    await check.getByRole('button', { name: '繼續編輯' }).click()
-    await expect(page.getByTestId('item-status')).toHaveText('發布中')
+    await form.getByRole('button', { name: '發布', exact: true }).click()
+    await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
     return (await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, input.title])).rows[0]!.id
   }
 
