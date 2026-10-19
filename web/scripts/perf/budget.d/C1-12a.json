@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-12a",
+  "override": {
+    "/dashboard/teacher/grading/[groupId]": { "from": "C1-12", "value": { "baseline": 236.7, "limit": 250 } }
+  }
+}
