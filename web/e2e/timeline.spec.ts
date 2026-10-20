@@ -5,7 +5,7 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 /**
  * 票 11（#222）：年度階段、活動與模擬時鐘。「做完的樣子」逐條走：
  *
- * 1. 管理員替屆別設四個階段的開始日（嚴格遞增）與年度結束日；建立、改期、取消活動。
+ * 1. 管理員替屆別設四個階段的開始日（嚴格遞增）與年度結束日；建立（可跨日）、編輯、直接刪除活動（C3-06）。
  * 2. 屆別從籌備中變進行中留下紀錄；三角色首頁顯示「尚未開始／階段 n／年度階段已結束」。
  * 3. 測試站的管理員可把「今天」設成任意時間（到秒、可前進可倒退），每次留操作者、原因、前後時間。
  *    （正式站沒有入口：CI 的 e2e 跑的是測試站設定；正式站拒絕由整合測試證明。）
@@ -152,49 +152,92 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await dialog.getByRole('button', { name: '先不改' }).click()
 })
 
-test('活動：新增、改期、取消；取消後留在「已取消」、不在已排定清單', async ({ page }) => {
+test('活動：新增（單日、跨日）、編輯、直接刪除；沒有「取消活動」（C3-06：AC-C3-32、AC-C3-37、AC-C3-48(a)）', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/timeline')
 
   await page.getByRole('button', { name: '新增活動' }).click()
   const create = page.getByRole('dialog', { name: '新增活動' })
   await create.getByLabel('活動名稱').fill('期中發表會')
-  await create.getByLabel('日期', { exact: true }).fill('2026-12-20')
+  await create.getByLabel('開始日').fill('2026-12-20')
+  // 結束日跟著開始日走（單日）。
+  await expect(create.getByLabel('結束日')).toHaveValue('2026-12-20')
   await create.getByLabel('開始時間').fill('14:00')
-  await create.getByLabel('結束時間（可不填）').fill('16:00')
+  await create.getByLabel('結束時間').fill('16:00')
   await create.getByRole('button', { name: '建立活動' }).click()
   await expect(feedback(page, 'status')).toContainText('已新增活動「期中發表會」')
 
-  const scheduled = page.getByRole('region', { name: '已排定的活動' })
-  await expect(scheduled).toContainText('2026-12-20 14:00–16:00')
+  const list = page.getByRole('region', { name: '活動清單' })
+  await expect(list).toContainText('2026-12-20 14:00–16:00')
+  await expect(page.getByRole('button', { name: /^取消活動/ })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '危險操作' })).toHaveCount(0)
 
-  await scheduled.getByRole('button', { name: '改期：期中發表會' }).click()
-  const edit = page.getByRole('dialog', { name: '改期：期中發表會' })
-  await edit.getByLabel('日期', { exact: true }).fill('2026-12-22')
-  await edit.getByRole('button', { name: '儲存改期' }).click()
-  await expect(edit).toBeHidden()
-  await expect(scheduled).toContainText('2026-12-22 14:00–16:00')
+  // AC-C3-48(a)：非全天跨日、結束時間空白 → 伺服器擋「跨日的活動要填結束時間」，不建立。
+  await page.getByRole('button', { name: '新增活動' }).click()
+  await create.getByLabel('活動名稱').fill('面談')
+  await create.getByLabel('開始日').fill('2027-04-01')
+  await create.getByLabel('結束日').fill('2027-04-02')
+  await create.getByLabel('開始時間').fill('09:00')
+  await expect(create.getByLabel('結束時間')).toHaveAttribute('aria-required', 'true')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(create.getByRole('alert')).toContainText('跨日的活動要填結束時間')
+  // 結束日早於開始日也被擋。
+  await create.getByLabel('結束日').fill('2027-03-31')
+  await create.getByLabel('結束時間').fill('17:00')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(create.getByRole('alert')).toContainText('結束日不能早於開始日')
+  // AC-C3-32：有時間的跨日 4/1 09:00–4/2 17:00。
+  await create.getByLabel('結束日').fill('2027-04-02')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(feedback(page, 'status')).toContainText('已新增活動「面談」')
+  await expect(list).toContainText('4/1（四）09:00–4/2（五）17:00')
 
-  await scheduled.getByRole('button', { name: '取消活動：期中發表會' }).click()
-  await page.getByRole('dialog', { name: '取消「期中發表會」？' }).getByRole('button', { name: '確定取消' }).click()
-  const cancelledList = page.getByRole('region', { name: '已取消的活動' })
-  await expect(cancelledList).toContainText('期中發表會')
-  await expect(cancelledList).toContainText('已取消')
-  await expect(scheduled).not.toContainText('期中發表會')
-  // 那一列移出清單後，成功句子仍看得到（放在清單外、「已排定的活動」卡片上方）。
-  await expect(page.getByRole('status').filter({ hasText: '已取消活動' })).toHaveText(
-    '已取消活動「期中發表會」；它會留在「已取消」清單。',
+  // AC-C3-32：全天跨日 3/10–3/12，資料庫 ends_at＝3/13 00:00（臺灣）。
+  await page.getByRole('button', { name: '新增活動' }).click()
+  await create.getByLabel('活動名稱').fill('期中展')
+  await create.getByLabel('全天').check()
+  await create.getByLabel('開始日').fill('2027-03-10')
+  await create.getByLabel('結束日').fill('2027-03-12')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(feedback(page, 'status')).toContainText('已新增活動「期中展」')
+  await expect(list).toContainText('3/10–3/12')
+  const span = await pool.query(
+    `select starts_at, ends_at from project_events where cohort_id = $1 and title = '期中展'`,
+    [await cohortId()],
   )
+  expect(span.rows[0].starts_at.toISOString()).toBe('2027-03-09T16:00:00.000Z')
+  expect(span.rows[0].ends_at.toISOString()).toBe('2027-03-12T16:00:00.000Z')
+
+  await list.getByRole('button', { name: '編輯：期中發表會' }).click()
+  const edit = page.getByRole('dialog', { name: '編輯：期中發表會' })
+  await expect(edit.getByLabel('結束日')).toHaveValue('2026-12-20')
+  await edit.getByLabel('開始日').fill('2026-12-22')
+  await edit.getByRole('button', { name: '儲存' }).click()
+  await expect(edit).toBeHidden()
+  await expect(list).toContainText('2026-12-22 14:00–16:00')
+
+  // AC-C3-37：排定中的直接刪除，不必先取消。
+  await list.getByRole('button', { name: '刪除：期中發表會' }).click()
+  const confirm = page.getByRole('dialog', { name: '刪除「期中發表會」？' })
+  await expect(confirm).toContainText('確定刪除『期中發表會』？學生的時程上會直接消失。')
+  await confirm.getByRole('button', { name: '刪除', exact: true }).click()
+  await expect(list.getByRole('status').filter({ hasText: '已刪除活動' })).toHaveText('已刪除活動「期中發表會」。')
+  await expect(list).not.toContainText('期中發表會')
 
   // 重新整理仍然一樣；三個動作都在同一筆交易發了 calendar.changed 事件。
   await page.reload()
-  await expect(page.getByRole('region', { name: '已取消的活動' })).toContainText('期中發表會')
+  await expect(page.getByRole('region', { name: '活動清單' })).not.toContainText('期中發表會')
   const events = await pool.query(
     `select payload->>'action' as action from domain_events
-      where type = 'calendar.changed' and cohort_id = $1 order by occurred_real_at, id`,
+      where type = 'calendar.changed' and cohort_id = $1 and payload->>'title' = '期中發表會' order by occurred_real_at, id`,
     [await cohortId()],
   )
-  expect(events.rows.map((r) => r.action)).toEqual(['created', 'updated', 'cancelled'])
+  expect(events.rows.map((r) => r.action)).toEqual(['created', 'updated', 'deleted'])
+  const row = await pool.query(
+    `select status, deleted_at is not null as deleted from project_events where cohort_id = $1 and title = '期中發表會'`,
+    [await cohortId()],
+  )
+  expect(row.rows).toEqual([{ status: 'scheduled', deleted: true }])
 })
 
 test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列', async ({ page }) => {

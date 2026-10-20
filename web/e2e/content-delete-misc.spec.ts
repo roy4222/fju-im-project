@@ -9,10 +9,10 @@ import { createTestSession, toPlaywrightCookie, type TestSession } from './sessi
  *    前台 `/industry` 看得到，負責老師的「我的合作案」列出它。
  * 2. 發布中的合作案被擋（要先下架）；下架後還連著組別也被擋（要先解除連結）；解除後刪得掉，
  *    後台清單與前台詳情都消失（詳情變 404）。
- * 3. 排定中的活動被擋（要先取消）；已取消的刪得掉，從「已取消」清單消失。
+ * 3. C3-06（AC-C3-37）：「活動清單」每列直接「刪除」，排定中的不必先取消；已取消的舊活動標「已取消」只有「刪除」。
  * 4. C3-10（AC-C3-30）：系辦在前台 `/industry` 開編輯模式，合作案表單模組按下才載入（獨立 chunk）；
  *    編輯只改一欄、新增要選負責老師；刪發布中的案回「要先下架」、確認框不關。
- * 合作案的刪除在每一列的動作裡（C3-10，規格③ §6.5）：不能刪的 disabled 寫原因；活動的刪除仍在「危險操作」區（C3-06 才改）。
+ * 合作案的刪除在每一列的動作裡（C3-10，規格③ §6.5）：不能刪的 disabled 寫原因；活動的刪除也在每列（C3-06）。
  * 刪除的資料層規則（刪除標記、稽核、重送、權限）由 pg-timeline／pg-opportunities 的整合測試證明。
  *
  * 屆別、組別、活動與組別連結直接用 owner 連線準備；W11 的動作全程用真的畫面與按鈕。
@@ -231,47 +231,54 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   expect(audit.rows).toEqual([{ status: 'withdrawn' }])
 })
 
-test('活動：排定中要先取消；已取消的刪得掉，從「已取消」清單消失', async ({ page }) => {
+test('AC-C3-37：活動清單每列「刪除」：排定中的直接刪；已取消的舊活動標「已取消」只有「刪除」；沒有「取消活動」與危險操作區', async ({ page }) => {
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/timeline?cohort=${cohortId}`)
 
-  const scheduled = page.getByRole('region', { name: '已排定的活動' })
-  const cancelled = page.getByRole('region', { name: '已取消的活動' })
-  const danger = page.getByRole('region', { name: '危險操作' })
-  // 刪除入口只在頁面底部的「危險操作」區：已排定、已取消清單的列上沒有刪除鈕（§9 規則 1）。
-  await expect(scheduled).toContainText(SCHEDULED)
-  await expect(cancelled).toContainText(CANCELLED)
-  await expect(scheduled.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
-  await expect(cancelled.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: `刪除活動：${CANCELLED}` })).toHaveCount(1)
-  await expect(danger.getByTestId('danger-activity').filter({ hasText: SCHEDULED })).toContainText('要先「取消活動」')
+  const list = page.getByRole('region', { name: '活動清單' })
+  const row = (title: string) => list.getByTestId('activity-row').filter({ hasText: title })
+  await expect(row(SCHEDULED)).toHaveCount(1)
+  await expect(row(CANCELLED)).toContainText('已取消')
+  await expect(row(CANCELLED).getByRole('button')).toHaveText(['刪除'])
+  await expect(row(SCHEDULED).getByRole('button', { name: `編輯：${SCHEDULED}` })).toHaveCount(1)
+  await expect(page.getByRole('button', { name: /^取消活動/ })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '危險操作' })).toHaveCount(0)
 
-  await danger.getByRole('button', { name: `刪除活動：${SCHEDULED}` }).click()
-  const blocked = page.getByRole('dialog', { name: `還不能刪除「${SCHEDULED}」` })
-  await expect(blocked).toContainText('要先「取消活動」才能刪除')
-  await expect(blocked.getByRole('button', { name: '刪除這個活動' })).toHaveCount(0)
-  await blocked.getByRole('button', { name: '知道了' }).click()
+  // 排定中的直接刪除（不必先取消）：status 仍 scheduled、打刪除標記。
+  await row(SCHEDULED).getByRole('button', { name: `刪除：${SCHEDULED}` }).click()
+  const confirm = page.getByRole('dialog', { name: `刪除「${SCHEDULED}」？` })
+  await expect(confirm).toContainText(`確定刪除『${SCHEDULED}』？學生的時程上會直接消失。`)
+  await confirm.getByRole('button', { name: '刪除', exact: true }).click()
+  await expect(list.getByRole('status').filter({ hasText: `已刪除活動「${SCHEDULED}」` })).toBeVisible()
+  await expect(row(SCHEDULED)).toHaveCount(0)
 
-  await danger.getByRole('button', { name: `刪除活動：${CANCELLED}` }).click()
-  const confirm = page.getByRole('dialog', { name: `刪除「${CANCELLED}」？` })
-  await expect(confirm).toContainText('不能。')
-  await confirm.getByRole('button', { name: '刪除這個活動' }).click()
-  await expect(danger.getByRole('status').filter({ hasText: `已刪除活動「${CANCELLED}」` })).toBeVisible()
-  await expect(cancelled).toHaveCount(0)
-  await expect(danger.getByTestId('danger-activity').filter({ hasText: CANCELLED })).toHaveCount(0)
+  // 已取消的舊活動也刪得掉。
+  await row(CANCELLED).getByRole('button', { name: `刪除：${CANCELLED}` }).click()
+  await page.getByRole('dialog', { name: `刪除「${CANCELLED}」？` }).getByRole('button', { name: '刪除', exact: true }).click()
+  await expect(list.getByRole('status').filter({ hasText: `已刪除活動「${CANCELLED}」` })).toBeVisible()
+  await expect(list).toContainText('目前沒有活動。')
 
   await page.reload()
+  await expect(page.getByRole('main')).not.toContainText(SCHEDULED)
   await expect(page.getByRole('main')).not.toContainText(CANCELLED)
-  await expect(page.getByRole('region', { name: '已排定的活動' })).toContainText(SCHEDULED)
-  const rows = await pool.query<{ title: string; deleted: boolean }>(
-    `select title, deleted_at is not null as deleted from project_events where cohort_id = $1`,
+  const rows = await pool.query<{ title: string; status: string; deleted: boolean }>(
+    `select title, status, deleted_at is not null as deleted from project_events where cohort_id = $1`,
     [cohortId],
   )
-  expect(Object.fromEntries(rows.rows.map((r) => [r.title, r.deleted]))).toEqual({ [SCHEDULED]: false, [CANCELLED]: true })
+  expect(Object.fromEntries(rows.rows.map((r) => [r.title, [r.status, r.deleted]]))).toEqual({
+    [SCHEDULED]: ['scheduled', true],
+    [CANCELLED]: ['cancelled', true],
+  })
+  const audit = await pool.query(
+    `select payload->'before'->>'status' as status from audit_events e join project_events p on p.id = e.target_id
+      where e.action = 'activity.deleted' and p.cohort_id = $1 order by status`,
+    [cohortId],
+  )
+  expect(audit.rows.map((r) => r.status)).toEqual(['cancelled', 'scheduled'])
 })
 
-test('活動：刪掉該屆最後一個活動，危險操作區仍在、「已刪除」的句子不會跟著卸載', async ({ page }) => {
-  // 另造一屆只有一個已取消的活動（曾經該屆沒有活動就整區不渲染，句子跟著卸載、看不到「已刪除」）。
+test('活動：刪掉該屆最後一個活動，清單寫「目前沒有活動。」、「已刪除」的句子不會跟著卸載', async ({ page }) => {
+  // 另造一屆只有一個排定中的活動（曾經該屆沒有活動就整區不渲染，句子跟著卸載、看不到「已刪除」）。
   const LAST = `W11 最後一個 ${stamp.slice(-4)}`
   const lastCohort = await pool.query<{ id: string }>(
     `insert into cohorts (id, code, name, status, year_end_date, is_default_working, created_by_kind)
@@ -283,21 +290,20 @@ test('活動：刪掉該屆最後一個活動，危險操作區仍在、「已�
     `insert into project_events
        (id, cohort_id, title, starts_at, all_day, audience_kind, status,
         created_by_kind, created_by_user_id, created_at, updated_at, updated_by_user_id)
-     values (gen_random_uuid(), $1, $2, '2099-03-01T06:00:00Z', false, 'public', 'cancelled', 'user', $3, now(), now(), $3)`,
+     values (gen_random_uuid(), $1, $2, '2099-03-01T06:00:00Z', false, 'public', 'scheduled', 'user', $3, now(), now(), $3)`,
     [lastCohortId, LAST, admin.userId],
   )
 
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/timeline?cohort=${lastCohortId}`)
-  const danger = page.getByRole('region', { name: '危險操作' })
-  await expect(danger.getByTestId('danger-activity')).toHaveCount(1)
+  const list = page.getByRole('region', { name: '活動清單' })
+  await expect(list.getByTestId('activity-row')).toHaveCount(1)
 
-  await danger.getByRole('button', { name: `刪除活動：${LAST}` }).click()
-  const confirm = page.getByRole('dialog', { name: `刪除「${LAST}」？` })
-  await confirm.getByRole('button', { name: '刪除這個活動' }).click()
-  await expect(danger.getByRole('status').filter({ hasText: `已刪除活動「${LAST}」` })).toBeVisible()
-  await expect(danger).toContainText('目前沒有活動。')
-  await expect(page.getByTestId('danger-activity')).toHaveCount(0)
+  await list.getByRole('button', { name: `刪除：${LAST}` }).click()
+  await page.getByRole('dialog', { name: `刪除「${LAST}」？` }).getByRole('button', { name: '刪除', exact: true }).click()
+  await expect(list.getByRole('status').filter({ hasText: `已刪除活動「${LAST}」` })).toBeVisible()
+  await expect(list).toContainText('目前沒有活動。')
+  await expect(page.getByTestId('activity-row')).toHaveCount(0)
 })
 
 /** 從登入頁用密碼登入：前台編輯模式要靠登入時設的提示 cookie（同 front-edit.spec）。 */

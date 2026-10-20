@@ -258,7 +258,8 @@ describe('跟業務動作同一筆交易', () => {
     const input = {
       title: '故障注入活動',
       description: '',
-      date: '2026-12-20',
+      startDate: '2026-12-20',
+      endDate: '',
       allDay: true,
       startTime: '',
       endTime: '',

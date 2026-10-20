@@ -123,7 +123,18 @@ export interface TimelineCommand {
     expectedRevision: number,
     requestId: string,
   ): Promise<Result<ActivityReceipt>>
-  /** 取消：只標「已取消」，不刪除。 */
+  /**
+   * 拖拉只改起訖日（③ §9.1）：其他欄位與時刻沿用。非全天、沒寫結束時間的活動拉成跨日回
+   * `VALIDATION_FAILED`「跨日的活動要填結束時間」（伺服器端擋，不只靠畫面）。
+   */
+  moveActivity(
+    actor: ResolvedActor,
+    activityId: string,
+    dates: { startDate: string; endDate: string },
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<ActivityReceipt>>
+  /** 取消：只標「已取消」，不刪除（③ 起畫面不再提供，留給舊資料與用例）。 */
   cancelActivity(
     actor: ResolvedActor,
     activityId: string,
@@ -131,7 +142,7 @@ export interface TimelineCommand {
     requestId: string,
   ): Promise<Result<ActivityReceipt>>
   /**
-   * 刪除（第三波 W11）：只限已取消的活動；還排定中的回 `VALIDATION_FAILED` 並說明要先取消。
+   * 刪除（③ §9.1）：排定中、已取消的都能直接刪，不必先取消；已刪除的當作找不到。
    * 只打刪除標記、不實體刪列，不能恢復；刪除後所有查詢都當作不存在。
    */
   deleteActivity(
