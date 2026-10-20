@@ -1411,3 +1411,44 @@ describe('設免繳／恢復（B 階段 A-08、AC-A-21～24）：只改名單列
     expect((await audits(itemId)).map((a) => (a.payload as { receiverKind: string }).receiverKind)).toEqual(['group', 'group'])
   })
 })
+
+describe('系辦動作封存後重播（AC-56c）：封存前成功的同一個 requestId，封存後重播回 COHORT_ARCHIVED、帳本不多一筆', () => {
+  const ledger = async (requestId: string) =>
+    Number((await owner.sql('select count(*) as n from operation_records where request_id = $1', [requestId])).rows[0]!.n)
+  const archive = (cohortId: string) => owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+
+  it('改指導老師閱覽設定', async () => {
+    const { cohortId, itemId } = await scenario()
+    const requestId = randomUUID()
+    expect((await submissions.setAdvisorVisibility(adminActor(), itemId, true, requestId)).ok).toBe(true)
+    expect(await ledger(requestId)).toBe(1)
+    await archive(cohortId)
+    expect(await submissions.setAdvisorVisibility(adminActor(), itemId, true, requestId)).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await ledger(requestId)).toBe(1)
+  })
+
+  it('開放個別補交', async () => {
+    const { cohortId, stageId } = await newCohort()
+    const student = await newStudent(cohortId)
+    const itemId = await published(cohortId, stageId, { dueAt: '2026-11-15T23:59' })
+    businessNow = new Date('2026-11-16T02:00:00Z')
+    const requestId = randomUUID()
+    const reopen = () => submissions.reopen(adminActor(), itemId, student.id, { dueAt: '2026-11-17T17:00', reason: '住院請假' }, requestId)
+    expect((await reopen()).ok).toBe(true)
+    expect(await ledger(requestId)).toBe(1)
+    await archive(cohortId)
+    expect(await reopen()).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await ledger(requestId)).toBe(1)
+  })
+
+  it('設免繳', async () => {
+    const { cohortId, student, itemId } = await scenario()
+    const requestId = randomUUID()
+    const exempt = () => submissions.setExempt(adminActor(), { itemId, receiverId: student.id, exempt: true, reason: '休學' }, requestId)
+    expect((await exempt()).ok).toBe(true)
+    expect(await ledger(requestId)).toBe(1)
+    await archive(cohortId)
+    expect(await exempt()).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await ledger(requestId)).toBe(1)
+  })
+})

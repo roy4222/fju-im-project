@@ -172,6 +172,7 @@ export function AdvancedSettings({
             </p>
             <CoverPicker
               cohortId={state.cohortId}
+              placement={state.placement}
               cover={state.cover}
               onChange={(cover) => onChange({ cover })}
               accept={vocabulary.uploads.cover.accept}
