@@ -48,7 +48,8 @@ import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submiss
  * 反證：錯誤碼不符、任一持久列變動、未實際等鎖、重播成功或逾期仍可送出。
  * 每列另跑 active 正例；準備資料、命令執行在 suite 的 beforeAll，並明確重設時鐘。
  * Review FIX：beforeEach 的錯誤也會被 it.fails 反轉；beforeAll 的錯誤必須讓整個 suite 失敗。
- * 只有拒絕斷言可預期失敗；全資料庫快照也含帳本、稽核、事件、到期工作、檔案與引用。
+ * 拒絕與資料不變各一支測試、各一個 expect；已知漏擋／寫入缺陷分別標 it.fails，避免半套修補被掩蓋。
+ * 全資料庫快照也含帳本、稽核、事件、到期工作、檔案與引用。
  * ⑤-12 ESCALATE 1 裁定：成果展示、榮譽為對外紀錄例外；D-08 匯出允許。
  * 盤點：rg 'export (interface|type) .*Command' application 與各模組 index.ts，再核對實作寫入點。
  * 全域設定、帳密／頭像、通知已讀、未綁屆別的產學題目及暫存 CSV 上傳不寫屆別工作資料。
@@ -229,7 +230,7 @@ afterAll(async () => {
 })
 
 type Run = () => Promise<Result<unknown>>
-type DenialCase = { name: string; prepare: (s: Scenario) => Promise<Run>; code?: string; issue?: string; activeReceipt?: object; refusal?: object }
+type DenialCase = { name: string; prepare: (s: Scenario) => Promise<Run>; code?: string; issue?: string; writesWhenArchived?: boolean; activeReceipt?: object; refusal?: object }
 const direct = (name: string, run: (s: Scenario) => ReturnType<Run>): DenialCase => ({ name, prepare: async s => () => run(s) })
 
 async function uploadCsv(text: string) {
@@ -335,8 +336,8 @@ const denied: DenialCase[] = [
     return () => name === 'moveRule' ? commands.items.moveRule(admin, first.itemId, 'down', randomUUID())
       : commands.items.reorderRules(admin, s.cohortId, [second.itemId, first.itemId], randomUUID())
   } })),
-  { ...direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })), issue: '#789 F1：附件上傳漏擋' },
-  { name: 'FileStorage.upload/preArchiveTicket', issue: '#792 F4：封存前憑證仍可完成上傳', prepare: async s => {
+  { ...direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })), issue: '#789 F1：附件上傳漏擋', writesWhenArchived: true },
+  { name: 'FileStorage.upload/preArchiveTicket', issue: '#792 F4：封存前憑證仍可完成上傳', writesWhenArchived: true, prepare: async s => {
     const bytes = new TextEncoder().encode('%PDF-1.4\n% 封存前取得憑證的工作附件\n')
     const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
       fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
@@ -460,7 +461,7 @@ const denied: DenialCase[] = [
     return () => commands.profileEdit.edit(admin, { userId: other.spare.id, name: '轉入學生', role: 'student', studentNo: other.spare.studentNo, cohortId: s.cohortId, requestId: randomUUID() })
   } },
 
-  ...(['createStudent', 'createMember'] as const).map(name => ({ name: `AccountCommand.${name}/student`, issue: '#790 F3：新增學生漏擋', prepare: async (s: Scenario): Promise<Run> => {
+  ...(['createStudent', 'createMember'] as const).map(name => ({ name: `AccountCommand.${name}/student`, issue: '#790 F3：新增學生漏擋', writesWhenArchived: true, prepare: async (s: Scenario): Promise<Run> => {
     const input = { kind: 'student', name: '系辦新增學生', email: `new-${randomUUID()}@example.com`, studentNo: '499123458', cohortId: s.cohortId, requestId: randomUUID() }
     return () => commands.accounts[name](admin, new Headers(), input)
   } })),
@@ -517,9 +518,13 @@ describe.each(denied)('AC-55 應拒絕：$name', testCase => {
       result = await run()
       after = await snapshot()
     })
-    const check = testCase.issue ? it.fails : it
-    check(`${testCase.issue ?? 'AC-55'} 拒絕且所有資料不變`, () => {
-      expect({ result, data: after }).toMatchObject({ result: testCase.refusal ?? { ok: false, code: testCase.code ?? 'COHORT_ARCHIVED' }, data: before })
+    // 任一部分先修好，對應的 it.fails 必須翻紅；不能靠另一個尚未修好的斷言保持綠燈。
+    const checkRefusal = testCase.issue ? it.fails : it
+    checkRefusal(`${testCase.issue ?? 'AC-55'} 拒絕`, () => {
+      expect(result).toMatchObject(testCase.refusal ?? { ok: false, code: testCase.code ?? 'COHORT_ARCHIVED' })
+    })
+    const checkData = testCase.issue && testCase.writesWhenArchived ? it.fails : it
+    checkData(`${testCase.issue ?? 'AC-55'} 所有資料不變`, () => {
       expect(after).toEqual(before)
     })
   })
@@ -873,7 +878,7 @@ describe('AC-56c：封存前成功的 requestId 封存後重播', () => {
   it.fails('#789 F2：重播應回 COHORT_ARCHIVED 而非原回執', () => {
     expect(replay).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
   })
-  it('重播沒有增加 operation_records 或修改其他資料', () => {
+  it('#789 F2：重播沒有增加 operation_records 或修改其他資料', () => {
     expect(after).toEqual(before)
   })
 })
