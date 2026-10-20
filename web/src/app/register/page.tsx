@@ -7,7 +7,7 @@ import { GoogleButton } from '@/app/login/google-button'
 import { homeForUser, isRegistrationOpen, PASSWORD_MIN_LENGTH } from '@/composition/accounts'
 import { signUpStepAction } from './actions'
 import { RegisterForm } from './_components/register-form'
-import { RegisterFrame } from './_components/register-frame'
+import { RegisterFrame, stepDir } from './_components/register-frame'
 
 export const metadata = { title: '註冊｜資管系專題平台' }
 
@@ -23,7 +23,7 @@ export const metadata = { title: '註冊｜資管系專題平台' }
 export default async function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string | string[]; email?: string | string[] }>
+  searchParams: Promise<{ error?: string | string[]; email?: string | string[]; dir?: string | string[] }>
 }) {
   if (!isRegistrationOpen()) notFound()
   const params = await searchParams
@@ -35,7 +35,7 @@ export default async function RegisterPage({
   const initialEmail = typeof params.email === 'string' && params.email.length <= 254 ? params.email : ''
 
   return (
-    <RegisterFrame step={1} title="建立帳號" description="學生用這個頁面註冊；老師帳號由系辦建立，不需要在這裡註冊。">
+    <RegisterFrame step={1} dir={stepDir(params.dir)} title="建立帳號" description="學生用這個頁面註冊；老師帳號由系辦建立，不需要在這裡註冊。">
       {googleError ? (
         <p role="alert" className="rounded-md bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle" data-testid="google-error">
           {googleError}

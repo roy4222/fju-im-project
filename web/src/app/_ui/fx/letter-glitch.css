@@ -1,0 +1,13 @@
+/* ==========================================================================
+   登入／註冊群組的 LetterGlitch 背景（auth-glitch.tsx、letter-glitch.tsx；規格④ §4.1～4.2）。
+   整頁固定在內容底下（頂列 z-50 在上面；卡片那層 `AuthStage` 是 relative z-10）、不擋點擊。
+   底色 #13305C 一律有；減少動態、WebGL2 不支援、context 掉了：`.auth-glitch-static` 換成靜態字元紋理（SVG，不用 style=）。
+   ========================================================================== */
+@layer components {
+  .auth-glitch { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background-color: #13305c; }
+  .auth-glitch > canvas { display: block; width: 100%; height: 100%; }
+  .auth-glitch-static {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='42' height='42' font-family='monospace' font-size='12' fill-opacity='.28'%3E%3Ctext x='2' y='12' fill='%23E8B544'%3EA%3C/text%3E%3Ctext x='16' y='12' fill='%23F08F3A'%3E7%3C/text%3E%3Ctext x='30' y='12' fill='%238DB6E6'%3E%23%3C/text%3E%3Ctext x='2' y='26' fill='%23E8B544'%3E%3B%3C/text%3E%3Ctext x='16' y='26' fill='%23F08F3A'%3EK%3C/text%3E%3Ctext x='30' y='26' fill='%238DB6E6'%3E2%3C/text%3E%3Ctext x='2' y='40' fill='%23E8B544'%3E%2F%3C/text%3E%3Ctext x='16' y='40' fill='%23F08F3A'%3E%26%3C/text%3E%3Ctext x='30' y='40' fill='%238DB6E6'%3EM%3C/text%3E%3C/svg%3E");
+    background-size: 42px 42px;
+  }
+}

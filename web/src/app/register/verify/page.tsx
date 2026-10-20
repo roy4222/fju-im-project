@@ -5,7 +5,7 @@ import { currentActor } from '@/app/_ui/guard'
 import { EMAIL_VERIFY_PATH, getRegistrationCommand, homeForUser, isRegistrationOpen } from '@/composition/accounts'
 import { backToSignupStep } from '../actions'
 import { decodeResume, RESUME_COOKIE } from '../_components/form-data'
-import { RegisterFrame } from '../_components/register-frame'
+import { RegisterFrame, stepDir } from '../_components/register-frame'
 import { resendOtpAction, resendResumeOtpAction, verifyOtpAction } from './actions'
 import { ResendForm, VerifyForm } from './verify-form'
 
@@ -18,15 +18,21 @@ export const metadata = { title: '驗證 Email｜資管系專題平台', robots:
  * - 續辦（`?resume=1`）：同一個 Email 有一筆還沒完成的註冊，驗證碼已寄出；沒有 session，憑這個瀏覽器的
  *   續辦票 cookie。重寄走續辦專用的入口（寄出後把暫存改綁到新碼，VB-3 Review P3）。
  */
-export default async function RegisterVerifyPage({ searchParams }: { searchParams: Promise<{ resume?: string | string[] }> }) {
+export default async function RegisterVerifyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ resume?: string | string[]; dir?: string | string[] }>
+}) {
   if (!isRegistrationOpen()) notFound()
-  const { resume } = await searchParams
+  const { resume, dir: rawDir } = await searchParams
+  const dir = stepDir(rawDir)
   const ticket = resume === '1' ? decodeResume((await cookies()).get(RESUME_COOKIE)?.value) : null
 
   if (ticket) {
     return (
       <RegisterFrame
         step={2}
+        dir={dir}
         title="驗證 Email"
         description={
           <>
@@ -57,6 +63,7 @@ export default async function RegisterVerifyPage({ searchParams }: { searchParam
   return (
     <RegisterFrame
       step={2}
+      dir={dir}
       title="驗證 Email"
       description={
         <>

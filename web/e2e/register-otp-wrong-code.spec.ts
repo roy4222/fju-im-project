@@ -370,7 +370,7 @@ test('情境 B：同 Email 第二次註冊（續辦）——舊碼、錯碼、�
   await expect(page).toHaveURL(/\/register\/verify$/)
   const firstOtp = await latestOtp(email)
   await page.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
-  await expect(page).toHaveURL(/\/register\?email=/)
+  await expect(page).toHaveURL(/\/register\?dir=back&email=/)
   await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS))
 
   await stepOne(page, email, P2)
@@ -537,7 +537,7 @@ test('情境 H：續辦模式兩個分頁——A 填新碼完成續辦，B 停�
   await stepOne(a, email, P1)
   await expect(a).toHaveURL(/\/register\/verify$/)
   await a.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
-  await expect(a).toHaveURL(/\/register\?email=/)
+  await expect(a).toHaveURL(/\/register\?dir=back&email=/)
   await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS))
   await stepOne(a, email, P2)
   await expect(a).toHaveURL(/\/register\/verify\?resume=1$/)

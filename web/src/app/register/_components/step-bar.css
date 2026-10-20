@@ -1,0 +1,19 @@
+/* ==========================================================================
+   註冊步驟條 Stepper B（step-bar.tsx；規格④ §4.3）：純 CSS、0 JS。
+   往前：圓點與連線由左到右點亮；`data-anim="back"`（回上一步）反向播。減少動態：沒有過場。
+   ========================================================================== */
+@layer components {
+  .step-bar .step-dot { animation: step-pop 320ms ease-out both; }
+  .step-bar [data-state='current'] .step-dot { transform: scale(1.12); }
+  .step-bar .step-line-on { transform-origin: left center; animation: step-fill 260ms ease-out both; }
+  .step-bar li:nth-child(2) .step-dot, .step-bar li:nth-child(2) .step-line-on { animation-delay: 140ms; }
+  .step-bar li:nth-child(3) .step-dot, .step-bar li:nth-child(3) .step-line-on { animation-delay: 280ms; }
+  .step-bar[data-anim='back'] .step-line-on { transform-origin: right center; }
+  .step-bar[data-anim='back'] li:nth-child(1) .step-dot, .step-bar[data-anim='back'] li:nth-child(1) .step-line-on { animation-delay: 280ms; }
+  .step-bar[data-anim='back'] li:nth-child(3) .step-dot, .step-bar[data-anim='back'] li:nth-child(3) .step-line-on { animation-delay: 0ms; }
+  @media (prefers-reduced-motion: reduce) {
+    .step-bar .step-dot, .step-bar .step-line-on { animation: none; }
+  }
+}
+@keyframes step-pop { from { transform: scale(0.6); opacity: 0.4; } }
+@keyframes step-fill { from { transform: scaleX(0); } }
