@@ -9,6 +9,7 @@ import {
   isRequestId,
   normalizeActivityInput,
   normalizeScheduleInput,
+  planActivityMove,
   planStageVersions,
   stagePositionAt,
   type Activity,
@@ -53,7 +54,7 @@ import { RealClock, type Clock } from '@/shared/time'
  *   後到的看到 revision 變了就回 `CONFLICT`。
  * - 活動：`cohorts FOR SHARE`（確認屆別沒被封存），再 `project_events FOR UPDATE`。
  *
- * 刪除（第三波 W11）只限已取消的活動，打刪除標記（`deleted_at`／`deleted_by_user_id`）不實體刪列；
+ * 刪除（③ §9.1）排定中、已取消的都能直接刪，打刪除標記（`deleted_at`／`deleted_by_user_id`）不實體刪列；
  * 被刪的活動在鎖列與所有查詢都當作不存在。
  *
  * 活動每次異動都在同一筆交易發一個 `calendar.changed` 事件（沒有收件人：站內日曆是查出來的，
@@ -392,6 +393,79 @@ export class PgTimelineCommand implements TimelineCommand {
     })
   }
 
+  async moveActivity(
+    actor: ResolvedActor,
+    activityId: string,
+    dates: { startDate: string; endDate: string },
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<ActivityReceipt>> {
+    const denied = authorizeAdmin(actor, '管理活動')
+    if (denied) return denied
+    if (!isRequestId(requestId)) return badRequestId()
+    if (!isCohortId(activityId)) return activityNotFound()
+    const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockActivity(tx, activityId)
+      if (!locked) return activityNotFound()
+      const { cohort, row } = locked
+
+      const realAt = this.#realClock.now()
+      // 拖拉也是「修改活動」：沿用同一個冪等種類，指紋另外標 `move` 跟整份表單的改期分開。
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'cohort.activity.update',
+          requestId,
+          fingerprint: sha256(canonicalJson({ activityId, move: dates, expectedRevision })),
+          scope: 'cohort',
+          cohortId: cohort.id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
+      if (cohort.status === 'archived') return archived(cohort)
+      if (row.revision !== expectedRevision) return staleRevision()
+      if (row.status === 'cancelled') return err('VALIDATION_FAILED', '這個活動已經取消，不能再改期。')
+      const before = toActivity(row)
+      const planned = planActivityMove(before, dates)
+      if (!planned.ok) return planned
+
+      await tx.query(
+        `update project_events
+            set starts_at = $2, ends_at = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+          where id = $1`,
+        [activityId, planned.value.startsAt, planned.value.endsAt, realAt, userId],
+      )
+      const after: NormalizedActivity = {
+        title: before.title,
+        description: before.description,
+        startsAt: planned.value.startsAt,
+        endsAt: planned.value.endsAt,
+        allDay: before.allDay,
+        audienceKind: before.audienceKind,
+      }
+      await this.#recordChange(tx, {
+        cohortId: cohort.id,
+        activityId,
+        version: row.revision + 1,
+        action: 'updated',
+        userId,
+        realAt,
+        businessAt,
+        before,
+        after,
+      })
+
+      const receipt = { activityId, title: before.title, action: 'updated' as const, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { activityId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   async cancelActivity(
     actor: ResolvedActor,
     activityId: string,
@@ -483,11 +557,10 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (deleted) return activityNotFound()
+      const blocker = activityDeleteBlocker({ deleted })
+      if (blocker) return err('VALIDATION_FAILED', blocker)
       if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
-      const blocker = activityDeleteBlocker(toActivity(row))
-      if (blocker) return err('VALIDATION_FAILED', blocker)
 
       await tx.query(
         `update project_events

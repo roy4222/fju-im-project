@@ -158,7 +158,7 @@ const EXPECTED_TABLES = [
   ...C2_TABLES,
 ].sort()
 
-const LATEST = '0023_c3_profile_card_links'
+const LATEST = '0024_c3_events_span'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -867,6 +867,59 @@ describe('0023（C3-01，③-1）：已套 0022、有資料的庫升到 0023：�
         [db.schemaName],
       )
       expect(gone.rows).toEqual([])
+    })
+  })
+})
+
+describe('0024（C3-06，③-2）：已套 0023、有資料的庫升到 0024：活動跨日、直接刪除', () => {
+  it('舊的全天活動補 ends_at＝starts_at + 1 天；全天活動 ends_at 非空且大於 starts_at；排定中的活動可以標 deleted_at', async () => {
+    await withIsolatedDatabase({ label: 'm0024' }, async (db) => {
+      await applyMigrations(db, '0023_c3_profile_card_links')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0024@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(`insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), '115', '115', 'system') returning id`)
+      const cohortId = String(cohort.rows[0]!.id)
+      const insert = (startsAt: string, endsAt: string | null, allDay: boolean) =>
+        db
+          .sql(
+            `insert into project_events (id, cohort_id, title, starts_at, ends_at, all_day, audience_kind, created_by_kind)
+             values (gen_random_uuid(), $1, 't', $2, $3, $4, 'cohort_students', 'system') returning id`,
+            [cohortId, startsAt, endsAt, allDay],
+          )
+          .then((r) => String(r.rows[0]!.id))
+      const remove = (id: string) =>
+        db.sql(`update project_events set deleted_at = now(), deleted_by_user_id = $2 where id = $1`, [id, userId])
+
+      // 0023 時：全天活動 ends_at 是 NULL；排定中的不能標刪除。
+      const oldAllDay = await insert('2026-12-19T16:00:00Z', null, true)
+      const oldTimed = await insert('2026-12-20T06:00:00Z', null, false)
+      await expect(remove(oldTimed)).rejects.toThrow(/project_events_deleted_check/)
+
+      await applyMigration(db, '0024_c3_events_span')
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+
+      const rows = await db.sql(`select id, ends_at from project_events order by starts_at`)
+      expect(rows.rows.map((r) => [r.id, (r.ends_at as Date | null)?.toISOString() ?? null])).toEqual([
+        [oldAllDay, '2026-12-20T16:00:00.000Z'],
+        [oldTimed, null],
+      ])
+      expect((await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)).rows).toEqual([{ n: 0 }])
+
+      // 全天活動 ends_at 非空且大於 starts_at；有時間的仍可 NULL 或等於開始。
+      await expect(insert('2027-03-09T16:00:00Z', null, true)).rejects.toThrow(/project_events_all_day_end_check/)
+      await expect(insert('2027-03-09T16:00:00Z', '2027-03-09T16:00:00Z', true)).rejects.toThrow(/project_events_ends_after_starts_check/)
+      await expect(insert('2027-03-09T16:00:00Z', '2027-03-12T16:00:00Z', true)).resolves.toBeTruthy()
+      await expect(insert('2027-04-01T01:00:00Z', '2027-04-01T01:00:00Z', false)).resolves.toBeTruthy()
+      await expect(insert('2027-04-01T01:00:00Z', '2027-04-01T00:00:00Z', false)).rejects.toThrow(/project_events_ends_after_starts_check/)
+
+      // 排定中的活動可以直接標 deleted_at；刪除標記兩欄仍要成對。
+      await expect(remove(oldTimed)).resolves.toMatchObject({ rowCount: 1 })
+      expect((await db.sql(`select status from project_events where id = $1`, [oldTimed])).rows).toEqual([{ status: 'scheduled' }])
+      await expect(db.sql(`update project_events set deleted_at = now() where id = $1`, [oldAllDay])).rejects.toThrow(
+        /project_events_deleted_check/,
+      )
     })
   })
 })

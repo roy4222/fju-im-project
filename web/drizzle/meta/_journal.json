@@ -169,6 +169,13 @@
       "when": 1792401847221,
       "tag": "0023_c3_profile_card_links",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792474022858,
+      "tag": "0024_c3_events_span",
+      "breakpoints": true
     }
   ]
 }

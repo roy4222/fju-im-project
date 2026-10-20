@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconAlertTriangle, IconCalendarEvent, IconCalendarOff } from '@tabler/icons-react'
+import { IconCalendarEvent } from '@tabler/icons-react'
 import { PageTitle, Panel, Pill, pillClass } from '@/app/_ui/dashboard-kit'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
@@ -13,7 +13,6 @@ import {
   ActivityNotice,
   ActivityNoticeProvider,
   CreateActivityForm,
-  DeleteActivityButton,
   type AudienceOption,
 } from '@/app/dashboard/admin/timeline/timeline-forms'
 import type { TimelineSummary } from '@/app/dashboard/_timeline/timeline-zigzag'
@@ -48,8 +47,8 @@ export const metadata = { title: '專題時程｜資管系專題平台' }
  *
  * 一屆四個階段：只填開始日，下一段開始日就是上一段的結束；另填年度結束日（含當天）。
  * 「現在第幾階段」用業務鐘算——測試站把模擬鐘推開，這裡與三角色首頁一起變。
- * 下半頁是獨立活動（說明會、成果發表）：新增、改期、取消，取消的留在「已取消」。
- * 刪除已取消的活動（第三波 W11）放在頁面最底下的「危險操作」區（§9 規則 1），不跟改期、取消並列。
+ * 下半頁是獨立活動（說明會、成果發表）的「活動清單」：每列「編輯」「刪除」（③ C3-06：活動可以跨日、
+ * 排定中的直接刪，不再有「取消活動」與「危險操作」區）；已取消的舊活動也列在這裡，標「已取消」只有「刪除」。
  * AD-12：掛「設定」分頁列（新增活動放分頁列右側），三個 Panel 拿掉說明句，「系統時間」改「目前時間（臺灣）」。
  * C2-06（C2 設計方案 §4.2）：分頁標籤「專題時程」；拿掉「調整模擬時鐘」連結——測試用時間直接打 `/dashboard/admin/clock`。
  */
@@ -113,8 +112,6 @@ export default async function AdminTimelinePage({
     titleMaxLength: ACTIVITY_TITLE_MAX_LENGTH,
     descriptionMaxLength: ACTIVITY_DESCRIPTION_MAX_LENGTH,
   }
-  const scheduled = activities.filter((a) => a.status === 'scheduled')
-  const cancelled = activities.filter((a) => a.status === 'cancelled')
 
   // 各階段的狀態與日期（伺服器用業務鐘算好；卡片只負責畫）。
   const configured = schedule.stages.length > 0 && schedule.yearEndDate !== null
@@ -202,97 +199,45 @@ export default async function AdminTimelinePage({
       />
 
       <ActivityNoticeProvider>
-        {/* 取消成功的句子放在清單外：那一列取消後就移出「已排定」清單了。 */}
-        <ActivityNotice />
-        <Panel
-          title="已排定的活動"
-          icon={<IconCalendarEvent />}
-          description={`${scheduled.length} 個`}
-          aria-label="已排定的活動"
-        >
-          {scheduled.length === 0 ? (
-            <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">還沒有活動。</p>
-          ) : (
-            <ul className="divide-y divide-border border-t border-border">
-              {scheduled.map((activity) => (
-                <li
-                  key={activity.id}
-                  className="flex flex-wrap items-start justify-between gap-3 px-5 py-3 transition-colors hover:bg-accent/40"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-bold">{activity.title}</p>
-                    <p className="text-sm text-muted-foreground tabular-nums">
-                      {formatActivityWhen(activity)}・{ACTIVITY_AUDIENCE_LABEL[activity.audienceKind]}
-                    </p>
-                    {activity.description ? <p className="mt-1 text-sm">{activity.description}</p> : null}
-                  </div>
-                  <ActivityActions
-                    activityId={activity.id}
-                    title={activity.title}
-                    revision={activity.revision}
-                    requestIds={{ update: randomUUID(), cancel: randomUUID() }}
-                    values={activityFormValues(activity)}
-                    {...limits}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        {cancelled.length > 0 ? (
-          <Panel title="已取消" icon={<IconCalendarOff />} description={`${cancelled.length} 個`} aria-label="已取消的活動">
-            <ul className="divide-y divide-border border-t border-border">
-              {cancelled.map((activity) => (
-                <li key={activity.id} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm text-muted-foreground">
-                  <Pill>已取消</Pill>
-                  <span className="line-through">{activity.title}</span>
-                  <span className="tabular-nums">・{formatActivityWhen(activity)}</span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        ) : null}
-      </ActivityNoticeProvider>
-
-      {/* 危險操作（§9 規則 1）：刪除跟日常的改期、取消拉開，放在頁面最底下；自己一個回饋區。
-          該屆沒有活動也照樣渲染這一區：成功句子掛在這一區裡，刪掉最後一個時若整區不見，句子會跟著卸載、看不到「已刪除」。 */}
-      <ActivityNoticeProvider>
-        <Panel
-          title="危險操作"
-          icon={<IconAlertTriangle />}
-          aria-label="危險操作"
-          className="border border-destructive/30"
-        >
+        <Panel title="活動清單" icon={<IconCalendarEvent />} description={`${activities.length} 個`} aria-label="活動清單">
+          {/* 刪除成功的句子放在列外：那一列刪掉就卸載了；刪光最後一個時這一區仍在，句子不會跟著消失。 */}
           <div className="border-t border-border px-5 py-3 empty:hidden">
             <ActivityNotice />
           </div>
           {activities.length === 0 ? (
-            <p className="border-t border-border px-5 py-4 text-sm text-muted-foreground">目前沒有活動。</p>
+            <p className="border-t border-border px-5 py-8 text-center text-sm text-muted-foreground">目前沒有活動。</p>
           ) : (
-            <ul aria-label="活動刪除清單" className="divide-y divide-border border-t border-border">
-              {[...cancelled, ...scheduled].map((activity) => (
-                <li key={activity.id} data-testid="danger-activity" className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <Pill>{activity.status === 'cancelled' ? '已取消' : '已排定'}</Pill>
-                      <span className="font-semibold">{activity.title}</span>
-                      <span className="text-muted-foreground tabular-nums">・{formatActivityWhen(activity)}</span>
+            <ul className="divide-y divide-border border-t border-border">
+              {activities.map((activity) => {
+                const cancelled = activity.status === 'cancelled'
+                return (
+                  <li
+                    key={activity.id}
+                    data-testid="activity-row"
+                    className="flex flex-wrap items-start justify-between gap-3 px-5 py-3 transition-colors hover:bg-accent/40"
+                  >
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-2 text-[15px] font-bold">
+                        {cancelled ? <Pill>已取消</Pill> : null}
+                        <span className={cancelled ? 'text-muted-foreground line-through' : undefined}>{activity.title}</span>
+                      </p>
+                      <p className="text-sm text-muted-foreground tabular-nums">
+                        {formatActivityWhen(activity)}・{ACTIVITY_AUDIENCE_LABEL[activity.audienceKind]}
+                      </p>
+                      {activity.description ? <p className="mt-1 text-sm">{activity.description}</p> : null}
                     </div>
-                    {activity.status === 'scheduled' ? (
-                      <p className="mt-0.5 text-xs text-muted-foreground">還在排定中，要先「取消活動」才能刪除。</p>
-                    ) : null}
-                  </div>
-                  <DeleteActivityButton
-                    activityId={activity.id}
-                    title={activity.title}
-                    when={formatActivityWhen(activity)}
-                    revision={activity.revision}
-                    requestId={randomUUID()}
-                    scheduled={activity.status === 'scheduled'}
-                  />
-                </li>
-              ))}
+                    <ActivityActions
+                      activityId={activity.id}
+                      title={activity.title}
+                      revision={activity.revision}
+                      requestIds={{ update: randomUUID(), remove: randomUUID() }}
+                      values={activityFormValues(activity)}
+                      editable={!cancelled}
+                      {...limits}
+                    />
+                  </li>
+                )
+              })}
             </ul>
           )}
         </Panel>

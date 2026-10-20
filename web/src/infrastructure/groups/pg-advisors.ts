@@ -54,8 +54,8 @@ import { RealClock, type Clock } from '@/shared/time'
  * 每個寫入都是同一個形狀（契約 01 §8）：開交易 → 鎖組別 → 帳本 `begin` → 業務寫入 → 事件、稽核 → 帳本 `commit`。
  * 業務時間在開交易**之前**讀一次（和分組其他寫入一樣）。
  *
- * 鎖順序照分組：`cohorts FOR SHARE` → `groups FOR NO KEY UPDATE`。兩位老師同時認領同一組，後到的在組別列排隊，
- * 醒來時看到前者已經寫好的主指導 → `ALREADY_CLAIMED`，而且說得出是誰。資料庫的部分唯一
+ * 鎖順序照分組：`cohorts FOR SHARE` → `groups FOR NO KEY UPDATE`。負責老師「確認指導」與系辦「指派」同時發生，
+ * 後到的在組別列排隊，醒來時看到前者已經寫好的主指導 → `ALREADY_CLAIMED`，而且說得出是誰。資料庫的部分唯一
  * `advisor_assignments_one_active` 是後備防線：就算哪天有人繞過鎖，也只會有一列成功，另一筆收到同一句衝突訊息。
  * 用 `NO KEY UPDATE` 而不是 `UPDATE`：它和分組其他寫入（`FOR UPDATE`）一樣互斥，但不擋別的交易插入指向這組的列
  * （外鍵檢查只拿 `KEY SHARE`），整合測試才證明得到後備防線。
@@ -197,6 +197,12 @@ export class PgAdvisorCommand implements AdvisorCommand {
       if (group.group_type !== 'industry') {
         return err('FORBIDDEN', `${group.code} 是一般專題：一般組由系辦依抽籤結果指派，老師不能自行擔任指導老師。`)
       }
+      // C3-09（規格③ §7.2、§11）：只有「這組選的合作案」的負責老師可以確認指導——連結 `pending`（學生選的）或
+      // `active`（TE-B3／系辦直接連的）都算；沒連、或連到別人的案一律 FORBIDDEN。先驗這條，再看有沒有主指導。
+      const link = await currentLink(tx, group.id)
+      if (!link || link.owner_teacher_user_id !== teacherId) {
+        return err('FORBIDDEN', '這組沒有選你的合作案，不能確認指導。學生選了你的合作案成組後，才會出現在「待確認要帶的組」。')
+      }
 
       const current = await currentAdvisor(tx, group.id)
       if (current) return alreadyAdvised(group.code, current.teacher_name, current.teacher_user_id === teacherId)
@@ -214,7 +220,10 @@ export class PgAdvisorCommand implements AdvisorCommand {
         reason: null,
         realAt,
         businessAt: businessNow,
+        auditExtra: { linkId: link.id, opportunityId: link.opportunity_id, linkStateBefore: link.state },
       })
+      // 確認指導＝這條連結成立（規格③ §7.2）；TE-B3／系辦連的本來就是 active，照樣寫一次不會錯。
+      await tx.query(`update opportunity_links set state = 'active' where id = $1 and valid_to is null`, [link.id])
       const full = { ...receipt, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { groupId: group.id } })
       return { ok: true as const, receipt: full }
@@ -740,6 +749,20 @@ async function currentAdvisor(tx: PoolClient, groupId: string): Promise<AdvisorR
        join users u on u.id = a.teacher_user_id
        left join user_profiles p on p.user_id = a.teacher_user_id
       where a.group_id = $1 and a.valid_to is null`,
+    [groupId],
+  )
+  return rows.rows[0] ?? null
+}
+
+/** 這一組目前有效的合作案連結（`pending` 或 `active`）與那一案的負責老師；沒有是 null。 */
+async function currentLink(
+  tx: PoolClient,
+  groupId: string,
+): Promise<{ id: string; opportunity_id: string; owner_teacher_user_id: string; state: 'pending' | 'active' } | null> {
+  const rows = await tx.query<{ id: string; opportunity_id: string; owner_teacher_user_id: string; state: 'pending' | 'active' }>(
+    `select l.id, l.opportunity_id, l.state, o.owner_teacher_user_id
+       from opportunity_links l join industry_opportunities o on o.id = l.opportunity_id
+      where l.group_id = $1 and l.valid_to is null`,
     [groupId],
   )
   return rows.rows[0] ?? null

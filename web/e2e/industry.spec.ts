@@ -490,7 +490,8 @@ test('管理員組別名單：篩選、排序、組員信箱欄與「複製本�
 
 test('老師與學生看不到組員登入信箱（只有管理員的名單有）', async ({ page }) => {
   await signIn(page, owner)
-  await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
+  // C3-09：「全部組別」在 `?tab=all`。
+  await page.goto(`/dashboard/teacher/groups?tab=all&cohort=${cohortId}`)
   await expect(page.getByRole('region', { name: '全部組別' })).toContainText('G01')
   // 驗收 P-01：多屆並存時的屆別切換標「名稱（代碼）」（只有一屆時不出現切換）。
   const pills = page.getByRole('navigation', { name: '選擇屆別' })

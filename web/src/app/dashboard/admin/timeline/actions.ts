@@ -1,12 +1,14 @@
 'use server'
+import { randomUUID } from 'node:crypto'
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { TimelineActionState } from '@/app/dashboard/admin/timeline/timeline-forms'
 import { cohortLabel, getTimelineCommand, STAGE_COUNT } from '@/composition/cohorts'
 
 /**
- * 時間軸頁的動作（票 11；契約 02 §7）：存階段與年度結束日、新增活動、改期、取消活動；
- * 第三波 W11 加刪除已取消的活動。
+ * 時間軸頁的動作（票 11；契約 02 §7）：存階段與年度結束日、新增活動、改期、刪除活動。
+ * ③ C3-06：活動可以跨日（開始日／結束日）；排定中的直接刪除；`moveActivityAction` 給甘特拖拉只改起訖日。
+ * `cancelActivityAction` 保留（用例還在）但畫面不再掛。
  *
  * 這裡只做「表單 → 用例 → 畫面回饋」的翻譯；誰能做、日期怎麼驗、版本有沒有過期，
  * 全部在用例裡判（直接打這個 Server Action 的人一樣會被用例擋下）。
@@ -19,7 +21,8 @@ function activityInput(formData: FormData) {
   return {
     title: text(formData, 'title'),
     description: text(formData, 'description'),
-    date: text(formData, 'date'),
+    startDate: text(formData, 'startDate'),
+    endDate: text(formData, 'endDate'),
     allDay: formData.get('allDay') === 'on',
     startTime: text(formData, 'startTime'),
     endTime: text(formData, 'endTime'),
@@ -113,5 +116,27 @@ export async function deleteActivityAction(
   )
   if (!result.ok) return { ok: false, message: result.message }
   refresh()
-  return { ok: true, message: `已刪除活動「${result.receipt.title}」：後台與前台都不再顯示，不能恢復。` }
+  return { ok: true, message: `已刪除活動「${result.receipt.title}」。` }
+}
+
+/**
+ * 甘特拖拉放開（③ §9.3）：只改起訖日，其他欄位沿用。請求編號在這裡產生——拖拉沒有表單，
+ * 每次放開都是新的一次操作。非全天、沒寫結束時間的拉成跨日由用例擋（「跨日的活動要填結束時間」）。
+ */
+export async function moveActivityAction(
+  activityId: string,
+  revision: number,
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: true; message?: string } | { ok: false; message: string }> {
+  const result = await getTimelineCommand().moveActivity(
+    await currentActor(),
+    String(activityId),
+    { startDate: String(startDate), endDate: String(endDate) },
+    Number(revision),
+    randomUUID(),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: `已更新活動「${result.receipt.title}」。` }
 }

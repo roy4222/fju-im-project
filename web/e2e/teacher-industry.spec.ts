@@ -138,8 +138,8 @@ test('老師的合作案頁與對話框沒有「請洽系辦」這類說明句�
 })
 
 /**
- * 老師規格 TE-05（Q77、Q52）：分組總覽分成「我的組別｜合作案」兩個分頁；舊網址 `/dashboard/teacher/industry`
- * 先過老師角色檢查再轉到「合作案」分頁（AC-TE-19、AC-TE-29、AC-TE-30）。
+ * 老師規格 TE-05（Q77、Q52）＋ C3-09（規格③ §7.1、AC-C3-24～25、29）：分組總覽分成「我指導的組｜產學組｜全部組別」三個分頁；
+ * 舊網址 `/dashboard/teacher/industry` 與 `?tab=cases` 先過老師角色檢查再轉到「產學組」分頁（AC-TE-19、AC-TE-29、AC-TE-30）。
  * 下面三條各自建資料，不依賴上面幾條的順序。
  */
 async function freshSession(role: 'teacher' | 'student'): Promise<TestSession> {
@@ -153,28 +153,30 @@ async function freshSession(role: 'teacher' | 'student'): Promise<TestSession> {
 
 const tabsOf = (page: Page) => page.getByRole('navigation', { name: '分組總覽分頁' })
 
-test('TE-05：舊網址「合作案」轉到分組總覽的合作案分頁；學生打同網址仍是 403（角色檢查在轉頁之前）', async ({ page }) => {
+test('TE-05／AC-C3-24：舊網址「合作案」與 `?tab=cases` 都到「產學組」分頁、`?scope=all` 丟棄；學生打同網址仍是 403（角色檢查在轉頁之前）', async ({ page }) => {
   const owner = await freshSession('teacher')
   const student = await freshSession('student')
   const company = `轉頁${stamp}`
   await signIn(page, owner)
+  // 舊的 `?tab=cases` 當成 `industry`：200、「產學組」是目前分頁。
   await createThenToggle(page, '/dashboard/teacher/groups?tab=cases', company)
+  await expect(tabsOf(page).getByRole('link', { name: '產學組', exact: true })).toHaveAttribute('aria-current', 'page')
 
   await page.goto('/dashboard/teacher/industry')
-  await expect(page).toHaveURL(/\/dashboard\/teacher\/groups\?tab=cases$/)
-  await expect(tabsOf(page).getByRole('link', { name: '合作案', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page).toHaveURL(/\/dashboard\/teacher\/groups\?tab=industry$/)
+  await expect(tabsOf(page).getByRole('link', { name: '產學組', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('managed-opportunity').filter({ hasText: company })).toBeVisible()
-  // 「全部」照舊帶過去。
+  // 「全部合作案」拿掉了：`?scope=all` 丟棄，沒有範圍切換（別人的案看前台 `/industry`）。
   await page.goto('/dashboard/teacher/industry?scope=all')
-  await expect(page).toHaveURL(/\/dashboard\/teacher\/groups\?tab=cases&scope=all$/)
-  await expect(page.getByRole('navigation', { name: '合作案範圍' }).getByRole('link', { name: /^全部/ })).toHaveAttribute('aria-current', 'page')
+  await expect(page).toHaveURL(/\/dashboard\/teacher\/groups\?tab=industry$/)
+  await expect(page.getByRole('navigation', { name: '合作案範圍' })).toHaveCount(0)
 
   await signIn(page, student)
   await page.goto('/dashboard/teacher/industry')
   await expect(page).toHaveURL(/\/403/)
 })
 
-test('TE-05：合作案分頁只有自己的案能編輯；「全部」看得到別人的案但沒有編輯鍵（AC-TE-30）', async ({ page }) => {
+test('TE-05：產學組分頁只列、只能編輯自己的案；別人的案不在「我的合作案」裡、沒有「全部合作案」清單（AC-TE-30）', async ({ page }) => {
   const mine = await freshSession('teacher')
   const other = await freshSession('teacher')
   const myCompany = `案主甲${stamp}`
@@ -190,15 +192,13 @@ test('TE-05：合作案分頁只有自己的案能編輯；「全部」看得到
   await expect(page.getByTestId('managed-opportunity').filter({ hasText: otherCompany })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '新增合作案' })).toBeVisible()
   expect((await page.getByRole('main').textContent()) ?? '').not.toMatch(/洽系辦|系辦退回|交系辦|聯絡系辦/)
-
-  await page.goto('/dashboard/teacher/groups?tab=cases&scope=all')
-  const all = page.getByRole('list', { name: '全部合作案' })
-  await expect(all.getByRole('listitem').filter({ hasText: otherCompany })).toContainText('只有負責老師能編輯')
-  await expect(all.getByRole('listitem').filter({ hasText: otherCompany }).getByRole('button')).toHaveCount(0)
-  await expect(all.getByRole('listitem').filter({ hasText: myCompany })).toContainText('在「我的」管理')
+  // 老師不能刪合作案（只有系辦）：列上沒有刪除鈕。
+  await expect(myRow.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
+  await expect(page.getByRole('list', { name: '全部合作案' })).toHaveCount(0)
+  await expect(page.getByRole('main')).not.toContainText(otherCompany)
 })
 
-test('TE-05：我的組別分頁有「我指導的組」卡片、擔任產學組、全部組別；擔任後重新整理多一張卡（AC-TE-19、AC-TE-29）', async ({ page }) => {
+test('TE-05／AC-C3-24、25、29：預設「我指導的組」（頭像一列、合作案名、作業區連結）；「全部組別」可搜尋、無認領；產學組分頁 G04 待確認 → 確認指導後多一張卡', async ({ page }) => {
   test.setTimeout(120_000)
   const t1 = await freshSession('teacher')
   const code = `TE05-${stamp}`
@@ -265,36 +265,81 @@ test('TE-05：我的組別分頁有「我指導的組」卡片、擔任產學組
   await group('G01', 'industry', t1.userId)
   await group('G02', 'general', t1.userId)
   await group('G04', 'industry', null)
+  // G01 連到 t1 的案（已確認）；G04 學生選了 t1 的案、等確認（C3-09 的 pending 連結由成組交易寫，這裡直插）。
+  const company = `三分頁${stamp}`
+  const opportunity = await pool.query<{ id: string }>(
+    `insert into industry_opportunities
+       (id, owner_teacher_user_id, company_name, department, content, requirements, status, published_business_at, created_by_kind, created_by_user_id)
+     values (gen_random_uuid(), $1, $2, '資訊部', 'TE-05 內容', '', 'published', now(), 'user', $1) returning id`,
+    [t1.userId, company],
+  )
+  const groupIdOf = async (groupCode: string) =>
+    (await pool.query<{ id: string }>('select id from groups where cohort_id = $1 and code = $2', [cohortId, groupCode])).rows[0]!.id
+  await pool.query(
+    `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at, state)
+     values (gen_random_uuid(), $1, $3, $4, $2, $4, 'active'), (gen_random_uuid(), $5, $3, $4, $6, $4, 'pending')`,
+    [await groupIdOf('G01'), admin.userId, opportunity.rows[0]!.id, at, await groupIdOf('G04'), t1.userId],
+  )
 
   await signIn(page, t1)
   await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
   const tabs = tabsOf(page)
-  await expect(tabs.getByRole('link')).toHaveText(['我的組別', '合作案'])
-  await expect(tabs.getByRole('link', { name: '我的組別', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('main')).toContainText('一般組由系辦指派。')
+  await expect(tabs.getByRole('link')).toHaveText(['我指導的組', '產學組', '全部組別'])
+  await expect(tabs.getByRole('link', { name: '我指導的組', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('main')).toContainText('產學組的確認與婉拒在「產學組」分頁。')
 
   const myGroups = page.getByRole('region', { name: '我指導的組' })
-  await expect(myGroups.getByRole('listitem')).toHaveCount(2)
+  // 卡片數（組員頭像一列也是 list，所以用 testid 數卡）。
+  await expect(myGroups.locator('[data-testid^="my-group-"]')).toHaveCount(2)
   const g01 = myGroups.getByTestId('my-group-G01')
   await expect(g01).toContainText(`G01・${leaders.get('G01')}`)
   await expect(g01).toContainText('產學合作')
+  await expect(g01).toContainText(`合作案：${company}・資訊部`)
+  // 組員頭像一列（32px，alt 是姓名）。
+  await expect(g01.getByRole('list', { name: 'G01 的組員' }).getByRole('img')).toHaveCount(2)
+  await expect(g01.getByRole('img').first()).toHaveAttribute('width', '32')
   await expect(myGroups.getByTestId('my-group-G02')).toContainText('一般專題')
-  await expect(g01.getByRole('link')).toHaveAttribute('href', '/dashboard/teacher/affairs')
-
-  const claim = page.getByRole('region', { name: '擔任產學組指導老師' })
-  await expect(claim.getByRole('row').filter({ hasText: 'G04' })).toContainText('可擔任')
-  await expect(page.getByRole('region', { name: '全部組別' }).getByPlaceholder('搜尋組別或組員…')).toBeVisible()
-  const text = (await page.getByRole('main').textContent()) ?? ''
+  // C1-10 之後作業區預設是「我的作業」：從指導的組點進去要落在「指導組別的繳交」。
+  await expect(g01.getByRole('link')).toHaveAttribute('href', '/dashboard/teacher/affairs?tab=submissions')
+  // 「我指導的組」分頁沒有擔任／認領、沒有全部組別的表。
+  await expect(page.getByRole('region', { name: '擔任產學組指導老師' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '全部組別' })).toHaveCount(0)
+  let text = (await page.getByRole('main').textContent()) ?? ''
   expect(text).not.toContain('認領')
-  expect(text).not.toMatch(/洽系辦|系辦重派/)
+  expect(text).not.toMatch(/可擔任|洽系辦|系辦重派/)
 
-  await claim.getByRole('button', { name: '擔任 G04 的指導老師' }).click()
-  const dialog = page.getByRole('dialog', { name: '擔任 G04 的指導老師' })
-  await dialog.getByRole('button', { name: '指定為我的組別' }).click()
+  // 全部組別（AC-C3-29）：可搜尋、每列組員頭像、指導老師標「你」、說明句含「一般組由系辦指派。」、沒有擔任區塊。
+  await page.goto(`/dashboard/teacher/groups?tab=all&cohort=${cohortId}`)
+  await expect(tabsOf(page).getByRole('link', { name: '全部組別', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('main')).toContainText('一般組由系辦指派。')
+  const all = page.getByRole('region', { name: '全部組別' })
+  await expect(all.getByPlaceholder('搜尋組別或組員…')).toBeVisible()
+  await expect(all.getByRole('row').filter({ hasText: 'G04' })).toContainText('尚未指派')
+  await expect(all.getByRole('row').filter({ hasText: 'G01' })).toContainText('（你）')
+  await expect(all.getByRole('row').filter({ hasText: 'G01' }).getByRole('list', { name: 'G01 的組員' }).getByRole('img')).toHaveCount(2)
+  await all.getByPlaceholder('搜尋組別或組員…').fill(leaders.get('G04')!)
+  await expect(all.getByRole('row').filter({ hasText: 'G04' })).toBeVisible()
+  await expect(all.getByRole('row').filter({ hasText: 'G01' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '擔任產學組指導老師' })).toHaveCount(0)
+  text = (await page.getByRole('main').textContent()) ?? ''
+  expect(text).not.toContain('認領')
+  expect(text).not.toMatch(/可擔任|擔任產學組指導老師|洽系辦|系辦重派/)
+
+  // 產學組（AC-C3-25）：G04 在「待確認要帶的組」，G01 在「已帶的組」；確認指導 G04 → 已帶的組、我指導的組都多一張卡。
+  await page.goto('/dashboard/teacher/groups?tab=industry')
+  const row = page.getByTestId('managed-opportunity').filter({ hasText: company })
+  const pending = row.getByRole('region', { name: '待確認要帶的組' })
+  await expect(pending.getByTestId('industry-group-G04')).toContainText(`組長 ${leaders.get('G04')}`)
+  await expect(pending.getByTestId('industry-group-G01')).toHaveCount(0)
+  await expect(row.getByRole('region', { name: '已帶的組' }).getByTestId('industry-group-G01')).toContainText('你指導中')
+  await pending.getByRole('button', { name: '確認指導：G04' }).click()
+  const dialog = page.getByRole('dialog', { name: '確認指導 G04？' })
+  await dialog.getByRole('button', { name: '確認指導' }).click()
   await expect(dialog.getByRole('status')).toContainText('G04 已指定為你的組別')
   await page.reload()
+  await expect(page.getByTestId('managed-opportunity').filter({ hasText: company }).getByRole('region', { name: '已帶的組' }).getByTestId('industry-group-G04')).toContainText('你指導中')
+  await page.goto(`/dashboard/teacher/groups?cohort=${cohortId}`)
   await expect(page.getByRole('region', { name: '我指導的組' }).getByTestId('my-group-G04')).toBeVisible()
-  await expect(page.getByRole('region', { name: '擔任產學組指導老師' }).getByRole('row').filter({ hasText: 'G04' })).toContainText('你指導中')
 })
 
 /**
@@ -410,9 +455,12 @@ test('TE-B3：案主老師「連結組別」選 G01 → 成功、標「由 T2 �
   await expect(dialog).toBeHidden({ timeout: 5_000 })
   await expect(row).toContainText(`G01`)
   await expect(row).toContainText(`由 ${t2Name} 連結`)
+  // C3-09：直接連的也是 active；G01 已經有別的指導老師，所以不在「待確認要帶的組」也不在「已帶的組」。
+  await expect(row.getByRole('region', { name: '待確認要帶的組' }).getByTestId('industry-group-G01')).toHaveCount(0)
+  await expect(row.getByRole('region', { name: '已帶的組' }).getByTestId('industry-group-G01')).toHaveCount(0)
 
-  const links = await pool.query('select linked_by_user_id from opportunity_links where group_id = $1 and valid_to is null', [g01.id])
-  expect(links.rows).toEqual([{ linked_by_user_id: t2.userId }])
+  const links = await pool.query('select linked_by_user_id, state from opportunity_links where group_id = $1 and valid_to is null', [g01.id])
+  expect(links.rows).toEqual([{ linked_by_user_id: t2.userId, state: 'active' }])
   const audit = await pool.query(`select actor_user_id, role from audit_events where action = 'opportunity.link' and target_id = $1`, [g01.id])
   expect(audit.rows).toEqual([{ actor_user_id: t2.userId, role: 'teacher' }])
   // 首次連結不發通知：等 worker 有機會處理事件後，組員與案主的通知筆數都沒變。
