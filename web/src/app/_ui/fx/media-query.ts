@@ -47,3 +47,42 @@ export function useFxAllowed(): boolean {
 export function usePixelTouchAllowed(): boolean {
   return useSyncExternalStore(touchStore.subscribe, touchStore.getSnapshot, touchStore.getServerSnapshot)
 }
+
+/** 首頁掛上後才訂閱；與 React hooks 共用相同條件，換頁時由呼叫端取消。 */
+function subscribePixelMode(onChange: (mode: 'always' | 'tap' | null) => void): () => void {
+  let previous: 'always' | 'tap' | null | undefined
+  const update = () => {
+    const mode = fxStore.getSnapshot() ? 'always' : touchStore.getSnapshot() ? 'tap' : null
+    if (mode === previous) return
+    previous = mode
+    onChange(mode)
+  }
+  const stopFx = fxStore.subscribe(update)
+  const stopTouch = touchStore.subscribe(update)
+  update()
+  return () => {
+    stopFx()
+    stopTouch()
+  }
+}
+
+/** 條件改變就換模式／移除；舊模式的引擎下載晚到時，不得重新掛回。 */
+export function observeHomePixel(marker: Element, loadPixel: () => Promise<typeof import('./home-hero-pixel')>): () => void {
+  let stop: (() => void) | undefined
+  let dead = false
+  let revision = 0
+  const unsubscribe = subscribePixelMode((mode) => {
+    const current = ++revision
+    stop?.()
+    stop = undefined
+    if (!mode) return
+    void loadPixel().then((pixel) => {
+      if (!dead && current === revision) stop = pixel.mountHomeHeroPixel(marker, mode)
+    })
+  })
+  return () => {
+    dead = true
+    unsubscribe()
+    stop?.()
+  }
+}
