@@ -132,12 +132,15 @@ export type StageEditorProps = {
 
 /** 一段的三個欄位（名稱、開始日、一句話說明）；`draft` 受控。 */
 function StageFields({
+  idPrefix,
   seq,
   stage,
   onChange,
   nameMaxLength,
   descriptionMaxLength,
 }: {
+  /** 同一頁有兩個視窗用同一組欄位（設定、編輯第 n 階段）：id 要分開，標籤才指得到自己的欄位。 */
+  idPrefix: string
   seq: number
   stage: StageDraft
   onChange: (patch: Partial<StageDraft>) => void
@@ -147,11 +150,11 @@ function StageFields({
   return (
     <div className="grid gap-3 sm:grid-cols-[1fr_11rem]">
       <div>
-        <label htmlFor={`stage${seq}-name`} className={LABEL}>
+        <label htmlFor={`${idPrefix}${seq}-name`} className={LABEL}>
           第 {seq} 階段名稱
         </label>
         <input
-          id={`stage${seq}-name`}
+          id={`${idPrefix}${seq}-name`}
           name={`stage${seq}.name`}
           value={stage.name}
           onChange={(e) => onChange({ name: e.target.value })}
@@ -164,11 +167,11 @@ function StageFields({
         {seq === 1 ? <p className="mt-1 text-xs text-muted-foreground">{GROUPING_PERIOD_HINT}</p> : null}
       </div>
       <div>
-        <label htmlFor={`stage${seq}-start`} className={LABEL}>
+        <label htmlFor={`${idPrefix}${seq}-start`} className={LABEL}>
           第 {seq} 階段開始日
         </label>
         <input
-          id={`stage${seq}-start`}
+          id={`${idPrefix}${seq}-start`}
           name={`stage${seq}.startDate`}
           type="date"
           value={stage.startDate}
@@ -179,11 +182,11 @@ function StageFields({
       </div>
       {/* 原型 stage-edit-dialog 的「一句話說明」（0011，票 39）：學生的階段卡片上顯示。 */}
       <div className="sm:col-span-2">
-        <label htmlFor={`stage${seq}-description`} className={LABEL}>
+        <label htmlFor={`${idPrefix}${seq}-description`} className={LABEL}>
           第 {seq} 階段一句話說明 <span className="text-xs font-normal text-muted-foreground">選填</span>
         </label>
         <textarea
-          id={`stage${seq}-description`}
+          id={`${idPrefix}${seq}-description`}
           name={`stage${seq}.description`}
           rows={2}
           value={stage.description}
@@ -197,14 +200,14 @@ function StageFields({
   )
 }
 
-function YearEndField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function YearEndField({ idPrefix, value, onChange }: { idPrefix: string; value: string; onChange: (value: string) => void }) {
   return (
     <div className="sm:w-44">
-      <label htmlFor="year-end-date" className={LABEL}>
+      <label htmlFor={`${idPrefix}year-end-date`} className={LABEL}>
         年度結束日
       </label>
       <input
-        id="year-end-date"
+        id={`${idPrefix}year-end-date`}
         name="yearEndDate"
         type="date"
         value={value}
@@ -262,7 +265,7 @@ export function ScheduleSetup({ configured, ...editor }: StageEditorProps & { co
         title={`設定 ${editor.cohortLabel} 的階段與日期`}
         description="每個階段只填開始日，要一段比一段晚；下一段開始那天 00:00 起就換段。年度結束日當天仍算在年度內。之後點甘特上的階段色塊一段一段改。"
       >
-        {dialog.openKey > 0 ? (
+        {dialog.openKey > 0 && !configured ? (
           <ScheduleSetupForm key={dialog.openKey} {...editor} state={state} formAction={formAction} pending={pending} onCancel={dialog.close} />
         ) : null}
       </Dialog>
@@ -301,6 +304,7 @@ function ScheduleSetupForm({
           {draft.stages.map((stage, index) => (
             <li key={index}>
               <StageFields
+                idPrefix="setup-stage"
                 seq={index + 1}
                 stage={stage}
                 onChange={(patch) => setStage(index, patch)}
@@ -310,7 +314,7 @@ function ScheduleSetupForm({
             </li>
           ))}
         </ol>
-        <YearEndField value={draft.yearEndDate} onChange={(value) => setDraft((d) => ({ ...d, yearEndDate: value }))} />
+        <YearEndField idPrefix="setup-" value={draft.yearEndDate} onChange={(value) => setDraft((d) => ({ ...d, yearEndDate: value }))} />
         <Feedback state={state?.ok ? undefined : state} />
         <StageSubmitRow pending={pending} onCancel={onCancel} />
       </div>
@@ -392,6 +396,7 @@ export function StageEditDialog({
             index + 1 === seq ? (
               <StageFields
                 key={index}
+                idPrefix="edit-stage"
                 seq={seq}
                 stage={draft.stage}
                 onChange={(patch) => setDraft((d) => ({ ...d, stage: { ...d.stage, ...patch } }))}
@@ -403,7 +408,7 @@ export function StageEditDialog({
             ),
           )}
           {last ? (
-            <YearEndField value={draft.yearEndDate} onChange={(value) => setDraft((d) => ({ ...d, yearEndDate: value }))} />
+            <YearEndField idPrefix="edit-" value={draft.yearEndDate} onChange={(value) => setDraft((d) => ({ ...d, yearEndDate: value }))} />
           ) : (
             <input type="hidden" name="yearEndDate" value={editor.yearEndDate} />
           )}

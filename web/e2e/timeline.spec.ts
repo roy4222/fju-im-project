@@ -139,7 +139,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
 
   // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變（C3-08：點甘特上的第 3 段色塊開「編輯第 3 階段」）。
   await expect(page.getByRole('button', { name: '設定階段與日期', exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: /^第 3 階段「期末」/ }).click()
+  await page.getByRole('button', { name: /^第 3 階段「期末」\d/ }).click()
   const stage3 = page.getByRole('dialog', { name: '編輯第 3 階段' })
   await stage3.getByLabel('第 3 階段開始日').fill('2026-10-01')
   await stage3.getByRole('button', { name: '儲存' }).click()
@@ -150,7 +150,7 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await page.reload()
   await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027-01-10 – 2027-02-28')
   // 說明存進去了：點第 1 段色塊打開還在。
-  await page.getByRole('button', { name: /^第 1 階段「成組期」/ }).click()
+  await page.getByRole('button', { name: /^第 1 階段「成組期」\d/ }).click()
   const stage1 = page.getByRole('dialog', { name: '編輯第 1 階段' })
   await expect(stage1.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
   await stage1.getByRole('button', { name: '先不改' }).click()

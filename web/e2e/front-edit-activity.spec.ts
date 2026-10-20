@@ -93,6 +93,9 @@ async function openEditMode(page: Page, cohort?: string) {
   if (cohort) {
     await page.locator('section[aria-labelledby="home-activities"]').evaluate((el, id) => el.setAttribute('data-fe-cohort', id), cohort)
   }
+  // 編輯模式會跨頁記住（sessionStorage）：已經開著就先關掉再開，讓編輯層重新掃標記。
+  const done = page.getByRole('button', { name: '完成編輯' })
+  if (await done.isVisible()) await done.click()
   await page.getByRole('button', { name: '編輯頁面' }).click()
   const layer = page.getByTestId('front-edit-layer')
   await expect(layer).toBeAttached()
@@ -157,6 +160,7 @@ test('AC-C3-43 新增：區塊沒有屆別 → 預設工作屆別；有屆別 �
   await expect(form).toContainText(`屆別：${CODE_A}（${CODE_A}）`)
   await expect(form.getByLabel('開始日')).toHaveValue(TODAY)
   await form.getByLabel('活動名稱').fill(`${stamp} 預設屆別的活動`)
+  await form.getByLabel('全天').check()
   await form.getByRole('button', { name: '建立活動' }).click()
   await expect(dialog).toHaveCount(0)
   const inA = await pool.query('select cohort_id from project_events where title = $1', [`${stamp} 預設屆別的活動`])
@@ -169,6 +173,7 @@ test('AC-C3-43 新增：區塊沒有屆別 → 預設工作屆別；有屆別 �
   form = dialog.getByTestId('fe-activity-form')
   await expect(form).toContainText(`屆別：${CODE_B}（${CODE_B}）`)
   await form.getByLabel('活動名稱').fill(`${stamp} 指定屆別的活動`)
+  await form.getByLabel('全天').check()
   await form.getByRole('button', { name: '建立活動' }).click()
   await expect(dialog).toHaveCount(0)
   const inB = await pool.query('select cohort_id from project_events where title = $1', [`${stamp} 指定屆別的活動`])

@@ -14,7 +14,6 @@ import {
   ActivityNotice,
   ActivityNoticeProvider,
   CreateActivityForm,
-  GROUPING_PERIOD_HINT,
   ScheduleSetup,
   type AudienceOption,
 } from '@/app/dashboard/admin/timeline/timeline-forms'
@@ -42,6 +41,8 @@ import { getItemQuery } from '@/composition/items'
 import { formatTaipeiDate, formatTaipeiSecond, taipeiDateOf, taipeiDayEndExclusive, taipeiDayStart } from '@/shared/time'
 
 const DAY = 86_400_000
+/** 第 1 階段（分組期）在做什麼（Q40）；跟 `timeline-forms.tsx` 的 `GROUPING_PERIOD_HINT` 同一句（那是 client 檔，server 頁不能拿它的值）。 */
+const GROUPING_PERIOD_HINT = '分組期：組隊、選指導老師、交提案的期間'
 
 export const metadata = { title: '專題時程｜資管系專題平台' }
 
