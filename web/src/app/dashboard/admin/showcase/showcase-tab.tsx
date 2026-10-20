@@ -5,7 +5,7 @@ import { EmptyState } from '@/app/_ui/primitives'
 import { renderActor } from '@/app/_ui/guard'
 import { RowActions } from '@/app/dashboard/admin/affairs/_content/list-actions'
 import { deleteBlockedText } from '@/app/dashboard/admin/affairs/affairs-view'
-import { EntryRowActions, HomeOrderPanel, ShowcaseNewMenu, type ShowcaseDialogConfig } from '@/app/dashboard/admin/showcase/showcase-forms'
+import { EntryRowActions, HomeOrderPanel, ShowcaseDialogs, ShowcaseNewMenu, type ShowcaseDialogConfig } from '@/app/dashboard/admin/showcase/showcase-forms'
 import { showcaseCohorts, type ShowcaseEntryView } from '@/app/dashboard/admin/showcase/showcase-view'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery, getPublicItemQuery, ITEM_STATUS_LABEL } from '@/composition/items'
@@ -108,145 +108,146 @@ export async function ShowcaseTab({ cohortId, searchParams }: { cohortId: string
     .sort((a, b) => (a.homePosition ?? Number.MAX_SAFE_INTEGER) - (b.homePosition ?? Number.MAX_SAFE_INTEGER))
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
-          {[{ id: null, text: '全部（含歷屆）' }, ...cohorts.map((c) => ({ id: c.id, text: label(c) }))].map((c) => (
-            <Link
-              key={c.id ?? 'all'}
-              href={href({ cohort: c.id, honor: honorParam })}
-              aria-current={(picked?.id ?? null) === c.id ? 'page' : undefined}
-              className={pillClass((picked?.id ?? null) === c.id)}
-            >
-              {c.text}
-            </Link>
-          ))}
-        </nav>
-        {/* 換行時也靠右：「新增」下拉是靠右展開的。 */}
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">草稿不會公開。</span>
-          <ShowcaseNewMenu
-            config={config}
-            create={createCohort ? { cohortLabel: cohortLabel(createCohort), groups: groups.filter((g) => g.entryId === null) } : null}
-            backfillCohorts={view.backfillCohorts.map((c) => ({ id: c.id, label: label(c) }))}
-            honorCohort={honorCohort ? { id: honorCohort.id, label: cohortLabel(honorCohort) } : null}
-          />
-        </div>
-      </div>
-
-      <Panel title="作品" icon={<IconPhoto />}>
-        {entries.length === 0 ? (
-          <div className="border-t border-border p-5">
-            <EmptyState title="尚無成果展示草稿" description="按右上「新增 › 作品」替一組建草稿，填好題目、摘要後儲存；海報在「編輯」上傳，勾同意就能發布。" />
-          </div>
-        ) : (
-          <>
-            <div className={cn('hidden gap-3 border-t border-border px-5 py-2 text-xs font-semibold text-muted-foreground md:grid', GRID)} aria-hidden>
-              <span>海報</span>
-              <span>題目</span>
-              <span>組別</span>
-              <span>狀態</span>
-              <span>獎項</span>
-              <span>首頁順序</span>
-              <span className="text-right">動作</span>
-            </div>
-            <ul aria-label="作品清單" className="divide-y divide-border border-t border-border">
-              {entries.map((e) => (
-                <li key={e.entryId} data-testid="entry-row" className={cn('grid items-center gap-x-3 gap-y-1.5 px-5 py-3', GRID)}>
-                  <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
-                    {e.poster ? (
-                      // 草稿海報走 /api/files（每次重新授權）；只有系辦看這頁。
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={`/api/files/${e.poster.fileId}`} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <IconPhoto aria-hidden className="size-5 text-muted-foreground" />
-                    )}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold text-ink" data-testid="entry-title">
-                      {e.title || '（未填題目）'}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">{e.cohortLabel}</span>
-                  </span>
-                  <span className="text-sm" data-testid="entry-group">
-                    {e.groupLabel}
-                  </span>
-                  <span>
-                    <Pill tone={STATUS_TONE[e.status]} data-testid="entry-status">
-                      {SHOWCASE_STATUS_LABEL[e.status]}
-                    </Pill>
-                  </span>
-                  <span className="truncate text-sm" data-testid="entry-award">
-                    {awardText(e)}
-                  </span>
-                  <span className="text-sm tabular-nums" data-testid="entry-home-position">
-                    {e.homePosition ?? '—'}
-                  </span>
-                  <EntryRowActions entry={e} config={config} />
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {onHome.length > 1 ? (
-          <section aria-labelledby="home-order-heading" className="space-y-2 border-t border-border px-5 py-4">
-            <h3 id="home-order-heading" className="text-sm font-semibold text-ink">
-              首頁輪播順序
-            </h3>
-            <HomeOrderPanel
-              entries={onHome.map((e) => ({ entryId: e.entryId, title: e.title, groupLabel: e.groupLabel, homePosition: e.homePosition, entryRevision: e.entryRevision }))}
-            />
-          </section>
-        ) : null}
-      </Panel>
-
-      <Panel title="榮譽榜" icon={<IconTrophy />}>
-        <div className="space-y-2 border-t border-border px-5 py-3">
-          <p className="text-sm text-muted-foreground" data-testid="honor-board-hint">
-            榮譽是跨屆的公開紀錄：屆別含已封存的，選那一屆就看得到歷屆榮譽，可以編輯、下架、重新發布或刪除；封存屆別也能「新增 › 榮譽」。發布中的會出現在前台
-            <Link href="/honors" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
-              「榮譽榜」
-            </Link>
-            。
-          </p>
-          <nav aria-label="榮譽榜屆別" className="flex flex-wrap gap-1.5">
-            {cohorts.map((c) => (
+    <ShowcaseDialogs config={config}>
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <nav aria-label="選擇屆別" className="flex flex-wrap gap-1.5">
+            {[{ id: null, text: '全部（含歷屆）' }, ...cohorts.map((c) => ({ id: c.id, text: label(c) }))].map((c) => (
               <Link
-                key={c.id}
-                href={href({ cohort: picked?.id ?? null, honor: c.id })}
-                aria-current={honorCohort?.id === c.id ? 'page' : undefined}
-                className={pillClass(honorCohort?.id === c.id)}
+                key={c.id ?? 'all'}
+                href={href({ cohort: c.id, honor: honorParam })}
+                aria-current={(picked?.id ?? null) === c.id ? 'page' : undefined}
+                className={pillClass((picked?.id ?? null) === c.id)}
               >
-                {cohortLabel(c)}
-                {c.status === 'archived' ? <span className="ml-1 text-xs font-normal opacity-80">（已封存）</span> : null}
+                {c.text}
               </Link>
             ))}
           </nav>
+          {/* 換行時也靠右：「新增」下拉是靠右展開的。 */}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">草稿不會公開。</span>
+            <ShowcaseNewMenu
+              create={createCohort ? { cohortLabel: cohortLabel(createCohort), groups: groups.filter((g) => g.entryId === null) } : null}
+              backfillCohorts={view.backfillCohorts.map((c) => ({ id: c.id, label: label(c) }))}
+              honorCohort={honorCohort ? { id: honorCohort.id, label: cohortLabel(honorCohort) } : null}
+            />
+          </div>
         </div>
-        <div className={cn('hidden gap-3 border-t border-border px-5 py-2 text-xs font-semibold text-muted-foreground md:grid', HONOR_GRID)} aria-hidden>
-          <span>標題</span>
-          <span>得獎日期</span>
-          <span>狀態</span>
-          <span className="text-right">動作</span>
-        </div>
-        <ul aria-label="榮譽清單" className="divide-y divide-border border-t border-border">
-          {honors.map((r) => (
-            <li key={r.id} data-testid="honor-row" className={cn('grid items-center gap-x-3 gap-y-1.5 px-5 py-3', HONOR_GRID)}>
-              <span className="min-w-0 truncate font-semibold text-ink">{r.title}</span>
-              <span className="text-sm text-muted-foreground tabular-nums">{awardedOn.get(r.id) ?? '—'}</span>
-              <span>
-                <Pill tone={r.status === 'published' ? 'success' : 'default'}>{ITEM_STATUS_LABEL[r.status]}</Pill>
-              </span>
-              <RowActions row={{ id: r.id, title: r.title, deleteBlocked: deleteBlockedText(r.status, null, r.receiverUnit), canPin: false, pinned: false }} />
-            </li>
-          ))}
-        </ul>
-        {honors.length === 0 ? (
-          <p className="border-t border-border px-4 py-8 text-center text-sm font-semibold">
-            {honorCohort ? `${cohortLabel(honorCohort)}還沒有榮譽。按右上「新增 › 榮譽」建立第一則。` : '還沒有屆別。'}
-          </p>
-        ) : null}
-      </Panel>
-    </div>
+
+        <Panel title="作品" icon={<IconPhoto />}>
+          {entries.length === 0 ? (
+            <div className="border-t border-border p-5">
+              <EmptyState title="尚無成果展示草稿" description="按右上「新增 › 作品」替一組建草稿，填好題目、摘要後儲存；海報在「編輯」上傳，勾同意就能發布。" />
+            </div>
+          ) : (
+            <>
+              <div className={cn('hidden gap-3 border-t border-border px-5 py-2 text-xs font-semibold text-muted-foreground md:grid', GRID)} aria-hidden>
+                <span>海報</span>
+                <span>題目</span>
+                <span>組別</span>
+                <span>狀態</span>
+                <span>獎項</span>
+                <span>首頁順序</span>
+                <span className="text-right">動作</span>
+              </div>
+              <ul aria-label="作品清單" className="divide-y divide-border border-t border-border">
+                {entries.map((e) => (
+                  <li key={e.entryId} data-testid="entry-row" className={cn('grid items-center gap-x-3 gap-y-1.5 px-5 py-3', GRID)}>
+                    <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+                      {e.poster ? (
+                        // 草稿海報走 /api/files（每次重新授權）；只有系辦看這頁。
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`/api/files/${e.poster.fileId}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <IconPhoto aria-hidden className="size-5 text-muted-foreground" />
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold text-ink" data-testid="entry-title">
+                        {e.title || '（未填題目）'}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">{e.cohortLabel}</span>
+                    </span>
+                    <span className="text-sm" data-testid="entry-group">
+                      {e.groupLabel}
+                    </span>
+                    <span>
+                      <Pill tone={STATUS_TONE[e.status]} data-testid="entry-status">
+                        {SHOWCASE_STATUS_LABEL[e.status]}
+                      </Pill>
+                    </span>
+                    <span className="truncate text-sm" data-testid="entry-award">
+                      {awardText(e)}
+                    </span>
+                    <span className="text-sm tabular-nums" data-testid="entry-home-position">
+                      {e.homePosition ?? '—'}
+                    </span>
+                    <EntryRowActions entry={e} />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {onHome.length > 1 ? (
+            <section aria-labelledby="home-order-heading" className="space-y-2 border-t border-border px-5 py-4">
+              <h3 id="home-order-heading" className="text-sm font-semibold text-ink">
+                首頁輪播順序
+              </h3>
+              <HomeOrderPanel
+                entries={onHome.map((e) => ({ entryId: e.entryId, title: e.title, groupLabel: e.groupLabel, homePosition: e.homePosition, entryRevision: e.entryRevision }))}
+              />
+            </section>
+          ) : null}
+        </Panel>
+
+        <Panel title="榮譽榜" icon={<IconTrophy />}>
+          <div className="space-y-2 border-t border-border px-5 py-3">
+            <p className="text-sm text-muted-foreground" data-testid="honor-board-hint">
+              榮譽是跨屆的公開紀錄：屆別含已封存的，選那一屆就看得到歷屆榮譽，可以編輯、下架、重新發布或刪除；封存屆別也能「新增 › 榮譽」。發布中的會出現在前台
+              <Link href="/honors" className="mx-0.5 font-semibold text-foreground underline underline-offset-2">
+                「榮譽榜」
+              </Link>
+              。
+            </p>
+            <nav aria-label="榮譽榜屆別" className="flex flex-wrap gap-1.5">
+              {cohorts.map((c) => (
+                <Link
+                  key={c.id}
+                  href={href({ cohort: picked?.id ?? null, honor: c.id })}
+                  aria-current={honorCohort?.id === c.id ? 'page' : undefined}
+                  className={pillClass(honorCohort?.id === c.id)}
+                >
+                  {cohortLabel(c)}
+                  {c.status === 'archived' ? <span className="ml-1 text-xs font-normal opacity-80">（已封存）</span> : null}
+                </Link>
+              ))}
+            </nav>
+          </div>
+          <div className={cn('hidden gap-3 border-t border-border px-5 py-2 text-xs font-semibold text-muted-foreground md:grid', HONOR_GRID)} aria-hidden>
+            <span>標題</span>
+            <span>得獎日期</span>
+            <span>狀態</span>
+            <span className="text-right">動作</span>
+          </div>
+          <ul aria-label="榮譽清單" className="divide-y divide-border border-t border-border">
+            {honors.map((r) => (
+              <li key={r.id} data-testid="honor-row" className={cn('grid items-center gap-x-3 gap-y-1.5 px-5 py-3', HONOR_GRID)}>
+                <span className="min-w-0 truncate font-semibold text-ink">{r.title}</span>
+                <span className="text-sm text-muted-foreground tabular-nums">{awardedOn.get(r.id) ?? '—'}</span>
+                <span>
+                  <Pill tone={r.status === 'published' ? 'success' : 'default'}>{ITEM_STATUS_LABEL[r.status]}</Pill>
+                </span>
+                <RowActions row={{ id: r.id, title: r.title, deleteBlocked: deleteBlockedText(r.status, null, r.receiverUnit), canPin: false, pinned: false }} />
+              </li>
+            ))}
+          </ul>
+          {honors.length === 0 ? (
+            <p className="border-t border-border px-4 py-8 text-center text-sm font-semibold">
+              {honorCohort ? `${cohortLabel(honorCohort)}還沒有榮譽。按右上「新增 › 榮譽」建立第一則。` : '還沒有屆別。'}
+            </p>
+          ) : null}
+        </Panel>
+      </div>
+    </ShowcaseDialogs>
   )
 }
