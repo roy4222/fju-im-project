@@ -329,7 +329,14 @@ describe('發起提案', () => {
     await mustPropose(five[0]!, five.slice(1))
     const second = await propose(more[0]!, [...more.slice(1), five[2]!])
     expect(second).toMatchObject({ ok: false, code: 'INVITED_ELSEWHERE' })
-    if (!second.ok) expect(second.message).toContain(five[2]!.name)
+    // 學生看得到的錯誤文案用規格③ §1 的用詞（AC-C3-14）：不含「提案」。
+    if (!second.ok) {
+      expect(second.message).toBe(`${five[2]!.name} 正在別的建立中組別裡等確認，現在不能邀請。`)
+      expect(second.message).not.toMatch(/提案|組隊中/)
+    }
+    const again = await propose(five[0]!, five.slice(1))
+    expect(again).toMatchObject({ ok: false, code: 'INVITED_ELSEWHERE' })
+    if (!again.ok) expect(again.message).not.toMatch(/提案/)
     expect(await count('select count(*) as n from group_proposals where cohort_id = $1', [cohortId])).toBe(1)
     expect(await count('select count(*) as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).toBe(5)
   })
@@ -1267,5 +1274,16 @@ describe('即時查學號 lookupStudent（C3-11；規格③ §5.2）', () => {
     expect(await query.lookupStudent(staffActor(teacherId, 'teacher'), cohortId, free!.studentNo)).toBeNull()
     expect(await query.lookupStudent(staffActor(adminId, 'admin'), cohortId, free!.studentNo)).toBeNull()
     expect(await query.lookupStudent({ kind: 'anonymous' }, cohortId, free!.studentNo)).toBeNull()
+  })
+
+  it('帳號狀態守門（契約 03 §2、§3）：必須改密、待審、停用的同屆學生直接呼叫也一律 null，不給姓名與頭像', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [viewer, free] = await students(cohortId, 2)
+    const base = studentActor(viewer!) as Extract<ResolvedActor, { kind: 'authenticated' }>
+    expect(await query.lookupStudent(base, cohortId, free!.studentNo)).not.toBeNull()
+    expect(await query.lookupStudent({ ...base, mustChangePassword: true }, cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ ...base, status: 'pending' }, cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ ...base, status: 'disabled' }, cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ ...base, status: 'deidentified' }, cohortId, free!.studentNo)).toBeNull()
   })
 })

@@ -197,17 +197,17 @@ type Deps = {
 }
 
 function proposalNotFound(): Err {
-  return err('VALIDATION_FAILED', '找不到這份提案，請重新整理頁面。')
+  return err('VALIDATION_FAILED', '找不到這份建立中的組別，請重新整理頁面。')
 }
 
 function proposalNotOpen(): Err {
-  return err('PROPOSAL_NOT_OPEN', '這份提案已經成立或終止了，請重新整理頁面看最新狀態。')
+  return err('PROPOSAL_NOT_OPEN', '這份建立中的組別已經成立或終止了，請重新整理頁面看最新狀態。')
 }
 
 function proposalOverdue(expiresAt: Date): Err {
   return err(
     'PROPOSAL_NOT_OPEN',
-    `這份提案已經過了到期時間（${formatTaipeiMinute(expiresAt)}），這次組隊不會成立，大家都可以重新組隊。`,
+    `這次建立組別已經過了到期時間（${formatTaipeiMinute(expiresAt)}），不會成立，大家都可以重新組隊。`,
   )
 }
 
@@ -403,10 +403,10 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       const deadline = groupingDeadline(schedule)
       const position = stagePositionAt(schedule, businessNow)
       if (!deadline || position.kind === 'unconfigured') {
-        return err('VALIDATION_FAILED', '系辦還沒設定本屆的分組期，暫時不能發起提案。', { next: { kind: 'contact_office' } })
+        return err('VALIDATION_FAILED', '系辦還沒設定本屆的分組期，暫時不能建立組別。', { next: { kind: 'contact_office' } })
       }
       if (businessNow.getTime() >= deadline.getTime()) {
-        return err('DEADLINE_PASSED', `分組期已經結束（${formatTaipeiMinute(deadline)} 截止），不能再發起提案；需要分組請聯絡系辦。`)
+        return err('DEADLINE_PASSED', `分組期已經結束（${formatTaipeiMinute(deadline)} 截止），不能再建立組別；需要分組請聯絡系辦。`)
       }
       if (position.kind === 'not_started') {
         return err('VALIDATION_FAILED', `分組期從 ${formatTaipeiDate(position.firstStartDate)} 才開始。`)
@@ -463,16 +463,16 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
         const got = new Set(occupied.rows.map((r) => r.user_id))
         const taken = everyone.filter((id) => !got.has(id))
         if (taken.includes(proposerId)) {
-          return err('INVITED_ELSEWHERE', '你已經在另一份組隊中的提案裡，要先等它結束（或撤回）才能再發起。')
+          return err('INVITED_ELSEWHERE', '你已經在另一份建立中的組別裡，要先等它結束（或撤回）才能再建立。')
         }
-        return err('INVITED_ELSEWHERE', `${taken.map((id) => nameOf.get(id)).join('、')} 正在別的提案裡等確認，現在不能邀請。`, {
+        return err('INVITED_ELSEWHERE', `${taken.map((id) => nameOf.get(id)).join('、')} 正在別的建立中組別裡等確認，現在不能邀請。`, {
           details: { userIds: taken },
         })
       }
 
       const grouped = await this.#activeMembers(tx, cohortId, everyone)
       if (grouped.length > 0) {
-        if (grouped.includes(proposerId)) return err('ALREADY_MEMBER', '你已經有組別了，不能再發起提案。')
+        if (grouped.includes(proposerId)) return err('ALREADY_MEMBER', '你已經有組別了，不能再建立組別。')
         return err('ALREADY_MEMBER', `${grouped.map((id) => nameOf.get(id)).join('、')} 已經有組別了。`, {
           details: { userIds: grouped },
         })
@@ -588,7 +588,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       if (locked.cohortStatus === 'archived') return cohortArchived()
 
       const mine = invitations.find((i) => i.user_id === userId)
-      if (!mine) return err('FORBIDDEN', '你不在這份提案的名單裡。')
+      if (!mine) return err('FORBIDDEN', '你不在這份建立中組別的名單裡。')
 
       const total = invitations.length
       const countConfirmed = () => invitations.filter((i) => i.state === 'confirmed').length
@@ -818,7 +818,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
   decline(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<TerminateReceipt>> {
     return this.#studentTerminate(actor, proposalId, requestId, 'group.proposal.decline', (proposal, mine, userId) => {
       if (proposal.proposer_user_id === userId) {
-        return err('VALIDATION_FAILED', '你是提案人：要結束這份提案請按「撤回提案」。')
+        return err('VALIDATION_FAILED', '你是發起人：要結束這次建立組別請按「撤回」。')
       }
       if (mine.state === 'confirmed') {
         return err('VALIDATION_FAILED', '你已經確認了；要改變主意請按「撤回同意」。')
@@ -830,7 +830,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
   withdrawConfirmation(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<TerminateReceipt>> {
     return this.#studentTerminate(actor, proposalId, requestId, 'group.proposal.withdraw_confirmation', (proposal, mine, userId) => {
       if (proposal.proposer_user_id === userId) {
-        return err('VALIDATION_FAILED', '你是提案人：要結束這份提案請按「撤回提案」。')
+        return err('VALIDATION_FAILED', '你是發起人：要結束這次建立組別請按「撤回」。')
       }
       if (mine.state !== 'confirmed') return err('VALIDATION_FAILED', '你還沒確認，不需要撤回；不想加入請按「拒絕」。')
       return { kind: 'member_withdrew', myState: 'withdrawn' }
@@ -839,7 +839,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
 
   withdrawProposal(actor: ResolvedActor, proposalId: string, requestId: string): Promise<Result<TerminateReceipt>> {
     return this.#studentTerminate(actor, proposalId, requestId, 'group.proposal.withdraw', (proposal, _mine, userId) => {
-      if (proposal.proposer_user_id !== userId) return err('FORBIDDEN', '只有提案人可以撤回整份提案。')
+      if (proposal.proposer_user_id !== userId) return err('FORBIDDEN', '只有發起人可以撤回這次建立組別。')
       return { kind: 'proposer_withdrew', myState: 'withdrawn' }
     })
   }
@@ -884,7 +884,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       if (locked.cohortStatus === 'archived') return cohortArchived()
 
       const mine = invitations.find((i) => i.user_id === userId)
-      if (!mine) return err('FORBIDDEN', '你不在這份提案的名單裡。')
+      if (!mine) return err('FORBIDDEN', '你不在這份建立中組別的名單裡。')
       if (proposal.state !== 'open') {
         return proposal.state === 'established'
           ? err('PROPOSAL_NOT_OPEN', '組別已經成立了；成立後的成員異動要請系辦處理。')
@@ -1957,7 +1957,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
     return inTransaction(this.#pool, 'groups', body, (constraint) =>
       constraint === 'group_memberships_one_active'
         ? err('ALREADY_MEMBER', '有成員剛剛已經加入別的組，請重新整理頁面。')
-        : err('CONFLICT', '剛剛有人同時修改了這份提案，請重新整理頁面再試一次。'),
+        : err('CONFLICT', '剛剛有人同時修改了這份建立中的組別，請重新整理頁面再試一次。'),
     )
   }
 }
@@ -2086,6 +2086,8 @@ export class PgGroupQuery implements GroupQuery {
   }
 
   async lookupStudent(actor: ResolvedActor, cohortId: string, studentNo: string): Promise<Awaited<ReturnType<GroupQuery['lookupStudent']>>> {
+    // 帳號狀態先守（契約 03 §2、§3；Review r1）：必須改密、待審、停用的人直接打這條也拿不到同學的姓名與頭像。
+    if (statusGate(actor, 'business')) return null
     // 只有同屆學生查得到（名單是同學的個資；老師、系辦有自己的名單頁）。
     if (studentCohortOf(actor) !== cohortId || !isUuid(cohortId)) return null
     const no = studentNo.trim()
