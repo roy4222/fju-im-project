@@ -37,7 +37,7 @@ export function Feedback({ state }: { state: GroupActionState }) {
   )
 }
 
-// ── 公開找組員 ──────────────────────────────────────────────────────────────
+// ── 公開找隊員 ──────────────────────────────────────────────────────────────
 
 export function OpenToJoinToggle({ open, requestId }: { open: boolean; requestId: string }) {
   const [state, formAction, pending] = useActionState(setOpenToJoinAction, undefined)
@@ -47,10 +47,10 @@ export function OpenToJoinToggle({ open, requestId }: { open: boolean; requestId
       <input type="hidden" name="open" value={open ? 'false' : 'true'} />
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm">
-          公開找組員：<strong>{open ? '已公開' : '未公開'}</strong>
+          公開找隊員：<strong>{open ? '已公開' : '未公開'}</strong>
         </span>
         <button type="submit" disabled={pending} className={open ? SECONDARY : PRIMARY}>
-          {pending ? '處理中…' : open ? '關閉公開' : '公開找組員'}
+          {pending ? '處理中…' : open ? '關閉公開' : '公開找隊員'}
         </button>
       </div>
       <Feedback state={state} />

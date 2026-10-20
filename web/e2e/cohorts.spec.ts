@@ -312,11 +312,11 @@ test.describe('封存與解封', () => {
     const student = await signInAsArchivedStudent(page, false)
 
     await page.goto('/dashboard/student/groups?tab=team')
-    await page.getByRole('button', { name: '公開找組員' }).click()
+    await page.getByRole('button', { name: '公開找隊員' }).click()
     await expect(feedback(page, 'alert')).toContainText('已封存')
     expect(await openToJoinState(student.userId)).toEqual({ open: false, audits: 0 })
     await page.reload()
-    await expect(page.getByText('公開找組員：未公開')).toBeVisible()
+    await expect(page.getByText('公開找隊員：未公開')).toBeVisible()
   })
 
   test('AC-A-28 封存後按「關閉公開」：看到「已封存」，開關仍是已公開、沒有稽核', async ({ page }) => {
@@ -327,7 +327,7 @@ test.describe('封存與解封', () => {
     await expect(feedback(page, 'alert')).toContainText('已封存')
     expect(await openToJoinState(student.userId)).toEqual({ open: true, audits: 0 })
     await page.reload()
-    await expect(page.getByText('公開找組員：已公開')).toBeVisible()
+    await expect(page.getByText('公開找隊員：已公開')).toBeVisible()
   })
 
   test('AC-A-27 恢復（解除封存）：填理由 → 回到進行中、旗標按鈕回來，留稽核 cohort.unarchive', async ({ page }) => {

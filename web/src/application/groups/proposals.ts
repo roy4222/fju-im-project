@@ -1,4 +1,4 @@
-import type { ResolvedActor } from '@/application/accounts'
+import type { ProfileCard, ResolvedActor } from '@/application/accounts'
 import { CHANGE_REASON_MAX_LENGTH, normalizeReason } from '@/application/groups/members'
 import { err, type Err } from '@/shared/result'
 
@@ -149,11 +149,25 @@ export function canViewTeammates(actor: ResolvedActor, cohortId: string): boolea
   return studentCohortOf(actor) === cohortId
 }
 
-/** 找組員名單的一列：只有這三欄（電話不公開，契約 03 §4 最小揭露）。 */
-export type TeammateListing = {
-  readonly name: string
+/**
+ * 找隊員名單的一張名片卡（C3 設計方案 §4.4；票 C3-07）：本人名片去掉 `canOpenToJoin`、`revision`，
+ * 加上「邀請加入」按不了的原因。電話不在這裡（永不公開，契約 03 §4 最小揭露）。
+ */
+export type TeammateCard = Omit<ProfileCard, 'canOpenToJoin' | 'revision' | 'studentNo'> & {
   readonly studentNo: string
-  readonly contactEmail: string
+  /** 看的人已經在建立中的組別裡（或不是學生）時寫原因、按鈕 disabled；可以邀請時是 null。 */
+  readonly inviteDisabledReason: string | null
+}
+
+/** 舊名（票 13 起的找組員名單列），保留給還沒改名的引用。 */
+export type TeammateListing = TeammateCard
+
+/** 找隊員名單的篩選（`?q=`、`?skill=`；伺服器端篩）。 */
+export type TeammateFilter = {
+  /** 比對姓名、學號或技能（部分符合、不分大小寫）。 */
+  readonly q?: string
+  /** 技能完全符合。 */
+  readonly skill?: string
 }
 
 /** 組別成立的號碼：屆別內遞增，G01、G02…（S03-06 暫定規則）。 */
