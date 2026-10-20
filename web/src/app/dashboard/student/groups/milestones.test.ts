@@ -42,7 +42,7 @@ const proposedAt = new Date('2026-09-12T09:00:00+08:00')
 const establishedAt = new Date('2026-09-20T15:30:00+08:00')
 
 describe('groupMilestones（Q120）', () => {
-  it('發起提案、成組，再接整組一份的作業依截止日排：已送出打勾寫日期，還沒送出上鎖寫月份', () => {
+  it('建立組別、成組，再接整組一份的作業依截止日排：已送出打勾寫日期，還沒送出上鎖寫月份', () => {
     const rows = [
       item({ itemId: '期末報告', dueAt: new Date('2027-01-10T23:59:00+08:00') }),
       item({
@@ -53,7 +53,7 @@ describe('groupMilestones（Q120）', () => {
       }),
     ]
     expect(groupMilestones({ proposedAt, establishedAt, rows, now: NOW })).toEqual([
-      { key: 'proposed', label: '發起提案', done: true, when: '9/12' },
+      { key: 'proposed', label: '建立組別', done: true, when: '9/12' },
       { key: 'established', label: '成組', done: true, when: '9/20' },
       { key: '提案書', label: '提案書', done: true, when: '10/3' },
       { key: '期末報告', label: '期末報告', done: false, when: '1 月' },
@@ -68,7 +68,7 @@ describe('groupMilestones（Q120）', () => {
       item({ itemId: '期中', dueAt: new Date('2026-12-01T23:59:00+08:00') }),
     ]
     expect(groupMilestones({ proposedAt, establishedAt, rows, now: NOW }).map((m) => [m.label, m.done, m.when])).toEqual([
-      ['發起提案', true, '9/12'],
+      ['建立組別', true, '9/12'],
       ['成組', true, '9/20'],
       ['期中', false, '12 月'],
       ['沒日期', false, '未定'],
@@ -84,7 +84,7 @@ describe('groupMilestones（Q120）', () => {
     ])
   })
 
-  it('沒有成組提案（系辦建的組、後來才被加進組）時不列「發起提案」', () => {
+  it('沒有成組提案（系辦建的組、後來才被加進組）時不列「建立組別」', () => {
     expect(groupMilestones({ proposedAt: null, establishedAt, rows: [], now: NOW }).map((m) => m.label)).toEqual(['成組'])
   })
 })

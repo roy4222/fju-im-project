@@ -23,6 +23,7 @@ import {
   normalizeVoidReason,
   opportunityName,
   proposalExpiry,
+  STUDENT_NO_MAX_LENGTH,
   studentCohortOf,
   TERMINATION_KIND_LABEL,
   type AddMemberInput,
@@ -127,6 +128,8 @@ type ProposalRow = {
   termination_kind: TerminationKind | null
   deadline_version: number
   established_group_id: string | null
+  /** 產學合作選的合作案（C3-11）；成立時據此建 `pending` 連結。 */
+  opportunity_id: string | null
 }
 
 type InvitationRow = { user_id: string; state: InvitationState }
@@ -360,7 +363,11 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
           operationKind: 'group.propose',
           requestId,
           fingerprint: sha256(
-            canonicalJson({ groupType: input.groupType, members: input.memberStudentNos.map((n) => n.trim()) }),
+            canonicalJson({
+              groupType: input.groupType,
+              members: input.memberStudentNos.map((n) => n.trim()),
+              opportunityId: input.opportunityId?.trim() || null,
+            }),
           ),
           scope: 'cohort',
           cohortId,
@@ -383,6 +390,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       )
       if (!normalized.ok) return normalized
       const { groupType, memberStudentNos } = normalized.value
+      // 產學合作選的合作案（C3-11；規格③ §7.3）：要已發布、未刪除。草稿當作不存在（不透露草稿）；已下架明講。
+      const opportunityId = await this.#linkableOpportunity(tx, normalized.value.opportunityId)
+      if (opportunityId && !opportunityId.ok) return opportunityId
 
       // 成組期：第 1 階段；截止＝第 2 階段開始日 00:00（見 groupingDeadline 的說明）。
       const yearEnd = await tx.query<{ year_end_date: string | null }>(
@@ -435,9 +445,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       await tx.query(
         `insert into group_proposals
            (id, cohort_id, proposer_user_id, group_type, expires_business_at, state, deadline_version,
-            created_real_at, created_business_at, updated_at)
-         values ($1, $2, $3, $4, $5, 'open', 1, $6, $7, $6)`,
-        [proposalId, cohortId, proposerId, groupType, expiresAt, realAt, businessNow],
+            created_real_at, created_business_at, updated_at, opportunity_id)
+         values ($1, $2, $3, $4, $5, 'open', 1, $6, $7, $6, $8)`,
+        [proposalId, cohortId, proposerId, groupType, expiresAt, realAt, businessNow, opportunityId?.id ?? null],
       )
 
       // 先占住，再查組員資格（見檔頭）。依 id 排序插入，兩個提案互邀時不會互相死鎖。
@@ -506,7 +516,12 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
         cohortId,
         realAt,
         businessAt: businessNow,
-        payload: { groupType, memberUserIds: everyone, expiresBusinessAt: expiresAt.toISOString() },
+        payload: {
+          groupType,
+          memberUserIds: everyone,
+          expiresBusinessAt: expiresAt.toISOString(),
+          opportunityId: opportunityId?.id ?? null,
+        },
       })
 
       const receipt = {
@@ -519,6 +534,26 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { proposalId } })
       return { ok: true as const, receipt }
     })
+  }
+
+  /**
+   * 建立組別時選的合作案（C3-11）：沒選回 null；選了就要「已發布、未刪除」。草稿當作不存在（不透露草稿有哪些）、
+   * 已下架明講不收。`for share`：成立前負責老師把案下架，`#establish` 會再看一次。
+   */
+  async #linkableOpportunity(tx: PoolClient, opportunityId: string | null): Promise<{ ok: true; id: string } | Err | null> {
+    if (!opportunityId) return null
+    const found = await tx.query<{ id: string; status: string }>(
+      `select id, status from industry_opportunities where id = $1 and deleted_at is null for share`,
+      [opportunityId],
+    )
+    const row = found.rows[0]
+    if (!row || row.status === 'draft') {
+      return err('VALIDATION_FAILED', '找不到這個合作案，請重新選。', { details: { field: 'opportunityId' } })
+    }
+    if (row.status !== 'published') {
+      return err('OPPORTUNITY_NOT_LINKABLE', '這個合作案已下架，不接受新連結，請重新選。', { details: { field: 'opportunityId' } })
+    }
+    return { ok: true, id: row.id }
   }
 
   // ── 確認與成立 ──────────────────────────────────────────────────────────────
@@ -695,6 +730,9 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       subject: { type: SUBJECT_TYPE, id: proposal.id },
       deadlineVersion: proposal.deadline_version,
     })
+    // 產學合作（C3-11；規格③ §7.2）：建立時選的案在成立這一筆交易裡連成 `pending`，跟組長事後 `request` 寫一樣的列與事件。
+    // 這段時間案被下架或刪掉就不連（組長在「我的組」重選），不讓一份已經全員確認的組別因此成立不了。
+    const link = await this.#requestOpportunityOnEstablish(tx, proposal, groupId, code, realAt, businessNow)
     await this.#events.publish(tx, {
       type: 'group.established',
       scope: 'cohort',
@@ -718,9 +756,61 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       cohortId: proposal.cohort_id,
       realAt,
       businessAt: businessNow,
-      payload: { code, proposalId: proposal.id, memberUserIds: everyone, leaderUserId: proposal.proposer_user_id },
+      payload: {
+        code,
+        proposalId: proposal.id,
+        memberUserIds: everyone,
+        leaderUserId: proposal.proposer_user_id,
+        opportunityId: link?.opportunityId ?? null,
+        linkId: link?.linkId ?? null,
+      },
     })
     return { ok: true, code }
+  }
+
+  /** `#establish` 的一段：`group_proposals.opportunity_id` 還是已發布、未刪除的案 → `opportunity_links(state='pending')`＋通知負責老師。 */
+  async #requestOpportunityOnEstablish(
+    tx: PoolClient,
+    proposal: ProposalRow,
+    groupId: string,
+    code: string,
+    realAt: Date,
+    businessNow: Date,
+  ): Promise<{ linkId: string; opportunityId: string } | null> {
+    if (!proposal.opportunity_id) return null
+    const found = await tx.query<{ id: string; owner_teacher_user_id: string; company_name: string; department: string }>(
+      `select id, owner_teacher_user_id, company_name, department from industry_opportunities
+        where id = $1 and status = 'published' and deleted_at is null for share`,
+      [proposal.opportunity_id],
+    )
+    const opportunity = found.rows[0]
+    if (!opportunity) return null
+    const linkId = uuidv7()
+    await tx.query(
+      `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at, state)
+       values ($1, $2, $3, $4, $5, $6, 'pending')`,
+      [linkId, groupId, opportunity.id, businessNow, proposal.proposer_user_id, realAt],
+    )
+    const name = opportunityName({ companyName: opportunity.company_name, department: opportunity.department })
+    await this.#events.publish(tx, {
+      type: 'opportunity.link_requested',
+      scope: 'cohort',
+      cohortId: proposal.cohort_id,
+      source: { type: 'industry_opportunity', id: opportunity.id, version: 1 },
+      actor: { kind: 'user', userId: proposal.proposer_user_id },
+      recipients: [opportunity.owner_teacher_user_id],
+      recipientBasis: { groupId, basis: 'opportunity_owner', revision: 1, ownerUserId: opportunity.owner_teacher_user_id },
+      payload: {
+        title: `組別 ${code} 選了你的合作案「${name}」，請到分組總覽確認是否指導`,
+        groupId,
+        code,
+        opportunityId: opportunity.id,
+        linkId,
+      },
+      occurredRealAt: realAt,
+      occurredBusinessAt: businessNow,
+    })
+    return { linkId, opportunityId: opportunity.id }
   }
 
   // ── 終止：拒絕、撤回同意、提案人撤回、管理員作廢 ──────────────────────────────
@@ -1793,7 +1883,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       recipientBasis: { proposalId: proposal.id, basis: 'proposal_invitations' },
       // 管理員作廢的理由不進 payload：學生的通知只說「管理員作廢」。
       payload: {
-        title: `這次組隊沒有成立（${TERMINATION_KIND_LABEL[kind]}），大家都可以重新組隊`,
+        title: `這次建立組別沒有成立（${TERMINATION_KIND_LABEL[kind]}），大家都可以重新組隊`,
         proposalId: proposal.id,
         terminationKind: kind,
       },
@@ -1836,7 +1926,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
     const cohort = await tx.query<{ status: CohortStatus }>('select status from cohorts where id = $1 for share', [cohortId])
     const found = await tx.query<ProposalRow>(
       `select id, cohort_id, proposer_user_id, group_type, expires_business_at, state, termination_kind,
-              deadline_version, established_group_id
+              deadline_version, established_group_id, opportunity_id
          from group_proposals where id = $1 for update`,
       [proposalId],
     )
@@ -1887,6 +1977,10 @@ type ProposalListRow = {
   termination_kind: TerminationKind | null
   reason: string | null
   group_code: string | null
+  opportunity_id: string | null
+  opportunity_company: string | null
+  opportunity_department: string | null
+  opportunity_owner_name: string | null
 }
 
 type InvitationListRow = {
@@ -1904,11 +1998,16 @@ const PROPOSAL_SELECT = `
   select p.id, p.cohort_id, p.group_type, p.state, p.proposer_user_id,
          ${personName('pp', 'pu')} as proposer_name,
          p.expires_business_at, p.created_business_at, p.closed_business_at, p.termination_kind, p.reason,
-         g.code as group_code
+         g.code as group_code,
+         p.opportunity_id, o.company_name as opportunity_company, o.department as opportunity_department,
+         ${personName('op', 'ou')} as opportunity_owner_name
     from group_proposals p
     join users pu on pu.id = p.proposer_user_id
     left join user_profiles pp on pp.user_id = p.proposer_user_id
-    left join groups g on g.id = p.established_group_id`
+    left join groups g on g.id = p.established_group_id
+    left join industry_opportunities o on o.id = p.opportunity_id
+    left join users ou on ou.id = o.owner_teacher_user_id
+    left join user_profiles op on op.user_id = ou.id`
 
 export class PgGroupQuery implements GroupQuery {
   readonly #reader: () => Pick<Pool, 'query'>
@@ -1919,12 +2018,16 @@ export class PgGroupQuery implements GroupQuery {
 
   async studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView> {
     const db = this.#reader()
-    const membership = await db.query<{ group_id: string }>(
-      `select group_id from group_memberships where user_id = $1 and cohort_id = $2 and valid_to is null`,
+    // 目前的組別與「公開找隊員」開關一句查完（C3-11：「我的組」要多讀紀錄，這裡省一句）。
+    const me = await db.query<{ group_id: string | null; open_to_join: boolean }>(
+      `select (select m.group_id from group_memberships m where m.user_id = $1 and m.cohort_id = $2 and m.valid_to is null limit 1) as group_id,
+              coalesce((select p.open_to_join from user_profiles p where p.user_id = $1), false) as open_to_join`,
       [userId, cohortId],
     )
-    const groupId = membership.rows[0]?.group_id
+    const groupId = me.rows[0]?.group_id ?? null
     const group = groupId ? ((await this.#groups(`g.id = $1`, [groupId], false, opts?.history ?? true))[0] ?? null) : null
+    // 產學組目前的合作案連結（C3-11；規格③ §5.3）：狀態與負責老師只有學生頁要，一般組不查。
+    const link = group && group.groupType === 'industry' ? await this.#studentLink(db, group.id) : null
 
     const mine = await this.#proposals(
       `where p.cohort_id = $1 and exists (select 1 from proposal_invitations i where i.proposal_id = p.id and i.user_id = $2)
@@ -1932,15 +2035,66 @@ export class PgGroupQuery implements GroupQuery {
       [cohortId, userId],
       false,
     )
-    const profile = await db.query<{ open_to_join: boolean }>('select open_to_join from user_profiles where user_id = $1', [userId])
 
     return {
       cohortId,
       group,
+      link,
       openProposal: mine.find((p) => p.state === 'open') ?? null,
       history: mine.filter((p) => p.state !== 'open'),
-      openToJoin: profile.rows[0]?.open_to_join ?? false,
+      openToJoin: me.rows[0]?.open_to_join ?? false,
     }
+  }
+
+  async #studentLink(db: Pick<Pool, 'query'>, groupId: string): Promise<StudentGroupView['link']> {
+    const rows = await db.query<{
+      id: string
+      opportunity_id: string
+      state: 'pending' | 'active'
+      company_name: string
+      department: string
+      owner_name: string
+    }>(
+      `select l.id, l.opportunity_id, l.state, o.company_name, o.department, ${personName('op', 'ou')} as owner_name
+         from opportunity_links l
+         join industry_opportunities o on o.id = l.opportunity_id
+         join users ou on ou.id = o.owner_teacher_user_id
+         left join user_profiles op on op.user_id = ou.id
+        where l.group_id = $1 and l.valid_to is null`,
+      [groupId],
+    )
+    const row = rows.rows[0]
+    return row
+      ? {
+          linkId: row.id,
+          opportunityId: row.opportunity_id,
+          name: opportunityName({ companyName: row.company_name, department: row.department }),
+          ownerTeacherName: row.owner_name,
+          state: row.state,
+        }
+      : null
+  }
+
+  async lookupStudent(actor: ResolvedActor, cohortId: string, studentNo: string): Promise<Awaited<ReturnType<GroupQuery['lookupStudent']>>> {
+    // 只有同屆學生查得到（名單是同學的個資；老師、系辦有自己的名單頁）。
+    if (studentCohortOf(actor) !== cohortId || !isUuid(cohortId)) return null
+    const no = studentNo.trim()
+    if (!no || no.length > STUDENT_NO_MAX_LENGTH || !/^[A-Za-z0-9]+$/.test(no)) return null
+    const rows = await this.#reader().query<{ user_id: string; student_no: string; name: string; avatar_preset: number | null; avatar_file_id: string | null }>(
+      `select si.user_id, si.student_no, ${personName('p', 'u')} as name, ${personAvatar('p')}
+         from student_identities si
+         join users u on u.id = si.user_id
+         left join user_profiles p on p.user_id = si.user_id
+        where si.cohort_id = $1 and si.student_no = $2
+          and u.status = 'active' and u.deidentified_at is null
+          and exists (select 1 from role_assignments r where r.user_id = u.id and r.role = 'student' and r.revoked_real_at is null)
+          and not exists (select 1 from group_memberships m where m.user_id = si.user_id and m.cohort_id = $1 and m.valid_to is null)`,
+      [cohortId, no],
+    )
+    const row = rows.rows[0]
+    return row
+      ? { userId: row.user_id, name: row.name, studentNo: row.student_no, avatarPreset: row.avatar_preset, avatarFileId: row.avatar_file_id }
+      : null
   }
 
   async teammates(actor: ResolvedActor, cohortId: string, filter: TeammateFilterInput = {}): Promise<TeammateListing[]> {
@@ -2634,6 +2788,14 @@ export class PgGroupQuery implements GroupQuery {
       terminationKind: p.termination_kind,
       reason: withReason ? p.reason : null,
       establishedGroupCode: p.group_code,
+      opportunity:
+        p.opportunity_id && p.opportunity_company !== null && p.opportunity_department !== null
+          ? {
+              id: p.opportunity_id,
+              name: opportunityName({ companyName: p.opportunity_company, department: p.opportunity_department }),
+              ownerTeacherName: p.opportunity_owner_name ?? '',
+            }
+          : null,
       invitations: invitations.rows
         .filter((i) => i.proposal_id === p.id)
         .map((i) => ({
