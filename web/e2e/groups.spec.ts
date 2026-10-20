@@ -3,14 +3,14 @@ import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
- * 票 13（#224）：找組員、提案與成組。「做完的樣子」逐條走：
+ * 票 13（#224）：找隊員、建立組別與成組。「做完的樣子」逐條走（C3-11 起用詞照規格③ §1：建立組別、發起人、送出邀請）：
  *
- * 1. 學生打開「公開找組員」，同屆同學在名單看到姓名、學號、聯絡 Email（電話不公開）；關掉就消失。
- * 2. 學生輸入四位同學學號發起五人提案（人數照屆別設定，預設 5）；五人都被占住、收到邀請，頁面顯示到期時間。
- * 3. 五人各自確認，最後一位確認的瞬間組別成立、占用釋放、全員收到成立事件；提案人是組長。
- * 4. 拒絕、系辦終止（理由選填，C3-05）就整份終止並釋放；重新發起是新提案。
+ * 1. 學生打開「公開找隊員」，同屆同學在名單看到姓名、學號、聯絡 Email（電話不公開）；關掉就消失。
+ * 2. 學生在「我的組」輸入四位同學學號送出五人的邀請（人數照屆別設定，預設 5）；五人都被占住、收到邀請，頁面顯示到期時間。
+ * 3. 五人各自確認，最後一位確認的瞬間組別成立、占用釋放、全員收到成立事件；發起人是組長。
+ * 4. 拒絕、系辦終止（理由選填，C3-05）就整份終止並釋放；重新建立是新的一份。
  *    （成員撤回、發起人撤回、到期由整合測試逐一證明：pg-groups.integration.test.ts。）
- * 5. 同一人同時只能在一個進行中提案、並發確認不會雙重成員：由整合測試的並發案例證明。
+ * 5. 同一人同時只能在一份建立中的組別裡、並發確認不會雙重成員：由整合測試的並發案例證明。
  * 另外：管理員在分組總覽改每組人數。
  *
  * 全程用真的表單與按鈕；重新整理後再看，確認是存進資料庫。
@@ -109,20 +109,22 @@ function feedback(page: Page, role: 'status' | 'alert') {
   return page.getByRole('main').getByRole(role)
 }
 
-async function openStudentPage(page: Page, index: number) {
+/** 預設分頁是「我的組」（C3-11）；找隊員要帶 `?tab=team`。 */
+async function openStudentPage(page: Page, index: number, tab: 'mine' | 'team' = 'mine') {
   await signIn(page, students[index]!)
-  await page.goto('/dashboard/student/groups')
+  await page.goto(tab === 'team' ? '/dashboard/student/groups?tab=team' : '/dashboard/student/groups')
   await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
+/** 在「我的組」（預設分頁）填四位同學、按「送出邀請」（C3-11；AC-C3-11）。 */
 async function proposeAll(page: Page) {
   await openStudentPage(page, 0)
-  // Q40：學生組別頁說明分組期在做什麼。
-  await expect(page.getByRole('main')).toContainText('不能超過分組期（組隊、選指導老師、交提案的期間）')
+  // Q40：學生組別頁說明分組期在做什麼（AC-C3-14：這一頁不能有「提案」字樣，所以寫「交專題計畫」）。
+  await expect(page.getByRole('main')).toContainText('不能超過分組期（組隊、選指導老師、交專題計畫的期間）')
   for (const [i, s] of students.slice(1).entries()) {
     await page.getByLabel(`同學 ${i + 1} 的學號`).fill(s.studentNo)
   }
-  await page.getByRole('button', { name: '發起提案' }).click()
+  await page.getByRole('button', { name: '送出邀請' }).click()
   await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('0／5 已確認')
 }
 
@@ -145,11 +147,11 @@ test('學生從側欄進「我的組別」；老師與管理員打不開學生�
 })
 
 test('找隊員：打開公開後同屆同學看到名片卡（學號、mailto:、邀請加入，沒有電話）；關掉就消失', async ({ page }) => {
-  await openStudentPage(page, 1)
+  await openStudentPage(page, 1, 'team')
   await page.getByRole('button', { name: '公開找隊員' }).click()
   await expect(feedback(page, 'status')).toContainText('已公開找隊員')
 
-  await openStudentPage(page, 0)
+  await openStudentPage(page, 0, 'team')
   const list = page.getByRole('region', { name: '找隊員名單' })
   // C3-07：名單是名片卡（`article`），每張有學號、`mailto:` Email、「邀請加入」。
   const row = list.getByRole('article', { name: students[1]!.name })
@@ -158,11 +160,11 @@ test('找隊員：打開公開後同屆同學看到名片卡（學號、mailto:�
   await expect(row.getByRole('link', { name: '邀請加入' })).toBeVisible()
   expect(await page.content()).not.toContain(PHONE)
 
-  await openStudentPage(page, 1)
+  await openStudentPage(page, 1, 'team')
   await page.getByRole('button', { name: '關閉公開' }).click()
   await expect(feedback(page, 'status')).toContainText('已關閉公開找隊員')
 
-  await openStudentPage(page, 0)
+  await openStudentPage(page, 0, 'team')
   await expect(page.getByRole('region', { name: '找隊員名單' })).not.toContainText(students[1]!.name)
   // 名單空了只寫一句（Q69、Q73）：不叫人洽系辦、不連產學合作案。
   const empty = page.getByRole('region', { name: '找隊員名單' })
@@ -171,7 +173,7 @@ test('找隊員：打開公開後同屆同學看到名片卡（學號、mailto:�
   await expect(empty.getByRole('link')).toHaveCount(0)
 })
 
-test('發起五人提案：五人都被占住、各有邀請；頁面顯示到期時間；被邀請的人看到同一份提案', async ({ page }) => {
+test('送出五人的邀請：五人都被占住、各有邀請；頁面顯示到期時間；被邀請的人看到同一份、發起人是誰', async ({ page }) => {
   await proposeAll(page)
   const status = page.getByRole('region', { name: '我的組別狀態' })
   await expect(status).toContainText('到期時間')
@@ -188,7 +190,8 @@ test('發起五人提案：五人都被占住、各有邀請；頁面顯示到�
   expect(invited.rows[0].n).toBe(5)
 
   await openStudentPage(page, 3)
-  await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText(`提案人 ${students[0]!.name}`)
+  await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText(`發起人 ${students[0]!.name}`)
+  await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('建立中（等全員確認）')
   await expect(page.getByRole('button', { name: '確認加入' })).toBeVisible()
 })
 
@@ -209,27 +212,29 @@ test('系辦終止：填理由後終止並釋放，學生的紀錄只寫「系�
 
   expect((await pool.query('select count(*)::int as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).rows[0].n).toBe(0)
 
+  // 建立組別紀錄在「我的組」最下方（C3-11）；舊的 `?tab=log` 視同「我的組」。
   await openStudentPage(page, 2)
   await page.goto('/dashboard/student/groups?tab=log')
-  const history = page.getByRole('region', { name: '提案紀錄' })
+  const history = page.getByRole('region', { name: '建立組別紀錄' })
   await expect(history).toContainText('沒有成立：系辦終止')
   await expect(history).not.toContainText('系辦內部')
 })
 
-test('拒絕：整份終止、全員釋放；重新發起是新提案，所有人要重新確認', async ({ page }) => {
+test('拒絕（AC-C3-14）：dialog「拒絕這份邀請？」、整份終止、全員釋放；紀錄寫「沒有成立：被拒絕」、頁上沒有「提案」「組隊中」；重新建立是新的一份', async ({ page }) => {
   await proposeAll(page)
   await openStudentPage(page, 2)
   await page.getByRole('button', { name: '拒絕' }).click()
-  await page.getByRole('dialog', { name: '拒絕這份提案？' }).getByRole('button', { name: '確定拒絕' }).click()
+  await page.getByRole('dialog', { name: '拒絕這份邀請？' }).getByRole('button', { name: '確定拒絕' }).click()
   await expect(feedback(page, 'status')).toContainText('這次建立組別沒有成立（被拒絕）')
-  // 提案紀錄在「紀錄」分頁（AC-ST-18）；重新發起在「找隊員」。
-  await page.goto('/dashboard/student/groups?tab=log')
-  await expect(page.getByRole('region', { name: '提案紀錄' })).toContainText('沒有成立：被拒絕')
-  await page.goto('/dashboard/student/groups?tab=team')
-  await expect(page.getByRole('button', { name: '發起提案' })).toBeVisible()
+  // 建立組別紀錄在「我的組」最下方（C3-11）；重新建立也在「我的組」。
+  await openStudentPage(page, 0)
+  await expect(page.getByRole('region', { name: '建立組別紀錄' })).toContainText('沒有成立：被拒絕')
+  await expect(page.getByRole('button', { name: '送出邀請' })).toBeVisible()
+  await expect(page.getByRole('main')).not.toContainText(/提案|組隊中/)
+  await expect(page.getByRole('navigation', { name: '組別分頁' }).getByRole('link')).toHaveText(['我的組', '找隊員'])
 })
 
-test('五人各自確認：1／5…4／5，最後一位確認的瞬間成立；提案人是組長；占用釋放、全員收到成立事件', async ({ page }) => {
+test('五人各自確認：1／5…4／5，最後一位確認的瞬間成立；發起人是組長；占用釋放、全員收到成立事件；里程碑第一格「建立組別」', async ({ page }) => {
   await proposeAll(page)
   const proposalId = await openProposalId()
 
@@ -248,9 +253,13 @@ test('五人各自確認：1／5…4／5，最後一位確認的瞬間成立；�
   const leader = page.getByRole('list', { name: '組員' }).getByRole('listitem').filter({ hasText: '組長' })
   await expect(leader).toContainText(students[0]!.name)
 
-  // 重新整理仍在；另一位組員看到的一樣。
+  // 重新整理仍在；另一位組員看到的一樣。成立後沒有「公開找隊員」；里程碑第一格叫「建立組別」（AC-C3-14）。
   await openStudentPage(page, 2)
   await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('組別 G01')
+  await expect(page.getByRole('button', { name: '公開找隊員' })).toHaveCount(0)
+  await expect(page.getByRole('list', { name: '里程碑' }).getByRole('listitem').first()).toContainText('建立組別')
+  await expect(page.getByRole('main')).not.toContainText(/提案|組隊中/)
+  await page.goto('/dashboard/student/groups?tab=team')
   await expect(page.getByRole('button', { name: '公開找隊員' })).toHaveCount(0)
 
   const occupied = await pool.query('select count(*)::int as n from proposal_occupancy where proposal_id = $1', [proposalId])

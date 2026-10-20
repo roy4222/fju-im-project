@@ -10,6 +10,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 3. 檔案管理說明「要新增檔案請到專題事務」並附前往連結（N-138）。
  * 4. 老師打開沒被指派的評分頁：中文說明＋「回到自己的首頁」（N-24）。
  * 5. 老師暫存一組後，左側待評分清單立刻顯示「草稿 已填/總數」，不用切頁或重新整理（N-154）。
+ * 6. 系辦首頁逾期卡與評分卡的「催繳」（C1-15、AC-34）：2 份逾期（一份 1 小時前剛催過）、2 位老師評分未送齊。
  *
  * 系辦首頁看「預設工作屆別」：這裡建一屆並設成預設，結束時把原本的預設還回去。
  * 收件、名單、評分與更正都用 owner 連線直接種好（流程本身各有自己的 e2e），畫面全程照真的操作。
@@ -43,6 +44,9 @@ let cohortId: string
 let previousDefault: string[] = []
 let grader: TestSession
 let stranger: TestSession
+/** 第二位評分老師（只評 G02、沒送）：AC-34 要 2 位老師未送齊。 */
+let grader2: TestSession
+let midItemId: string
 const groupIds = new Map<string, string>()
 
 function ymd(date: Date): string {
@@ -164,6 +168,7 @@ test.beforeAll(async () => {
   }
   grader = await fresh()
   stranger = await fresh()
+  grader2 = await fresh()
 
   // 逾期要照真實時間算：業務鐘拉回現在（別的測試可能把它撥到未來）。
   await pool.query(
@@ -198,7 +203,13 @@ test.beforeAll(async () => {
   const g1 = await insertGroup('G01', [students[0]!, students[1]!])
   const g2 = await insertGroup('G02', [students[2]!])
   await publishedItem({ stage: stageId, title: `${CODE} 個人心得`, dueAt: minute(-DAY), unit: 'individual', roster: students })
-  await publishedItem({ stage: stageId, title: `${CODE} 期中報告`, dueAt: minute(-2 * DAY), unit: 'group', roster: [g1] })
+  midItemId = await publishedItem({ stage: stageId, title: `${CODE} 期中報告`, dueAt: minute(-2 * DAY), unit: 'group', roster: [g1] })
+  // AC-34：「期中報告」1 小時前剛催過（同用例的冷卻判斷：domain_events 最後一筆 item.reminded）。
+  await pool.query(
+    `insert into domain_events (id, type, scope, cohort_id, source_type, source_id, actor_kind, actor_user_id, occurred_real_at, occurred_business_at)
+     values (gen_random_uuid(), 'item.reminded', 'cohort', $1, 'item', $2, 'user', $3, now() - interval '1 hour', now() - interval '1 hour')`,
+    [cohortId, midItemId, adminId],
+  )
   await publishedItem({ stage: stageId, title: `${CODE} 期末報告`, dueAt: minute(20 * DAY), unit: 'group', roster: [g1, g2] })
 
   // 評分：評分老師評 G01（已正式送出）與 G02（還沒開始）；G01 有一筆更正待復核。
@@ -228,6 +239,7 @@ test.beforeAll(async () => {
   )
   await pool.query(`insert into evaluation_status (evaluation_id, assignment_id, state) values ($1, $2, 'counted')`, [evaluation.rows[0]!.id, a1])
   await assign(g2, grader.userId)
+  await assign(g2, grader2.userId)
   await pool.query(`update grading_scheme_versions set status = 'locked', locked_at = now() where id = $1`, [versionId])
   const override = await pool.query<{ id: string }>(
     `insert into grade_overrides (id, group_id, scheme_version_id, original_value, new_value, basis_hash, reason, actor_user_id, real_at)
@@ -365,4 +377,46 @@ test('老師儲存草稿後，頁首自己的狀態立刻變成「草稿 1／2�
   await expect(myStatus).toHaveText('草稿 1／2')
   // 重抓佇列不會把表單洗掉。
   await expect(bench.getByLabel('1. 技術')).toHaveValue('88')
+})
+
+test('AC-34 系辦首頁「催繳」：逾期卡「已通知 3 人（1 份作業 24 小時內催過，略過）」、評分卡「已通知 2 位老師」；卡片文字不變，之後兩顆鈕各自冷卻', async ({ page }, testInfo) => {
+  await asAdmin(page)
+  await page.goto('/dashboard/admin')
+
+  // 卡片既有文字不變，只在卡下加鈕。
+  const tile = page.getByTestId('todo-overdue')
+  await expect(tile).toContainText('逾期未繳 4')
+  await expect(tile).toContainText('欠繳 3 人、1 組')
+  const overdue = page.getByTestId('remind-overdue')
+  const grading = page.getByTestId('remind-grading')
+  await expect(overdue).toBeEnabled()
+  await expect(grading).toBeEnabled()
+
+  await overdue.click()
+  await expect(page.getByTestId('remind-overdue-toast')).toHaveText('已通知 3 人（1 份作業 24 小時內催過，略過）')
+  await grading.click()
+  await expect(page.getByTestId('remind-grading-toast')).toHaveText('已通知 2 位老師')
+  await testInfo.attach('催繳後', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' })
+
+  // 兩位老師各收到「您還有 1 份評分未送出」（背景工作投遞）。
+  for (const teacher of [grader, grader2]) {
+    await expect
+      .poll(
+        async () =>
+          Number(
+            (await pool.query(`select count(*) as n from notifications where recipient_user_id = $1 and title = $2`, [teacher.userId, '您還有 1 份評分未送出'])).rows[0]!
+              .n,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(1)
+  }
+
+  // 重新整理：兩顆鈕各自冷卻（逾期的兩份都在 24 小時內催過；評分剛催過）。
+  await page.reload()
+  await expect(overdue).toBeDisabled()
+  await expect(page.getByTestId('remind-overdue-cooldown')).toContainText('後可再催')
+  await expect(grading).toBeDisabled()
+  await expect(page.getByTestId('remind-grading-cooldown')).toContainText('上次催繳剛剛，')
+  await expect(tile).toContainText('欠繳 3 人、1 組')
 })

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconAlertTriangle, IconChecklist, IconPencilPlus, IconSignature, IconUserQuestion } from '@tabler/icons-react'
@@ -8,7 +9,8 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { SectionHead, TodoCard } from '@/app/_ui/dashboard/cards'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { adminHeroCta } from '@/app/dashboard/admin/home-cta'
-import { adminHomePorts, adminTodoCards, heroLine, loadAdminHome, type TodoCardKind } from '@/app/dashboard/admin/home-data'
+import { adminHomePorts, adminTodoCards, heroLine, loadAdminHome, remindButtons, type TodoCardKind } from '@/app/dashboard/admin/home-data'
+import { HomeRemindButton } from '@/app/dashboard/admin/remind-forms'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '系辦首頁｜資管系專題平台' }
@@ -37,6 +39,9 @@ export default async function AdminHomePage() {
   const home = await loadAdminHome(adminHomePorts(), actor, ctx)
   const { groups, intake, teachers, news, pendingReviews } = home
 
+  // 待辦卡的「催繳」（C1-15）：逾期卡、評分卡各一顆，各自冷卻；冷卻照真實時間算（同用例）。
+  const remind = remindButtons(home, new Date())
+
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '系辦'
 
   return (
@@ -57,18 +62,35 @@ export default async function AdminHomePage() {
         <section aria-label="待辦" className="flex flex-col gap-3">
           <SectionHead title="待辦" />
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {adminTodoCards(home).map((card) => (
-              <TodoCard
-                key={card.kind}
-                tone={card.tone}
-                icon={TODO_ICON[card.kind]}
-                title={card.title}
-                meta={card.meta}
-                href={card.href}
-                pill={card.pill}
-                testId={`todo-${card.kind}`}
-              />
-            ))}
+            {adminTodoCards(home).map((card) => {
+              const tile = (
+                <TodoCard
+                  key={card.kind}
+                  tone={card.tone}
+                  icon={TODO_ICON[card.kind]}
+                  title={card.title}
+                  meta={card.meta}
+                  href={card.href}
+                  pill={card.pill}
+                  testId={`todo-${card.kind}`}
+                />
+              )
+              // 卡片本身是連結，按鈕不能放進去：放在卡片正下方，卡上原本的文字不變（AC-34）。
+              const button = card.kind === 'overdue' || card.kind === 'grading' ? remind[card.kind] : null
+              if (!button || !ctx.cohort) return tile
+              return (
+                <div key={card.kind} className="flex flex-col gap-2">
+                  {tile}
+                  <HomeRemindButton
+                    kind={card.kind as 'overdue' | 'grading'}
+                    cohortId={ctx.cohort.id}
+                    blocked={button.blocked}
+                    requestId={randomUUID()}
+                    label={card.kind === 'overdue' ? '催繳逾期未繳' : '催繳評分'}
+                  />
+                </div>
+              )
+            })}
           </div>
         </section>
 

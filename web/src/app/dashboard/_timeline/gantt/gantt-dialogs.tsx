@@ -1,8 +1,5 @@
 'use client'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { BTN_OUTLINE, BTN_PRIMARY, DIALOG } from '@/app/_ui/dashboard-kit'
-import { buttonVariants } from '@/app/_ui/ui/button'
-import { cn } from '@/shared/cn'
 import type { ActionResult } from './gantt-model'
 
 /**
@@ -15,9 +12,19 @@ import type { ActionResult } from './gantt-model'
  * - `GanttContextMenu`：右鍵／長按／`Shift+F10` 的自製選單（`role="menu"`，Esc 關、焦點回橫條）。
  *
  * 全部用原生 `<dialog>`（自帶 modal、Esc 與焦點鎖，跟系辦時程頁現有的對話框一樣）。位置一律走 CSSOM，不輸出 `style=`。
+ *
+ * 這支是延遲 chunk：**不 import `dashboard-kit`、`ui/button`、`shared/cn` 等共用模組**（延遲 chunk 一靜態碰到它們，
+ * Turbopack 就把它們從每頁都載的共用 chunk 拆出來，全站每條路由都變大；C3-08 實測 +1.2 KB）。
+ * 下面的樣式字串照 `dashboard-kit` 的 `BTN_OUTLINE`、`BTN_PRIMARY`、`DIALOG` 與 `buttonVariants` 算好的結果同字。
  */
 
-const DANGER = buttonVariants({ variant: 'destructive', size: 'lg', className: 'press rounded-lg px-3 font-semibold' })
+const BTN_PRIMARY = 'btn-fju press h-9 shrink-0 whitespace-nowrap rounded-lg px-4 text-sm disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
+const BUTTON_BASE =
+  "group/button inline-flex shrink-0 items-center justify-center bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+const BUTTON_LG = 'h-9 gap-1.5 pointer-coarse:min-h-11 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 press rounded-lg px-3 font-semibold'
+const BTN_OUTLINE = `${BUTTON_BASE} border border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 ${BUTTON_LG}`
+const DANGER = `${BUTTON_BASE} border border-transparent font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40 ${BUTTON_LG}`
+const DIALOG = 'm-auto rounded-xl border border-border bg-popover p-0 text-foreground shadow-xl backdrop:bg-black/40'
 
 /** 受控的原生 `<dialog>`：`open` 變了就 `showModal()`／`close()`；使用者按 Esc 也會回報 `onClose`。 */
 function NativeDialog({
@@ -47,7 +54,7 @@ function NativeDialog({
       ref={ref}
       aria-label={title}
       onClose={onClose}
-      className={cn(DIALOG, wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(36rem,calc(100vw-2rem))]')}
+      className={`${DIALOG} ${wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(36rem,calc(100vw-2rem))]'}`}
     >
       {open ? (
         <div className="px-6 py-5">
@@ -275,7 +282,7 @@ export function GanttContextMenu({
       <button
         type="button"
         role="menuitem"
-        className={cn(item, 'text-destructive')}
+        className={`${item} text-destructive`}
         onClick={() => {
           onClose()
           onDelete()

@@ -1,9 +1,8 @@
 'use server'
-import { currentActor } from '@/app/_ui/guard'
+import { frontEditActor } from '@/app/_ui/front-edit/actor'
 import type { EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-model'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
 import type { ItemDetail } from '@/application/items'
-import { actorHasRole } from '@/composition/accounts'
 import { avatarUrl } from '@/composition/avatar-url'
 import { getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery } from '@/composition/items'
@@ -25,8 +24,8 @@ export type FrontEditContext =
   | { ok: false; message: string }
 
 export async function frontEditContextAction(input: { cohortId: string | null; itemId?: string | null }): Promise<FrontEditContext> {
-  const actor = await currentActor()
-  if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actorHasRole(actor, 'admin')) {
+  const actor = await frontEditActor()
+  if (!actor) {
     return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   }
   const itemId = typeof input?.itemId === 'string' && input.itemId !== '' ? input.itemId : null

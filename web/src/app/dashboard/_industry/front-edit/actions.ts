@@ -1,7 +1,6 @@
 'use server'
-import { currentActor } from '@/app/_ui/guard'
+import { frontEditActor } from '@/app/_ui/front-edit/actor'
 import type { NormalizedOpportunity, OpportunityField, OpportunityStatus } from '@/application/groups'
-import { actorHasRole } from '@/composition/accounts'
 import { describeOpportunityReceipt, getGroupQuery, getOpportunityCommand, getOpportunityQuery, OPPORTUNITY_FIELD_LABEL, OPPORTUNITY_LIMITS } from '@/composition/groups'
 
 /**
@@ -59,14 +58,8 @@ function fields(formData: FormData) {
   }
 }
 
-async function officeActor() {
-  const actor = await currentActor()
-  if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actorHasRole(actor, 'admin')) return null
-  return actor
-}
-
 export async function opportunityFeContextAction(input: { id: string | null }): Promise<OpportunityFeContext> {
-  const actor = await officeActor()
+  const actor = await frontEditActor()
   if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const labels = { fields: OPPORTUNITY_FIELD_LABEL, limits: OPPORTUNITY_LIMITS }
   const id = typeof input?.id === 'string' && input.id !== '' ? input.id : null
@@ -86,7 +79,7 @@ export async function opportunityFeContextAction(input: { id: string | null }): 
 }
 
 export async function saveOpportunityFeAction(formData: FormData): Promise<OpportunityFeSaveResult> {
-  const actor = await officeActor()
+  const actor = await frontEditActor()
   if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const command = getOpportunityCommand()
   const opportunityId = text(formData, 'opportunityId')
@@ -109,7 +102,7 @@ export async function removeOpportunityFeAction(input: {
   revision: number | null
   requestId: string
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const actor = await officeActor()
+  const actor = await frontEditActor()
   if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const id = String(input?.id ?? '')
   if (!UUID.test(id)) return { ok: false, message: '找不到這個合作案，請重新整理頁面。' }
