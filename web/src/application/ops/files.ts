@@ -547,3 +547,30 @@ export type FileListRow = {
     readonly placement: string
   } | null
 }
+
+// ── 系辦刪除沒人用的檔（C1-16；①設計方案 §1.6） ────────────────────────────────
+
+/** 刪除成功的回執：哪個檔、什麼時候。 */
+export type FileDeleteReceipt = {
+  readonly fileId: string
+  readonly name: string
+  readonly requestId: string
+  readonly serverTime: string
+}
+
+/**
+ * 檔案分頁的「刪除」（C1-16）。不是 `release`：`release` 只解除某一個引用，檔案仍是 `stored`、照樣下載得到。
+ *
+ * `deleteUnreferenced` 在同一個交易裡鎖住檔案列 → 重查還有效的引用（`file_references.released_at is null`）→
+ * 0 筆才標 `soft_deleted`（記 `soft_deleted_at`）並寫稽核 `file.delete`；還有引用回 `CONFLICT`（帶處數），什麼都不改；
+ * 不是 `stored` 的檔回 `VALIDATION_FAILED`。只有狀態正常的系辦能刪。刪後下載與預覽都拒絕（`authorizeDownload` 只放 `stored`），
+ * 實體檔由既有的 `soft_deleted` 回收工作清。
+ */
+export interface FileAdminCommand {
+  deleteUnreferenced(actor: ResolvedActor, fileId: string, requestId: string): Promise<Result<FileDeleteReceipt>>
+}
+
+/** 有引用時刪除被擋的那句話（畫面上的按鈕與命令的 `CONFLICT` 共用處數寫法）。 */
+export function fileInUseMessage(count: number): string {
+  return `還有 ${count} 處在用，不能刪除；先到用到它的地方把檔案拿掉。`
+}

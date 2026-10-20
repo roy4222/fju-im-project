@@ -9,7 +9,7 @@ const BASE = '/dashboard/teacher/affairs'
 /**
  * 老師「作業區 › 我的作業」（C 階段規格① §5.1、§5.3；AC-20）：系辦發給老師的作業（老師在收件名單上），
  * 跟學生「交作業」同一張表、同一套狀態字（`itemTodo`），點進去是同一套作業頁（`AssignmentView`）。
- * 等這位主指導同意的站內同意書也併在這裡（形式「同意書」、狀態「等你同意」），連到「同意書」分頁。
+ * 等這位主指導同意的站內同意書也併在這裡（形式「同意書」、狀態「等你同意」），連到同意書頁的「狀態」分頁（C1-11）。
  */
 export function MyAssignments({ rows, now }: { rows: readonly MyItemRow[]; now: Date }) {
   const entries: AffairsListEntry[] = rows.map((row) => {
@@ -21,7 +21,7 @@ export function MyAssignments({ rows, now }: { rows: readonly MyItemRow[]; now: 
         group: false,
         status: { label: '等你同意', tone: toneOf({ kind: 'consent', status: 'open' }) },
         due: dueText({ due: row.dueAt, status: 'open', late: false }, now),
-        href: `${BASE}?tab=signoff`,
+        href: `/dashboard/teacher/signoff/${row.consent.versionId}?tab=status`,
         action: '交作業',
       }
     }

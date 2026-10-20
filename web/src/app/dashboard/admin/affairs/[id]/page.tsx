@@ -7,6 +7,7 @@ import { BackLink, BTN_INK, PageTitle, Pill } from '@/app/_ui/dashboard-kit'
 import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { ConsentBoard } from '@/app/dashboard/admin/affairs/[id]/consent-board'
 import { RemindButton } from '@/app/dashboard/admin/affairs/[id]/remind-button'
 import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey, type RosterPeople } from '@/app/dashboard/admin/affairs/[id]/roster-views'
 import { VisibilityPanel } from '@/app/dashboard/admin/affairs/[id]/visibility-panel'
@@ -17,6 +18,7 @@ import { cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/compositi
 import { getGroupQuery } from '@/composition/groups'
 import { getItemQuery, ITEM_STATUS_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { describeCooldown, getReminderQuery } from '@/composition/reminders'
+import { getSignoffQuery } from '@/composition/signoff'
 import { categoryOf, completionOf, getRosterQuery, getSubmissionQuery } from '@/composition/submissions'
 import { addTaipeiDays, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
 
@@ -35,7 +37,7 @@ function one(value: string | string[] | undefined): string | undefined {
  * - 頂部：標題、截止、「催繳未繳（N 人）」（§8、AC-12；24 小時一次，冷卻中停用並寫下次可催的時間）、「編輯」。
  *   N＝名單上還沒交的人（整組一份展開成組員，口徑同催繳用例）。
  * - 名單表：組別／人（頭像）、狀態、最後繳交時間、動作「查看」「設免繳／恢復」「讓他補交」（理由都選填，AC-11）。
- * - 站內同意書（`consentMode='form'`）的進度看簽核包，畫面在下一票（C1-11）；這裡先寫一句佔位、不渲染名單。
+ * - 站內同意書（`consentMode='form'`）的進度看簽核包：同意書看板（`ConsentBoard`，C1-11），不渲染名單。
  *
  * - 名單分三類：目前名單、免填、已移出（`?list=`）。完成率＝已正式送出／應交數，應交數不含免填與已移出
  *   （產品模組 05 §4「個人填報與收件名單」）。每一列的狀態與學生作業區、學生首頁用同一個函式算。
@@ -208,12 +210,14 @@ export default async function RosterPage({
   }
 
   if (consentForm) {
-    // 站內同意書的進度看簽核包（§7.3），看板在下一票（C1-11）：先不渲染名單。
+    // 站內同意書的進度看簽核包（§6.3、C1-11）：每組一塊同意書看板，不渲染名單。
+    const board = await getSignoffQuery().itemBoard(actor, item.itemId)
     return shell(
-      <EmptyState
-        title="同意書進度在下一票"
-        description="站內同意書的各組進度（誰同意了、輪到哪位老師）會在這裡顯示；目前請到「同意書」頁查看各組狀態。"
-      />,
+      board.ok ? (
+        <ConsentBoard board={board.receipt} archived={archived} />
+      ) : (
+        <EmptyState title="讀不到同意書進度" description={board.message} />
+      ),
     )
   }
 

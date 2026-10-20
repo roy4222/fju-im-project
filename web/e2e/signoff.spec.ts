@@ -224,7 +224,8 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
   await signIn(page, otherTeacher)
   await page.goto('/dashboard/teacher/signoff')
   await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '作業區', exact: true })).toHaveAttribute('href', '/dashboard/teacher/affairs')
-  await expect(page.getByText('目前沒有待處理的同意書')).toBeVisible()
+  // C1-11：同意書分頁拿掉，等你同意的站內同意書併在「我的作業」。
+  await expect(page.getByText('系辦還沒有發給你的作業。')).toBeVisible()
 
   await signIn(page, s01)
   await page.goto('/dashboard/admin/showcase')
@@ -396,14 +397,14 @@ test('三個角色看同一份：學生頁有全文與授權範圍、老師卡�
   await expect(page.getByTestId('signoff-participants')).toContainText(`組員甲${stamp.slice(-3)}`)
   // 票 26 起學生頁有本人的表態按鈕（逐人同意的完整流程在 signoff-approvals.spec）；學生不能開管理員的版本頁。
   await expect(page.getByRole('button', { name: '我已閱讀並同意' })).toBeDisabled()
+  const finalV2 = await page.getByTestId('respond-form').locator('input[name="versionId"]').first().inputValue()
   await page.goto(`/dashboard/admin/signoff/${finalV1}`)
   await expect(page).toHaveURL(/\/403/)
 
   await signIn(page, teacher)
-  await page.goto('/dashboard/teacher/signoff')
-  const card = page.getByTestId('teacher-signoff-card').filter({ hasText: 'G01・最終文件授權' })
-  await expect(card).toContainText('收集學生同意中')
-  await card.getByRole('link', { name: '閱讀全文與進度' }).click()
+  // C1-11：作業區的「同意書」卡片分頁拿掉；舊 API 建的包直接開版本頁。
+  await page.goto(`/dashboard/teacher/signoff/${finalV2}`)
+  await expect(page.getByTestId('signoff-state').first()).toHaveText('收集學生同意中')
   await expect(page.getByTestId('signoff-content')).toContainText('（第二版）')
   const versionUrl = page.url()
 
@@ -439,13 +440,13 @@ test('票 14 掛點：管理員加入組員後，目前版本同時失效；學�
   expect(newcomerNo).toBeTruthy()
 })
 
-test('TE-04：舊網址「站內同意書」轉到作業區的同意書分頁；學生打同網址仍是 403（角色檢查在轉頁之前）', async ({ page }) => {
+test('TE-04：舊網址「站內同意書」轉到作業區（C1-11 起沒有同意書分頁）；學生打同網址仍是 403（角色檢查在轉頁之前）', async ({ page }) => {
   await signIn(page, teacher)
   await page.goto('/dashboard/teacher/signoff')
-  await expect(page).toHaveURL(/\/dashboard\/teacher\/affairs\?tab=signoff/)
+  await expect(page).toHaveURL(/\/dashboard\/teacher\/affairs$/)
   const tabs = page.getByRole('navigation', { name: '作業區分頁' })
-  await expect(tabs.getByRole('link', { name: '同意書', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('teacher-signoff-card').filter({ hasText: 'G01・最終文件授權' })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: '我的作業', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(tabs.getByRole('link', { name: '同意書', exact: true })).toHaveCount(0)
 
   await signIn(page, s01)
   await page.goto('/dashboard/teacher/signoff')

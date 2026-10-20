@@ -2,6 +2,8 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { IconChevronDown, IconMenu2 } from '@tabler/icons-react'
+import { loadBrokenFx } from '@/app/_ui/dash-theme'
+import { useBrokenFx } from '@/app/_ui/fx/fuzzy-text'
 import { Button } from '@/app/_ui/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/app/_ui/ui/sheet'
 import { cn } from '@/shared/cn'
@@ -44,6 +46,8 @@ export function SiteHeader({
   registrationOpen: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // 404／403 壞掉頁的特效（C4-05）：頁面有 `[data-broken-fx]` 才載引擎。
+  useBrokenFx(loadBrokenFx)
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background">

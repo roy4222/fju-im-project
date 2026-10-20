@@ -307,6 +307,7 @@ const ACTION_LABEL: Record<string, string> = {
   'site_text.updated': '更新站內文字',
   // 維運（模組 10）
   'ops.worker_alert': '背景工作警示',
+  'file.delete': '刪除檔案',
   'notification.test.send': '發送測試通知',
   'demo.seed': '放入示範資料',
   'demo.remove': '移除示範資料',
@@ -352,6 +353,7 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   signoff_version: '站內同意書',
   showcase_entry: '成果展示',
   storage: '儲存空間',
+  stored_file: '檔案',
 }
 
 /** 對象類型的中文對照（[代碼, 中文]），給稽核查詢在 SQL 裡組出和畫面一樣的對象文字（搜尋用）。 */
