@@ -626,6 +626,7 @@ export function ItemForm(props: ItemFormProps) {
         </p>
         <AttachmentDrop
           cohortId={state.cohortId}
+          placement={state.placement}
           attachments={state.attachments}
           onChange={(attachments) => patch({ attachments })}
           accept={vocabulary.uploads.attachment.accept}

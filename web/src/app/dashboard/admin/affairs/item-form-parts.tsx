@@ -112,11 +112,13 @@ export const HistoryIcon = createReactComponent('outline', 'history', 'History',
 export async function uploadItemFile(
   file: File,
   cohortId: string,
+  placement: string,
   kind: 'attachment' | 'cover',
 ): Promise<{ ok: true; chip: FileChip } | { ok: false; message: string }> {
   try {
     const ticket = await itemFormDeps().startItemUploadAction({
       cohortId,
+      placement,
       kind,
       fileName: file.name,
       declaredMime: file.type,
@@ -141,6 +143,7 @@ export async function uploadItemFile(
 
 export function CoverPicker({
   cohortId,
+  placement,
   cover,
   onChange,
   accept,
@@ -148,6 +151,8 @@ export function CoverPicker({
   disabled,
 }: {
   cohortId: string
+  /** 項目目前的位置：屆別封存後只有榮譽能上傳，伺服器照這個判斷。 */
+  placement: string
   cover: FileChip | null
   onChange: (next: FileChip | null) => void
   accept: string
@@ -192,7 +197,7 @@ export function CoverPicker({
             if (!file) return
             setBusy(true)
             setError(null)
-            const result = await uploadItemFile(file, cohortId, 'cover')
+            const result = await uploadItemFile(file, cohortId, placement, 'cover')
             if (result.ok) onChange(result.chip)
             else setError(result.message)
             setBusy(false)
