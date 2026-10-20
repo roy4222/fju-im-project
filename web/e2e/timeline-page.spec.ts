@@ -310,6 +310,7 @@ test('AC-C3-42 主導覽「專題時程」連 /timeline、排在「專題規則�
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: '開啟選單' }).click()
   const drawer = page.getByRole('navigation', { name: '主導覽（手機）' })
+  await expect(drawer).toBeVisible()
   const drawerLabels = await drawer.getByRole('link').allTextContents()
   expect(drawerLabels.indexOf('專題時程')).toBe(drawerLabels.indexOf('專題規則') + 1)
   await expect(drawer.getByRole('link', { name: '專題時程', exact: true })).toHaveAttribute('href', '/timeline')
