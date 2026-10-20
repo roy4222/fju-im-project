@@ -13,6 +13,7 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV, STUDENT_NAV, TEACHER_NAV } from '@/app/dashboard/_nav'
 import { actorHasRole, getSelfAccountCommand, PASSWORD_MIN_LENGTH, TEACHER_SETUP_PATH } from '@/composition/accounts'
 import { avatarUploadTicketAction, updateAvatarAction } from './actions'
+import { ProfileCardSection } from './profile-card/profile-card-section'
 import { ContactForm, LinkGoogleForm, ReconfirmButton, SetPasswordForm, VerifyEmailForm } from './account-forms'
 
 export const metadata = { title: '我的帳號｜資管系專題平台', robots: { index: false } }
@@ -154,6 +155,8 @@ export default async function AccountPage({
                 </>
               )}
             </PublicCard>
+
+            <ProfileCardSection actor={actor} />
 
             {/* 原型：標題下直接兩列「方式＋帳號／說明」＋右邊狀態或動作，不放說明段。 */}
             <PublicCard title="登入方式">

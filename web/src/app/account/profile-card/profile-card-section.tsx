@@ -26,7 +26,7 @@ export async function ProfileCardSection({ actor }: { actor: ResolvedActor }) {
     <section aria-label="我的名片" className="dash-card flex flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-[17px] font-extrabold tracking-tight">我的名片</h2>
-        <ProfileCardEditor card={card} />
+        <ProfileCardEditor card={card} emailEditable={false} />
       </div>
       <ProfileCard
         card={card}
@@ -40,8 +40,11 @@ export async function ProfileCardSection({ actor }: { actor: ResolvedActor }) {
   )
 }
 
-/** 「編輯我的名片」按鈕＋視窗（找隊員分頁也用這個，請求編號在伺服器產生）。 */
-export function ProfileCardEditor({ card }: { card: ProfileCardData }) {
+/**
+ * 「編輯我的名片」按鈕＋視窗（找隊員分頁也用這個，請求編號在伺服器產生）。
+ * `emailEditable`：「我的帳號」傳 false，聯絡 Email 只在同頁「基本資料」改（C3-17）；找隊員分頁照預設可改。
+ */
+export function ProfileCardEditor({ card, emailEditable = true }: { card: ProfileCardData; emailEditable?: boolean }) {
   return (
     <ProfileCardDialog
       card={card}
@@ -49,6 +52,7 @@ export function ProfileCardEditor({ card }: { card: ProfileCardData }) {
       action={saveProfileCardAction}
       requestId={randomUUID()}
       avatarHref="/account"
+      emailEditable={emailEditable}
     />
   )
 }

@@ -5,7 +5,7 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 /**
  * 票 36：系辦「操作紀錄」頁（原型 `/dashboard/admin/audit`；模組 10「依角色篩選，每筆有時間、人、動作、對象、理由；不可修改」）。
  *
- * 1. 管理員做一件會留紀錄的事（新增屆別），操作紀錄最上面看得到：動作「新增屆別」、對象是那一屆、操作者有名字。
+ * 1. 管理員做一件會留紀錄的事（新增屆別），操作紀錄最上面看得到：動作「新增屆別」、對象是那一屆、操作者有名字與頭像（C3-17）。
  * 2. 依角色分頁：「管理員」分頁看得到、「學生」分頁沒有這一筆；網址帶著分頁，重新整理不會丟。
  * 3. 頁面沒有任何修改入口（只讀）。
  * 4. 核准一個學生後，最上面那列看得到學生姓名與核實方式（系辦審核）；各分頁數字加起來等於「全部」（2026-10-08 系2、系3）。
@@ -57,6 +57,12 @@ test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址�
   const entry = page.getByTestId('audit-entry').filter({ hasText: CODE })
   await expect(entry).toHaveCount(1)
   await expect(entry).toContainText('新增屆別')
+  // C3-17（AC-C3-01 操作紀錄那一處）：操作者是找得到的帳號，名字旁有 24px 頭像（旁邊已寫姓名，alt 留空），沒有首字圓圈。
+  const avatar = entry.locator('img')
+  await expect(avatar).toHaveCount(1)
+  await expect(avatar).toHaveAttribute('width', '24')
+  await expect(avatar).toHaveAttribute('alt', '')
+  await expect(avatar).toHaveAttribute('src', /^\/(avatars\/\d{3}\.webp|api\/files\/)/)
 
   const tabs = page.getByRole('navigation', { name: '依角色篩選' })
   await tabs.getByRole('link', { name: /^管理員/ }).click()

@@ -22,7 +22,7 @@ import { cn } from '@/shared/cn'
 /**
  * 前台主導覽（產品模組 09 §9.2「首頁 hero 與導覽」；順序照原型 `components/public/site-header.tsx`）：
  * - 訪客：最新公告（下拉：公告列表／競賽資訊）、專題規則、優秀專題、榮譽榜——優秀專題與榮譽榜提到頂層。
- * - 登入後：最新公告（同上）、專題規則、歷屆專題（下拉：歷屆專題一覽／優秀專題／榮譽榜）、產學合作、檔案下載。
+ * - 登入後：最新公告（同上）、專題規則、專題時程（C3 §9.6）、歷屆專題（下拉：歷屆專題一覽／優秀專題／榮譽榜）、產學合作、檔案下載。
  */
 const NEWS_NAV: HeaderNavItem = {
   href: '/news',
@@ -45,6 +45,7 @@ const GUEST_NAV: readonly HeaderNavItem[] = [
 const MEMBER_NAV: readonly HeaderNavItem[] = [
   NEWS_NAV,
   RULES_NAV,
+  { href: '/timeline', label: '專題時程' },
   {
     href: '/projects',
     label: '歷屆專題',

@@ -5,8 +5,8 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 /**
  * C3-07：名片卡（C3 設計方案 §4；AC-C3-06～10）。
  *
- * `/account` 的掛載那一行在 C3-17，這裡直接走找隊員分頁（`/dashboard/student/groups?tab=team`）的「編輯我的名片」，
- * 是同一個視窗。伺服器端的擋法（直接呼叫用例、老師呼叫回 FORBIDDEN）在 `profile-card-command.integration.test.ts`。
+ * 多數案例走找隊員分頁（`/dashboard/student/groups?tab=team`）的「編輯我的名片」；`/account` 掛上名片卡（C3-17）
+ * 用的是同一個視窗，另驗卡片位置、即時更新與老師／系辦沒有這張卡。伺服器端的擋法（直接呼叫用例、老師呼叫回 FORBIDDEN）在 `profile-card-command.integration.test.ts`。
  *
  * - AC-C3-08：同屆 A（公開、有自介與技能）、B（公開、沒自介）、C（未公開）、D（已成組）；E 未分組看名單：只有 A、B 兩張卡，A 在前；
  *   搜尋學號 → 只剩 A、網址有 `?q=`；技能膠囊「前端」→ 網址有 `?skill=`；老師與系辦 403。
@@ -312,6 +312,43 @@ test('AC-C3-10：已成組的 D 能改名片，「公開找隊員」disabled 並
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expect(dialog.getByRole('status')).toHaveText('名片已更新')
   expect(await profileOf(d.userId)).toMatchObject({ bio: '換組時再找我', skills: ['前端', '後端'], open_to_join: false })
+})
+
+test('AC-C3-06（/account）：學生「我的名片」在「基本資料」之後，改完卡上即時更新；老師、系辦沒有這張卡', async ({ page }) => {
+  await signIn(page, seeker)
+  await page.goto('/account')
+  const card = page.getByRole('region', { name: '我的名片' })
+  await expect(card).toBeVisible()
+  // 卡片順序：頭像 → 基本資料 → 我的名片 → 登入方式。
+  const order = await page
+    .getByRole('main')
+    .locator('section')
+    .evaluateAll((els) => els.map((el) => el.querySelector('h2')?.textContent?.trim() ?? ''))
+  expect(order.filter((n) => ['頭像', '基本資料', '我的名片', '登入方式'].includes(n))).toEqual(['頭像', '基本資料', '我的名片', '登入方式'])
+  await expect(card.getByRole('article', { name: e.name }).locator('img')).toHaveAttribute('width', '64')
+  for (const text of [e.name, '資管三甲', e.contactEmail, '公開找隊員：已公開']) await expect(card).toContainText(text)
+
+  // 聯絡 Email 只在「基本資料」改（C3-17 ESCALATE 2）：整頁只有一個這個標籤的欄位，名片視窗只放一行說明。
+  await expect(page.getByLabel('聯絡 Email', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('region', { name: '基本資料' }).getByLabel('聯絡 Email', { exact: true })).toHaveValue(e.contactEmail)
+
+  await card.getByRole('button', { name: '編輯我的名片' }).click()
+  const dialog = page.getByRole('dialog', { name: '編輯我的名片' })
+  await expect(dialog).toContainText('聯絡 Email 在上面「基本資料」改')
+  await expect(dialog.getByRole('textbox', { name: '聯絡 Email' })).toHaveCount(0)
+  await dialog.getByLabel('一句話自我介紹').fill('在帳號頁改的')
+  await dialog.getByRole('button', { name: '儲存' }).click()
+  await expect(dialog.getByRole('status')).toHaveText('名片已更新')
+  await page.keyboard.press('Escape')
+  await expect(card).toContainText('在帳號頁改的')
+  expect(await profileOf(e.userId)).toMatchObject({ bio: '在帳號頁改的', contact_email: e.contactEmail })
+
+  for (const staff of [teacher, admin]) {
+    await signIn(page, staff)
+    await page.goto('/account')
+    await expect(page.getByRole('heading', { name: '我的帳號' })).toBeVisible()
+    await expect(page.getByRole('region', { name: '我的名片' })).toHaveCount(0)
+  }
 })
 
 test('AC-C3-09：「邀請加入」連到 ?tab=mine&invite=，連按累加；送出建立組別後每張卡 disabled 並寫原因', async ({ page }) => {
