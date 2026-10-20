@@ -664,6 +664,15 @@ describe('系辦新增合作案並指定負責老師（第三波 W11）', () => 
     const row = await owner.sql('select owner_teacher_user_id, created_by_user_id from industry_opportunities where id = $1', [id])
     expect(row.rows[0]).toEqual({ owner_teacher_user_id: t, created_by_user_id: adminId })
     expect((await query.manageList(actor(t, ['teacher']))).map((o) => o.id)).toContain(id)
+    // C3-10：管理列帶負責老師的頭像兩欄（跟姓名同一句查詢；沒設定時兩欄都是 null）。
+    expect((await query.manageList(adminActor())).find((o) => o.id === id)).toMatchObject({
+      ownerUserId: t,
+      ownerName: '受指定老師',
+      ownerAvatarPreset: null,
+      ownerAvatarFileId: null,
+    })
+    await owner.sql(`update user_profiles set avatar_preset = 12 where user_id = $1`, [t])
+    expect((await query.manageList(actor(t, ['teacher']))).find((o) => o.id === id)).toMatchObject({ ownerAvatarPreset: 12, ownerAvatarFileId: null })
     const card = (await query.list(actor(s.id, ['student']))).find((o) => o.id === id)
     expect(card).toMatchObject({ ownerUserId: t, ownerName: '受指定老師' })
     // 負責老師（案主）看得到聯絡資訊。

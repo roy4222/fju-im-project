@@ -366,7 +366,8 @@ test('案主解除連結：該組與案主收到通知；組員在「紀錄」�
   await expect(item).toContainText(`${CODE} 產學測試（${CODE}）・G01`)
   await item.getByRole('button', { name: '解除連結：G01' }).click()
   const dialog = page.getByRole('dialog', { name: '解除 G01 的連結' })
-  await dialog.getByLabel('理由（必填）').fill('企業暫停這個題目')
+  // C3-10：解除理由可不填，留空直接成功；status、學生紀錄、收件匣不變。
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
   await dialog.getByRole('button', { name: '確認解除' }).click()
   await expect(item.getByRole('status')).toContainText(`已解除 G01 與「${COMPANY_B}・資訊部」的連結`)
   expect(await recipientsOf('opportunity.unlinked', 'G01')).toEqual([sorted(...memberIds.get('G01')!, ownerB.userId)])

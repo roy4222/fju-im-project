@@ -397,6 +397,9 @@ export type ManagedOpportunity = {
   readonly id: string
   readonly ownerUserId: string
   readonly ownerName: string
+  /** 負責老師的頭像兩欄（`AvatarUser`；C3 §2.2）：跟姓名同一句查詢帶出，不另外查。 */
+  readonly ownerAvatarPreset: number | null
+  readonly ownerAvatarFileId: string | null
   readonly status: OpportunityStatus
   readonly revision: number
   readonly publishedAt: Date | null

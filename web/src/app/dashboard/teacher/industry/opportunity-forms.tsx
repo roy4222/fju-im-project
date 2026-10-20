@@ -263,7 +263,7 @@ export function OpportunityStatusButton({
 }
 
 /**
- * 一案的「連結的組別」格：每組一顆「解除」；案主解除時理由必填，該組組員與案主會收到通知。
+ * 一案的「連結的組別」格：每組一顆「解除」；案主解除時理由可不填（C3-10），該組組員與案主會收到通知。
  * 整格是同一個元件（同一份動作狀態）：解除成功、那一組從清單消失之後，回饋句子仍留在這一格。
  */
 export function LinkedGroupsCell({
@@ -332,7 +332,7 @@ export function LinkedGroupsCell({
           <input type="hidden" name="requestId" value={`${requestId}`} />
           <div className="flex flex-col gap-1.5">
             <label htmlFor={`unlink-reason-${requestId}`} className={LABEL}>
-              理由（必填）
+              理由（可不填）
             </label>
             <textarea
               id={`unlink-reason-${requestId}`}
