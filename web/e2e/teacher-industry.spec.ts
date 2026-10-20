@@ -289,7 +289,8 @@ test('TE-05／AC-C3-24、25、29：預設「我指導的組」（頭像一列、
   await expect(page.getByRole('main')).toContainText('產學組的確認與婉拒在「產學組」分頁。')
 
   const myGroups = page.getByRole('region', { name: '我指導的組' })
-  await expect(myGroups.getByRole('listitem')).toHaveCount(2)
+  // 卡片數（組員頭像一列也是 list，所以用 testid 數卡）。
+  await expect(myGroups.locator('[data-testid^="my-group-"]')).toHaveCount(2)
   const g01 = myGroups.getByTestId('my-group-G01')
   await expect(g01).toContainText(`G01・${leaders.get('G01')}`)
   await expect(g01).toContainText('產學合作')

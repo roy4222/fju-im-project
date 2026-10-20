@@ -413,5 +413,6 @@ test('批次指派 CSV：六類預覽、有錯不能執行；修正後填理由�
   await page.reload()
   const table = page.getByRole('region', { name: '全部組別' })
   await expect(table.getByRole('row').filter({ hasText: 'G06' })).toContainText(NAME_B)
-  await expect(page.getByTestId('advisor-summary')).toContainText('0 組尚未指派')
+  // G08 在上面被婉拒、沒有指導老師（C3-09 的 fixture）；其餘都已指派。
+  await expect(page.getByTestId('advisor-summary')).toContainText('1 組尚未指派')
 })
