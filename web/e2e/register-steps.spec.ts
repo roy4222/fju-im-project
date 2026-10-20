@@ -93,8 +93,8 @@ test('AC-VI-45：第 1 步只有 Email、密碼、確認密碼；桌機左圖右
   await expect(page.getByRole('main').getByRole('link', { name: '隱私權政策' })).toHaveAttribute('href', '/privacy')
   await expect(page.getByRole('button', { name: '建立帳號' })).toBeVisible()
   for (const label of ['姓名', '學號', '系級', '手機']) await expect(page.getByLabel(label)).toHaveCount(0)
-  // ≥1024px：左邊校園照片看得到。
-  await expect(page.getByRole('img', { name: '輔仁大學校園' })).toBeVisible()
+  // 規格④ §4.1（C4-07）：校園照片拿掉了，桌機也沒有。
+  await expect(page.getByRole('img', { name: '輔仁大學校園' })).toHaveCount(0)
   await page.screenshot({ path: 'e2e/.artifacts/vb3-step1-desktop.png', fullPage: true })
 
   // 11 字：欄位下紅字，沒有送出（沒有任何 POST）。
@@ -284,7 +284,7 @@ test('AC-VI-49：回上一步只登出不刪資料；同 Email 新密碼續辦�
 
   // 1) 回上一步：登出、Email 預填、資料一列都沒刪。
   await a.page.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
-  await expect(a.page).toHaveURL(new RegExp(`/register\\?email=${encodeURIComponent(email).replace(/[.]/g, '\\.')}$`))
+  await expect(a.page).toHaveURL(new RegExp(`/register\\?dir=back&email=${encodeURIComponent(email).replace(/[.]/g, '\\.')}$`))
   await expect(a.page.getByLabel('Email', { exact: true })).toHaveValue(email)
   expect(await a.context.cookies()).not.toContainEqual(expect.objectContaining({ name: expect.stringMatching(/session_token/) }))
   expect(await userRow(email)).toEqual(before)
@@ -363,7 +363,7 @@ test('AC-VI-49（Review P3）＋第 3 輪：續辦頁有重寄；冷卻內送出
   await stepOne(page, email, P1)
   await expect(page).toHaveURL(/\/register\/verify$/)
   await page.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
-  await expect(page).toHaveURL(/\/register\?email=/)
+  await expect(page).toHaveURL(/\/register\?dir=back&email=/)
   // 第一封的冷卻過了才能開始續辦。
   await new Promise((resolve) => setTimeout(resolve, 122_000))
   await stepOne(page, email, P2)
@@ -417,7 +417,7 @@ test('主腦裁定（VB-3 Review 第 3 輪）：續辦過了絕對截止再重�
   await stepOne(page, email, P1)
   await expect(page).toHaveURL(/\/register\/verify$/)
   await page.getByRole('button', { name: 'Email 打錯了？回上一步修改' }).click()
-  await expect(page).toHaveURL(/\/register\?email=/)
+  await expect(page).toHaveURL(/\/register\?dir=back&email=/)
   // 第一封的冷卻過了才能開始續辦。
   await new Promise((resolve) => setTimeout(resolve, 122_000))
   await stepOne(page, email, P2)

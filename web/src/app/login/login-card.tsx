@@ -100,7 +100,8 @@ export function LoginCard({
                   event.preventDefault()
                   switchTo('forgot')
                 }}
-                className="text-[13px] font-semibold text-primary hover:underline"
+                // 14 px；觸控裝置高度 44 px，負邊距是透明延伸區、不撐開標籤列（規格④ §4.4）。
+                className="text-sm font-semibold text-primary hover:underline pointer-coarse:-my-3 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
               >
                 忘記密碼<span aria-hidden="true">？</span>
               </Link>

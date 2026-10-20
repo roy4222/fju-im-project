@@ -134,17 +134,20 @@ function viewerOf(actor: ResolvedActor): Viewer | null {
  * `bare`：內容自己決定寬度與留白（首頁、登入卡片）；預設是置中的內容欄。
  * `staticFooter`：頁尾用程式內預設的聯絡資料、不讀 `site_texts`、也不掛前台編輯標記。給根層 `not-found`
  * 用——它在根 layout 裡每次請求都會渲染，讀 DB 會讓全站每條路由都多一句查詢（C2-17 Review）。
+ * `footer={false}`：不畫頁尾、也不讀頁尾資料（登入／註冊群組，規格④ §4.1）。
  */
 export async function SiteShell({
   children,
   current,
   bare = false,
   staticFooter = false,
+  footer = true,
 }: {
   children: ReactNode
   current?: string
   bare?: boolean
   staticFooter?: boolean
+  footer?: boolean
 }) {
   const actor = await shellViewer()
   const viewer = viewerOf(actor)
@@ -152,10 +155,10 @@ export async function SiteShell({
   // 註冊關閉時（設計方案 §5），手機選單與頁尾都不列「註冊」。
   const registrationOpen = isRegistrationOpen()
   // 頁尾聯絡資料（C2-17）：系辦在前台改過就讀 `site_texts.footer_contact`，沒有就是程式內預設；同一次 render 跟首頁、隱私權頁共用一份查詢。
-  const footerRow = staticFooter ? null : (await loadSiteTexts()).footer_contact
+  const footerRow = staticFooter || !footer ? null : (await loadSiteTexts()).footer_contact
   const contact = resolveSiteContact(footerRow?.value)
   // 前台編輯標記（C2-16）：頁尾聯絡資料一則、只能改不能刪；只有系辦經 /office-edit 改寫進來才有。表單預填八欄＋目前版本。
-  const contactMarks = feItem(staticFooter ? null : await frontEditScope(), {
+  const contactMarks = feItem(staticFooter || !footer ? null : await frontEditScope(), {
     kind: 'footer_contact',
     id: 'footer_contact',
     rev: footerRow?.revision ?? 0,
@@ -182,7 +185,9 @@ export async function SiteShell({
       />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} contact={contact} contactMarks={contactMarks} />
+      {footer ? (
+        <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} contact={contact} contactMarks={contactMarks} />
+      ) : null}
     </div>
   )
 }

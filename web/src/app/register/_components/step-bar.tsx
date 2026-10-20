@@ -1,11 +1,21 @@
+import './step-bar.css'
 import { IconCheck } from '@tabler/icons-react'
 import { cn } from '@/shared/cn'
 
 /**
- * 註冊三步的進度條（visitor-r3 §3.3；原型 `auth-fields.tsx` 的 `StepBar`）。
- * 三格固定是「建立帳號／驗證 Email／填學生資料」；目前那一格 `aria-current="step"`，做完的打勾。
+ * 註冊三步的進度條（visitor-r3 §3.3；規格④ §4.3 Stepper B）。
+ * 三格固定是「建立帳號／驗證 Email／填學生資料」；目前那一格 `aria-current="step"`、橘色放大，做完的打勾。
+ * Server Component、0 JS：過場全在 `step-bar.css`；`dir="back"`（回上一步）時 `<ol data-anim="back">` 反向播。
  */
 export type StepState = 'done' | 'current' | 'todo'
+
+/** 從哪個方向進到這一步：`back` 是「回上一步」帶來的。 */
+export type StepDir = 'forward' | 'back'
+
+/** 網址的 `?dir=`：只認 `back`（「回上一步」帶來的），其他值都當往前。 */
+export function stepDir(raw: string | string[] | undefined): StepDir {
+  return raw === 'back' ? 'back' : 'forward'
+}
 
 export const STEP_LABELS = ['建立帳號', '驗證 Email', '填學生資料'] as const
 
@@ -21,10 +31,18 @@ export function stepStates(current: 1 | 2 | 3, googleVerified = false): { label:
   })
 }
 
-export function StepBar({ current, googleVerified = false }: { current: 1 | 2 | 3; googleVerified?: boolean }) {
+export function StepBar({
+  current,
+  dir = 'forward',
+  googleVerified = false,
+}: {
+  current: 1 | 2 | 3
+  dir?: StepDir
+  googleVerified?: boolean
+}) {
   const steps = stepStates(current, googleVerified)
   return (
-    <ol className="mb-6 flex items-start" aria-label="註冊進度">
+    <ol className="step-bar flex items-start" aria-label="註冊進度" data-anim={dir === 'back' ? 'back' : undefined}>
       {steps.map((s, i) => {
         const done = s.state === 'done'
         const isCurrent = s.state === 'current'
@@ -36,20 +54,26 @@ export function StepBar({ current, googleVerified = false }: { current: 1 | 2 | 
             data-state={s.state}
           >
             <div className="flex w-full items-center">
-              <span aria-hidden className={cn('h-0.5 flex-1', i === 0 ? 'invisible' : done || isCurrent ? 'bg-primary' : 'bg-border')} />
+              <span
+                aria-hidden
+                className={cn('h-0.5 flex-1', i === 0 ? 'invisible' : done || isCurrent ? 'step-line-on bg-primary' : 'bg-border')}
+              />
               <span
                 className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold',
+                  'step-dot flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold',
                   done
                     ? 'bg-primary text-primary-foreground'
                     : isCurrent
-                      ? 'bg-primary-subtle text-primary-on-subtle ring-2 ring-primary'
+                      ? 'bg-primary text-primary-foreground ring-4 ring-primary/25'
                       : 'bg-muted text-muted-foreground',
                 )}
               >
                 {done ? <IconCheck className="size-4" stroke={3} aria-hidden /> : i + 1}
               </span>
-              <span aria-hidden className={cn('h-0.5 flex-1', i === steps.length - 1 ? 'invisible' : done ? 'bg-primary' : 'bg-border')} />
+              <span
+                aria-hidden
+                className={cn('h-0.5 flex-1', i === steps.length - 1 ? 'invisible' : done ? 'step-line-on bg-primary' : 'bg-border')}
+              />
             </div>
             <span
               className={cn(
