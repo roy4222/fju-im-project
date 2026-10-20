@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createLegacyVersion } from './legacy-signoff'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -12,7 +13,8 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 4. 主指導改變時目前版本自動失效、不自動建新版；舊頁顯示原因等系辦建新版；失效通知只給系辦。
  * 5. 匯出可列印頁與 CSV 明細；提醒未同意者，24 小時內不重複。
  *
- * 組別、成員、主指導直接用 owner 連線建好（票 13、19 的事）。不可代簽的每一條反例、並發、同交易失效由整合測試
+ * 組別、成員、主指導直接用 owner 連線建好（票 13、19 的事）。舊同意書（沒連作業的簽核包）的版本也是：C2-22 起系辦舊同意書頁改成轉址、
+ * 畫面上沒有建舊包的入口，由 `legacy-signoff.ts` 照正式建版寫同樣的列；同意、退回、失效、唯讀、匯出仍全程用真的畫面與按鈕。不可代簽的每一條反例、並發、同交易失效由整合測試
  * `pg-signoff-approvals.integration.test.ts` 逐條證明。
  */
 
@@ -36,6 +38,8 @@ let t2: TestSession
 const g1: TestSession[] = []
 const g2: TestSession[] = []
 const names = new Map<string, string>()
+/** 組別代號 → id（建舊包用）。 */
+const groupIds = new Map<string, string>()
 
 function ymd(date: Date): string {
   return new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 10)
@@ -111,8 +115,8 @@ test.beforeAll(async () => {
   cohortId = cohort.rows[0]!.id
   for (const [i, s] of g1.entries()) await makeStudent(s, `一組${'甲乙丙'[i]}${stamp.slice(-3)}`)
   for (const [i, s] of g2.entries()) await makeStudent(s, `二組${'甲乙丙'[i]}${stamp.slice(-3)}`)
-  await makeGroup('G01', g1, t1)
-  await makeGroup('G02', g2, t1)
+  groupIds.set('G01', await makeGroup('G01', g1, t1))
+  groupIds.set('G02', await makeGroup('G02', g2, t1))
 })
 
 test.afterAll(async () => {
@@ -128,18 +132,18 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
+/** 同組同用途建一版舊同意書（測試準備，見 `legacy-signoff.ts`），然後系辦開它的版本頁。 */
 async function createVersion(page: Page, groupCode: string) {
+  const { versionId } = await createLegacyVersion(pool, {
+    groupId: groupIds.get(groupCode)!,
+    purpose: 'result_confirmation',
+    content: `${CONTENT}${groupCode}`,
+    adminId,
+  })
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增站內同意書' }).click()
-  const form = page.getByRole('dialog', { name: '新增站內同意書' }).getByRole('form', { name: '建立站內同意書' })
-  await form.getByLabel('組別').selectOption({ label: groupCode })
-  await form.getByLabel('全文').fill(`${CONTENT}${groupCode}`)
-  await form.getByRole('button', { name: '建立站內同意書' }).click()
-  await expect(form.getByRole('status')).toContainText(`已建立 ${groupCode}「期中結果確認」`)
-  await form.getByRole('link', { name: '看剛建立的同意書' }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/signoff\/[0-9a-f-]{36}$/)
-  return page.url().split('/').at(-1)!
+  await page.goto(`/dashboard/admin/signoff/${versionId}`)
+  await expect(page.getByTestId('signoff-content')).toContainText(`${CONTENT}${groupCode}`)
+  return versionId
 }
 
 /** 學生在自己的簽核頁同意：勾已閱讀 → 按同意 → 確認框 → 確認。 */
@@ -160,6 +164,7 @@ async function studentAgrees(page: Page, session: TestSession) {
 let g1v1 = ''
 let g1v2 = ''
 let g2v1 = ''
+let g2v2 = ''
 
 test('逐人同意：勾已閱讀才按得下去、確認框只代表自己一票；老師提前沒有按鈕；管理員頁看得到缺誰、沒有任何替人同意的按鈕', async ({ page }) => {
   g1v1 = await createVersion(page, 'G01')
@@ -180,31 +185,13 @@ test('逐人同意：勾已閱讀才按得下去、確認框只代表自己一�
   await expect(page.getByTestId('my-response')).toContainText('還有 2 位學生沒同意；全部學生同意後才輪到你')
   await expect(page.getByRole('button', { name: '以指導老師身分同意' })).toHaveCount(0)
 
+  // 管理員看得到缺誰（舊同意書頁的各組卡片 C2-22 拿掉，改在版本頁看同一份進度）。
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  const cell = page.getByTestId('package-cell').filter({ hasText: '第 1 版' }).first()
-  await expect(cell).toContainText('1／3')
-  await expect(cell.getByTestId('missing-details')).toContainText('缺 2 位')
-  await expect(cell.getByTestId('missing-details')).toContainText(names.get(g1[1]!.userId)!)
-  await expect(cell.getByTestId('missing-details')).not.toContainText(`${T1_NAME}（指導老師）`)
-})
-
-test('AC-AD-19 同意書頁：h1「成績」、標題列右側「新增站內同意書」、用途膠囊、每組一張卡寫還沒回覆的人、頁首沒有長說明', async ({ page }) => {
-  await asAdmin(page)
-  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('成績')
-  // 同意書不在「成績」分頁列上（C 階段規格② §2.2、AC-C2-07）：這頁沒有分頁列，側欄「成績」仍亮。
-  await expect(page.getByRole('navigation', { name: '成績分頁' })).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '成績', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('button', { name: '新增站內同意書' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: '選擇用途' }).getByRole('link', { name: /期中結果確認/ })).toHaveAttribute('aria-current', 'page')
-  const region = page.getByRole('region', { name: '各組同意書' })
-  await expect(region.locator('table')).toHaveCount(0)
-  const card = region.getByTestId('signoff-group-row').filter({ hasText: 'G01' })
-  await expect(card.getByTestId('missing-details')).toContainText('還沒回覆：')
-  await expect(card.getByTestId('missing-details')).toContainText(names.get(g1[1]!.userId)!)
-  await expect(page.getByText('系辦不能代替任何人同意')).toHaveCount(0)
-  await expect(page.getByText('系辦只能發布、重開或重置')).toHaveCount(0)
+  await page.goto(`/dashboard/admin/signoff/${g1v1}`)
+  await expect(page.getByTestId('signoff-agreed')).toHaveText('學生 1／3 已同意')
+  await expect(page.getByTestId('signoff-missing')).toContainText(names.get(g1[1]!.userId)!)
+  await expect(page.getByTestId('signoff-missing')).toContainText(names.get(g1[2]!.userId)!)
+  await expect(page.getByTestId('signoff-missing')).not.toContainText(T1_NAME)
 })
 
 test('舊同意書（沒連作業）唯讀（C1-11）：版本頁只有狀態與匯出，沒有提醒、重新收集、重開、作廢；同組再建一版後舊頁再按被拒，v2 大家重新同意', async ({ page, context }) => {
@@ -277,8 +264,9 @@ test('全員同意後輪到老師（通知「輪到你」）、老師同意即�
   await expect(page.getByText(/校方採認/)).toHaveCount(0)
 
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await expect(page.getByTestId('package-cell').filter({ hasText: '第 2 版' }).first()).toContainText('3／3')
+  await page.goto(`/dashboard/admin/signoff/${g1v2}`)
+  await expect(page.getByTestId('signoff-agreed')).toHaveText('學生 3／3 已同意')
+  await expect(page.getByTestId('signoff-state').first()).toHaveText('已完成')
 })
 
 test('匯出：可列印頁（新分頁）與 CSV 明細；每次匯出都留紀錄；學生拿不到、別站送不進來', async ({ page }) => {
@@ -360,7 +348,7 @@ test('不同意：理由選填（C1-03）、送出後退回修正中，其他組
   await page.goto(`/dashboard/admin/signoff/${g2v1}`)
   await expect(page.getByTestId('signoff-state').first()).toHaveText('退回修正中')
   await expect(page.getByRole('button', { name: '重開新版' })).toHaveCount(0)
-  await createVersion(page, 'G02')
+  g2v2 = await createVersion(page, 'G02')
   await expect(page.getByTestId('signoff-state').first()).toHaveText('收集學生同意中')
   await expect(page.getByRole('region', { name: '版本歷史' })).toContainText('第 1 版')
 })
@@ -404,11 +392,8 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
 
   // 舊老師：版本頁不能再表態；系辦再建一版後新老師是參與者。
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  await expect(page.getByRole('region', { name: '各組同意書' })).toContainText('指導老師變更，待建新版')
-  const current = page.getByTestId('package-cell').filter({ hasText: '指導老師變更' }).first()
-  await expect(current.getByTestId('signoff-state')).toHaveText('已作廢（指導老師變更）')
-  await current.getByRole('link', { name: '第 2 版' }).click()
+  await page.goto(`/dashboard/admin/signoff/${g2v2}`)
+  await expect(page.getByTestId('signoff-state').first()).toHaveText('已作廢（指導老師變更）')
   // C1-11：舊同意書唯讀，沒有「重開新版」「作廢」；系辦用舊 API 同組再建一版（第 3 版），新老師是參與者。
   await expect(page.getByRole('button', { name: '重開新版' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '作廢', exact: true })).toHaveCount(0)

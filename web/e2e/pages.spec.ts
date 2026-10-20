@@ -422,8 +422,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 評分（票 23）。
     { path: '/dashboard/admin/grading', wrongRole: 'teacher' },
     { path: '/dashboard/teacher/grading', wrongRole: 'student' },
-    // 簽核與精選（票 25）。
-    { path: '/dashboard/admin/signoff', wrongRole: 'student' },
+    // 簽核與精選（票 25）。系辦 `/signoff` C2-22 起是轉址頁，移到 admin-redirects.spec。
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
     // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
