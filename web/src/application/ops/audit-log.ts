@@ -190,6 +190,7 @@ const ACTION_LABEL: Record<string, string> = {
   'group.dissolve': '解散組別',
   'group.establish': '組別成立',
   'group.export': '匯出組別名單',
+  'group.import': '匯入分組',
   'group.leader.change': '換組長',
   'group.member.add': '加入組員',
   'group.member.remove': '移出組員',

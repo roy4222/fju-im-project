@@ -17,6 +17,7 @@ import { groupsGradingPorts, loadAdvisorGrading } from '@/app/dashboard/admin/gr
 import { GroupDetailButton, UngroupedStudents } from '@/app/dashboard/admin/groups/member-forms'
 import { LinkOpportunityButton } from '@/app/dashboard/admin/groups/link-opportunity-dialog'
 import { GroupRosterTable, type RosterColumn } from '@/app/dashboard/admin/groups/roster-table'
+import { ToolbarActions } from '@/app/dashboard/admin/groups/toolbar-actions'
 import { GroupTypeCell } from '@/app/dashboard/admin/groups/type-forms'
 import {
   cohortLabel,
@@ -250,6 +251,7 @@ export default async function AdminGroupsPage({
               options={ROSTER_STATUS_FILTERS.map((t) => ({ value: t, label: ROSTER_STATUS_FILTER_LABEL[t], href: rosterHref(cohort.id, filter, { status: t }) }))}
             />
             {filtered ? <ClearFilters href={`${BASE}?cohort=${cohort.id}`} /> : null}
+            <ToolbarActions cohortId={cohort.id} cohortLabel={cohortLabel(cohort)} />
           </DataTableToolbar>
           <GroupRosterTable
             cohortId={cohort.id}

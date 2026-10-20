@@ -103,6 +103,36 @@ export {
 } from '@/application/groups/advisors'
 export { describeGroupHistory } from '@/application/groups/history'
 export type {
+  GroupImportAnalysis,
+  GroupImportCommand,
+  GroupImportCounts,
+  GroupImportCreatePlan,
+  GroupImportInput,
+  GroupImportKind,
+  GroupImportLookup,
+  GroupImportOutcome,
+  GroupImportPreview,
+  GroupImportReceipt,
+  GroupImportRow,
+  GroupImportRowResult,
+  GroupImportUploadTicket,
+  ImportGroupFact,
+  ImportStudentFact,
+} from '@/application/groups/import'
+export {
+  analyzeGroupImportCsv,
+  describeGroupImportReceipt,
+  GROUP_IMPORT_COLUMNS,
+  GROUP_IMPORT_KIND_LABEL,
+  GROUP_IMPORT_KINDS,
+  GROUP_IMPORT_MAX_BYTES,
+  GROUP_IMPORT_OUTCOME_LABEL,
+  groupImportResultCsv,
+  groupImportTemplate,
+  normalizeImportCode,
+  planGroupImport,
+} from '@/application/groups/import'
+export type {
   ChangeGroupTypeInput,
   CreateOpportunityInput,
   GroupOpportunityLink,
