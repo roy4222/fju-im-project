@@ -9,13 +9,14 @@ import type {
   TeacherSetupCommand,
 } from '@/application/accounts'
 import { accountAdminDenied, normalizeExportSelection } from '@/application/accounts'
-import type { AccountDirectoryCommand, ProfileEditCommand } from '@/application/accounts'
+import type { AccountDirectoryCommand, ProfileCardCommand, ProfileCardQuery, ProfileEditCommand } from '@/application/accounts'
 import { PgAccountCommand } from '@/infrastructure/accounts/account-command'
 import { PgAccountDirectoryCommand } from '@/infrastructure/accounts/account-directory-command'
 import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
 import { PgTeacherSetupCommand } from '@/infrastructure/accounts/teacher-setup'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
 import { PgProfileEditCommand } from '@/infrastructure/accounts/pg-profile-edit'
+import { PgProfileCardCommand } from '@/infrastructure/accounts/profile-card-command'
 import { DbActorResolver } from '@/infrastructure/auth/actor-resolver'
 import { BetterAuthSelfAccountCommand } from '@/infrastructure/auth/self-account'
 import { signInWithPassword, signOutCurrent, startGoogleSignIn } from '@/infrastructure/auth/wrapper'
@@ -102,6 +103,22 @@ export function getAccountCommand(): AccountCommand {
 }
 
 /** 帳號列「編輯」：姓名、學號、調屆、學生↔老師互轉（C2-08）。 */
+/** 學生名片卡（C3-07）：讀自己的名片＋一次存自介、技能、聯絡 Email、公開找隊員。 */
+let profileCard: PgProfileCardCommand | undefined
+
+function profileCardImpl(): PgProfileCardCommand {
+  profileCard ??= new PgProfileCardCommand({ audit: getAuditWriter(), ledger: getOperationLedger(), db: getPool, businessClock: getBusinessClock() })
+  return profileCard
+}
+
+export function getProfileCardCommand(): ProfileCardCommand {
+  return profileCardImpl()
+}
+
+export function getProfileCardQuery(): ProfileCardQuery {
+  return profileCardImpl()
+}
+
 let profileEditCommand: ProfileEditCommand | undefined
 
 export function getProfileEditCommand(): ProfileEditCommand {
@@ -168,6 +185,9 @@ export {
   ROLE_LABEL,
   SEARCH_MAX_LENGTH,
 } from '@/application/accounts'
+
+/** 名片卡畫面要用的上限與預設技能（C3-07；client 對話框由伺服器元件以 props 帶進去）。 */
+export { BIO_MAX_LENGTH, SKILL_MAX_COUNT, SKILL_MAX_LENGTH, SKILL_PRESETS } from '@/application/accounts'
 
 /** 註冊與審核畫面要用的標籤與上限（app 對 application 只能帶型別，執行期的值經這裡）。 */
 export {

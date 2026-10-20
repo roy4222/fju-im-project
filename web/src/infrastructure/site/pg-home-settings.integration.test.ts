@@ -7,6 +7,7 @@ import type { Pool } from 'pg'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
+import { PUBLIC_READ_PURPOSES } from '@/composition/download-policy'
 import { HOME_STALE_MESSAGE, resolveHome } from '@/application/site'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
@@ -111,8 +112,8 @@ beforeAll(async () => {
     environmentMaxBytes: () => 100 * 1024 * 1024,
     ticketSecret: () => 'home-secret-home-secret-home-secret-home',
     policies: { photo: createHeroPhotoPolicy(() => app), poster: createPosterPolicy(() => app) },
-    // 同正式組裝（`composition/ops.ts`）：首頁大圖是公開讀取例外。
-    publicReadPurposes: ['photo'],
+    // 同正式組裝（`composition/ops.ts`）：讀同一份公開讀取例外清單。
+    publicReadPurposes: PUBLIC_READ_PURPOSES,
     db: () => app,
   })
   command = new PgHomeSettingsCommand({

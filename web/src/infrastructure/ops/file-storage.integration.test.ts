@@ -6,6 +6,7 @@ import type { Pool, PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ANONYMOUS, rosterAccessDenied, type ResolvedActor } from '@/application/accounts'
 import { isCacheableDownload, type FileFacts, type FilePurpose, type UploadRules } from '@/application/ops'
+import { PUBLIC_READ_PURPOSES } from '@/composition/download-policy'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage, PgFileAdminCommand } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -348,13 +349,18 @@ describe('下載：每次重新授權（FIL-03）', () => {
   })
 
   it('公開讀取例外（第三波 W3）：待審、必須改密的人比照訪客，只拿得到登記成公開的用途裡、政策對訪客放行的檔', async () => {
-    // 首頁大圖：政策只放行「目前首頁用的那一張」。公告附件：假設政策對誰都放行，但這個用途沒登記成公開讀取。
+    // 讀正式清單 `PUBLIC_READ_PURPOSES`（⑤-02）：有人把它改回只剩首頁大圖，「公開公告附件 → ok」這條會紅。
+    // 首頁大圖：政策只放行「目前首頁用的那一張」。公告附件：政策只放行「公開」那則的附件（草稿的不放行）。
+    // 繳交檔：假設政策對誰都放行，但這個用途沒登記成公開讀取。
     const photoRules: UploadRules = { purpose: 'photo', allowedTypes: ['csv'], maxBytes: 1024, scope: { kind: 'global' } }
     const attachmentRules: UploadRules = { purpose: 'attachment', allowedTypes: ['csv'], maxBytes: 1024, scope: { kind: 'global' } }
+    const submissionRules: UploadRules = { purpose: 'submission', allowedTypes: ['csv'], maxBytes: 1024, scope: { kind: 'global' } }
     const current = await ticketFor(adminId, 'hero.csv', photoRules)
     const old = await ticketFor(adminId, 'old.csv', photoRules)
-    const attachment = await ticketFor(adminId, 'a.csv', attachmentRules)
-    for (const t of [current, old, attachment]) {
+    const publicAttachment = await ticketFor(adminId, 'public.csv', attachmentRules)
+    const draftAttachment = await ticketFor(adminId, 'draft.csv', attachmentRules)
+    const submission = await ticketFor(adminId, 's.csv', submissionRules)
+    for (const t of [current, old, publicAttachment, draftAttachment, submission]) {
       expect((await storage.upload(adminId, t.ticket, streamOf(CSV), CSV.length)).ok).toBe(true)
     }
     const seen: ResolvedActor[] = []
@@ -367,10 +373,14 @@ describe('下載：每次重新授權（FIL-03）', () => {
           seen.push(a)
           return f.id === current.fileId
         },
-        attachment: () => true,
+        attachment: (a, f) => {
+          seen.push(a)
+          return f.id === publicAttachment.fileId || (a.kind === 'authenticated' && a.roles.includes('admin'))
+        },
+        submission: () => true,
         roster_csv: (a) => rosterAccessDenied(a) === null,
       },
-      publicReadPurposes: ['photo'],
+      publicReadPurposes: PUBLIC_READ_PURPOSES,
       db: () => app,
     })
     const pendingUser = actor(studentId, ['student'], 'pending')
@@ -378,13 +388,15 @@ describe('下載：每次重新授權（FIL-03）', () => {
     const pendingAdmin = actor(adminId, ['admin'], 'pending')
 
     for (const who of [pendingUser, mustChange, pendingAdmin]) {
-      const got = await gated.authorizeDownload(who, current.fileId)
-      expect(got.ok).toBe(true)
-      if (got.ok) await got.receipt.body.cancel()
-      // 其他首頁大圖、沒登記成公開讀取的用途（即使政策放行）、名單原檔：照舊「無法存取」。
-      expect(await gated.authorizeDownload(who, old.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-      expect(await gated.authorizeDownload(who, attachment.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-      expect(await gated.authorizeDownload(who, fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+      for (const open of [current.fileId, publicAttachment.fileId]) {
+        const got = await gated.authorizeDownload(who, open)
+        expect(got.ok).toBe(true)
+        if (got.ok) await got.receipt.body.cancel()
+      }
+      // 其他首頁大圖、草稿的附件（系辦本來看得到，待審的系辦也不行）、沒登記成公開讀取的用途（即使政策放行）、名單原檔：照舊「無法存取」。
+      for (const closed of [old.fileId, draftAttachment.fileId, submission.fileId, fileId]) {
+        expect(await gated.authorizeDownload(who, closed)).toMatchObject({ ok: false, code: 'FORBIDDEN', message: expect.stringContaining('無法存取') })
+      }
     }
     // 被狀態閘門擋下的人是以訪客的身分問政策，角色帶不進去（待審的管理員不會因為是管理員而多拿到東西）。
     expect(seen.filter((a) => a.kind !== 'anonymous')).toEqual([])
@@ -445,7 +457,7 @@ describe('publicRead：訪客走同一條政策也放行＝此刻對所有人公
           return hero(a, f)
         },
       },
-      publicReadPurposes: ['photo'],
+      publicReadPurposes: PUBLIC_READ_PURPOSES,
       db: () => app,
     })
   })

@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-09",
+  "set": {
+    "/dashboard/admin/showcase": { "as": "admin", "baseline": 10, "max": 10, "identity": 0 }
+  }
+}

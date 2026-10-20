@@ -125,10 +125,12 @@ test('AC-V29：系辦把 Y 改 1、X 改 2，訪客重整兩頁都變 Y、X、Z'
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
   const setHome = async (key: 'X' | 'Y', title: string, value: string) => {
     await page.goto(`/dashboard/admin/showcase?cohort=${cohortIds[key]}`)
-    const form = page.getByTestId('showcase-draft').filter({ hasText: title }).getByRole('form', { name: /的首頁順序/ })
+    // C1-09：成果展示改成清單＋編輯視窗，首頁順序在視窗裡填數字、按一次「儲存」。
+    await page.getByTestId('entry-row').filter({ hasText: title }).getByRole('button', { name: /^編輯：/ }).click()
+    const form = page.getByTestId('showcase-edit-dialog')
     await form.getByLabel(/首頁順序/).fill(value)
-    await form.getByRole('button', { name: '儲存順序' }).click()
-    await expect(form.getByRole('status')).toContainText(`首頁順序已設為 ${value}`)
+    await form.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText(`首頁順序已設為 ${value}`)
   }
   await setHome('Y', Y, '1')
   await setHome('X', X, '2')

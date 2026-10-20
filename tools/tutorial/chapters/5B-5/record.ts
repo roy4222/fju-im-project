@@ -1,4 +1,4 @@
-// 5B-5 系辦｜檔案管理與首頁設定（分鏡 storyboard.md §4 5B-5）。
+// 5B-5 系辦｜檔案與前台編輯首頁（分鏡 storyboard.md §4 5B-5）。
 //   INSTANCE=4 tools/tutorial/env/reset.sh && node tools/tutorial/chapters/5B-5/setup.mjs && node tools/tutorial/chapters/5B-5/record.ts
 // 輸出：~/work/tutorial-out/chapters/5B-5/（runs/ 底下是每次錄影的 run 目錄，成品複製成 5B-5.mp4＋events.json）。
 // TUTORIAL_SILENT=1 改用無聲配音（只試定位器、不出成品）。
@@ -21,7 +21,7 @@ let chapter: Chapter | undefined;
 try {
   const page = await newTutorialPage(browser);
   const t = (chapter = await startChapter({
-    page, id: ID, chapter: '系辦｜檔案管理與首頁設定', outRoot: join(out, 'runs'),
+    page, id: ID, chapter: '系辦｜檔案與前台編輯首頁', outRoot: join(out, 'runs'),
     baseURL, displayOrigin: 'test.fju.roy422.dev', ...(process.env.TUTORIAL_SILENT ? { tts: silentProvider() } : {}),
   }));
   console.log(`錄影目錄：${t.outDir}`);
@@ -39,10 +39,11 @@ try {
 
   await t.step({
     caption: '檔案管理',
-    narration: '檔案管理列全站檔案：類型、用在哪裡、上傳者、大小、是否使用中；主機用量在上面。',
+    narration: '檔案在側欄「公告與作業」的最後一個分頁，列全站檔案：類型、用在哪裡、上傳者、大小、是否使用中。',
     status: { kind: 'ok', evidence: 'story-2 第 35 步' },
   }, async () => {
-    await t.click(nav('檔案管理'));
+    await t.click(nav('公告與作業'));
+    await t.click(page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '檔案', exact: true }));
     await t.hover(main.getByText(/個檔案・/).first());
     await t.hover(main.getByRole('group', { name: '類型' }));
   });
@@ -58,57 +59,66 @@ try {
     await t.hover(row.getByRole('link', { name: '去移除使用處' }).or(row.getByText('使用中')).first());
   });
 
+  const layer = page.getByTestId('front-edit-layer');
+  const editor = page.getByRole('dialog');
+
   await t.step({
-    caption: '首頁設定能改什麼',
-    narration: '首頁設定只有大圖和兩行標語；存了就生效，沒有發布步驟。',
-    status: { kind: 'ok', evidence: 'story-4 第 9 步' },
+    caption: '首頁改在前台直接編輯',
+    narration: '後台不再有「首頁設定」頁。系辦回到前台首頁，右下角按「編輯頁面」，要改的區塊就出現虛線框和「編輯」；只有系辦看得到，訪客一個位元組都不多。',
+    status: { kind: 'ok', evidence: 'story-4 第 9 步；C2-16／C2-17 首頁設定搬到前台編輯' },
   }, async () => {
-    await t.click(nav('首頁設定'));
-    await t.hover(main.getByText(/^首頁大圖（PNG 或 JPG/));
-    await t.hover(main.getByLabel(/^標語第一行/));
-    await t.hover(main.getByLabel(/^標語第二行/));
-    await t.hover(main.getByRole('link', { name: '開新分頁看前台首頁' }));
+    await t.goto('/');
+    await t.click(page.getByRole('button', { name: '編輯頁面' }));
+    await t.waitStable({ ready: layer });
+    await t.hover(layer.getByRole('button', { name: '編輯「首頁橫幅」' }));
   });
 
   await t.step({
     caption: '換大圖與標語',
-    narration: '上傳圖、填說明和標語，儲存後訪客重新整理就看到。',
-    status: { kind: 'ok', evidence: 'story-4 第 9 步' },
+    narration: '按首頁橫幅的「編輯」，上傳圖、填說明和兩行標語，按儲存就生效，訪客重新整理就看到，沒有發布步驟。',
+    status: { kind: 'ok', evidence: 'story-4 第 9 步；C2-17 首頁橫幅表單' },
   }, async () => {
-    await t.upload(main.getByLabel('選擇首頁大圖'), jpg, { via: main.getByText('上傳圖片', { exact: true }) });
-    await t.waitStable({ ready: main.getByText('（儲存後才會換上）') });
-    await t.type(main.getByLabel(/^圖片說明/), '示範圖片');
-    await t.type(main.getByLabel(/^標語第一行/), '示範：專題成果，從這裡開始');
-    await t.type(main.getByLabel(/^標語第二行/), '示範標語：輔大資管系專題平台');
-    await t.click(main.getByRole('button', { name: '儲存並更新首頁' }));
-    await t.waitStable({ ready: main.getByText(/^首頁已更新，訪客重新整理就會看到/) });
-    await t.hover(main.getByText(/^首頁已更新，訪客重新整理就會看到/));
+    await t.click(layer.getByRole('button', { name: '編輯「首頁橫幅」' }));
+    await t.waitStable({ ready: editor.getByRole('textbox', { name: /^標語第一行/ }) });
+    await t.upload(editor.getByLabel('選擇首頁大圖'), jpg, { via: editor.getByText('上傳圖片', { exact: true }) });
+    await t.waitStable({ ready: editor.getByText('（儲存後才會換上）') });
+    await t.type(editor.getByLabel(/^圖片說明/), '示範圖片');
+    await t.type(editor.getByLabel(/^標語第一行/), '示範：專題成果，從這裡開始');
+    await t.type(editor.getByLabel(/^標語第二行/), '示範標語：輔大資管系專題平台');
+    await t.click(editor.getByRole('button', { name: '儲存', exact: true }));
+    const saved = page.getByRole('status').filter({ hasText: '已儲存' });
+    await t.waitStable({ ready: saved });
+    await t.hover(saved);
   });
 
   await t.step({
-    caption: '到前台看結果',
-    narration: '前台首頁大標和說明已經換了。榮譽區照片、系辦聯絡、頁尾還是寫死的。',
-    status: { kind: 'bad', say: '首頁其他區塊還不能改', evidence: 'P-35；story-4 N-57' },
+    caption: '看結果',
+    narration: '前台首頁的大標和說明已經換了。頁尾聯絡、隱私權政策、三張快速入口卡也是同樣在原頁按「編輯」。',
+    status: { kind: 'ok', evidence: 'P-35；story-4 N-57；C2-17 頁尾、快速入口、隱私權可前台編輯' },
   }, async () => {
-    // 「開新分頁看前台首頁」開的是新分頁，錄影只錄這一頁：直接在這一頁開首頁
-    await t.goto('/');
     await t.hover(page.getByRole('heading', { level: 1 }));
     await t.wait(2500);
     await t.scroll(page.getByRole('contentinfo'));
+    await t.hover(layer.getByRole('button', { name: /^編輯/ }).last());
   });
 
   await t.step({
     caption: '恢復預設',
-    narration: '恢復預設清回校園照和預設標語。',
-    status: { kind: 'ok', evidence: 'story-4 第 9 步' },
+    narration: '要恢復預設，打開首頁橫幅的編輯，按「改用預設照片」，把兩行標語清空再儲存，就回到校園照和預設標語。',
+    status: { kind: 'ok', evidence: 'story-4 第 9 步；C2-17 恢復預設併進橫幅表單' },
   }, async () => {
-    await t.goto('/dashboard/admin/home-settings');
-    await t.click(main.getByRole('region', { name: '恢復預設' }).getByRole('button', { name: '恢復預設' }));
-    const d = page.getByRole('dialog', { name: '恢復首頁預設？' });
-    await t.waitStable({ ready: d });
-    await t.click(d.getByRole('button', { name: '恢復預設' }));
-    await t.waitStable({ ready: main.getByText(/^已恢復預設，訪客重新整理就會看到/) });
-    await t.hover(main.getByText(/^已恢復預設，訪客重新整理就會看到/));
+    await t.scroll(0 - 5000);
+    await t.click(layer.getByRole('button', { name: '編輯「首頁橫幅」' }));
+    await t.waitStable({ ready: editor.getByRole('button', { name: '改用預設照片' }) });
+    await t.click(editor.getByRole('button', { name: '改用預設照片' }));
+    await editor.getByLabel(/^標語第一行/).fill('');
+    await editor.getByLabel(/^標語第二行/).fill('');
+    await t.hover(editor.getByText(/就是恢復預設/));
+    await t.click(editor.getByRole('button', { name: '儲存', exact: true }));
+    const saved = page.getByRole('status').filter({ hasText: '已儲存' });
+    await t.waitStable({ ready: saved });
+    await t.hover(saved);
+    await t.click(page.getByRole('button', { name: '完成編輯' }));
   });
 
   await t.finish();

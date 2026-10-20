@@ -32,8 +32,13 @@ describe('legacyAdminRedirect', () => {
     expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement: ['rules', 'resource'] })).toBe('/dashboard/admin/affairs/rules')
   })
 
-  it('還留在公告頁的篩選不轉：榮譽（①做完榮譽榜才轉）、公告、逾期、全部、沒帶、不認得的值', () => {
-    for (const placement of ['honor', 'news', 'overdue', 'all', 'nope', undefined]) {
+  it('?placement=honor 轉到成果展示（榮譽榜同頁，C1-09；AC-14a），placement 拿掉、其餘 query 照帶', () => {
+    expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement: 'honor' })).toBe('/dashboard/admin/showcase')
+    expect(legacyAdminRedirect('/dashboard/admin/affairs', { cohort: 'c-1', placement: 'honor' })).toBe('/dashboard/admin/showcase?cohort=c-1')
+  })
+
+  it('還留在公告頁的篩選不轉：公告、逾期、全部、沒帶、不認得的值', () => {
+    for (const placement of ['news', 'overdue', 'all', 'nope', undefined]) {
       expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement, cohort: '115' })).toBeNull()
     }
   })

@@ -148,6 +148,7 @@ const ACTION_LABEL: Record<string, string> = {
   'account.reset_mail_sent': '寄重設密碼信',
   'account.complete_teacher_profile': '老師補完資料',
   'account.update_contact': '更新聯絡資料',
+  'account.profile_card_update': '更新名片',
   'account.change_password': '變更密碼',
   'account.set_password': '設定密碼',
   'account.link_google': '連結 Google 登入',
