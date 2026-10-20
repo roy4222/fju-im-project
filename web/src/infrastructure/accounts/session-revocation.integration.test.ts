@@ -289,12 +289,14 @@ describe('收斂核對（規則 5）', () => {
     const { eventId, jobId } = await statusEvent(userId, 'disabled')
     await executor().runForUser(userId)
     // 模擬前 9 輪都沒收斂成功（Better Auth 一直被別的東西改回去）。
+    // 時間用固定的過去時刻，不用資料庫的 now()：第 10 輪是程式時鐘寫的，兩邊時鐘差幾毫秒就會排到前 9 輪前面。
+    const seededAt = (round: number) => new Date(Date.UTC(2000, 0, 1, 0, round))
     for (let round = 1; round <= 9; round += 1) {
       await owner.sql(
         `insert into session_revocations (id, user_id, status_event_id, trigger, reconcile_reason, reconcile_of_id, reconcile_round,
            kind, state, expected_user_status, requested_real_at, completed_real_at)
-         values (gen_random_uuid(), $1, $2, 'reconcile', 'periodic', $3, $4, 'ban', 'done', 'disabled', now(), now())`,
-        [userId, eventId, jobId, round],
+         values (gen_random_uuid(), $1, $2, 'reconcile', 'periodic', $3, $4, 'ban', 'done', 'disabled', $5, $5)`,
+        [userId, eventId, jobId, round, seededAt(round)],
       )
     }
     await owner.sql('update users set banned = false where id = $1', [userId])
