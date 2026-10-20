@@ -1,5 +1,5 @@
 'use server'
-import { currentActor } from '@/app/_ui/guard'
+import { frontEditActor } from '@/app/_ui/front-edit/actor'
 import type { UploadTicket } from '@/application/ops'
 import type { SiteTextKey } from '@/application/site'
 import { getHomeSettingsCommand, getSiteTextsCommand } from '@/composition/site'
@@ -20,11 +20,13 @@ export async function saveSiteTextAction(input: {
   requestId: string
   fields: Record<string, string>
 }): Promise<FeSaveResult> {
+  const actor = await frontEditActor()
+  if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const fields: Record<string, string> = {}
   // 字數上限由用例判（說得出是多少）；這裡只擋掉離譜的大小。
   for (const [name, value] of Object.entries(input?.fields ?? {})) fields[text(name, 40)] = text(value, 40_000)
   const result = await getSiteTextsCommand().save(
-    await currentActor(),
+    actor,
     text(input?.key, 40) as SiteTextKey,
     fields,
     Number(input?.revision),
@@ -45,9 +47,11 @@ export async function saveHeroAction(input: {
   line1: string
   line2: string
 }): Promise<FeSaveResult> {
+  const actor = await frontEditActor()
+  if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const hero = text(input?.heroFileId, 100)
   const result = await getHomeSettingsCommand().save(
-    await currentActor(),
+    actor,
     {
       revision: Number(input?.revision),
       heroFileId: hero === '' ? null : hero,
@@ -66,7 +70,9 @@ export async function requestHeroUploadAction(input: {
   declaredMime: string
   declaredSize: number
 }): Promise<{ ok: true; ticket: UploadTicket } | { ok: false; message: string }> {
-  const result = await getHomeSettingsCommand().requestHeroUpload(await currentActor(), {
+  const actor = await frontEditActor()
+  if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
+  const result = await getHomeSettingsCommand().requestHeroUpload(actor, {
     fileName: text(input?.fileName, 500),
     declaredMime: text(input?.declaredMime, 200),
     declaredSize: typeof input?.declaredSize === 'number' ? input.declaredSize : Number.NaN,
