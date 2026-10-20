@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { IconArrowLeft } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle } from '@/app/_ui/dashboard-primitives'
@@ -22,13 +23,20 @@ export const metadata = { title: '同意書｜資管系專題平台' }
  *
  * 版本因組員或主指導變更而失效時，上方顯示原因與「等待管理員建立新版」，沒有表態按鈕；
  * 系辦建好新版後重新整理，這裡就換成新版（目前版本才會出現在這一頁）。
+ *
+ * C1-11：`?version=` 指到連作業的版本（`itemId` 不是 null）時轉到作業頁 `/dashboard/student/affairs/<itemId>?tab=status`；
+ * 不帶參數照舊列出每個包的目前那一版。
  */
 export default async function StudentSignoffPage({ searchParams }: { searchParams: Promise<{ version?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
   const actor = await requireRole('/dashboard/student/signoff', 'student')
   // 跟側欄徽章、交作業列表讀同一份（ST-1 的 seam，同一次請求只查一次）。
   const view = await studentSignoff(actor.userId)
-  const versions = pick(view.versions, (await searchParams).version)
+  const { version } = await searchParams
+  const versions = pick(view.versions, version)
+  // 連到同意書作業的版本（C1-11）：表態搬到作業頁的「狀態」分頁；交作業的同意書卡（`?version=`）轉過去。
+  const linked = typeof version === 'string' && versions.length === 1 && versions[0]!.versionId === version ? versions[0]!.itemId : null
+  if (linked) redirect(`/dashboard/student/affairs/${linked}?tab=status`)
 
   return (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/signoff">

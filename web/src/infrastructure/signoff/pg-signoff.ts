@@ -2137,6 +2137,23 @@ export class PgSignoffQuery implements SignoffQuery {
     })
   }
 
+  /** 舊網址 `/dashboard/admin/signoff/[versionId]` 轉址用（C1-11、§3.3）：這一版所屬的包連到哪份作業；舊包或找不到是 null。 */
+  async itemOfVersion(actor: ResolvedActor, versionId: string): Promise<Result<{ readonly itemId: string | null }>> {
+    const blocked = authorizeAdmin(actor, '查看同意書')
+    if (blocked) return blocked
+    const receipt = { requestId: uuidv7(), serverTime: new Date().toISOString() }
+    if (!isUuid(versionId)) return ok({ itemId: null }, receipt)
+    return this.#withClient(async (db) => {
+      const row = (
+        await db.query<{ item_id: string | null }>(
+          `select p.item_id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where v.id = $1`,
+          [versionId],
+        )
+      ).rows[0]
+      return ok({ itemId: row?.item_id ?? null }, receipt)
+    })
+  }
+
   /**
    * 系辦「繳交狀況」（C 階段規格① §3.3 `itemBoard`）：這份同意書作業名單上（`response_rosters` 目前有效的整組收件者）的每一組一列。
    * 有包的帶目前版本的狀態與逐人表態（照那一版的參與者快照、名字與頭像取此刻）；沒包的說此刻缺老師還是缺組員。
@@ -2181,6 +2198,17 @@ export class PgSignoffQuery implements SignoffQuery {
         db,
         packages.rows.map((p) => p.participants),
       )
+      // 每一版上一次提醒的時間（看板的 24 小時冷卻；口徑同 `lastRemindedAt`），一句查完。
+      const reminded = new Map(
+        (
+          await db.query<{ source_id: string; at: Date }>(
+            `select source_id, max(occurred_real_at) as at from domain_events
+              where type = 'signoff.reminded' and source_type = 'signoff_version' and source_id = any($1::uuid[])
+              group by source_id`,
+            [packages.rows.map((p) => p.version_id)],
+          )
+        ).rows.map((r) => [r.source_id, r.at] as const),
+      )
       const rows: ConsentBoardRow[] = groups.rows.map((g) => {
         const pkg = packages.rows.find((p) => p.group_id === g.group_id)
         if (!pkg) {
@@ -2195,6 +2223,7 @@ export class PgSignoffQuery implements SignoffQuery {
             students: [],
             advisor: null,
             skipped: consentSkipReason({ memberCount: g.member_count, hasAdvisor: g.has_advisor }),
+            lastRemindedAt: null,
           }
         }
         const summary = summaryOf(pkg, votes, profiles)
@@ -2217,6 +2246,7 @@ export class PgSignoffQuery implements SignoffQuery {
           students: summary.progress.students.map(person),
           advisor: summary.progress.advisor.userId ? person(summary.progress.advisor) : null,
           skipped: null,
+          lastRemindedAt: reminded.get(summary.versionId) ?? null,
         }
       })
       return ok({ itemId: item.id, itemTitle: item.title, purpose: item.consent_purpose, rows }, { requestId: uuidv7(), serverTime: new Date().toISOString() })

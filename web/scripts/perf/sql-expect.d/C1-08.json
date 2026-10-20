@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-08",
+  "set": {
+    "/dashboard/admin/affairs/rules": { "as": "admin", "baseline": 51, "max": 51, "identity": 0 }
+  }
+}
