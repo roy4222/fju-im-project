@@ -902,4 +902,18 @@ describe('0021（C1-01）：同意書連到作業的唯一鍵、理由選填', (
       ),
     ).toBe(0)
   })
+
+  it('itemOfVersion（C1-11、AC-21c）：連作業的版本回作業 id；舊包、不存在的版本回 null；不是系辦 FORBIDDEN', async () => {
+    const s = await scenario()
+    const legacy = await mustCreate(s)
+    expect(await query.itemOfVersion(admin(), legacy.versionId)).toMatchObject({ ok: true, receipt: { itemId: null } })
+    expect(await query.itemOfVersion(admin(), randomUUID())).toMatchObject({ ok: true, receipt: { itemId: null } })
+    expect(await query.itemOfVersion(admin(), 'not-a-uuid')).toMatchObject({ ok: true, receipt: { itemId: null } })
+
+    const itemId = await consentItem(s)
+    await owner.sql(`update signoff_packages set item_id = $1 where id = $2`, [itemId, legacy.packageId])
+    expect(await query.itemOfVersion(admin(), legacy.versionId)).toMatchObject({ ok: true, receipt: { itemId } })
+    expect(await query.itemOfVersion(actor(s.members[0]!.id, ['student']), legacy.versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await query.itemOfVersion(actor(s.teacher.id, ['teacher']), legacy.versionId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
 })

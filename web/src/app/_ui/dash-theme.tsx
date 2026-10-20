@@ -117,3 +117,6 @@ export function DashThemeToggle() {
     </button>
   )
 }
+
+/** 404／403 壞掉頁特效引擎的延遲載入（C4-05）：寫在這支是為了打包，原因見 `fx/fuzzy-text.tsx`。 */
+export const loadBrokenFx = () => import('@/app/_ui/fx/fuzzy-engine')

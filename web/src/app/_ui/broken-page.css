@@ -1,0 +1,53 @@
+/* ==========================================================================
+   404／403「壞掉」頁（broken-page.tsx、fx/fuzzy-text.tsx，規格④ §6）。
+   `main` 是 SiteShell 的（不改它），用 :has 把整塊染成深藍 #13305C；上緣一條 3 px 輔大三色線。
+   `.broken-text`：真文字的靜態三色漸層字——減少動態、以及 canvas 還沒畫好之前看到的就是它；
+   canvas 畫好（`.fuzzy-text[data-ready]`）後真文字改 sr-only，報讀器照讀。
+   ========================================================================== */
+@layer components {
+  main:has(> .broken-page) { background-color: #13305c; }
+  .broken-page { position: relative; display: flex; min-height: 100%; flex-direction: column; }
+  .broken-stripe { height: 3px; background-image: linear-gradient(90deg, #e56e00, #f1ba4b, #8db6e6); }
+  .broken-body {
+    margin-inline: auto; display: flex; width: 100%; max-width: 40rem; flex: 1; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1rem; padding: 4rem 1.25rem; text-align: center;
+    min-height: 480px;
+  }
+  @media (min-width: 640px) { .broken-body { min-height: 560px; } }
+
+  .fuzzy-text { display: flex; max-width: 100%; justify-content: center; }
+  .fuzzy-text > canvas { display: block; max-width: 100%; height: auto; }
+  .fuzzy-text:not([data-ready]) > canvas { display: none; }
+  .fuzzy-text[data-ready] > .broken-text {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;
+  }
+
+  .broken-text {
+    background-image: linear-gradient(90deg, #e56e00, #f1ba4b, #8db6e6);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .broken-code { font-size: 72px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .broken-title { font-size: 24px; line-height: 1.3; font-weight: 800; }
+  .broken-desc { font-size: 16px; line-height: 1.6; font-weight: 500; }
+  @media (min-width: 640px) {
+    .broken-code { font-size: 88px; }
+    .broken-title { font-size: 28px; }
+  }
+  .broken-actions { margin-top: 0.5rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; }
+
+  /* 按鈕抖 0.4 秒：只動 transform 與 text-shadow，outline（focus）不變、照樣可點。 */
+  .broken-glitch.is-glitching { animation: broken-glitch 0.4s steps(8, end); }
+  @keyframes broken-glitch {
+    0% { transform: translate(0, 0); text-shadow: none; }
+    15% { transform: translate(-3px, 1px); text-shadow: 2px 0 #8db6e6, -2px 0 #e56e00; }
+    30% { transform: translate(3px, -1px); text-shadow: -2px 0 #8db6e6, 2px 0 #f1ba4b; }
+    45% { transform: translate(-2px, 0); text-shadow: 1px 0 #e56e00; }
+    60% { transform: translate(2px, 1px); text-shadow: -1px 0 #8db6e6, 1px 0 #f1ba4b; }
+    80% { transform: translate(-1px, -1px); text-shadow: none; }
+    100% { transform: translate(0, 0); text-shadow: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .broken-glitch.is-glitching { animation: none; }
+  }
+}

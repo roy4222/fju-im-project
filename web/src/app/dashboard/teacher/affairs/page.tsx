@@ -8,11 +8,9 @@ import { CohortSelect, type CohortOption } from '@/app/dashboard/teacher/affairs
 import { EntryList } from '@/app/dashboard/teacher/affairs/entry-list'
 import { buildGroupCards, GroupCards, type GroupCard } from '@/app/dashboard/teacher/affairs/group-cards'
 import { MyAssignments } from '@/app/dashboard/teacher/affairs/my-assignments'
-import { SignoffTab } from '@/app/dashboard/teacher/affairs/signoff-tab'
 import type { ResolvedActor } from '@/application/accounts'
 import type { AdvisorIndividualItem } from '@/application/submissions'
 import { getBusinessClock, cohortLabel } from '@/composition/cohorts'
-import { getSignoffQuery } from '@/composition/signoff'
 import { getAdvisorSubmissionQuery, getSubmissionQuery } from '@/composition/submissions'
 
 export const metadata = { title: '作業區｜資管系專題平台' }
@@ -21,7 +19,6 @@ const BASE = '/dashboard/teacher/affairs'
 const TABS = [
   { key: 'mine', label: '我的作業', href: BASE },
   { key: 'submissions', label: '指導組別的繳交', href: `${BASE}?tab=submissions` },
-  { key: 'signoff', label: '同意書', href: `${BASE}?tab=signoff` },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -29,18 +26,17 @@ type TabKey = (typeof TABS)[number]['key']
 const DESCRIPTION = {
   mine: '系辦發給你的作業：按「交作業」寫作業、上傳、繳交。',
   submissions: '你指導的每一組一張卡，一個小方塊一份作業。點小方塊看那一組每一次正式送出的內容。',
-  signoff: '你此刻指導的組別的同意書與進度。組員全部同意後才輪到你。',
 } as const
 
 /**
- * 老師作業區（TE-04，Q77、Q83；C 階段規格① §5.1 加「我的作業」）：分頁「我的作業」（預設）｜`?tab=submissions`｜`?tab=signoff`。
+ * 老師作業區（TE-04，Q77、Q83；C 階段規格① §5.1 加「我的作業」）：分頁「我的作業」（預設）｜`?tab=submissions`。
  *
  * - 我的作業：系辦發給老師的作業（老師在收件名單上；`myItems`）＋等你同意的站內同意書，跟學生「交作業」同一張表。
  * - 各組繳交：只列老師**此刻**指導的組別（換掉的組下一次打開就不見了），每組一張卡、每份整組作業一個小方塊；
  *   下面另列系辦開了主指導閱覽的個人作業。
- * - 同意書：原 `/dashboard/teacher/signoff` 的卡片（那個網址先過角色檢查再轉到這裡）。
+ * - 同意書（C1-11）：「同意書」分頁拿掉，等你同意的站內同意書併在「我的作業」；同意書頁是 `/dashboard/teacher/signoff/{versionId}`。
  *
- * 每個分頁只讀自己要的資料（一次 `Promise.all`）：我的作業＝`myItems`＋業務時間；各組繳交＝`matrix`＋業務時間；同意書＝`teacherView`。
+ * 每個分頁只讀自己要的資料（一次 `Promise.all`）：我的作業＝`myItems`＋業務時間；各組繳交＝`matrix`＋業務時間。
  * 不認得的 `tab` 一律當「我的作業」，不轉頁（`pages.spec` 要直接拿到 200）。
  */
 export default async function TeacherAffairsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[]; cohort?: string | string[] }> }) {
@@ -59,8 +55,6 @@ export default async function TeacherAffairsPage({ searchParams }: { searchParam
         <TabNav label="作業區分頁" tabs={TABS} current={data.tab} />
         {data.tab === 'mine' ? (
           <MyAssignments rows={data.rows} now={data.now} />
-        ) : data.tab === 'signoff' ? (
-          <SignoffTab cards={data.cards} />
         ) : (
           <SubmissionsTab {...data} />
         )}
@@ -78,7 +72,6 @@ async function loadAffairs(actor: ResolvedActor, tab: TabKey, cohortId: string |
     ])
     return { tab, rows, now } as const
   }
-  if (tab === 'signoff') return { tab, cards: await getSignoffQuery().teacherView(actor) } as const
   const [matrix, businessNow] = await Promise.all([getAdvisorSubmissionQuery().matrix(actor, cohortId), getBusinessClock().now()])
   const cohorts = matrix?.cohorts ?? []
   const options: CohortOption[] = cohorts.map((c) => ({ cohortId: c.cohortId, label: cohortLabel({ name: c.name, code: c.code }), archived: c.archived }))

@@ -5,6 +5,7 @@ import {
   createContentInspector,
   effectiveMaxBytes,
   extensionOf,
+  fileInUseMessage,
   isCacheableDownload,
   PUBLIC_IMAGE_MAX_AGE_SECONDS,
   sanitizeDisplayName,
@@ -195,5 +196,12 @@ describe('公開圖片可快取（V4，設計方案 §3.4）', () => {
 
   it('瀏覽器快取秒數是 5 分鐘（Q62 定案）', () => {
     expect(PUBLIC_IMAGE_MAX_AGE_SECONDS).toBe(300)
+  })
+})
+
+describe('系辦刪檔（C1-16）', () => {
+  it('還有引用時的訊息帶處數', () => {
+    expect(fileInUseMessage(1)).toBe('還有 1 處在用，不能刪除；先到用到它的地方把檔案拿掉。')
+    expect(fileInUseMessage(3)).toContain('還有 3 處在用')
   })
 })

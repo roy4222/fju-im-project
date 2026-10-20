@@ -10,9 +10,11 @@ import {
 import { createRateLimiter } from '@/shared/rate-limit'
 import type { Result } from '@/shared/result'
 import { checkStatus, resolveActor } from '@/composition/accounts'
-import { getFileStorage } from '@/composition/ops'
+import { getBusinessClock } from '@/composition/cohorts'
+import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { getPool } from '@/infrastructure/db/client'
 import { listStoredFiles } from '@/infrastructure/ops/file-list'
+import { PgFileAdminCommand } from '@/infrastructure/ops/file-storage'
 
 /**
  * 檔案管理頁（票 35）：全站已存好的檔案與引用位置。只有啟用中的系辦拿得到（其他人回 null → 頁面 404）；
@@ -28,6 +30,19 @@ export function getFileListQuery() {
 }
 
 export { FILE_LIST_LIMIT } from '@/infrastructure/ops/file-list'
+
+let fileAdminCommand: PgFileAdminCommand | undefined
+
+/** 檔案分頁的「刪除」（C1-16）：只刪沒有任何有效引用的檔；授權（只有狀態正常的系辦）在命令裡判。 */
+export function getFileAdminCommand(): PgFileAdminCommand {
+  fileAdminCommand ??= new PgFileAdminCommand({
+    db: getPool,
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    businessClock: getBusinessClock(),
+  })
+  return fileAdminCommand
+}
 
 /**
  * 檔案上傳與下載兩條 Route Handler 的門面（契約 02 §6）。

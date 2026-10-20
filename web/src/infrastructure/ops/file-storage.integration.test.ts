@@ -6,7 +6,9 @@ import type { Pool, PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ANONYMOUS, rosterAccessDenied, type ResolvedActor } from '@/application/accounts'
 import { isCacheableDownload, type FileFacts, type FilePurpose, type UploadRules } from '@/application/ops'
-import { FsFileStorage } from '@/infrastructure/ops/file-storage'
+import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
+import { FsFileStorage, PgFileAdminCommand } from '@/infrastructure/ops/file-storage'
+import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { createHeroPhotoPolicy } from '@/infrastructure/site/hero-photo-policy'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
 import { migratedSchema } from '../../../test/migrations'
@@ -633,5 +635,121 @@ describe('頭像：收檔轉換與換掉的檔（SH-9，設計方案 §2.2 ▶R2
     expect((await transformed.authorizeDownload(actor(studentId, ['student']), plain.fileId)).ok).toBe(true)
     await db.sql(`update stored_files set status = 'soft_deleted', soft_deleted_at = now() where id = $1`, [plain.fileId])
     expect(await transformed.authorizeDownload(actor(studentId, ['student']), plain.fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+})
+
+describe('系辦刪掉沒人用的檔（C1-16；AC-15，①設計方案 §1.6）', () => {
+  let command: PgFileAdminCommand
+  const admin = () => actor(adminId, ['admin'])
+
+  beforeAll(() => {
+    command = new PgFileAdminCommand({
+      db: () => app,
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      businessClock: { now: async () => new Date() },
+    })
+  })
+
+  async function storedFile() {
+    const ticket = await ticketFor(adminId)
+    const result = await storage.upload(adminId, ticket.ticket, streamOf(CSV), CSV.length)
+    if (!result.ok) throw new Error(result.message)
+    return ticket.fileId
+  }
+
+  async function auditRows(fileId: string) {
+    return (await db.sql(`select action, target_type, actor_user_id, payload from audit_events where target_id = $1`, [fileId])).rows
+  }
+
+  it('沒有引用：標 soft_deleted、記 soft_deleted_at、稽核 file.delete 一筆；之後下載被拒', async () => {
+    const fileId = await storedFile()
+    expect((await storage.authorizeDownload(admin(), fileId)).ok).toBe(true)
+
+    const result = await command.deleteUnreferenced(admin(), fileId, crypto.randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { fileId, name: '名單.csv' } })
+
+    const row = await fileRow(fileId)
+    expect(row.status).toBe('soft_deleted')
+    expect(row.soft_deleted_at).toBeInstanceOf(Date)
+    const audits = await auditRows(fileId)
+    expect(audits).toHaveLength(1)
+    expect(audits[0]).toMatchObject({ action: 'file.delete', target_type: 'stored_file', actor_user_id: adminId })
+    expect(audits[0]!.payload).toMatchObject({ name: '名單.csv', purpose: 'roster_csv' })
+    expect(await storage.authorizeDownload(admin(), fileId)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+  })
+
+  it('還有引用：CONFLICT 帶處數，檔案、引用、稽核都不動（不拿 release 代替）', async () => {
+    const fileId = await storedFile()
+    const ref = { refType: 'roster_version' as const, refId: crypto.randomUUID() }
+    expect((await inTx((tx) => storage.attach(tx, fileId, ref, { ownerUserId: adminId, purpose: 'roster_csv' }))).ok).toBe(true)
+
+    const result = await command.deleteUnreferenced(admin(), fileId, crypto.randomUUID())
+    expect(result).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(!result.ok && result.message).toContain('還有 1 處在用')
+
+    expect(await fileRow(fileId)).toMatchObject({ status: 'stored', soft_deleted_at: null })
+    const refs = await db.sql('select released_at from file_references where file_id = $1', [fileId])
+    expect(refs.rows).toEqual([{ released_at: null }])
+    expect(await auditRows(fileId)).toEqual([])
+  })
+
+  it('首頁大圖（不寫 file_references，由 home_settings 指著）也算一處在用：CONFLICT，檔案不動', async () => {
+    const fileId = await storedFile()
+    await db.sql(
+      `insert into home_settings (id, hero_file_id, updated_by_user_id) values (1, $1, $2)
+       on conflict (id) do update set hero_file_id = excluded.hero_file_id`,
+      [fileId, adminId],
+    )
+    try {
+      const result = await command.deleteUnreferenced(admin(), fileId, crypto.randomUUID())
+      expect(result).toMatchObject({ ok: false, code: 'CONFLICT' })
+      expect(!result.ok && result.message).toContain('還有 1 處在用')
+      expect((await fileRow(fileId)).status).toBe('stored')
+    } finally {
+      await db.sql('update home_settings set hero_file_id = null where id = 1')
+    }
+  })
+
+  it('引用都解除了（released_at 有值）才算沒人用，可以刪', async () => {
+    const fileId = await storedFile()
+    const ref = { refType: 'roster_version' as const, refId: crypto.randomUUID() }
+    await inTx((tx) => storage.attach(tx, fileId, ref, { ownerUserId: adminId, purpose: 'roster_csv' }))
+    await inTx((tx) => storage.release(tx, fileId, ref))
+    expect((await command.deleteUnreferenced(admin(), fileId, crypto.randomUUID())).ok).toBe(true)
+    expect((await fileRow(fileId)).status).toBe('soft_deleted')
+  })
+
+  it('同一個請求編號重送：回原回執，不再寫一次稽核；已刪的檔換新編號再刪 → VALIDATION_FAILED', async () => {
+    const fileId = await storedFile()
+    const requestId = crypto.randomUUID()
+    const first = await command.deleteUnreferenced(admin(), fileId, requestId)
+    const again = await command.deleteUnreferenced(admin(), fileId, requestId)
+    expect(first.ok && again.ok && again.receipt.serverTime).toBe(first.ok && first.receipt.serverTime)
+    expect(await auditRows(fileId)).toHaveLength(1)
+    expect(await command.deleteUnreferenced(admin(), fileId, crypto.randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  })
+
+  it('不是系辦、待審的系辦、訪客都不能刪；檔案不動', async () => {
+    const fileId = await storedFile()
+    expect(await command.deleteUnreferenced(actor(studentId, ['student']), fileId, crypto.randomUUID())).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
+    expect(await command.deleteUnreferenced(actor(adminId, ['admin'], 'pending'), fileId, crypto.randomUUID())).toMatchObject({
+      ok: false,
+      code: 'ACCOUNT_PENDING',
+    })
+    expect(await command.deleteUnreferenced(ANONYMOUS, fileId, crypto.randomUUID())).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+    expect((await fileRow(fileId)).status).toBe('stored')
+  })
+
+  it('檔案編號、請求編號格式不對 → VALIDATION_FAILED；不存在的檔 → VALIDATION_FAILED', async () => {
+    expect(await command.deleteUnreferenced(admin(), 'nope', crypto.randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await command.deleteUnreferenced(admin(), crypto.randomUUID(), 'nope')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await command.deleteUnreferenced(admin(), crypto.randomUUID(), crypto.randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+    })
   })
 })

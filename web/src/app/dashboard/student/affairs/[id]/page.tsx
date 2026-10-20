@@ -4,7 +4,9 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { AssignmentView, BackLink, UnitIcon } from '@/app/dashboard/_submissions/assignment-view'
 import { VersionContent, VersionTable } from '@/app/dashboard/_submissions/version-parts'
+import { ConsentStatus } from '@/app/dashboard/student/affairs/[id]/consent-status'
 import { getBusinessClock } from '@/composition/cohorts'
+import { getSignoffQuery } from '@/composition/signoff'
 import { getSubmissionQuery } from '@/composition/submissions'
 
 export const metadata = { title: '作業內容｜資管系專題平台' }
@@ -17,6 +19,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  *
  * 只有自己（整組一份：自己此刻所在的組）在目前收件名單上才看得到（不在名單上一律 404，不透露這份收件存在）。
  * `?record=<收件者>` 是「以前的紀錄」（票 22）：已經不在作業區、本人讀得到的正式版本，唯讀。
+ * 站內同意書（自己這組連到這份作業的簽核包）改成「說明｜狀態」兩個分頁（`?tab=about`／`?tab=status`，C1-11、§6.2）。
  */
 export default async function StudentAffairPage({
   params,
@@ -76,7 +79,24 @@ export default async function StudentAffairPage({
     )
   }
 
-  const [item, businessNow] = await Promise.all([query.myItem(userId, id), getBusinessClock().now()])
+  const [item, businessNow, consent] = await Promise.all([
+    query.myItem(userId, id),
+    getBusinessClock().now(),
+    getSignoffQuery().studentViewByItem(actor, id),
+  ])
+  const consentVersion = consent.versions[0]
+  if (consentVersion) {
+    return (
+      <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
+        <ConsentStatus
+          v={consentVersion}
+          tab={search.tab === 'status' ? 'status' : 'about'}
+          href={`/dashboard/student/affairs/${id}`}
+          back={{ href: '/dashboard/student/affairs', label: '交作業' }}
+        />
+      </DashboardShell>
+    )
+  }
   if (!item) notFound()
 
   return (

@@ -54,7 +54,8 @@ export function measure(webDir) {
   }
   const routes = new Map()
   for (const row of rows) {
-    if (row.route.startsWith('/_')) continue // /_not-found、/_global-error 不是使用者會開的頁
+    // /_global-error 不是使用者會開的頁；/_not-found 是 404 頁（打錯網址、notFound()），要守預算（規格④ §6，C4-05）。
+    if (row.route.startsWith('/_') && row.route !== '/_not-found') continue
     const chunks = [...new Set(row.firstLoadChunkPaths ?? [])]
     if (chunks.length === 0) fail(`${row.route} 沒有 firstLoadChunkPaths。`)
     routes.set(row.route, { gz: chunks.reduce((sum, c) => sum + gz(c), 0), chunks })

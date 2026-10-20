@@ -333,11 +333,12 @@ test('系辦首頁逾期卡連到「公告與作業」的「逾期」篩選（AD
   await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?placement=overdue$/)
 })
 
-test('檔案管理：說明要新增檔案請到專題事務，並附前往連結', async ({ page }) => {
+test('檔案管理：說明要新增檔案請到專題事務、沒人用的檔可以在這裡刪（C1-16），並附前往連結', async ({ page }) => {
   await asAdmin(page)
   await page.goto('/dashboard/admin/files')
   const hint = page.getByTestId('files-add-hint')
   await expect(hint).toContainText('去「公告與作業」的編輯器加附件')
+  await expect(hint).toContainText('沒有地方在用的檔案可以在這裡刪除')
   await hint.getByRole('link', { name: '去編輯器' }).click()
   await expect(page).toHaveURL(/\/dashboard\/admin\/editor\/new$/)
 })
