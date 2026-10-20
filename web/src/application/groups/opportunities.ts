@@ -245,7 +245,35 @@ export type UnlinkOpportunityInput = {
   readonly reason: string
 }
 
-export type LinkChange = 'linked' | 'switched' | 'unlinked'
+// ── 產學組的確認流程（C3-09；規格③ §7.2） ──────────────────────────────────
+
+/**
+ * 連結狀態：學生（組長）選了合作案先是 `pending`（等負責老師「確認指導」），確認後變 `active`；
+ * 系辦「連結合作案」與案主老師 TE-B3「連結組別」建立的連結一律直接 `active`。
+ * 不論哪一種，一組同時只有一條 `valid_to is null` 的連結。
+ */
+export type LinkState = 'pending' | 'active'
+
+/**
+ * 組長選合作案（`OpportunityCommand.request`）：組別目前沒有任何有效連結時才可以；建立 `pending` 連結、
+ * 通知負責老師（`opportunity.link_requested`）。帶組別版本（別的路徑先改過 → `CONFLICT`）。
+ */
+export type RequestOpportunityInput = {
+  readonly groupId: string
+  readonly revision: number
+  readonly opportunityId: string
+}
+
+/**
+ * 負責老師婉拒（`OpportunityCommand.decline`）：結束這一組連到自己案、而且這組還沒有指導老師的連結；
+ * 理由選填（空白存 NULL 或空字串，畫面均視為未填）；全組收「請重新選合作案」。
+ */
+export type DeclineOpportunityInput = {
+  readonly groupId: string
+  readonly reason: string
+}
+
+export type LinkChange = 'linked' | 'switched' | 'unlinked' | 'requested' | 'declined'
 
 export type LinkReceipt = {
   readonly groupId: string
@@ -264,11 +292,15 @@ export function describeLinkReceipt(receipt: LinkReceipt): string {
       return `${receipt.groupCode} 已從「${receipt.previousOpportunityName}」換到「${receipt.opportunityName}」；全組與兩位案主老師會收到通知。`
     case 'unlinked':
       return `已解除 ${receipt.groupCode} 與「${receipt.opportunityName}」的連結；該組組員與案主會收到通知。`
+    case 'requested':
+      return `${receipt.groupCode} 已選「${receipt.opportunityName}」，等負責老師確認指導；確認後全組會收到通知。`
+    case 'declined':
+      return `已婉拒 ${receipt.groupCode} 選的「${receipt.opportunityName}」；全組已收到通知，請他們重新選合作案。`
   }
 }
 
-/** 換案或解除的理由：沿用管理員動作的理由規則（選填、上限 200 字；空白回空字串）。 */
-export function normalizeLinkReason(reason: string, what: '換案' | '解除連結'): { ok: true; value: string } | Err {
+/** 換案、解除或婉拒的理由：沿用管理員動作的理由規則（選填、上限 200 字；空白回空字串）。 */
+export function normalizeLinkReason(reason: string, what: '換案' | '解除連結' | '婉拒'): { ok: true; value: string } | Err {
   return normalizeReason(reason, what)
 }
 
@@ -425,3 +457,41 @@ export type GroupOpportunityLink = {
   readonly name: string
   readonly status: OpportunityStatus
 }
+
+// ── 老師「產學組」分頁（C3-09；規格③ §7.1 模擬圖 09） ─────────────────────────
+
+/** 組別卡上的一位組員：頭像一列＋組長名（`AvatarUser` 兩欄同一句查詢帶出；不帶登入信箱）。 */
+export type IndustryGroupMember = {
+  readonly userId: string
+  readonly name: string
+  readonly isLeader: boolean
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
+}
+
+/** 連到某一案的一組（卡片）：組員、目前的連結與狀態、目前的指導老師（沒有＝待確認）。 */
+export type IndustryGroupCard = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly cohortCode: string
+  readonly cohortName: string
+  /** 「確認指導」「婉拒」不帶版本（用例以「這組目前的連結與指導老師」判斷）；留給畫面顯示與日後擴充。 */
+  readonly revision: number
+  readonly linkId: string
+  readonly linkState: LinkState
+  /** 組長在前，其餘依姓名。 */
+  readonly members: readonly IndustryGroupMember[]
+  readonly advisor: { readonly teacherUserId: string; readonly teacherName: string } | null
+}
+
+/** 「我的合作案」一案＋底下兩段：待確認要帶的組（連到這一案、沒有指導老師）、已帶的組（指導老師＝本人）。 */
+export type TeacherIndustryCase = {
+  readonly opportunity: ManagedOpportunity
+  readonly pending: readonly IndustryGroupCard[]
+  readonly advised: readonly IndustryGroupCard[]
+}
+
+export type TeacherIndustryBoard = {
+  readonly cases: readonly TeacherIndustryCase[]
+}
+

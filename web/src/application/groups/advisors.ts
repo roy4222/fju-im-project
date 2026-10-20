@@ -3,7 +3,10 @@ import { parseCsv } from '@/shared/csv'
 /**
  * 指導老師指派、認領與重派的型別與純規則（票 19；產品模組 03 §4「5.4 指導老師規則」「行政指派的輸入」）。
  *
- * - 產學組（`industry`）尚未指派時，老師可以按「指定為我的組別」認領；兩位同時按只有一位成功。
+ * - 產學組（`industry`）：學生選了合作案成組（連結 `pending`）後，**只有那一案的負責老師**可以「確認指導」
+ *   （`claim`；C3-09 取代原本「任何老師先按先得」）。前置「連到本人的案、沒有指導老師」在資料層鎖住組別後判
+ *   （`pg-advisors.ts`），確認時連結改成 `active`。
+ *   系辦在同一時間先指派了別人 → `ALREADY_CLAIMED`，訊息點名是誰。
  * - 一般組（`general`）由管理員依抽籤／行政結果指派，老師不能自己認領。
  * - 管理員可逐組指派、重派、解除（理由選填，C3-05）；也可上傳 `group_code,teacher_login_email` CSV 批次指派。
  * - 每組同時只有一位有效主指導；重派是結束舊的、插一列新的，歷史保留。
@@ -57,6 +60,10 @@ export type GradingAssignmentSummary = {
 
 // ── 逐組指派、認領、解除的輸入與回執 ──────────────────────────────────────────
 
+/**
+ * 「確認指導」（C3-09；規格③ §7.2、§11）。不帶組別版本：成不成立看「這組此刻的連結與指導老師」，
+ * 系辦剛指派別人就 `ALREADY_CLAIMED`，不會默默蓋掉。
+ */
 export type ClaimInput = { readonly groupId: string }
 
 export type AssignAdvisorInput = {
