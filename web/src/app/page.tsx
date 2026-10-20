@@ -4,6 +4,7 @@ import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail
 import { redirect } from 'next/navigation'
 import { EMAIL_VERIFY_PATH, homeForUser, isRegistrationOpen } from '@/composition/accounts'
 import { feItem, feSection, frontEditScope, type FrontEditScope } from '@/app/_ui/front-edit/mark'
+import { HomeHeroPixel } from '@/app/_ui/fx/home-hero-pixel'
 import { homeFor, renderActor } from '@/app/_ui/guard'
 import type { QuickCardKey, SiteTexts } from '@/application/site'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
@@ -108,6 +109,7 @@ export default async function HomePage() {
           data-testid="home-hero-image"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden />
+        <HomeHeroPixel />
         <div className="relative mx-auto flex min-h-[440px] max-w-6xl flex-col justify-center gap-5 px-5 py-16 md:min-h-[520px]">
           <span className="inline-flex items-center gap-2.5 text-[15px] font-bold tracking-widest opacity-90">
             <span className="inline-block h-0.75 w-7 bg-primary" aria-hidden />
@@ -446,7 +448,8 @@ function PanelTitle({
     <div
       className={cn(
         'fju-panel-title w-full max-w-[520px] px-6 py-5 md:px-10 md:py-6',
-        side === 'left' ? 'rounded-tr-[40px] md:-ml-10' : 'self-end rounded-tl-[40px] lg:-mr-10',
+        // 出血只在 xl（≥1280）：版心 1152 兩側各有 ≥64 px，外推 40 px 仍在 main 內；更窄時出血會撐出橫向捲軸（走查 11、12）。
+        side === 'left' ? 'rounded-tr-[40px] xl:-ml-10' : 'self-end rounded-tl-[40px] xl:-mr-10',
       )}
     >
       <h2 id={id} className="type-section">
