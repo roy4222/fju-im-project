@@ -817,6 +817,8 @@ test('FIX-1 預覽還沒回來時又拖一次：第二次不接；確認框取�
   await drag(page, handle, -7 * DAY_PX) // 預覽延遲中
   await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(addDays(origin, -7))}（`))
   await drag(page, handle, -7 * DAY_PX) // 再拖一次
+  // 第二次不接：彈回並提示（不默默丟掉）。
+  await expect(page.getByTestId('gantt').getByRole('alert')).toHaveText('上一次的調整還在處理，請等確認框出現再拖。')
   // 等兩次預覽都回來再取消（Review 的情境）。Next 的 server action 會排隊一個一個送，各延遲 2 秒，
   // 第二次最晚約 4.5 秒才回來，所以等 6 秒。
   await page.waitForTimeout(6_000)

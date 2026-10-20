@@ -26,7 +26,7 @@ import type { ActionResult, GanttEditor, GanttProps } from '@/app/dashboard/_tim
  * - `saveSchedule`（拖階段分界／年度結束日放開，C3-13）：先 `previewScheduleAction`（不寫入，回確認框的句子與「有 N 個整組作業」）
  *   → `StageConfirmDialog` →「確定」才 `saveStageDatesAction`；「取消」／Esc resolve `{ ok:false, cancelled:true }`（gantt 只回彈）。
  *   儲存失敗關掉確認框、把錯誤句交回 gantt（回彈＋`role="alert"`）。
- *   預覽中或確認框開著時不接新的拖拉（直接回 cancelled，gantt 回到這次之前的位置），取消一律回到最初的位置；
+ *   預覽中或確認框開著時不接新的拖拉（回提示句，gantt 回到這次之前的位置並顯示 alert），取消一律回到最初的位置；
  *   儲存中不能取消（按鈕停用、Esc 擋下），存完才關；預覽或儲存的請求斷線一樣回彈＋錯誤句（Review FIX）。
  * - `moveActivity`、`remove` 直通 action；成功後 action 自己 `refresh()`，甘特等新資料進來再換掉樂觀位置。
  */
@@ -44,6 +44,7 @@ type ScheduleInput = Parameters<GanttEditor['saveSchedule']>[0]
 type ScheduleOutcome = Awaited<ReturnType<GanttEditor['saveSchedule']>>
 type StageConfirmState = { summary: string; input: ScheduleInput }
 const NO_RESPONSE = '沒有收到伺服器回應，請重新整理頁面看看。'
+const STILL_PENDING = '上一次的調整還在處理，請等確認框出現再拖。'
 
 type ActivityDialogState =
   | { mode: 'create'; prefill: { startDate: string; endDate: string } }
@@ -82,8 +83,9 @@ export function GanttMount({
     () => ({
       cohortRevision,
       saveSchedule: async (input): Promise<ScheduleOutcome> => {
-        // 第一個 await 之前就鎖：前一次還在預覽或確認，這次不接（gantt 回到這次之前的位置，也就是前一次的暫定位置）。
-        if (flowing.current) return { ok: false, cancelled: true }
+        // 第一個 await 之前就鎖：前一次還在預覽或確認，這次不接（gantt 回到這次之前的位置，也就是前一次的暫定位置），
+        // 並顯示提示句，不默默丟掉。
+        if (flowing.current) return { ok: false, message: STILL_PENDING }
         flowing.current = true
         let preview: Awaited<ReturnType<typeof previewScheduleAction>>
         try {
