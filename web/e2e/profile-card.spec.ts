@@ -325,7 +325,7 @@ test('AC-C3-06（/account）：學生「我的名片」在「基本資料」之�
     .locator('section')
     .evaluateAll((els) => els.map((el) => el.querySelector('h2')?.textContent?.trim() ?? ''))
   expect(order.filter((n) => ['頭像', '基本資料', '我的名片', '登入方式'].includes(n))).toEqual(['頭像', '基本資料', '我的名片', '登入方式'])
-  await expect(card.getByRole('img', { name: e.name })).toBeVisible()
+  await expect(card.getByRole('article', { name: e.name }).locator('img')).toHaveAttribute('width', '64')
   for (const text of [e.name, '資管三甲', e.contactEmail, '公開找隊員：已公開']) await expect(card).toContainText(text)
 
   await card.getByRole('button', { name: '編輯我的名片' }).click()
