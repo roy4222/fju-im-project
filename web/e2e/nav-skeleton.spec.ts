@@ -55,8 +55,22 @@ async function delayRsc(page: Page, pathname: string, ms: number, match: (url: U
   )
 }
 
+/**
+ * 等這份文件 hydrate 完、主執行緒閒下來再操作。`goto`／`reload` 只等到 load，慢機器上這時 React 常還沒接手：
+ * 骨架的點擊／popstate 監聽還沒掛（點了或返回都不出骨架）、Link 還是一般連結（整頁換頁）、
+ * 塞進 `main` 的測試連結會被 hydration 洗掉、hydration 佔著主執行緒讓 150 ms 計時器晚觸發。
+ * 先等骨架節點被 React 接手（`__reactFiber$`），再等一次 `requestIdleCallback`（排在 hydration 與 effect 之後）。
+ */
+async function hydrated(page: Page) {
+  await expect
+    .poll(() => skeleton(page).evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactFiber$'))))
+    .toBe(true)
+  await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve())))
+}
+
 /** 記下 `data-nav-pending` 每次出現的時間與最近一次點擊／返回的時間（同一份文件內的換頁都記得到）。 */
 async function watchPending(page: Page) {
+  await hydrated(page)
   await page.evaluate(() => {
     const w = window as unknown as { __navSeen: number[]; __navClick: number }
     w.__navSeen = []
@@ -128,8 +142,11 @@ test('AC-45 快的換頁（150 ms 內完成）：骨架從未出現', async ({ p
     },
   )
   await page.goto(HOME)
+  await hydrated(page)
   await sidebarLink(page, '交作業').click()
   await page.waitForURL(`**${AFFAIRS}`)
+  // 第一次要是前端換頁（有 RSC 請求）才存得到；沒存到的話第二次會打到伺服器，就不是「快的換頁」了。
+  expect(cached.has('nav')).toBe(true)
 
   await page.goto(HOME)
   await watchPending(page)
@@ -234,6 +251,7 @@ test.describe('AC-66 同頁只換 ?page=', () => {
 test('AC-67a 返回／前進命中快取：全程不閃骨架', async ({ page }) => {
   await signIn(page, student)
   await page.goto(HOME)
+  await hydrated(page)
   await sidebarLink(page, '交作業').click()
   await page.waitForURL(`**${AFFAIRS}`)
   await expect(page.locator('main')).toBeVisible()
@@ -250,6 +268,7 @@ test('AC-67a 返回／前進命中快取：全程不閃骨架', async ({ page })
 test('AC-67b 重新載入後返回（快取未命中）：300 ms 內出現骨架，到了清掉，之後 2 秒不再出現', async ({ page }) => {
   await signIn(page, student)
   await page.goto(HOME)
+  await hydrated(page)
   await sidebarLink(page, '交作業').click()
   await page.waitForURL(`**${AFFAIRS}`)
   await delayRsc(page, HOME, 1500)
@@ -349,6 +368,7 @@ test.describe('取消：慢的換頁途中點回目前這一頁，骨架不殘�
     await signIn(page, student)
     await delayRsc(page, AFFAIRS, 10_000)
     await page.goto(HOME)
+    await hydrated(page)
     await sidebarLink(page, '交作業').click()
     await page.waitForTimeout(100)
     await sidebarLink(page, '首頁').click()
@@ -359,6 +379,7 @@ test.describe('取消：慢的換頁途中點回目前這一頁，骨架不殘�
     await page.context().clearCookies()
     await delayRsc(page, '/rules', 10_000)
     await page.goto('/')
+    await hydrated(page)
     await page.getByRole('navigation', { name: '主導覽', exact: true }).getByRole('link', { name: '專題規則' }).click()
     await page.waitForTimeout(100)
     await page.locator('header a[href="/"]').first().click()
@@ -369,6 +390,7 @@ test.describe('取消：慢的換頁途中點回目前這一頁，骨架不殘�
     await signIn(page, admin)
     await delayRsc(page, '/dashboard/admin/affairs', 10_000)
     await page.goto('/dashboard/admin')
+    await hydrated(page)
     await sidebarLink(page, '公告與作業').click()
     await page.waitForTimeout(100)
     await sidebarLink(page, '首頁').click()
