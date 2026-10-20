@@ -7,7 +7,7 @@ import type { AudienceKind } from '@/application/items'
 import { getTimelineQuery } from '@/composition/cohorts'
 import { getPublicItemQuery } from '@/composition/items'
 import { getAdvisorSubmissionQuery } from '@/composition/submissions'
-import { taipeiDateOf } from '@/shared/time'
+import { taipeiDateOf, taipeiDayStart } from '@/shared/time'
 
 /**
  * 「給老師的公告」列哪幾種對象（Q13、Q14，2026-09-26 定案）：全部老師、所有已登入、指定組別（前台查詢只回
@@ -27,7 +27,8 @@ export function upcomingActivities(
 ): Activity[] {
   const rank = (cohortId: string) => scope.cohortIds.indexOf(cohortId)
   return list
-    .filter((a) => a.status === 'scheduled' && taipeiDateOf(a.startsAt) >= scope.today)
+    // 跨日活動（③ §9.1）整段期間都算「今天以後」：看結束（全天的 `endsAt` 是次日 00:00），沒結束時間才看開始日。
+    .filter((a) => a.status === 'scheduled' && (a.endsAt ? a.endsAt > taipeiDayStart(scope.today) : taipeiDateOf(a.startsAt) >= scope.today))
     .filter((a) => a.audienceKind !== 'cohort_students' || scope.advisedCohorts.includes(a.cohortId))
     .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || rank(a.cohortId) - rank(b.cohortId))
     .slice(0, 5)
