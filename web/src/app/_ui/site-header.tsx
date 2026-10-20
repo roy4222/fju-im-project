@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { loadBrokenFx, loadEasterEgg, loadFlyingButton, loadHomePixel, loadStaggeredMenu } from '@/app/_ui/dash-theme'
 import * as eggRules from '@/app/_ui/easter-egg-rules'
 import { useBrokenFx } from '@/app/_ui/fx/fuzzy-text'
-import { FX_QUERY, PIXEL_TOUCH_QUERY } from '@/app/_ui/fx/media-query'
+import { useFxAllowed, usePixelTouchAllowed } from '@/app/_ui/fx/media-query'
 import { cn } from '@/shared/cn'
 
 /**
@@ -30,34 +30,23 @@ function isActive(item: NavItem, current: string | undefined): boolean {
  * 掛在頁首而不是首頁：首頁有自己的前端元件時，打包工具會把頁首共用程式重複打包一份給首頁（約 1.6 KB）。
  */
 function useHomePixel(pathname: string) {
+  // 用 media-query 的訂閱：使用者中途改系統設定（例如開減少動態）就停掉拿掉、或換模式重掛（#773 Review r1）。
+  const fx = useFxAllowed()
+  const touch = usePixelTouchAllowed()
+  const mode = fx ? 'always' : touch ? 'tap' : null
   useEffect(() => {
     const marker = document.querySelector('[data-home-pixel]')
-    if (!marker) return
-    // 使用者中途改系統設定（例如開減少動態）也跟著變：停掉、拿掉或換模式重掛（#773 Review r1）。
-    const fx = matchMedia(FX_QUERY)
-    const touch = matchMedia(PIXEL_TOUCH_QUERY)
+    if (!marker || !mode) return
     let stop: (() => void) | undefined
-    let gen = 0
-    const apply = () => {
-      const mine = ++gen
-      stop?.()
-      stop = undefined
-      const mode = fx.matches ? 'always' : touch.matches ? 'tap' : null
-      if (!mode) return
-      void loadHomePixel().then((m) => {
-        if (mine === gen) stop = m.mountHomeHeroPixel(marker, mode)
-      })
-    }
-    apply()
-    fx.addEventListener('change', apply)
-    touch.addEventListener('change', apply)
+    let dead = false
+    void loadHomePixel().then((m) => {
+      if (!dead) stop = m.mountHomeHeroPixel(marker, mode)
+    })
     return () => {
-      gen++
+      dead = true
       stop?.()
-      fx.removeEventListener('change', apply)
-      touch.removeEventListener('change', apply)
     }
-  }, [pathname])
+  }, [pathname, mode])
 }
 
 type MenuPanel = ComponentType<{ open: boolean; onClose: () => void; children: ReactNode }>
@@ -88,13 +77,10 @@ function MenuTrigger({ wide, children }: { wide: boolean; children: ReactNode })
         onClick={onClick}
         aria-expanded={open}
         aria-label={open ? '關閉選單' : '開啟選單'}
-        className={cn(
-          'sm-trigger inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[15px] font-semibold pointer-coarse:min-h-11 hover:bg-accent',
-          wide ? 'xl:hidden' : 'lg:hidden',
-        )}
+        className={`sm-trigger inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[15px] font-semibold pointer-coarse:min-h-11 hover:bg-accent ${wide ? 'xl:hidden' : 'lg:hidden'}`}
       >
         選單
-        <span aria-hidden className={cn('text-lg leading-none transition-transform duration-300', open && 'rotate-45')}>
+        <span aria-hidden className={`text-lg leading-none transition-transform duration-300 ${open ? 'rotate-45' : ''}`}>
           +
         </span>
       </button>
