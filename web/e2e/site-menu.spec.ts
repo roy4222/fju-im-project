@@ -27,6 +27,26 @@ function watchFlyingChunk(page: Page) {
 
 const logo = (page: Page) => page.locator('header a[data-egg-count]')
 
+/**
+ * 讓「內容含 `marker`」的 JS chunk 卡住、等 `release()` 才回來：模擬延遲下載還沒到時使用者繼續操作（#773 Review r1）。
+ * 只卡第一次看到的那個 chunk；其他 JS 照常回。
+ */
+async function holdChunk(page: Page, marker: string) {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  let held = false
+  await page.route('**/_next/static/chunks/*.js', async (route) => {
+    const response = await route.fetch()
+    const body = await response.text()
+    if (!held && body.includes(marker)) {
+      held = true
+      await gate
+    }
+    await route.fulfill({ response, body })
+  })
+  return { release, isHeld: () => held }
+}
+
 test.describe('手機選單 390×844', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
@@ -169,5 +189,87 @@ test.describe('logo 彩蛋', () => {
     await page.waitForTimeout(500)
     await expect(page.locator('[data-fx=flying-button]')).toHaveCount(0)
     expect(hits).toEqual([])
+  })
+})
+
+test.describe('延遲下載還沒回來時（#773 Review r1）', () => {
+  test('AC-50 彩蛋 chunk 晚到：點 2 下、等 6 秒、再點 1 下 → 用點擊當下的時間算，計數 1、不晃', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    const hold = await holdChunk(page, 'easter-egg-message')
+    await page.goto('/')
+    const egg = logo(page)
+    await egg.click()
+    await egg.click()
+    await expect.poll(hold.isHeld).toBe(true)
+    await page.waitForTimeout(6000)
+    await egg.click()
+    hold.release()
+    await expect(egg).toHaveAttribute('data-egg-count', '1')
+    await expect(egg).not.toHaveClass(/is-shaking/)
+  })
+
+  test('AC-49／AC-51 FlyingButton chunk 晚到：首頁點滿 10 下後換到 /rules 才放行 → 其他頁沒有彩蛋訊息與起飛', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    const hold = await holdChunk(page, 'flying-button')
+    await page.goto('/')
+    const egg = logo(page)
+    for (let i = 1; i <= 10; i++) await egg.click()
+    await expect.poll(hold.isHeld).toBe(true)
+    await expect(page.getByTestId('easter-egg')).toHaveText(EGG)
+    await page.evaluate(() => ((window as unknown as { sameDoc: number }).sameDoc = 1))
+    await page.getByRole('navigation', { name: '主導覽', exact: true }).getByRole('link', { name: '專題規則' }).click()
+    await expect(page).toHaveURL(/\/rules$/)
+    // 站內換頁（同一份文件），不是整頁重新載入。
+    expect(await page.evaluate(() => (window as unknown as { sameDoc?: number }).sameDoc)).toBe(1)
+    // 用 count() 立刻數（訊息 6 秒後本來就會消失，等待式斷言會等到它自己不見）。
+    expect(await page.getByTestId('easter-egg').count()).toBe(0)
+    hold.release()
+    await page.waitForTimeout(800)
+    expect(await page.getByTestId('easter-egg').count()).toBe(0)
+    expect(await page.locator('[data-fx=flying-button]').count()).toBe(0)
+    await expect(logo(page)).toHaveAttribute('data-egg-count', '0')
+  })
+
+  test('AC-34 選單 chunk 晚到：鍵盤開啟後按 Tab，放行再按 Esc → 焦點回漢堡鈕', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const hold = await holdChunk(page, 'sm-dialog')
+    await page.goto('/')
+    const trigger = page.getByRole('button', { name: '開啟選單' })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(hold.isHeld).toBe(true)
+    await page.keyboard.press('Tab')
+    hold.release()
+    await expect(page.locator('dialog[open]')).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('dialog[open]')).toHaveCount(0)
+    await expect(page.locator('header button.sm-trigger')).toBeFocused()
+  })
+
+  test('AC-18 首頁載入後才切成減少動態 → 像素層拿掉', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await page.goto('/')
+    await expect(page.getByTestId('home-hero-pixel')).toHaveAttribute('data-running', '1')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(page.getByTestId('home-hero-pixel')).toHaveCount(0)
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await expect(page.getByTestId('home-hero-pixel')).toHaveAttribute('data-running', '1')
+  })
+
+  test('AC-36 減少動態沒有逐項延遲；一般模式開過、切成減少動態再開 → 沒有色塊層', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await page.goto('/')
+    const trigger = page.getByRole('button', { name: '開啟選單' })
+    await trigger.click()
+    await expect(page.locator('dialog[open] .sm-layer')).toHaveCount(3)
+    await page.keyboard.press('Escape')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await trigger.click()
+    const dialog = page.locator('dialog[open]')
+    await expect(dialog.locator('.sm-layer')).toHaveCount(0)
+    const delays = await dialog.locator('nav > *').evaluateAll((els) => els.map((el) => getComputedStyle(el).animationDelay))
+    expect(delays.length).toBeGreaterThan(3)
+    expect(new Set(delays)).toEqual(new Set(['0s']))
   })
 })

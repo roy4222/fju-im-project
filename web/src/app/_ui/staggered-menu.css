@@ -38,20 +38,20 @@
     box-shadow: -8px 0 24px rgb(0 0 0 / 0.15);
     animation: sm-slide 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) 0.21s both;
   }
-  .sm-panel nav > * {
+  .sm-panel:not(.sm-panel-plain) nav > * {
     animation: sm-item 0.3s ease-out both;
     animation-delay: 0.6s;
   }
-  .sm-panel nav > :nth-child(1) { animation-delay: 0.3s; }
-  .sm-panel nav > :nth-child(2) { animation-delay: 0.33s; }
-  .sm-panel nav > :nth-child(3) { animation-delay: 0.36s; }
-  .sm-panel nav > :nth-child(4) { animation-delay: 0.39s; }
-  .sm-panel nav > :nth-child(5) { animation-delay: 0.42s; }
-  .sm-panel nav > :nth-child(6) { animation-delay: 0.45s; }
-  .sm-panel nav > :nth-child(7) { animation-delay: 0.48s; }
-  .sm-panel nav > :nth-child(8) { animation-delay: 0.51s; }
-  .sm-panel nav > :nth-child(9) { animation-delay: 0.54s; }
-  .sm-panel nav > :nth-child(10) { animation-delay: 0.57s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(1) { animation-delay: 0.3s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(2) { animation-delay: 0.33s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(3) { animation-delay: 0.36s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(4) { animation-delay: 0.39s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(5) { animation-delay: 0.42s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(6) { animation-delay: 0.45s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(7) { animation-delay: 0.48s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(8) { animation-delay: 0.51s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(9) { animation-delay: 0.54s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(10) { animation-delay: 0.57s; }
   .sm-panel-plain,
   .sm-panel-plain nav > * {
     animation: sm-fade 0.2s ease-out both;

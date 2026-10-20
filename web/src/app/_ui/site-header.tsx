@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { IconChevronDown } from '@tabler/icons-react'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { loadBrokenFx, loadEasterEgg, loadFlyingButton, loadHomePixel, loadStaggeredMenu } from '@/app/_ui/dash-theme'
 import * as eggRules from '@/app/_ui/easter-egg-rules'
 import { useBrokenFx } from '@/app/_ui/fx/fuzzy-text'
@@ -33,16 +33,29 @@ function useHomePixel(pathname: string) {
   useEffect(() => {
     const marker = document.querySelector('[data-home-pixel]')
     if (!marker) return
-    const mode = matchMedia(FX_QUERY).matches ? 'always' : matchMedia(PIXEL_TOUCH_QUERY).matches ? 'tap' : null
-    if (!mode) return
+    // 使用者中途改系統設定（例如開減少動態）也跟著變：停掉、拿掉或換模式重掛（#773 Review r1）。
+    const fx = matchMedia(FX_QUERY)
+    const touch = matchMedia(PIXEL_TOUCH_QUERY)
     let stop: (() => void) | undefined
-    let dead = false
-    void loadHomePixel().then((m) => {
-      if (!dead) stop = m.mountHomeHeroPixel(marker, mode)
-    })
-    return () => {
-      dead = true
+    let gen = 0
+    const apply = () => {
+      const mine = ++gen
       stop?.()
+      stop = undefined
+      const mode = fx.matches ? 'always' : touch.matches ? 'tap' : null
+      if (!mode) return
+      void loadHomePixel().then((m) => {
+        if (mine === gen) stop = m.mountHomeHeroPixel(marker, mode)
+      })
+    }
+    apply()
+    fx.addEventListener('change', apply)
+    touch.addEventListener('change', apply)
+    return () => {
+      gen++
+      stop?.()
+      fx.removeEventListener('change', apply)
+      touch.removeEventListener('change', apply)
     }
   }, [pathname])
 }
@@ -56,6 +69,8 @@ type MenuPanel = ComponentType<{ open: boolean; onClose: () => void; children: R
 function MenuTrigger({ wide, children }: { wide: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [Panel, setPanel] = useState<{ C: MenuPanel } | null>(null)
+  // 面板晚到時焦點可能已經被 Tab 移走，原生 dialog 會把焦點還給那裡；關閉時明確還給觸發鈕（#773 Review r1）。
+  const trigger = useRef<HTMLButtonElement>(null)
 
   function onClick() {
     if (Panel) return setOpen(true)
@@ -68,6 +83,7 @@ function MenuTrigger({ wide, children }: { wide: boolean; children: ReactNode })
   return (
     <>
       <button
+        ref={trigger}
         type="button"
         onClick={onClick}
         aria-expanded={open}
@@ -83,7 +99,13 @@ function MenuTrigger({ wide, children }: { wide: boolean; children: ReactNode })
         </span>
       </button>
       {Panel ? (
-        <Panel.C open={open} onClose={() => setOpen(false)}>
+        <Panel.C
+          open={open}
+          onClose={() => {
+            setOpen(false)
+            trigger.current?.focus()
+          }}
+        >
           {children}
         </Panel.C>
       ) : null}
@@ -116,6 +138,9 @@ export function SiteHeader({
   useBrokenFx(loadBrokenFx)
   const pathname = usePathname()
   useHomePixel(pathname)
+  // 彩蛋模組載過才有；換頁時叫它收掉訊息與起飛（#773 Review r1）。
+  const egg = useRef<Awaited<ReturnType<typeof loadEasterEgg>> | null>(null)
+  useEffect(() => () => egg.current?.eggLeave(), [pathname])
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background">
@@ -129,7 +154,11 @@ export function SiteHeader({
             if (!eggRules.shouldCountClick(pathname, e)) return
             e.preventDefault()
             const logo = e.currentTarget
-            void loadEasterEgg().then((m) => m.eggLogoClick(logo, eggRules, loadFlyingButton))
+            const at = Date.now()
+            void loadEasterEgg().then((m) => {
+              egg.current = m
+              m.eggLogoClick(logo, at, eggRules, loadFlyingButton)
+            })
           }}
           className="flex shrink-0 items-center gap-3.5"
         >
