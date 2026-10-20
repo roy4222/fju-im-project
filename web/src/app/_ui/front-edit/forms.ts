@@ -5,6 +5,7 @@ import { ITEM_FORM_DEPS, provideItemFormDeps } from '@/app/dashboard/admin/affai
 import { renameResourceCategoryAction } from '@/app/dashboard/admin/affairs/rename-category-action' // ①（C1-07）：分類改名的 Server Function，載入表單時交給它
 import { setHomePositionAction, showcaseFeStateAction } from '@/app/dashboard/admin/showcase/actions' // ①（C1-09）：優秀專題「精選」勾的 Server Function，載入表單時交給它
 import { opportunityFeContextAction, removeOpportunityFeAction, saveOpportunityFeAction } from '@/app/dashboard/_industry/front-edit/actions' // ③（C3-10）：合作案表單的 Server Function，載入表單時交給它
+import { activityFeContextAction, removeActivityFeAction, saveActivityFeAction } from '@/app/dashboard/admin/timeline/front-edit/actions' // ③（C3-08）：活動表單的 Server Function，載入表單時交給它
 
 /**
  * 前台編輯的表單登錄表（C2-16 建檔並定型別；規格② 設計方案 §6.3.1 是定版）。
@@ -65,8 +66,8 @@ export const FE_FORMS: Record<FeKind, () => Promise<FeFormModule>> = {
   honor: () => import('@/app/dashboard/admin/affairs/front-edit/honor'),
   showcase: () => import('@/app/dashboard/admin/showcase/front-edit/showcase').then((m) => (m.provideShowcaseActions({ load: showcaseFeStateAction, setHomePosition: setHomePositionAction }), m)),
   resource_category: () => import('@/app/dashboard/admin/affairs/front-edit/resource-category').then((m) => (m.provideRename(renameResourceCategoryAction), m)),
-  // ③（C3-08 登錄 activity；C3-10 已登錄 opportunity）
-  activity: notProvided,
+  // ③（C3-08 登錄 activity；C3-10 登錄 opportunity）
+  activity: () => import('@/app/dashboard/admin/timeline/front-edit/activity').then((m) => (m.provideActivityFeActions({ context: activityFeContextAction, save: saveActivityFeAction, remove: removeActivityFeAction }), m)),
   opportunity: () => import('@/app/dashboard/_industry/front-edit/opportunity').then((m) => (m.provideOpportunityFeActions({ context: opportunityFeContextAction, save: saveOpportunityFeAction, remove: removeOpportunityFeAction }), m)),
   // ②（C2-17）
   hero: () => import('./forms/hero-form'),

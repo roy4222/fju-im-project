@@ -388,12 +388,12 @@ test('三個角色看同一份：學生頁有全文與授權範圍、老師卡�
 
 test('票 14 掛點：管理員加入組員後，目前版本同時失效；學生頁顯示原因與「等待管理員建立新版」', async ({ page }) => {
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
+  await page.goto(`/dashboard/admin/groups/unassigned?cohort=${cohortId}`)
   const ungrouped = page.getByRole('region', { name: '未分組學生' })
-  await ungrouped.getByRole('button', { name: `加入某組：${NEWCOMER_NAME}` }).click()
+  await ungrouped.getByRole('button', { name: `加入組別：${NEWCOMER_NAME}` }).click()
   const dialog = page.getByRole('dialog', { name: `把 ${NEWCOMER_NAME} 加入組別` })
   await dialog.getByLabel('組別').selectOption(groupId)
-  await dialog.getByLabel('理由（必填）').fill('轉學生，系上安排加入')
+  await dialog.getByLabel('理由（可不填）').fill('轉學生，系上安排加入')
   await dialog.getByRole('button', { name: '確認加入' }).click()
   await expect(page.getByRole('main').getByRole('status').filter({ hasText: '已把' })).toContainText(`已把 ${NEWCOMER_NAME} 加入 G01`)
 

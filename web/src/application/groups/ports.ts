@@ -47,6 +47,7 @@ import type {
   LinkOpportunityInput,
   LinkOption,
   LinkReceipt,
+  LinkState,
   ManagedOpportunity,
   OpportunityCard,
   OpportunityPage,
@@ -71,9 +72,12 @@ export interface GroupCommand {
   /** 本人開關「公開找組員」。已經在組裡的人不能打開（`ALREADY_MEMBER`）；關掉永遠可以。 */
   setOpenToJoin(actor: ResolvedActor, open: boolean, requestId: string): Promise<Result<SetOpenToJoinReceipt>>
   /**
-   * 發起提案：自己＋其他組員的學號，人數要符合屆別設定。全員（含自己）被占住、各收一則邀請，
-   * 排一件到期工作。有人已在組裡 `ALREADY_MEMBER`、被別的提案占住 `INVITED_ELSEWHERE`、
+   * 建立組別（發起）：自己＋其他組員的學號，人數要符合屆別設定。全員（含自己）被占住、各收一則邀請，
+   * 排一件到期工作。有人已在組裡 `ALREADY_MEMBER`、被別的建立中組別占住 `INVITED_ELSEWHERE`、
    * 成組期已過 `DEADLINE_PASSED`。
+   * 產學合作一定要選合作案（C3-11；規格③ §5.2、§7.3）：已發布、未刪除，存進 `group_proposals.opportunity_id`；
+   * 成立那一筆交易裡建 `opportunity_links(state='pending')` 並通知負責老師（`opportunity.link_requested`），
+   * 跟組長事後 `OpportunityCommand.request` 寫的是同樣的列與事件。
    */
   propose(actor: ResolvedActor, input: ProposeInput, requestId: string): Promise<Result<ProposeReceipt>>
   /** 本人確認。最後一位確認的那一筆交易裡組別成立、占用釋放、到期工作取消、全員收到成立通知。 */
@@ -264,11 +268,13 @@ export type GroupSummary = {
   readonly establishedBusinessAt: Date
   /** 樂觀鎖版本：管理員調整組員、換組長時帶回來。 */
   readonly revision: number
-  readonly members: readonly GroupMember[]
+  readonly members: readonly (GroupMember & { readonly departmentClass?: string | null })[]
+  /** 系辦總覽提供正式繳交狀態；學生與老師查詢不載入這個行政欄位。 */
+  readonly hasFormalSubmission?: boolean
   /** 目前的主指導（票 19）；還沒指派是 null。 */
   readonly advisor: AdvisorInfo | null
   /** 目前連結的合作案（票 20；只帶公開欄位的名稱與狀態）；沒有連結是 null。 */
-  readonly opportunity: GroupOpportunityLink | null
+  readonly opportunity: (GroupOpportunityLink & { readonly state?: LinkState }) | null
   readonly history: readonly GroupHistoryEntry[]
 }
 
@@ -284,10 +290,19 @@ export type ProposalInvitation = {
   readonly avatarFileId: string | null
 }
 
+/** 建立中（或已結束）的產學組別選的合作案（C3-11）：名稱＋負責老師，只給畫面顯示「合作案：甲（T1 老師）」。 */
+export type ProposalOpportunity = {
+  readonly id: string
+  readonly name: string
+  readonly ownerTeacherName: string
+}
+
 export type ProposalSummary = {
   readonly id: string
   readonly cohortId: string
   readonly groupType: GroupType
+  /** 產學合作選的合作案（C3-11）；一般專題、或舊資料沒選的是 null。 */
+  readonly opportunity: ProposalOpportunity | null
   readonly state: ProposalState
   readonly proposerUserId: string
   readonly proposerName: string
@@ -301,10 +316,33 @@ export type ProposalSummary = {
   readonly invitations: readonly ProposalInvitation[]
 }
 
+/**
+ * 學生「我的組」已成組的產學組目前連著的合作案（C3-11；規格③ §5.3、§7.3）：
+ * `pending`＝等負責老師「確認指導」、`active`＝已確認（或系辦／負責老師直接連的）。沒有有效連結＝「還沒有合作案」，組長可以選。
+ */
+export type StudentGroupLink = {
+  readonly linkId: string
+  readonly opportunityId: string
+  readonly name: string
+  readonly ownerTeacherName: string
+  readonly state: LinkState
+}
+
+/** 建立組別表單即時查學號（C3-11；規格③ §5.2）：同屆、已核准、帳號正常、還沒有組別的學生才回；其他一律 null。 */
+export type StudentLookup = {
+  readonly userId: string
+  readonly name: string
+  readonly studentNo: string
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
+}
+
 /** 學生「我的組別」一頁要的全部資料。 */
 export type StudentGroupView = {
   readonly cohortId: string
   readonly group: GroupSummary | null
+  /** 已成組的產學組目前的合作案連結（C3-11）；一般組、沒有組別、或沒有有效連結都是 null。 */
+  readonly link: StudentGroupLink | null
   readonly openProposal: ProposalSummary | null
   /** 我參與過、已經結束（成立或終止）的提案，新的在前。 */
   readonly history: readonly ProposalSummary[]
@@ -361,6 +399,8 @@ export type DissolvedGroupSummary = {
 }
 
 export interface GroupQuery {
+  /** 系辦單組詳情（呼叫端守門），含已刪除組；不存在或沒有屆別回 null。 */
+  findGroup(groupId: string): Promise<(GroupSummary & { readonly status: 'active' | 'dissolved' }) | null>
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
   studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView>
   /**
@@ -369,6 +409,12 @@ export interface GroupQuery {
    * 排序：有自介的在前，其次姓名。看的人不是同屆學生、老師或管理員就回空的。自己不列在自己的名單裡。
    */
   teammates(actor: ResolvedActor, cohortId: string, filter?: TeammateFilter): Promise<TeammateCard[]>
+  /**
+   * 建立組別表單的即時查學號（C3-11；規格③ §5.2）：只有同屆學生能查，回同屆、已核准、帳號正常、目前是學生、
+   * 還沒有有效組別的那一位的姓名與頭像；查不到、已有組別、他屆、不是學生查，一律 null（畫面寫「找不到這個學號，或他已經有組別」）。
+   * 正在別的建立中組別裡的人這裡照回（送出時才以 `INVITED_ELSEWHERE` 擋）。一句 SQL。
+   */
+  lookupStudent(actor: ResolvedActor, cohortId: string, studentNo: string): Promise<StudentLookup | null>
   /** 管理員分組總覽（呼叫端守門）。 */
   overview(cohortId: string, opts?: { readonly history?: boolean }): Promise<CohortGroupingOverview>
   /**

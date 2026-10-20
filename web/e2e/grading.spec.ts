@@ -257,7 +257,8 @@ test('設要求份數並指派：G01「系統驗收」要 2 份、指派評一�
 test('重派對話框：列出原老師（評一）在 G01 的評分指派，只列不移轉', async ({ page }) => {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  const groupRow = page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G01' })
+  const groupRow = page.getByRole('region', { name: '全部組別' }).getByRole('article', { name: 'G01', exact: true })
+  if ((await groupRow.locator('details').getAttribute('open')) === null) await groupRow.locator('summary').click()
   await groupRow.getByRole('button', { name: '重派指導老師：G01' }).click()
   const dialog = page.getByRole('dialog', { name: '重派 G01 的指導老師' })
   const grading = dialog.getByRole('region', { name: '原老師在本組的評分指派' })

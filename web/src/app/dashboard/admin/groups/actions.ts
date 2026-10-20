@@ -31,7 +31,7 @@ import { formatTaipeiMinute } from '@/shared/time'
 /**
  * 管理員「分組總覽」的動作：分組設定（每組人數、提案預設天數）、作廢提案（票 13）；
  * 加入組員、移出組員、換組長（票 14）；解散組別（開站後）；指派、重派、解除指導老師與批次指派 CSV（票 19）。
- * 規則全在用例裡判；這裡只翻譯表單與回饋。
+ * 用例處理領域規則；若共用用例也服務老師或學生，這裡先守住系辦專用入口。
  */
 
 const text = (formData: FormData, name: string) => String(formData.get(name) ?? '')
@@ -133,11 +133,24 @@ export async function dissolveGroupAction(_state: AdminGroupActionState, formDat
     text(formData, 'requestId'),
   )
   if (!result.ok) return { ok: false, message: result.message }
-  // 解散後這組不在「全部組別」裡了（詳情跟著消失），回執改在「已解散的組別」那一塊顯示。
+  // 刪除後切到「已刪除」篩選顯示回執，仍可從紀錄入口查看原組。
   const cohortId = text(formData, 'cohortId')
-  if (UUID.test(cohortId)) redirect(`/dashboard/admin/groups?cohort=${cohortId}&dissolved=${result.receipt.groupId}`)
+  if (UUID.test(cohortId)) redirect(`/dashboard/admin/groups?cohort=${cohortId}&status=deleted&dissolved=${result.receipt.groupId}`)
   refresh()
   return { ok: true, message: describeDissolveReceipt(result.receipt) }
+}
+
+export async function unlinkGroupOpportunityAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, message: '只有系辦可以在這裡解除合作案。' }
+  const result = await getOpportunityCommand().unlink(
+    actor,
+    { linkId: text(formData, 'linkId'), reason: text(formData, 'reason') },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeLinkReceipt(result.receipt) }
 }
 
 // ── 指導老師（票 19）─────────────────────────────────────────────────────────
@@ -236,8 +249,10 @@ export async function changeGroupTypeAdminAction(
   _state: AdminGroupActionState,
   formData: FormData,
 ): Promise<AdminGroupActionState> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, message: '只有系辦可以在這裡改組別類型。' }
   const result = await getOpportunityCommand().changeGroupType(
-    await currentActor(),
+    actor,
     {
       groupId: text(formData, 'groupId'),
       revision: whole(formData, 'revision'),

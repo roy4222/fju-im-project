@@ -369,13 +369,13 @@ test('AC-C3-09：「邀請加入」連到 ?tab=mine&invite=，連按累加；送
     `${GROUPS}?tab=mine&invite=${a.studentNo}`,
   )
 
-  // E 送出建立組別（現在的表單還在找隊員分頁，C3-11 才搬到「我的組」）。
-  await page.goto(TEAM)
+  // E 送出建立組別（C3-11 起表單在「我的組」）。
+  await page.goto(`${GROUPS}?tab=mine`)
   const status = page.getByRole('region', { name: '我的組別狀態' })
   await status.getByRole('radio', { name: '一般專題' }).check()
   await page.getByLabel(/^同學 1 的學號/).fill(a.studentNo)
-  await status.getByRole('button', { name: '發起提案' }).click()
-  await expect(status).toContainText('組隊中（等全員確認）')
+  await status.getByRole('button', { name: '送出邀請' }).click()
+  await expect(status).toContainText('建立中（等全員確認）')
 
   await page.goto(TEAM)
   const cards = list.getByRole('article')

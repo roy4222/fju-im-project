@@ -689,7 +689,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         targetId: row.version_id,
         scope: 'cohort',
         cohortId: row.cohort_id,
-        reason: `組別解散：${input.reason}`,
+        reason: input.reason ? `組別解散：${input.reason}` : '組別解散',
         realAt: input.realAt,
         businessAt: input.businessAt,
         payload: { eventId, from: row.state, groupId: input.groupId, purpose: row.purpose, versionNo: row.version_no, cause: 'group_dissolved' },

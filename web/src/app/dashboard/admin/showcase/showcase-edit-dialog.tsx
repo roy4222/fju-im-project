@@ -1,9 +1,6 @@
 'use client'
-import Link from 'next/link'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { IconX } from '@tabler/icons-react'
-import { requestPosterUploadAction, saveEntryAction, withdrawAction } from './actions'
-import { DIALOG, INPUT, LABEL, PRIMARY, SECONDARY } from '@/app/dashboard/admin/groups/admin-group-forms'
+import type { requestPosterUploadAction, saveEntryAction, withdrawAction } from './actions'
 import {
   defaultShowcaseDraft,
   HOME_POSITION_MAX,
@@ -31,9 +28,19 @@ const CLOSE_BUTTON =
 
 type Poster = { fileId: string; name: string; previewUrl?: string } | null
 
-async function uploadPoster(entryId: string, file: File): Promise<{ ok: true; poster: NonNullable<Poster> } | { ok: false; message: string }> {
+type ShowcaseEditActions = {
+  requestPosterUploadAction: typeof requestPosterUploadAction
+  saveEntryAction: typeof saveEntryAction
+  withdrawAction: typeof withdrawAction
+}
+
+async function uploadPoster(
+  entryId: string,
+  file: File,
+  requestPosterUpload: ShowcaseEditActions['requestPosterUploadAction'],
+): Promise<{ ok: true; poster: NonNullable<Poster> } | { ok: false; message: string }> {
   try {
-    const ticket = await requestPosterUploadAction({ entryId, fileName: file.name, declaredMime: file.type, declaredSize: file.size })
+    const ticket = await requestPosterUpload({ entryId, fileName: file.name, declaredMime: file.type, declaredSize: file.size })
     if (!ticket.ok) return ticket
     const response = await fetch(`/api/files/upload?ticket=${encodeURIComponent(ticket.ticket.ticket)}`, {
       method: 'POST',
@@ -60,15 +67,21 @@ export function ShowcaseEditDialog({
   target,
   videoUrlMessage,
   awardLabelMax,
+  actions: { requestPosterUploadAction, saveEntryAction, withdrawAction },
+  styles: { DIALOG, INPUT, LABEL, PRIMARY, SECONDARY },
   onCancel,
   onSaved,
+  onPending,
 }: {
   target: ShowcaseDialogTarget
   /** 影片連結格式不對時瀏覽器顯示的提示（和伺服器驗證同一句，驗收 P-05）。 */
   videoUrlMessage: string
   awardLabelMax: number
+  actions: ShowcaseEditActions
+  styles: Record<'DIALOG' | 'INPUT' | 'LABEL' | 'PRIMARY' | 'SECONDARY', string>
   onCancel: () => void
   onSaved: (message: string) => void
+  onPending: (pending: boolean) => void
 }) {
   const entry = target.mode === 'edit' ? target.entry : null
   const initial: ShowcaseDraftFields = entry ?? defaultShowcaseDraft()
@@ -104,6 +117,10 @@ export function ShowcaseEditDialog({
   const [lifecycle, setLifecycle] = useState(false)
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
   const [pending, setPending] = useState(false)
+  const setSaving = (value: boolean) => {
+    onPending(value)
+    setPending(value)
+  }
   const [error, setError] = useState<{ message: string; field?: string } | null>(null)
   const [requestIds] = useState(() => ({
     create: crypto.randomUUID(),
@@ -161,7 +178,7 @@ export function ShowcaseEditDialog({
       consent: lifecycle,
       requestIds,
     }
-    setPending(true)
+    setSaving(true)
     try {
       const result = await saveEntryAction(input)
       if (result.ok) onSaved(result.message)
@@ -169,14 +186,14 @@ export function ShowcaseEditDialog({
     } catch {
       setError({ message: '連線中斷；結果尚未確認，請重新整理頁面看看存了沒有。' })
     } finally {
-      setPending(false)
+      setSaving(false)
     }
   }
 
   async function withdraw() {
     if (!entry) return
     setError(null)
-    setPending(true)
+    setSaving(true)
     try {
       const form = new FormData()
       form.set('entryId', entry.entryId)
@@ -188,7 +205,7 @@ export function ShowcaseEditDialog({
     } catch {
       setError({ message: '連線中斷；結果尚未確認，請重新整理頁面看狀態。' })
     } finally {
-      setPending(false)
+      setSaving(false)
     }
   }
 
@@ -212,8 +229,10 @@ export function ShowcaseEditDialog({
             <h2 className="text-lg font-extrabold">{title}</h2>
             {entry ? <p className="text-xs text-muted-foreground">{entry.savedNote}</p> : null}
           </div>
-          <button type="button" className={CLOSE_BUTTON} onClick={onCancel} aria-label="關閉">
-            <IconX />
+          <button type="button" className={CLOSE_BUTTON} onClick={onCancel} aria-label="關閉" disabled={pending}>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
@@ -339,7 +358,7 @@ export function ShowcaseEditDialog({
                       if (!file) return
                       setUploading(true)
                       setUploadError(null)
-                      const result = await uploadPoster(entry.entryId, file)
+                      const result = await uploadPoster(entry.entryId, file, requestPosterUploadAction)
                       setUploading(false)
                       if (result.ok) setPoster(result.poster)
                       else setUploadError(result.message)
@@ -384,9 +403,9 @@ export function ShowcaseEditDialog({
           </div>
           <p className="-mt-2 text-xs text-muted-foreground">
             選了獎項、而且作品公開中，才會出現在
-            <Link href="/projects/featured" className="mx-1 underline underline-offset-2" target="_blank">
+            <a href="/projects/featured" className="mx-1 underline underline-offset-2" target="_blank" rel="noopener noreferrer">
               「優秀專題」
-            </Link>
+            </a>
             與首頁輪播；沒有獎項的只在登入後的「歷屆專題一覽」。
           </p>
 

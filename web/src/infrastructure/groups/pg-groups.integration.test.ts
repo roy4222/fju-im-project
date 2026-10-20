@@ -124,12 +124,30 @@ async function students(cohortId: string, n: number): Promise<Student[]> {
   return list
 }
 
-async function propose(proposer: Student, others: Student[], groupType: GroupType = 'general') {
+async function propose(proposer: Student, others: Student[], groupType: GroupType = 'general', opportunityId?: string) {
   return groups.propose(
     studentActor(proposer),
-    { groupType, memberStudentNos: others.map((s) => s.studentNo) },
+    { groupType, memberStudentNos: others.map((s) => s.studentNo), opportunityId },
     randomUUID(),
   )
+}
+
+let opportunitySeq = 0
+/** 一件合作案（負責老師 T1）；產學合作建立組別一定要選一件已發布的（C3-11）。 */
+async function seedOpportunity(status: 'draft' | 'published' | 'withdrawn' = 'published', deleted = false): Promise<string> {
+  opportunitySeq += 1
+  const row = await owner.sql(
+    `insert into industry_opportunities
+       (id, owner_teacher_user_id, company_name, department, content, requirements, notes, address, contact_name,
+        contact_phone, contact_email, status, published_business_at, withdrawn_business_at, created_by_kind, created_by_user_id,
+        deleted_at, deleted_by_user_id)
+     values (gen_random_uuid(), $1, $2, '資訊部', '內容', '條件', '內部備註', '地址', '聯絡人', '02-0000-0000', 'secret@company.example.com',
+             $3, case when $3 = 'draft' then null else now() end, case when $3 = 'withdrawn' then now() else null end, 'user', $1,
+             case when $4 then now() else null end, case when $4 then $5::uuid else null end)
+     returning id`,
+    [teacherId, `合作公司${opportunitySeq}`, status, deleted, adminId],
+  )
+  return String(row.rows[0]!.id)
 }
 
 async function mustPropose(proposer: Student, others: Student[]): Promise<string> {
@@ -311,7 +329,14 @@ describe('發起提案', () => {
     await mustPropose(five[0]!, five.slice(1))
     const second = await propose(more[0]!, [...more.slice(1), five[2]!])
     expect(second).toMatchObject({ ok: false, code: 'INVITED_ELSEWHERE' })
-    if (!second.ok) expect(second.message).toContain(five[2]!.name)
+    // 學生看得到的錯誤文案用規格③ §1 的用詞（AC-C3-14）：不含「提案」。
+    if (!second.ok) {
+      expect(second.message).toBe(`${five[2]!.name} 正在別的建立中組別裡等確認，現在不能邀請。`)
+      expect(second.message).not.toMatch(/提案|組隊中/)
+    }
+    const again = await propose(five[0]!, five.slice(1))
+    expect(again).toMatchObject({ ok: false, code: 'INVITED_ELSEWHERE' })
+    if (!again.ok) expect(again.message).not.toMatch(/提案/)
     expect(await count('select count(*) as n from group_proposals where cohort_id = $1', [cohortId])).toBe(1)
     expect(await count('select count(*) as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).toBe(5)
   })
@@ -723,7 +748,11 @@ describe('並發', () => {
     const racing = commandWith(pool)
     const results = await Promise.all([
       racing.propose(studentActor(a[0]!), { groupType: 'general', memberStudentNos: [...a.slice(1), shared].map((s) => s.studentNo) }, randomUUID()),
-      racing.propose(studentActor(b[0]!), { groupType: 'industry', memberStudentNos: [...b.slice(1), shared].map((s) => s.studentNo) }, randomUUID()),
+      racing.propose(
+        studentActor(b[0]!),
+        { groupType: 'industry', memberStudentNos: [...b.slice(1), shared].map((s) => s.studentNo), opportunityId: await seedOpportunity() },
+        randomUUID(),
+      ),
     ])
     expect(results.map((r) => (r.ok ? 'ok' : r.code)).sort()).toEqual(['INVITED_ELSEWHERE', 'ok'])
     expect(await count(`select count(*) as n from group_proposals where cohort_id = $1`, [cohortId])).toBe(1)
@@ -937,6 +966,59 @@ describe('分組設定（管理員）', () => {
 })
 
 describe('管理員分組總覽', () => {
+  it('C3-12 正式繳交旗標同批載入：草稿、個人繳交不算，組數增加不增加 SQL', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b, c, d] = await students(cohortId, 4)
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+    const sqls: string[] = []
+    const reader = { query: (text: string, values?: unknown[]) => { sqls.push(text); return app.query(text, values) } } as Pick<Pool, 'query'>
+    const counted = new PgGroupQuery(() => reader)
+    const first = (await counted.overview(cohortId, { history: false })).groups[0]!
+    const oneGroupCount = sqls.length
+    await confirmAll(await mustPropose(c!, [d!]), [c!, d!])
+    const second = (await query.overview(cohortId, { history: false })).groups[1]!
+    const itemId = randomUUID()
+    const schemaId = randomUUID()
+    await owner.sql(`insert into managed_items (id, cohort_id, placement, audience_kind, receiver_unit, title, created_by_kind)
+      values ($1, $2, 'submission', 'cohort_students', 'group', '正式與草稿', 'system')`, [itemId, cohortId])
+    await owner.sql(`insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+      values ($1, $2, 1, '{"fields":[]}'::jsonb, $3)`, [schemaId, itemId, adminId])
+    await owner.sql(`insert into submission_drafts (id, item_id, receiver_kind, receiver_id, schema_version_id, created_by_kind)
+      values (gen_random_uuid(), $1, 'group', $2, $3, 'system')`, [itemId, first.id, schemaId])
+    // 個人繳交也不能讓他所在的組被當成已有組別繳交。
+    for (const [kind, receiver] of [['user', a!.id], ['group', second.id]]) {
+      await owner.sql(`insert into submission_versions
+        (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+         received_real_at, received_business_at, request_id, deadline_version_at_submit, membership_snapshot)
+        values (gen_random_uuid(), $1, $2, $3, 1, $4, '{}'::jsonb, $5, now(), now(), gen_random_uuid(), 1, $6::jsonb)`,
+      [itemId, kind, receiver, schemaId, kind === 'group' ? c!.id : a!.id, kind === 'group' ? JSON.stringify([c!.id, d!.id]) : null])
+    }
+    sqls.length = 0
+    const cards = (await counted.overview(cohortId, { history: false })).groups
+    expect(cards.map((g) => g.hasFormalSubmission)).toEqual([false, true])
+    expect(sqls).toHaveLength(oneGroupCount)
+    expect(await query.findGroup(second.id)).toMatchObject({ hasFormalSubmission: true })
+    expect(await groups.dissolveGroup(staffActor(adminId, 'admin'), {
+      groupId: first.id, revision: first.revision, reason: '',
+    }, randomUUID())).toMatchObject({ ok: true })
+  })
+
+  it('C3-12 單組查詢沿用卡片資料；不存在回 null，已刪除仍可查到狀態', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b] = await students(cohortId, 2)
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+    const card = (await query.overview(cohortId, { history: false })).groups[0]!
+    expect(await query.findGroup(card.id)).toEqual({ ...card, status: 'active' })
+    expect(await query.findGroup(randomUUID())).toBeNull()
+    expect(await query.findGroup('not-a-uuid')).toBeNull()
+    expect(await groups.dissolveGroup(staffActor(adminId, 'admin'), {
+      groupId: card.id, revision: card.revision, reason: '',
+    }, randomUUID())).toMatchObject({ ok: true })
+    expect(await query.findGroup(card.id)).toMatchObject({
+      id: card.id, cohortId, status: 'dissolved', members: [], hasFormalSubmission: false,
+    })
+  })
+
   it('列出組別、進行中提案（含到期時間）、終止紀錄（含作廢理由）與未分組學生', async () => {
     const cohortId = await newCohort({ min: 2, max: 5 })
     const [a, b, c, d, e] = await students(cohortId, 5)
@@ -982,10 +1064,11 @@ describe('首頁分組計數 homeCounts（AD-21）', () => {
     const cohortId = await newCohort({ min: 2, max: 5 })
     const [a, b, c, d, e, f, g, h, i, j] = await students(cohortId, 10)
     await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
-    const industryNoAdvisor = await propose(c!, [d!], 'industry')
+    const opportunityId = await seedOpportunity()
+    const industryNoAdvisor = await propose(c!, [d!], 'industry', opportunityId)
     if (!industryNoAdvisor.ok) throw new Error(industryNoAdvisor.message)
     await confirmAll(industryNoAdvisor.receipt.proposalId, [c!, d!])
-    const industryWithAdvisor = await propose(e!, [f!], 'industry')
+    const industryWithAdvisor = await propose(e!, [f!], 'industry', opportunityId)
     if (!industryWithAdvisor.ok) throw new Error(industryWithAdvisor.message)
     await confirmAll(industryWithAdvisor.receipt.proposalId, [e!, f!])
     await confirmAll(await mustPropose(g!, [h!]), [g!, h!])
@@ -1056,7 +1139,7 @@ describe('分組歷程改成可選（SH-P4）', () => {
     return { cohortId, a: a!, b: b! }
   }
 
-  it('overview 給 { history: false }：每組 history 是 []、其他欄位與預設呼叫深相等，且不跑歷程那 5 句', async () => {
+  it('overview 給 { history: false }：每組 history 是 []、其他欄位與預設呼叫深相等，且不跑歷程那 1 句（C3-11 起五種來源一趟查完）', async () => {
     const { cohortId } = await cohortWithHistory()
     const { query: counted, sqls } = countingQuery()
 
@@ -1068,7 +1151,7 @@ describe('分組歷程改成可選（SH-P4）', () => {
     expect(full.groups.some((g) => g.history.length > 0)).toBe(true)
     expect(lean.groups.map((g) => g.history)).toEqual([[], []])
     expect(lean).toEqual({ ...full, groups: full.groups.map((g) => ({ ...g, history: [] })) })
-    expect(sqls).toHaveLength(fullCount - 5)
+    expect(sqls).toHaveLength(fullCount - 1)
   })
 
   it('不給 opts 時照舊帶歷程（等於 { history: true }）；cohortGroups、studentView 也吃 { history: false }', async () => {
@@ -1101,5 +1184,159 @@ describe('分組歷程改成可選（SH-P4）', () => {
     expect(history[0]!.byName).not.toBeNull()
     expect(await query.groupHistory(full.groups[1]!.id)).toEqual([])
     expect(await query.groupHistory(randomUUID())).toEqual([])
+  })
+})
+
+describe('產學合作選合作案（C3-11；規格③ §5.2、§7.2、§7.3）', () => {
+  it('產學合作沒選合作案 → VALIDATION_FAILED「請選合作案。」；草稿、已刪除當作不存在；已下架 OPPORTUNITY_NOT_LINKABLE；都沒留下建立紀錄', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [s1, s2] = await students(cohortId, 2)
+    const missing = await propose(s1!, [s2!], 'industry')
+    expect(missing).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'opportunityId' } })
+    if (!missing.ok) expect(missing.message).toBe('請選合作案。')
+    expect(await propose(s1!, [s2!], 'industry', await seedOpportunity('draft'))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await propose(s1!, [s2!], 'industry', await seedOpportunity('withdrawn', true))).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await propose(s1!, [s2!], 'industry', await seedOpportunity('withdrawn'))).toMatchObject({ ok: false, code: 'OPPORTUNITY_NOT_LINKABLE' })
+    expect(await propose(s1!, [s2!], 'industry', randomUUID())).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(await count('select count(*) as n from group_proposals where cohort_id = $1', [cohortId])).toBe(0)
+    // 一般專題帶了合作案也不理：存 NULL。
+    const general = await propose(s1!, [s2!], 'general', await seedOpportunity())
+    expect(general).toMatchObject({ ok: true })
+    if (general.ok) {
+      const row = await owner.sql('select opportunity_id from group_proposals where id = $1', [general.receipt.proposalId])
+      expect(row.rows[0]!.opportunity_id).toBeNull()
+    }
+  })
+
+  it('選已發布的案：建立紀錄存 opportunity_id、建立中的狀態帶案名與負責老師；成立瞬間 opportunity_links 一列 pending、負責老師收到 link_requested、學生頁 link 待老師確認', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [s1, s2] = await students(cohortId, 2)
+    const opportunityId = await seedOpportunity()
+    const result = await propose(s1!, [s2!], 'industry', opportunityId)
+    expect(result).toMatchObject({ ok: true })
+    if (!result.ok) return
+    const proposalId = result.receipt.proposalId
+    const stored = await owner.sql('select group_type, opportunity_id from group_proposals where id = $1', [proposalId])
+    expect(stored.rows[0]).toMatchObject({ group_type: 'industry', opportunity_id: opportunityId })
+
+    const open = await query.studentView(s2!.id, cohortId)
+    expect(open.group).toBeNull()
+    expect(open.link).toBeNull()
+    expect(open.openProposal?.opportunity).toEqual({ id: opportunityId, name: expect.stringMatching(/^合作公司\d+・資訊部$/), ownerTeacherName: 'T1' })
+    // 成立前還沒有任何連結、也沒通知老師。
+    expect(await count('select count(*) as n from opportunity_links where opportunity_id = $1', [opportunityId])).toBe(0)
+    expect(await count(`select count(*) as n from domain_events where type = 'opportunity.link_requested' and source_id = $1`, [opportunityId])).toBe(0)
+
+    const last = await confirmAll(proposalId, [s1!, s2!])
+    expect(last).toMatchObject({ ok: true, receipt: { outcome: 'established' } })
+    const group = await owner.sql('select id, code, group_type from groups where cohort_id = $1', [cohortId])
+    expect(group.rows[0]).toMatchObject({ group_type: 'industry' })
+    const groupId = String(group.rows[0]!.id)
+    const links = await owner.sql(
+      'select state, valid_to, linked_by_user_id, opportunity_id from opportunity_links where group_id = $1',
+      [groupId],
+    )
+    expect(links.rows).toEqual([{ state: 'pending', valid_to: null, linked_by_user_id: s1!.id, opportunity_id: opportunityId }])
+    const event = await owner.sql(
+      `select recipients, payload from domain_events where type = 'opportunity.link_requested' and source_id = $1`,
+      [opportunityId],
+    )
+    expect(event.rows).toHaveLength(1)
+    expect(event.rows[0]!.recipients).toEqual([teacherId])
+    const payload = event.rows[0]!.payload as { title: string; groupId: string; code: string; opportunityId: string }
+    expect(payload).toMatchObject({ groupId, code: group.rows[0]!.code, opportunityId })
+    expect(payload.title).toContain(`組別 ${group.rows[0]!.code} 選了你的合作案「`)
+    expect(payload.title).toContain('請到分組總覽確認是否指導')
+    // 成立稽核記下連結。
+    const audit = await owner.sql(`select payload from audit_events where action = 'group.establish' and target_id = $1`, [groupId])
+    expect(audit.rows[0]!.payload).toMatchObject({ opportunityId })
+
+    const view = await query.studentView(s2!.id, cohortId)
+    expect(view.group?.groupType).toBe('industry')
+    expect(view.group?.opportunity?.opportunityId).toBe(opportunityId)
+    expect(view.link).toMatchObject({ opportunityId, state: 'pending', ownerTeacherName: 'T1', name: expect.stringMatching(/・資訊部$/) })
+    expect(view.history[0]?.opportunity?.id).toBe(opportunityId)
+
+    // 負責老師確認後（state 變 active）學生頁跟著變；連結結束後是「還沒有合作案」（link null）。
+    await owner.sql(`update opportunity_links set state = 'active' where group_id = $1`, [groupId])
+    expect((await query.studentView(s1!.id, cohortId)).link?.state).toBe('active')
+    await owner.sql(`update opportunity_links set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2 where group_id = $1`, [groupId, teacherId])
+    expect((await query.studentView(s1!.id, cohortId)).link).toBeNull()
+  })
+
+  it('成立前案被下架：組別照成立、不建連結、不通知；一般組一樣沒有連結', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [s1, s2, s3, s4] = await students(cohortId, 4)
+    const opportunityId = await seedOpportunity()
+    const result = await propose(s1!, [s2!], 'industry', opportunityId)
+    if (!result.ok) throw new Error(result.message)
+    await owner.sql(`update industry_opportunities set status = 'withdrawn', withdrawn_business_at = now() where id = $1`, [opportunityId])
+    expect(await confirmAll(result.receipt.proposalId, [s1!, s2!])).toMatchObject({ ok: true, receipt: { outcome: 'established' } })
+    expect(await count('select count(*) as n from opportunity_links where opportunity_id = $1', [opportunityId])).toBe(0)
+    expect(await count(`select count(*) as n from domain_events where type = 'opportunity.link_requested' and source_id = $1`, [opportunityId])).toBe(0)
+    const view = await query.studentView(s1!.id, cohortId)
+    expect(view.group?.groupType).toBe('industry')
+    expect(view.link).toBeNull()
+
+    await confirmAll(await mustPropose(s3!, [s4!]), [s3!, s4!])
+    const general = await query.studentView(s3!.id, cohortId)
+    expect(general.group?.groupType).toBe('general')
+    expect(general.link).toBeNull()
+    expect(general.openProposal).toBeNull()
+    expect(general.history[0]?.opportunity).toBeNull()
+  })
+
+  it('終止通知的標題用「這次建立組別沒有成立」（規格③ §1 用詞）', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [s1, s2] = await students(cohortId, 2)
+    const proposalId = await mustPropose(s1!, [s2!])
+    expect(await groups.decline(studentActor(s2!), proposalId, randomUUID())).toMatchObject({ ok: true })
+    const event = await owner.sql(`select payload from domain_events where type = 'proposal.terminated' and source_id = $1`, [proposalId])
+    expect((event.rows[0]!.payload as { title: string }).title).toBe('這次建立組別沒有成立（被拒絕），大家都可以重新組隊')
+  })
+})
+
+describe('即時查學號 lookupStudent（C3-11；規格③ §5.2）', () => {
+  it('同屆學生查同屆未分組的同學：姓名、學號、頭像；已有組別、他屆、停用、格式不對、不是同屆學生查，一律 null', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const otherCohort = await newCohort({ min: 2, max: 5 })
+    const [viewer, free, a, b] = await students(cohortId, 4)
+    const outsider = await newStudent(otherCohort)
+    const disabled = await newStudent(cohortId, { status: 'disabled' })
+    await owner.sql('update user_profiles set avatar_preset = 7 where user_id = $1', [free!.id])
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, ` ${free!.studentNo} `)).toEqual({
+      userId: free!.id,
+      name: free!.name,
+      studentNo: free!.studentNo,
+      avatarPreset: 7,
+      avatarFileId: null,
+    })
+    // 查自己也查得到（送出時用例自己會去掉）；正在別的建立中組別裡的人也查得到（送出時才擋）。
+    expect((await query.lookupStudent(studentActor(viewer!), cohortId, viewer!.studentNo))?.userId).toBe(viewer!.id)
+    // 已有組別、他屆、停用、不存在。
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, a!.studentNo)).toBeNull()
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, outsider.studentNo)).toBeNull()
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, disabled.studentNo)).toBeNull()
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, '999999999')).toBeNull()
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, "41'; drop")).toBeNull()
+    expect(await query.lookupStudent(studentActor(viewer!), cohortId, '')).toBeNull()
+    // 不是同屆學生：他屆學生、老師、系辦、未登入。
+    expect(await query.lookupStudent(studentActor(outsider), cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent(staffActor(teacherId, 'teacher'), cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent(staffActor(adminId, 'admin'), cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ kind: 'anonymous' }, cohortId, free!.studentNo)).toBeNull()
+  })
+
+  it('帳號狀態守門（契約 03 §2、§3）：必須改密、待審、停用的同屆學生直接呼叫也一律 null，不給姓名與頭像', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [viewer, free] = await students(cohortId, 2)
+    const base = studentActor(viewer!) as Extract<ResolvedActor, { kind: 'authenticated' }>
+    expect(await query.lookupStudent(base, cohortId, free!.studentNo)).not.toBeNull()
+    expect(await query.lookupStudent({ ...base, mustChangePassword: true }, cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ ...base, status: 'pending' }, cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ ...base, status: 'disabled' }, cohortId, free!.studentNo)).toBeNull()
+    expect(await query.lookupStudent({ ...base, status: 'deidentified' }, cohortId, free!.studentNo)).toBeNull()
   })
 })
