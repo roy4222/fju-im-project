@@ -1994,6 +1994,16 @@ type InvitationListRow = {
   avatar_file_id: string | null
 }
 
+/** `to_jsonb` 包過的列：時間欄位是 ISO 字串，還原成 Date（跟 pg 直接回的列一樣）。 */
+const DATE_COLUMNS = new Set(['valid_from', 'valid_to', 'created_at', 'updated_at', 'ended_real_at', 'business_at', 'real_at'])
+function reviveDates(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    out[key] = DATE_COLUMNS.has(key) && typeof value === 'string' ? new Date(value) : value
+  }
+  return out
+}
+
 const PROPOSAL_SELECT = `
   select p.id, p.cohort_id, p.group_type, p.state, p.proposer_user_id,
          ${personName('pp', 'pu')} as proposer_name,
@@ -2489,20 +2499,11 @@ export class PgGroupQuery implements GroupQuery {
    */
   async #history(groupIds: string[], forAdmin: boolean): Promise<Map<string, GroupHistoryEntry[]>> {
     const db = this.#reader()
-    const memberships = await db.query<{
-      group_id: string
-      name: string
-      valid_from: Date
-      valid_to: Date | null
-      created_at: Date
-      updated_at: Date
-      added_after_establish: boolean
-      added_by_name: string | null
-      add_reason: string | null
-      removal_reason: string | null
-      removed_by_name: string | null
-    }>(
-      `select m.group_id, ${personName('p', 'u')} as name, m.valid_from, m.valid_to, m.created_at, m.updated_at,
+    // 五種來源（組員、組長、主指導、類型變更、合作案連結）一趟查完（C3-11：「我的組」要在同一頁帶紀錄，查詢數上限不上調）。
+    // 每一種照原本的 select 寫、用 `to_jsonb` 包成一列，回來再依 `src` 分回五組；時間欄位從 ISO 字串還原成 Date。
+    const combined = await db.query<{ src: string; row: Record<string, unknown> }>(
+      `select 'memberships' as src, to_jsonb(t) as row from (
+select m.group_id, ${personName('p', 'u')} as name, m.valid_from, m.valid_to, m.created_at, m.updated_at,
               exists (select 1 from audit_events a
                        where a.target_type = 'group' and a.target_id = m.group_id and a.action = 'group.member.add'
                          and a.payload->>'membershipId' = m.id::text) as added_after_establish,
@@ -2523,18 +2524,11 @@ export class PgGroupQuery implements GroupQuery {
          left join user_profiles p on p.user_id = m.user_id
          left join users au on au.id = m.added_by_user_id
          left join user_profiles ap on ap.user_id = m.added_by_user_id
-        where m.group_id = any($1::uuid[])`,
-      [groupIds],
-    )
-    const leaders = await db.query<{
-      group_id: string
-      name: string
-      valid_from: Date
-      created_at: Date
-      reason: string | null
-      by_name: string | null
-    }>(
-      `select l.group_id, ${personName('p', 'u')} as name, l.valid_from, l.created_at, l.reason,
+        where m.group_id = any($1::uuid[])
+      ) t
+      union all
+      select 'leaders' as src, to_jsonb(t) as row from (
+select l.id, l.group_id, ${personName('p', 'u')} as name, l.valid_from, l.created_at, l.reason,
               ${personName('bp', 'bu')} as by_name
          from group_leaders l
          join users u on u.id = l.user_id
@@ -2542,9 +2536,71 @@ export class PgGroupQuery implements GroupQuery {
          left join users bu on bu.id = l.changed_by_user_id
          left join user_profiles bp on bp.user_id = l.changed_by_user_id
         where l.group_id = any($1::uuid[])
-        order by l.group_id, l.created_at, l.id`,
+      ) t
+      union all
+      select 'advisors' as src, to_jsonb(t) as row from (
+select a.id, a.group_id, ${personName('p', 'u')} as name, a.source,
+              a.valid_from, a.valid_to, a.created_at, a.ended_real_at, a.previous_assignment_id, a.reason, a.end_reason,
+              ${personName('bp', 'bu')} as by_name,
+              ${personName('ep', 'eu')} as ended_by_name
+         from advisor_assignments a
+         join users u on u.id = a.teacher_user_id
+         left join user_profiles p on p.user_id = a.teacher_user_id
+         left join users bu on bu.id = a.assigned_by_user_id
+         left join user_profiles bp on bp.user_id = a.assigned_by_user_id
+         left join users eu on eu.id = a.ended_by_user_id
+         left join user_profiles ep on ep.user_id = a.ended_by_user_id
+        where a.group_id = any($1::uuid[])
+      ) t
+      union all
+      select 'typeChanges' as src, to_jsonb(t) as row from (
+select a.target_id as group_id, a.payload->>'from' as from_type, a.payload->>'to' as to_type,
+              a.business_at, a.real_at, a.role, a.reason,
+              ${personName('p', 'u')} as actor_name
+         from audit_events a
+         left join users u on u.id = a.actor_user_id
+         left join user_profiles p on p.user_id = a.actor_user_id
+        where a.target_type = 'group' and a.action = 'group.type.change' and a.target_id = any($1::uuid[])
+      ) t
+      union all
+      select 'opportunityLinks' as src, to_jsonb(t) as row from (
+select l.id, l.group_id, o.company_name || '・' || o.department as name, l.valid_from, l.valid_to, l.created_at,
+              l.ended_real_at, l.previous_link_id, l.end_reason,
+              ${personName('bp', 'bu')} as by_name,
+              ${personName('ep', 'eu')} as ended_by_name
+         from opportunity_links l
+         join industry_opportunities o on o.id = l.opportunity_id
+         left join users bu on bu.id = l.linked_by_user_id
+         left join user_profiles bp on bp.user_id = l.linked_by_user_id
+         left join users eu on eu.id = l.ended_by_user_id
+         left join user_profiles ep on ep.user_id = l.ended_by_user_id
+        where l.group_id = any($1::uuid[])
+      ) t`,
       [groupIds],
     )
+    const rowsOf = (src: string) => combined.rows.filter((r) => r.src === src).map((r) => reviveDates(r.row))
+    const memberships = { rows: rowsOf('memberships') as {
+      group_id: string
+      name: string
+      valid_from: Date
+      valid_to: Date | null
+      created_at: Date
+      updated_at: Date
+      added_after_establish: boolean
+      added_by_name: string | null
+      add_reason: string | null
+      removal_reason: string | null
+      removed_by_name: string | null
+    }[] }
+    const leaders = { rows: (rowsOf('leaders') as {
+      id: string
+      group_id: string
+      name: string
+      valid_from: Date
+      created_at: Date
+      reason: string | null
+      by_name: string | null
+    }[]).sort((a, b) => a.group_id.localeCompare(b.group_id) || a.created_at.getTime() - b.created_at.getTime() || a.id.localeCompare(b.id)) }
 
     const entries = new Map<string, { sortKey: number; entry: GroupHistoryEntry }[]>()
     // 票 20 加的兩欄（類型變更前後、換案前的合作案）只有自己的種類會帶；其他種類一律 null。
@@ -2601,7 +2657,7 @@ export class PgGroupQuery implements GroupQuery {
 
     // 主指導（票 19）：每一列的開始是一次指派（首次、認領或重派）；重派的新列用 `previous_assignment_id`
     // 指向它接手的那一列。結束了、又沒有被任何一列接手的，就是被解除。
-    const advisors = await db.query<{
+    const advisors = { rows: rowsOf('advisors') as {
       id: string
       group_id: string
       name: string
@@ -2615,21 +2671,7 @@ export class PgGroupQuery implements GroupQuery {
       end_reason: string | null
       by_name: string | null
       ended_by_name: string | null
-    }>(
-      `select a.id, a.group_id, ${personName('p', 'u')} as name, a.source,
-              a.valid_from, a.valid_to, a.created_at, a.ended_real_at, a.previous_assignment_id, a.reason, a.end_reason,
-              ${personName('bp', 'bu')} as by_name,
-              ${personName('ep', 'eu')} as ended_by_name
-         from advisor_assignments a
-         join users u on u.id = a.teacher_user_id
-         left join user_profiles p on p.user_id = a.teacher_user_id
-         left join users bu on bu.id = a.assigned_by_user_id
-         left join user_profiles bp on bp.user_id = a.assigned_by_user_id
-         left join users eu on eu.id = a.ended_by_user_id
-         left join user_profiles ep on ep.user_id = a.ended_by_user_id
-        where a.group_id = any($1::uuid[])`,
-      [groupIds],
-    )
+    }[] }
     const advisorName = new Map(advisors.rows.map((a) => [a.id, a.name]))
     const replacedIds = new Set(advisors.rows.map((a) => a.previous_assignment_id).filter((id): id is string => id !== null))
     for (const a of advisors.rows) {
@@ -2658,7 +2700,7 @@ export class PgGroupQuery implements GroupQuery {
 
     // 組別類型變更（票 20）：沒有歷史表（不加 migration），事實記在稽核 `group.type.change`（payload 帶前後類型）。
     // 組長自己改的，操作者就是組長本人，學生也看得到是誰改的；系辦改的只在管理員的查詢裡帶名字與理由。
-    const typeChanges = await db.query<{
+    const typeChanges = { rows: rowsOf('typeChanges') as {
       group_id: string
       from_type: GroupType
       to_type: GroupType
@@ -2667,16 +2709,7 @@ export class PgGroupQuery implements GroupQuery {
       role: string | null
       actor_name: string | null
       reason: string | null
-    }>(
-      `select a.target_id as group_id, a.payload->>'from' as from_type, a.payload->>'to' as to_type,
-              a.business_at, a.real_at, a.role, a.reason,
-              ${personName('p', 'u')} as actor_name
-         from audit_events a
-         left join users u on u.id = a.actor_user_id
-         left join user_profiles p on p.user_id = a.actor_user_id
-        where a.target_type = 'group' and a.action = 'group.type.change' and a.target_id = any($1::uuid[])`,
-      [groupIds],
-    )
+    }[] }
     for (const t of typeChanges.rows) {
       const byAdmin = t.role === 'admin'
       push(t.group_id, t.real_at, {
@@ -2693,7 +2726,7 @@ export class PgGroupQuery implements GroupQuery {
 
     // 合作案連結（票 20）：每一列的開始是一次連結（首次或換案，換案的新列用 `previous_link_id` 指向舊列）；
     // 結束了、又沒有被任何一列接手的，就是被解除。和主指導同一套做法。
-    const opportunityLinks = await db.query<{
+    const opportunityLinks = { rows: rowsOf('opportunityLinks') as {
       id: string
       group_id: string
       name: string
@@ -2705,20 +2738,7 @@ export class PgGroupQuery implements GroupQuery {
       end_reason: string | null
       by_name: string | null
       ended_by_name: string | null
-    }>(
-      `select l.id, l.group_id, o.company_name || '・' || o.department as name, l.valid_from, l.valid_to, l.created_at,
-              l.ended_real_at, l.previous_link_id, l.end_reason,
-              ${personName('bp', 'bu')} as by_name,
-              ${personName('ep', 'eu')} as ended_by_name
-         from opportunity_links l
-         join industry_opportunities o on o.id = l.opportunity_id
-         left join users bu on bu.id = l.linked_by_user_id
-         left join user_profiles bp on bp.user_id = l.linked_by_user_id
-         left join users eu on eu.id = l.ended_by_user_id
-         left join user_profiles ep on ep.user_id = l.ended_by_user_id
-        where l.group_id = any($1::uuid[])`,
-      [groupIds],
-    )
+    }[] }
     const linkName = new Map(opportunityLinks.rows.map((l) => [l.id, l.name]))
     const linkById = new Map(opportunityLinks.rows.map((l) => [l.id, l]))
     const replacedLinks = new Set(

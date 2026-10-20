@@ -1079,7 +1079,7 @@ describe('分組歷程改成可選（SH-P4）', () => {
     return { cohortId, a: a!, b: b! }
   }
 
-  it('overview 給 { history: false }：每組 history 是 []、其他欄位與預設呼叫深相等，且不跑歷程那 5 句', async () => {
+  it('overview 給 { history: false }：每組 history 是 []、其他欄位與預設呼叫深相等，且不跑歷程那 1 句（C3-11 起五種來源一趟查完）', async () => {
     const { cohortId } = await cohortWithHistory()
     const { query: counted, sqls } = countingQuery()
 
@@ -1091,7 +1091,7 @@ describe('分組歷程改成可選（SH-P4）', () => {
     expect(full.groups.some((g) => g.history.length > 0)).toBe(true)
     expect(lean.groups.map((g) => g.history)).toEqual([[], []])
     expect(lean).toEqual({ ...full, groups: full.groups.map((g) => ({ ...g, history: [] })) })
-    expect(sqls).toHaveLength(fullCount - 5)
+    expect(sqls).toHaveLength(fullCount - 1)
   })
 
   it('不給 opts 時照舊帶歷程（等於 { history: true }）；cohortGroups、studentView 也吃 { history: false }', async () => {
