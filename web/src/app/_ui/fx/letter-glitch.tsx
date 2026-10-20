@@ -159,6 +159,9 @@ function mountLetterGlitch(root: HTMLElement, canvas: HTMLCanvasElement, onFail:
     cleanup()
     onFail()
   }
+  // 尺寸跟著外層走（手機網址列伸縮、轉向也算）；`resize` 只拿來補 devicePixelRatio 變化。
+  const ro = new ResizeObserver(onResize)
+  ro.observe(root)
   window.addEventListener('resize', onResize)
   window.addEventListener('pointermove', onMove, { passive: true })
   document.documentElement.addEventListener('pointerleave', onLeave)
@@ -167,6 +170,7 @@ function mountLetterGlitch(root: HTMLElement, canvas: HTMLCanvasElement, onFail:
 
   function cleanup() {
     loop.stop()
+    ro.disconnect()
     window.removeEventListener('resize', onResize)
     window.removeEventListener('pointermove', onMove)
     document.documentElement.removeEventListener('pointerleave', onLeave)

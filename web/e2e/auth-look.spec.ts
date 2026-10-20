@@ -95,6 +95,7 @@ test('AC-21／AC-22／AC-64 /login：沒有照片與頁尾、LetterGlitch 背景
   expect(await page.locator('.auth-card [style]').count()).toBe(0)
   await expect(glitch(page)).toHaveAttribute('data-running', '1')
   expect(violations).toEqual([])
+  await page.screenshot({ path: 'e2e/.artifacts/c4-07-login-desktop.png' })
   await page.context().close()
 })
 
@@ -143,8 +144,17 @@ test('AC-24 減少動態：沒有 canvas、靜態字元紋理、底色 #13305C',
   await expect(glitch(page)).toHaveClass(/auth-glitch-static/)
   await expect(glitch(page)).toHaveCSS('background-color', DEEP_BLUE)
   await expect(glitch(page)).toHaveCSS('background-image', /^url\("data:image\/svg\+xml/)
+  // 紋理真的解得開（SVG 壞掉時瀏覽器只會默默不畫）。
+  const decoded = await glitch(page).evaluate(async (el) => {
+    const url = /^url\("(.*)"\)$/.exec(getComputedStyle(el).backgroundImage)![1]!
+    const img = new Image()
+    img.src = url
+    return img.decode().then(() => img.naturalWidth, () => 0)
+  })
+  expect(decoded).toBe(42)
   await page.waitForTimeout(500)
   await expect(page.locator('canvas')).toHaveCount(0)
+  await page.screenshot({ path: 'e2e/.artifacts/c4-07-login-reduced-motion.png' })
   await page.context().close()
 })
 
@@ -154,6 +164,11 @@ test('AC-25／AC-31 390×844 觸控：canvas 1、格 18、20 fps；白卡不超�
   await expect(page.locator('[data-testid=letter-glitch] canvas')).toHaveCount(1)
   await expect(glitch(page)).toHaveAttribute('data-grid', '18')
   await expect(glitch(page)).toHaveAttribute('data-fps', '20')
+  // 手機 dpr 當 1：畫布的像素尺寸＝整個視窗，下緣不會留一段沒字。
+  await expect
+    .poll(() => page.locator('[data-testid=letter-glitch] canvas').evaluate((c: HTMLCanvasElement) => `${c.width}x${c.height}`))
+    .toBe(await page.evaluate(() => `${window.innerWidth}x${window.innerHeight}`))
+  await page.screenshot({ path: 'e2e/.artifacts/c4-07-login-mobile.png' })
   const width = await page.locator('.auth-card').evaluate((el) => el.getBoundingClientRect().width)
   expect(width).toBeLessThanOrEqual(390 - 32)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -220,6 +235,7 @@ test('AC-26／AC-27／AC-28 步驟條；第 1→2 步同一張 canvas；回上�
   await stepOne(page, email)
   expect(await page.locator('[data-testid=letter-glitch] canvas').evaluate((c) => (c as unknown as { __fxId?: string }).__fxId)).toBe('c4-07')
   await expect(progress(page).locator('li').nth(1)).toHaveAttribute('aria-current', 'step')
+  await page.screenshot({ path: 'e2e/.artifacts/c4-07-register-step2.png' })
 
   // AC-28：回上一步 → /register?dir=back&email=…、data-anim="back"、已登出、續辦票刪掉。
   await page.context().addCookies([{ name: 'fju_signup_resume', value: 'x', domain: new URL(BASE_URL).hostname, path: '/register' }])
