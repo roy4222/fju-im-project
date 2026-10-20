@@ -702,7 +702,8 @@ describe('seed-demo.mjs', () => {
                    where user_id in (select id from users where email like '%@demo.invalid')`)
     await db.sql(`update opportunity_links set state = 'active'`)
     await db.sql(`update group_proposals set group_type = 'general', opportunity_id = null where cohort_id = ${demoCohort}`)
-    await db.sql(`update project_events set ends_at = null where all_day and cohort_id = ${demoCohort}`)
+    // 不再模擬「全天活動沒有結束」：0024（C3-06）起 CHECK 規定全天活動必有結束時間，舊資料由 migration 回填
+    // （回填與新 CHECK 的證明在 migrations.integration.test.ts 的 0024 案例）。
     await db.sql(`delete from project_events where title = '成果展佈展' and cohort_id = ${demoCohort}`)
     // 本人改過的：解雨萱自己選了頭像、寫了名片，不能被蓋掉。
     await db.sql(`update user_profiles set avatar_preset = 99, bio = '本人寫的', skills = '["Go"]'::jsonb
