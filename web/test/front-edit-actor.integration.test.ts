@@ -187,3 +187,32 @@ describe('SEC-1 裁定：寫入 action 早退且不動資料', () => {
     expect((await db.sql('select * from stored_files order by id')).rows).toEqual(beforeFiles)
   })
 })
+
+describe('C3-08 r1：前台活動 action（timeline/front-edit/actions.ts）走同一個守門', () => {
+  async function activity() {
+    const id = await oneId(`insert into project_events (id, cohort_id, title, description, starts_at, ends_at, all_day, audience_kind, revision, created_by_kind)
+      values (gen_random_uuid(), $1, '內部說明會', '不得外洩的說明', '2027-03-09T16:00:00Z', '2027-03-10T16:00:00Z', true, 'public', 4, 'system') returning id`, [cohortId])
+    return { id, actions: await import('@/app/dashboard/admin/timeline/front-edit/actions') }
+  }
+  const snapshot = async () => (await db.sql('select * from project_events order by id')).rows
+
+  it('必須改密的系辦直接呼叫 context／save／remove 都被拒，拿不到全文與 revision、資料不動', async () => {
+    const { id, actions } = await activity()
+    await requirePasswordChange()
+    const before = await snapshot()
+    expect(await actions.activityFeContextAction({ id, cohortId: null })).toEqual(DENIED)
+    expect(await actions.activityFeContextAction({ id: null, cohortId })).toEqual(DENIED)
+    const form = new FormData()
+    for (const [k, v] of Object.entries({ cohortId, requestId: randomUUID(), title: '不准寫入', startDate: '2027-03-01', endDate: '2027-03-01', allDay: 'on', audience: 'public' })) form.set(k, v)
+    expect(await actions.saveActivityFeAction(form)).toEqual(DENIED)
+    expect(await actions.removeActivityFeAction({ id, revision: 4, requestId: randomUUID() })).toEqual(DENIED)
+    expect(await snapshot()).toEqual(before)
+  })
+
+  it('正常系辦仍拿得到那一筆的欄位與 revision', async () => {
+    const { id, actions } = await activity()
+    expect(await actions.activityFeContextAction({ id, cohortId: null })).toMatchObject({
+      ok: true, cohort: null, current: { revision: 4, values: { title: '內部說明會', description: '不得外洩的說明', startDate: '2027-03-10', endDate: '2027-03-10', allDay: true } },
+    })
+  })
+})

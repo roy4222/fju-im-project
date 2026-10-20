@@ -1,6 +1,5 @@
 'use server'
-import { currentActor } from '@/app/_ui/guard'
-import { actorHasRole } from '@/composition/accounts'
+import { frontEditActor } from '@/app/_ui/front-edit/actor'
 import {
   ACTIVITY_AUDIENCE_LABEL,
   ACTIVITY_AUDIENCES,
@@ -27,7 +26,8 @@ import { taipeiDateOf } from '@/shared/time'
  * - `saveActivityFeAction`：新增或編輯，走既有用例；**不 `refresh()`**，刷新是框架的事（§14.4）。
  * - `removeActivityFeAction`：刪除用例（排定中的直接刪，§9.1）；標記沒帶 revision 時先讀目前的 revision。
  *
- * 只有狀態正常的系辦拿得到（前台編輯模式本來就只開給系辦，②§6.1）；誰能做什麼仍由用例再判一次。
+ * 每個 action 先過 `frontEditActor()`（SEC-1：重新解析 session，只放行過得了 business 狀態閘門的系辦——
+ * 例如必須改密碼的帳號在讀取前就被拒）；誰能做什麼仍由用例再判一次。
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -75,12 +75,6 @@ function activityInput(formData: FormData) {
   }
 }
 
-async function officeActor() {
-  const actor = await currentActor()
-  if (actor.kind !== 'authenticated' || actor.status !== 'active' || !actorHasRole(actor, 'admin')) return null
-  return actor
-}
-
 /** 新增要落的屆別：給了就用那一屆（要是還沒封存的），沒給就是預設工作屆別。 */
 async function targetCohort(cohortId: string | null) {
   const cohorts = (await getCohortStatusQuery().list()).filter((c) => c.status !== 'archived')
@@ -95,7 +89,7 @@ async function findActivity(id: string) {
 }
 
 export async function activityFeContextAction(input: { id: string | null; cohortId: string | null }): Promise<ActivityFeContext> {
-  const actor = await officeActor()
+  const actor = await frontEditActor()
   if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const limits = {
     audiences: ACTIVITY_AUDIENCES.map((value) => ({ value, label: ACTIVITY_AUDIENCE_LABEL[value] })),
@@ -117,7 +111,7 @@ export async function activityFeContextAction(input: { id: string | null; cohort
 }
 
 export async function saveActivityFeAction(formData: FormData): Promise<ActivityFeSaveResult> {
-  const actor = await officeActor()
+  const actor = await frontEditActor()
   if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const command = getTimelineCommand()
   const activityId = text(formData, 'activityId')
@@ -145,7 +139,7 @@ export async function removeActivityFeAction(input: {
   revision: number | null
   requestId: string
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const actor = await officeActor()
+  const actor = await frontEditActor()
   if (!actor) return { ok: false, message: '只有系辦可以在前台編輯；請重新登入。' }
   const id = String(input?.id ?? '')
   if (!UUID.test(id)) return { ok: false, message: GONE }
