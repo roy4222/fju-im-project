@@ -222,7 +222,7 @@ test('活動：新增（單日、跨日）、編輯、直接刪除；沒有「�
   await expect(confirm).toContainText('確定刪除『期中發表會』？學生的時程上會直接消失。')
   await confirm.getByRole('button', { name: '刪除', exact: true }).click()
   await expect(list.getByRole('status').filter({ hasText: '已刪除活動' })).toHaveText('已刪除活動「期中發表會」。')
-  await expect(list).not.toContainText('期中發表會')
+  await expect(list.getByTestId('activity-row').filter({ hasText: '期中發表會' })).toHaveCount(0)
 
   // 重新整理仍然一樣；三個動作都在同一筆交易發了 calendar.changed 事件。
   await page.reload()
