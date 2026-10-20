@@ -1,0 +1,26 @@
+/* 頁首 logo 彩蛋（easter-egg.tsx，規格④ 設計方案 §10）：第 3 下起晃、第 10 下的訊息。 */
+@layer components {
+  .is-shaking > img { animation: egg-shake 0.35s ease-in-out infinite; }
+  @keyframes egg-shake {
+    0%, 100% { transform: rotate(0); }
+    25% { transform: rotate(-4deg) translateX(-1px); }
+    75% { transform: rotate(4deg) translateX(1px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .is-shaking > img { animation: none; }
+  }
+  .easter-egg-message {
+    position: fixed;
+    top: 6rem;
+    left: 50%;
+    z-index: 70;
+    translate: -50% 0;
+    max-width: calc(100vw - 2rem);
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.75rem;
+    background: #13305c;
+    color: #fff;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+  }
+}

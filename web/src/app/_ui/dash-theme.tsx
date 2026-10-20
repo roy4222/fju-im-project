@@ -120,3 +120,7 @@ export function DashThemeToggle() {
 
 /** 404／403 壞掉頁特效引擎的延遲載入（C4-05）：寫在這支是為了打包，原因見 `fx/fuzzy-text.tsx`。 */
 export const loadBrokenFx = () => import('@/app/_ui/fx/fuzzy-engine')
+/** 前台首頁橫幅 Pixel 的延遲載入（C4-08，C4-09 從首頁搬到頁首）：寫在這支的原因同上。 */
+export const loadHomePixel = () => import('@/app/_ui/fx/home-hero-pixel')
+/** 彩蛋 FlyingButton 的延遲載入（C4-09）：跟上面放一起，頁首與後台 layout 的延遲載入清單才一致，深淺色那個 chunk 不會拆兩份。 */
+export const loadFlyingButton = () => import('@/app/_ui/fx/flying-button')

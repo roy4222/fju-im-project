@@ -1,11 +1,13 @@
 'use client'
 import Link from 'next/link'
-import { useState } from 'react'
-import { IconChevronDown, IconMenu2 } from '@tabler/icons-react'
-import { loadBrokenFx } from '@/app/_ui/dash-theme'
+import { IconChevronDown } from '@tabler/icons-react'
+import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
+import { loadBrokenFx, loadHomePixel } from '@/app/_ui/dash-theme'
+import { EasterEggLogo } from '@/app/_ui/easter-egg'
 import { useBrokenFx } from '@/app/_ui/fx/fuzzy-text'
-import { Button } from '@/app/_ui/ui/button'
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/app/_ui/ui/sheet'
+import { FX_QUERY, PIXEL_TOUCH_QUERY } from '@/app/_ui/fx/media-query'
+import { StaggeredMenu } from '@/app/_ui/staggered-menu'
 import { cn } from '@/shared/cn'
 
 /**
@@ -25,10 +27,33 @@ function isActive(item: NavItem, current: string | undefined): boolean {
 }
 
 /**
+ * 首頁橫幅 Pixel（C4-08）：頁面有 `[data-home-pixel]` 記號、裝置有滑鼠或觸控而且沒開減少動態，才下載引擎並插入像素層。
+ * 掛在頁首而不是首頁：首頁有自己的前端元件時，打包工具會把頁首共用程式重複打包一份給首頁（約 1.6 KB）。
+ */
+function useHomePixel() {
+  const pathname = usePathname()
+  useEffect(() => {
+    const marker = document.querySelector('[data-home-pixel]')
+    if (!marker) return
+    const mode = matchMedia(FX_QUERY).matches ? 'always' : matchMedia(PIXEL_TOUCH_QUERY).matches ? 'tap' : null
+    if (!mode) return
+    let stop: (() => void) | undefined
+    let dead = false
+    void loadHomePixel().then((m) => {
+      if (!dead) stop = m.mountHomeHeroPixel(marker, mode)
+    })
+    return () => {
+      dead = true
+      stop?.()
+    }
+  }, [pathname])
+}
+
+/**
  * 前台導覽列（原型 `components/public/site-header.tsx`）：
  * 左 logo＋「專題管理平台」，選單靠右（hover 橘線），最右一顆橘色主要按鈕。
  * 登入後那顆按鈕是「我的後台」，沒有頭像下拉：前台對每個人都一樣，我的帳號、切換後台、登出都在後台（C2-14）。
- * 窄螢幕收成右側抽屜。
+ * 窄螢幕（< 1024）收成 Staggered Menu（`staggered-menu.tsx`）；logo 連點 10 次有彩蛋（`easter-egg.tsx`）。
  */
 export function SiteHeader({
   nav,
@@ -45,20 +70,20 @@ export function SiteHeader({
   /** 註冊關閉時（設計方案 §5）手機選單不列「註冊」；值由伺服器端的 `SiteShell` 決定。 */
   registrationOpen: boolean
 }) {
-  const [open, setOpen] = useState(false)
   // 404／403 壞掉頁的特效（C4-05）：頁面有 `[data-broken-fx]` 才載引擎。
   useBrokenFx(loadBrokenFx)
+  useHomePixel()
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background">
       <div className="mx-auto flex h-20 w-full max-w-[1600px] items-center gap-6 px-5 md:px-8 xl:px-12">
-        <Link href="/" className="flex shrink-0 items-center gap-3.5">
+        <EasterEggLogo className="flex shrink-0 items-center gap-3.5">
           {/* 系網 logo 是靜態 PNG；不走 next/image（它會輸出 style 屬性，被正式站 CSP 擋）。 */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={180} height={44} className="h-11 w-auto" />
           <span aria-hidden className="hidden h-8 w-px bg-border sm:block" />
           <span className="hidden text-[17px] font-bold sm:block">專題管理平台</span>
-        </Link>
+        </EasterEggLogo>
 
         <nav className="ml-auto hidden items-center gap-6 lg:flex xl:gap-8" aria-label="主導覽">
           {nav.map((item) => {
@@ -97,8 +122,8 @@ export function SiteHeader({
 
         <div className="ml-auto flex shrink-0 items-center gap-3 lg:ml-4 xl:ml-6">
           {viewer ? (
-            // 跟主導覽同一個斷點：更窄時收在右側抽屜裡（#277 審查建議 1）。
-            <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap lg:inline-flex">
+            // 1280 起才放頂列：1024 登入後放不下（設計方案 §8 原因 C），1024～1279 收在選單裡；訪客的主導覽在 1024 照常展開。
+            <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap xl:inline-flex">
               {viewer.workbench.label}
             </Link>
           ) : (
@@ -107,62 +132,50 @@ export function SiteHeader({
             </Link>
           )}
 
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger
-              render={
-                <Button variant="ghost" size="icon-lg" className="lg:hidden" aria-label="開啟選單">
-                  <IconMenu2 className="size-5" />
-                </Button>
-              }
-            />
-            <SheetContent side="right" className="w-80">
-              <SheetTitle className="px-4 pt-4 text-base">選單</SheetTitle>
-              <nav className="mt-2 flex flex-col p-2" aria-label="主導覽（手機）">
-                {nav.flatMap((item) => [
+          <StaggeredMenu wide={viewer !== null}>
+            <nav className="mt-2 flex flex-col p-2" aria-label="主導覽（手機）">
+              {nav.flatMap((item) => [
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  aria-current={isActive(item, current) ? 'page' : undefined}
+                  className="rounded-lg px-3 py-3 text-[15px] font-semibold hover:bg-accent aria-[current=page]:text-primary"
+                >
+                  {item.label}
+                </Link>,
+                ...(item.children ?? []).map((c) => (
                   <Link
-                    key={item.label}
-                    href={item.href}
-                    onClick={() => setOpen(false)}
-                    aria-current={isActive(item, current) ? 'page' : undefined}
-                    className="rounded-lg px-3 py-3 text-[15px] font-semibold hover:bg-accent aria-[current=page]:text-primary"
+                    key={`${item.label}-${c.href}`}
+                    href={c.href}
+                    className="rounded-lg py-2.5 pr-3 pl-7 text-sm text-muted-foreground hover:bg-accent"
                   >
-                    {item.label}
-                  </Link>,
-                  ...(item.children ?? []).map((c) => (
-                    <Link
-                      key={`${item.label}-${c.href}`}
-                      href={c.href}
-                      onClick={() => setOpen(false)}
-                      className="rounded-lg py-2.5 pr-3 pl-7 text-sm text-muted-foreground hover:bg-accent"
-                    >
-                      {c.label}
+                    {c.label}
+                  </Link>
+                )),
+              ])}
+              {viewer ? (
+                <>
+                  <Link href={viewer.workbench.href} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
+                    {viewer.workbench.label}
+                  </Link>
+                  <button type="submit" form={signOutFormId} className="rounded-lg px-3 py-3 text-left text-[15px] text-muted-foreground">
+                    登出
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
+                    登入
+                  </Link>
+                  {registrationOpen ? (
+                    <Link href="/register" className="rounded-lg px-3 py-3 text-[15px]">
+                      註冊
                     </Link>
-                  )),
-                ])}
-                {viewer ? (
-                  <>
-                    <Link href={viewer.workbench.href} onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
-                      {viewer.workbench.label}
-                    </Link>
-                    <button type="submit" form={signOutFormId} className="rounded-lg px-3 py-3 text-left text-[15px] text-muted-foreground">
-                      登出
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/login" onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
-                      登入
-                    </Link>
-                    {registrationOpen ? (
-                      <Link href="/register" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
-                        註冊
-                      </Link>
-                    ) : null}
-                  </>
-                )}
+                  ) : null}
+                </>
+              )}
               </nav>
-            </SheetContent>
-          </Sheet>
+          </StaggeredMenu>
         </div>
       </div>
     </header>
