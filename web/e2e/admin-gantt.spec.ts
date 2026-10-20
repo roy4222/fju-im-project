@@ -1,13 +1,16 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { request as playwrightRequest, expect, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { sharedTestSession, toPlaywrightCookie } from './session'
+import { createTestSession, sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
  * C3-08：系辦專題時程頁換成甘特（規格③《設計方案》§9.3、§9.4；AC-C3-31、32、33、34、35、36、40、48）。
  *
  * 一屆四段、年度結束日都設好，今天落在第 2 段；第 3 段裡放「說明會」（全天單日）與跟它重疊的「工作坊」、
  * 「面談」（非全天、沒寫結束時間）；兩份已發布、有截止的作業。日期都從今天（臺灣）往前後推，不動模擬時鐘。
- * 甘特一律切到「週」（每天 26px），拖拉的像素才好算。階段拖拉這票不測（確認框在 C3-13）。
+ * 甘特一律切到「週」（每天 26px），拖拉的像素才好算。
+ *
+ * C3-13（AC-C3-38、39、47）：拖階段分界放開先跳確認框（取消回彈、確定才存），存了發 `timeline.stage_changed`，
+ * 截止落在變動段裡的整組作業的有效名單組員收到通知、點進 `/timeline`。這幾個案例放在最後（會改階段日期）。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -59,7 +62,7 @@ async function insertActivity(title: string, startsAt: Date, endsAt: Date | null
 }
 
 /** 一份已發布、有截止的作業（同 admin-affairs-overdue.spec 的做法，內容版本與欄位版本都齊）。 */
-async function publishedItem(title: string, dueAt: Date, stageId: string) {
+async function publishedItem(title: string, dueAt: Date, stageId: string | null) {
   const fields = [{ key: 'note', type: 'text', label: '說明', required: true }]
   const item = await pool.query<{ id: string }>(
     `insert into managed_items
@@ -539,4 +542,222 @@ test('AC-C3-40 手機（390 寬）：甘特載入但沒有把手、橫條 aria-d
   } finally {
     await context.close()
   }
+})
+
+// ── C3-13：階段分界的確認框與通知（AC-C3-38、39、47） ──────────────────────────────
+
+const stageHandle = (page: Page, seq: number) => page.locator(`[data-testid="gantt-handle"][data-kind="stage"][data-seq="${seq}"]`)
+const confirmBox = (page: Page) => page.getByRole('dialog', { name: '調整階段日期' })
+const NEW_S2 = addDays(STAGES[1]!.start, -7)
+const NEW_S4 = addDays(STAGES[3]!.start, -7)
+
+type Person = { id: string; cookie: string }
+const people: Record<string, Person[]> = {}
+const groupIds: Record<string, string> = {}
+let groupItemId: string
+let g03ItemId: string
+
+/** 新學生（各自的 request context 註冊，Better Auth 才不會當成跨站），掛在這一屆。 */
+async function newStudent(): Promise<Person> {
+  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  try {
+    const session = await createTestSession(context, 'student')
+    const no = `4${Date.now().toString().slice(-8)}`
+    await pool.query(
+      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, contact_email)
+       values ($1, 'e2e 學生', 'e2e 學生', $2, $3, $4)`,
+      [session.userId, no, cohortId, session.email],
+    )
+    await pool.query('insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)', [cohortId, no, session.userId])
+    return { id: session.userId, cookie: session.cookie }
+  } finally {
+    await context.dispose()
+  }
+}
+
+async function newGroup(code: string, size: number): Promise<void> {
+  const g = await pool.query<{ id: string }>(
+    `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+     values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id`,
+    [cohortId, `${code}-${stamp}`],
+  )
+  groupIds[code] = g.rows[0]!.id
+  people[code] = []
+  for (let i = 0; i < size; i += 1) {
+    const p = await newStudent()
+    await pool.query(
+      `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind)
+       values (gen_random_uuid(), $1, $2, $3, now(), 'system')`,
+      [groupIds[code], cohortId, p.id],
+    )
+    people[code]!.push(p)
+  }
+}
+
+/** 已發布的收件，名單直接種（整組：組 id；個人：學生 id）。 */
+async function rosterItem(title: string, dueAt: Date, unit: 'group' | 'individual', receivers: string[]) {
+  const id = await publishedItem(title, dueAt, null)
+  await pool.query(`update managed_items set receiver_unit = $2 where id = $1`, [id, unit])
+  for (const receiver of receivers) {
+    await pool.query(
+      `insert into response_rosters (id, item_id, cohort_id, receiver_kind, receiver_id, eligible_from_business_at, source, created_by_kind)
+       values (gen_random_uuid(), $1, $2, $3, $4, now() - interval '10 days', 'auto', 'system')`,
+      [id, cohortId, unit === 'group' ? 'group' : 'user', receiver],
+    )
+  }
+  return id
+}
+
+async function stageEvents() {
+  const rows = await pool.query<{ recipients: string[]; recipient_basis: { groupIds: string[] }; payload: { title: string; changedStages: number[] }; source_type: string; source_id: string }>(
+    `select recipients, recipient_basis, payload, source_type, source_id from domain_events
+      where type = 'timeline.stage_changed' and cohort_id = $1 order by occurred_real_at`,
+    [cohortId],
+  )
+  return rows.rows
+}
+
+async function noteCount(userId: string) {
+  const row = await pool.query<{ n: string }>(
+    `select count(*) as n from notifications where recipient_user_id = $1 and source_ref->>'type' = 'timeline'`,
+    [userId],
+  )
+  return Number(row.rows[0]!.n)
+}
+
+const ids_ = (list: Person[]) => list.map((p) => p.id).sort()
+
+test('AC-C3-38 拖第 1／2 段分界：放開不直接存、確認框句子；取消回彈；確定才存（期限版本、revision、稽核）；超過邊界夾到第 1 段開始日 +1 天', async ({ page }) => {
+  test.setTimeout(120_000)
+  await newGroup('G01', 2)
+  await newGroup('G02', 1)
+  people.X = [await newStudent()]
+  // 第 2 段裡一個整組作業，有效名單只有 G01。
+  groupItemId = await rosterItem('整組計畫書', taipei(addDays(TODAY, 3), '23:59'), 'group', [groupIds.G01!])
+
+  await watchCsp(page)
+  await signIn(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openGantt(page)
+  const before = await pool.query<{ revision: number }>('select revision from cohorts where id = $1', [cohortId])
+  const revision = before.rows[0]!.revision
+  const handle = stageHandle(page, 2)
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(STAGES[1]!.start)}（`))
+
+  const message = `第 2 階段『題目與計畫書』開始日 ${md(STAGES[1]!.start)} → ${md(NEW_S2)}（第 1 階段跟著變短）。有 1 個整組作業在這兩段裡，會重新提醒相關的組。`
+  // 放開：不直接存，跳確認框。
+  await drag(page, handle, -7 * DAY_PX)
+  await expect(confirmBox(page)).toBeVisible()
+  await expect(confirmBox(page)).toContainText(message)
+  expect((await pool.query('select revision from cohorts where id = $1', [cohortId])).rows[0]!.revision).toBe(revision)
+  // 取消：把手回彈、資料不變、沒有錯誤句。
+  await confirmBox(page).getByRole('button', { name: '取消' }).click()
+  await expect(confirmBox(page)).toHaveCount(0)
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(STAGES[1]!.start)}（`))
+  await expect(page.getByTestId('gantt').getByRole('alert')).toHaveCount(0)
+  expect((await pool.query('select revision from cohorts where id = $1', [cohortId])).rows[0]!.revision).toBe(revision)
+  expect(await stageEvents()).toEqual([])
+
+  // 再拖一次、確定：存了。
+  await drag(page, handle, -7 * DAY_PX)
+  await expect(confirmBox(page)).toContainText(message)
+  await confirmBox(page).getByRole('button', { name: '確定' }).click()
+  await expect(confirmBox(page)).toHaveCount(0)
+  await expect(page.getByTestId('gantt').getByRole('status').filter({ hasText: '的階段與日期' })).toContainText(new RegExp(`已儲存.*（${CODE}）的階段與日期`))
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(NEW_S2)}（`))
+  const stages = await pool.query<{ seq: number; start: string; deadline_version: number }>(
+    `select seq, to_char(start_date, 'YYYY-MM-DD') as start, deadline_version from cohort_stages where cohort_id = $1 order by seq`,
+    [cohortId],
+  )
+  expect(stages.rows.map((r) => [r.seq, r.start, r.deadline_version])).toEqual([
+    [1, STAGES[0]!.start, 2],
+    [2, NEW_S2, 2],
+    [3, STAGES[2]!.start, 1],
+    [4, STAGES[3]!.start, 1],
+  ])
+  expect((await pool.query('select revision from cohorts where id = $1', [cohortId])).rows[0]!.revision).toBe(revision + 1)
+  expect(
+    Number((await pool.query(`select count(*) as n from audit_events where action = 'cohort.save_schedule' and target_id = $1`, [cohortId])).rows[0]!.n),
+  ).toBe(1)
+
+  // 超過第 1 段開始日：夾到第 1 段開始日 +1 天（嚴格遞增）；這次取消。往左拖一千多像素會出畫面，改用把手鍵盤（Shift+← 一週、Enter 送出）。
+  await page.reload()
+  await openGantt(page)
+  await stageHandle(page, 2).focus()
+  for (let i = 0; i < 6; i += 1) await page.keyboard.press('Shift+ArrowLeft')
+  await page.keyboard.press('Enter')
+  await expect(confirmBox(page)).toContainText(`開始日 ${md(NEW_S2)} → ${md(addDays(STAGES[0]!.start, 1))}（第 1 階段跟著變短）`)
+  await confirmBox(page).getByRole('button', { name: '取消' }).click()
+  await expect(stageHandle(page, 2)).toHaveAttribute('aria-label', new RegExp(` ${md(NEW_S2)}（`))
+  expect(await cspViolations(page)).toEqual([])
+})
+
+test('AC-C3-39 只有 G01 的現任組員收到；G02、未分組、老師沒有；收件匣標題、點進 /timeline；只改名稱不發', async ({ page }) => {
+  test.setTimeout(120_000)
+  const events = await stageEvents()
+  expect(events).toHaveLength(1)
+  expect(events[0]).toMatchObject({
+    source_type: 'timeline',
+    source_id: cohortId,
+    recipient_basis: { groupIds: [groupIds.G01] },
+    payload: { changedStages: [1, 2] },
+  })
+  expect([...events[0]!.recipients].sort()).toEqual(ids_(people.G01!))
+  const title = `專題時程更新：第 2 階段『題目與計畫書』改為 ${md(NEW_S2)}–${md(addDays(STAGES[2]!.start, -1))}`
+  expect(events[0]!.payload.title).toBe(title)
+
+  // worker 投影：G01 每人一則；其他人 0。
+  await expect.poll(async () => Promise.all(people.G01!.map((p) => noteCount(p.id))), { timeout: 30_000 }).toEqual([1, 1])
+  for (const p of [...people.G02!, ...people.X!]) expect(await noteCount(p.id)).toBe(0)
+  expect(await noteCount(adminId)).toBe(0)
+  const teacher = await sharedTestSession(page.request, 'teacher')
+  expect(await noteCount(teacher.userId)).toBe(0)
+
+  // G01 學生的收件匣：標題、來源可點、連到 /timeline（不是「無法存取」）。
+  await page.context().addCookies([toPlaywrightCookie(people.G01![0]!.cookie, BASE_URL)])
+  await page.goto('/dashboard/student/inbox')
+  const item = page.getByTestId('inbox-item').filter({ hasText: title })
+  await expect(item).toHaveCount(1)
+  await expect(item).not.toContainText('無法存取')
+  await item.getByRole('button', { name: title }).click()
+  await expect(page).toHaveURL(/\/timeline(\?|$)/)
+
+  // 只改第 2 段名稱（點色塊開「編輯第 2 階段」）：存了，但不發事件。
+  await page.context().clearCookies()
+  await signIn(page)
+  await openGantt(page)
+  await page.getByTestId('gantt').locator('[data-testid="gantt-stage"][data-seq="2"]').click()
+  const dialog = page.getByRole('dialog', { name: '編輯第 2 階段' })
+  await dialog.getByLabel('第 2 階段名稱').fill('題目與計畫')
+  await dialog.getByRole('button', { name: '儲存' }).click()
+  await expect(dialog).toBeHidden()
+  await expect.poll(async () => (await pool.query(`select name from cohort_stages where cohort_id = $1 and seq = 2`, [cohortId])).rows[0]!.name).toBe('題目與計畫')
+  expect(await stageEvents()).toHaveLength(1)
+})
+
+test('AC-C3-47 個人作業、別組的整組作業都不算：拖第 3／4 段分界，只有 G03 的現任組員收到', async ({ page }) => {
+  test.setTimeout(120_000)
+  await newGroup('G03', 2)
+  // 第 3 段裡：個人作業（名單含 G01、G02 全部學生）、整組作業但有效名單只有 G03。
+  await rosterItem('個人心得', taipei(addDays(TODAY, 30), '23:59'), 'individual', [...ids_(people.G01!), ...ids_(people.G02!)])
+  g03ItemId = await rosterItem('G03 期中報告', taipei(addDays(TODAY, 35), '23:59'), 'group', [groupIds.G03!])
+
+  await signIn(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openGantt(page)
+  await drag(page, stageHandle(page, 4), -7 * DAY_PX)
+  await expect(confirmBox(page)).toContainText(`第 4 階段『成果』開始日 ${md(STAGES[3]!.start)} → ${md(NEW_S4)}（第 3 階段跟著變短）。有 1 個整組作業在這兩段裡`)
+  await confirmBox(page).getByRole('button', { name: '確定' }).click()
+  await expect(page.getByTestId('gantt').getByRole('status').filter({ hasText: '的階段與日期' })).toBeVisible()
+
+  const events = await stageEvents()
+  expect(events).toHaveLength(2)
+  expect([...events[1]!.recipients].sort()).toEqual(ids_(people.G03!))
+  expect(events[1]!.recipient_basis).toMatchObject({ groupIds: [groupIds.G03], itemIds: [g03ItemId] })
+  expect(events[1]!.payload.changedStages).toEqual([3, 4])
+  await expect.poll(async () => Promise.all(people.G03!.map((p) => noteCount(p.id))), { timeout: 30_000 }).toEqual([1, 1])
+  // G01 只有上一則（第 2 段那次）、G02 仍 0。
+  for (const p of people.G01!) expect(await noteCount(p.id)).toBe(1)
+  for (const p of people.G02!) expect(await noteCount(p.id)).toBe(0)
+  expect(groupItemId).toBeTruthy()
 })
