@@ -1,4 +1,4 @@
-// 5A-3｜系辦｜屆別（分鏡 storyboard.md §4 5A-3，5 步）。本段新增「示範 115 屆」，不轉進行中、不改旗標。
+// 5A-3｜系辦｜屆別（分鏡 storyboard.md §4 5A-3；C2-20 後 6 步）。本段新增「示範 115 屆」，不轉進行中、不改旗標。
 //   INSTANCE=3 tools/tutorial/env/reset.sh && INSTANCE=3 node tools/tutorial/chapters/5A-3/setup.mjs
 //   INSTANCE=3 node tools/tutorial/chapters/5A-3/record.ts
 // 成品：~/work/tutorial-out/chapters/5A-3/5A-3.mp4＋events.json。
@@ -40,72 +40,77 @@ try {
   await t.offRecord(() => login(page, '系辦管理員'));
   await t.goto('/dashboard/admin');
 
-  const row = (code: string) => page.getByRole('row').filter({ hasText: code });
-  const danger = page.getByRole('region', { name: '危險操作' });
+  // 屆別現在是一屆一張卡（原本是表格列）；卡的名稱是「示範 115 屆（DEMO-115）」，用代碼找。
+  const card = (code: string) => page.getByRole('listitem').filter({ hasText: code });
+  const dialog = () => page.getByRole('dialog').last();
 
   await t.step({
     caption: '屆別總表',
-    narration: '一屆就是一個年度的名單、組別和工作。兩個全站旗標：後台預設看哪一屆、新註冊的學生進哪一屆。',
-    status: { kind: 'ok', evidence: 'story-1 第 15 步' },
+    narration: '一屆就是一個年度的名單、組別和工作。側欄的「設定」直接進屆別，上面三個分頁：屆別、專題時程、操作紀錄。兩個全站旗標：後台預設看哪一屆、新註冊的學生進哪一屆。',
+    status: { kind: 'ok', evidence: 'story-1 第 15 步；C2-01 設定直接進分頁、C2-05 屆別改卡片' },
   }, async () => {
-    await t.click(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '屆別', exact: true }));
-    await t.scroll(page.getByRole('heading', { name: '全部屆別' }));
-    await t.hover(page.getByRole('columnheader', { name: '狀態' }));
-    await t.hover(row('DEMO-114').getByText('後台預設查看中'));
-    await t.hover(row('DEMO-114').getByText('新註冊加入這屆'));
+    await t.click(page.getByRole('navigation', { name: '後台導覽' }).getByRole('link', { name: '設定', exact: true }));
+    await page.waitForURL(/\/dashboard\/admin\/cohorts/);
+    await t.hover(page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '專題時程' }));
+    await t.hover(card('DEMO-114').getByText('後台預設查看中'));
+    await t.hover(card('DEMO-114').getByText('新註冊加入這屆'));
   });
 
   await t.step({
     caption: '新增屆別',
-    narration: '新屆別一開始是尚未開始、設定中，先排時間軸再轉進行中。',
+    narration: '新屆別一開始是尚未開始、設定中，先排時間軸再轉進行中。分頁列右側的「新增屆別」開視窗，只填代碼和名稱。',
     status: { kind: 'ok', evidence: 'story-1 第 9 步；UX 新手系辦 任務 1' },
   }, async () => {
-    await t.scroll(page.getByRole('heading', { name: '新增屆別' }));
-    await t.type(page.getByRole('textbox', { name: '代碼' }), 'DEMO-115');
-    await t.type(page.getByRole('textbox', { name: '名稱' }), '示範 115 屆');
     await t.click(page.getByRole('button', { name: '新增屆別' }));
+    await t.waitStable({ ready: dialog().getByRole('heading', { name: '新增屆別' }) });
+    await t.type(dialog().getByRole('textbox', { name: '代碼' }), 'DEMO-115');
+    await t.type(dialog().getByRole('textbox', { name: '名稱' }), '示範 115 屆');
+    await t.click(dialog().getByRole('button', { name: '確定新增' }));
     await t.waitStable({ ready: page.getByText(/^已新增屆別/) });
     await t.hover(page.getByText(/^已新增屆別/));
   });
 
   await t.step({
     caption: '沒排時程不能轉進行中',
-    narration: '沒填四個階段和年度結束日會被擋下來，訊息現在會寫屆別名稱。',
-    status: { kind: 'ok', evidence: 'story-1 N-03（10/12 已修）' },
+    narration: '沒排好四個階段和年度結束日，卡上的「轉為進行中」是灰的，旁邊直接寫原因，不用按了才被擋。',
+    status: { kind: 'ok', evidence: 'story-1 N-03（10/12 已修）；C2-05 不能按就寫原因' },
   }, async () => {
-    await t.click(danger.getByRole('button', { name: '把 DEMO-115 轉為進行中' }));
-    const dialog = page.getByRole('dialog').last();
-    await t.waitStable({ ready: dialog.getByRole('button', { name: '確定轉為進行中' }) });
-    await t.click(dialog.getByRole('button', { name: '確定轉為進行中' }));
-    const blocked = page.getByText(/還沒設定階段與年度結束日/).first();
+    await t.scroll(card('DEMO-115'));
+    await t.hover(card('DEMO-115').getByRole('button', { name: '把 DEMO-115 轉為進行中' }));
+    const blocked = card('DEMO-115').getByTestId('activate-blocked-reason');
     await t.waitStable({ ready: blocked });
     await t.hover(blocked);
   });
 
   await t.step({
     caption: '轉進行中不能回頭',
-    narration: '轉為進行中立即生效、不能轉回，所以放在危險操作區，按前會列出後果。',
-    status: { kind: 'ok', evidence: 'story-1 第 14 步' },
+    narration: '轉為進行中立即生效、不能轉回，所以要先到「專題時程」把階段排好才按得下去，按前還會列出後果。',
+    status: { kind: 'ok', evidence: 'story-1 第 14 步；C2-05 危險操作區拿掉，改在卡上' },
   }, async () => {
-    await t.hover(row('DEMO-114').getByText('進行中', { exact: true }));
-    await t.scroll(danger);
-    await t.hover(danger.getByText(/^轉為進行中：/));
-    await t.click(danger.getByRole('button', { name: '把 DEMO-115 轉為進行中' }));
-    const dialog = page.getByRole('dialog').last();
-    await t.waitStable({ ready: dialog.getByText('能不能恢復') });
-    await t.hover(dialog.getByText('能不能恢復'));
-    await t.click(dialog.getByRole('button', { name: '先不要' }));
+    await t.hover(card('DEMO-114').getByText('進行中', { exact: true }));
+    await t.hover(page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '專題時程' }));
   });
 
   await t.step({
     caption: '兩個旗標怎麼換',
-    narration: '旗標同時只能一屆持有，換屆時按一下就換過去。封存屆別的功能還沒有畫面。',
-    status: { kind: 'bad', say: '封存／解封沒有操作入口', evidence: '規格 02 COH-05、COH-09；程式只有狀態標籤' },
+    narration: '旗標同時只能一屆持有。按卡上的「編輯」，裡面一鍵換過去。',
+    status: { kind: 'ok', evidence: 'story-1 第 15 步；C2-05 旗標移進「編輯」視窗' },
   }, async () => {
-    await t.scroll(page.getByRole('heading', { name: '全部屆別' }));
-    await t.hover(page.getByRole('button', { name: '把 DEMO-115 設為後台預設查看的屆別' }));
-    await t.hover(page.getByRole('button', { name: '把 DEMO-115 設為新註冊學生加入的屆別' }));
-    await t.hover(row('DEMO-113').getByText('已封存'));
+    await t.click(card('DEMO-115').getByRole('button', { name: '編輯：DEMO-115' }));
+    await t.waitStable({ ready: dialog().getByRole('heading', { name: /^編輯/ }) });
+    await t.hover(dialog().getByRole('button', { name: '把 DEMO-115 設為後台預設查看的屆別' }));
+    await t.hover(dialog().getByRole('button', { name: '把 DEMO-115 設為新註冊學生加入的屆別' }));
+    await t.click(dialog().getByRole('button', { name: '關閉' }));
+  });
+
+  await t.step({
+    caption: '封存屆別',
+    narration: '過去的屆別用「封存」收起來，理由選填；封存的卡上有「恢復」。還沒啟用的屆別、或身上有旗標的屆別不能封存，按鈕是灰的並寫明原因。',
+    status: { kind: 'ok', evidence: '規格 02 COH-05、COH-09；C2-05 封存入口在卡上' },
+  }, async () => {
+    await t.hover(card('DEMO-114').getByRole('button', { name: '封存：DEMO-114' }));
+    await t.hover(card('DEMO-114').getByTestId('archive-blocked-reason'));
+    await t.hover(card('DEMO-113').getByTestId('archived-at'));
   });
 
   await t.finish();
