@@ -28,6 +28,7 @@ function actor(roles: ('student' | 'teacher' | 'admin')[], cohortId: string | nu
 }
 
 const FIVE = { min: 5, max: 5 }
+const OPPORTUNITY = '44444444-4444-4444-8444-444444444444'
 
 describe('提案輸入：人數依屆別設定（含自己）', () => {
   it('預設五人：填四位同學剛好；空白欄略過、重複與自己的學號去掉', () => {
@@ -38,7 +39,7 @@ describe('提案輸入：人數依屆別設定（含自己）', () => {
     )
     expect(result).toEqual({
       ok: true,
-      value: { groupType: 'general', memberStudentNos: ['410000002', '410000003', '410000004', '410000005'] },
+      value: { groupType: 'general', memberStudentNos: ['410000002', '410000003', '410000004', '410000005'], opportunityId: null },
     })
   })
 
@@ -48,17 +49,36 @@ describe('提案輸入：人數依屆別設定（含自己）', () => {
     if (!three.ok) expect(three.message).toContain('本屆每組 5 人')
 
     const range = { min: 3, max: 4 }
-    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2'] }, range, null).ok).toBe(true)
-    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3'] }, range, null).ok).toBe(true)
-    const tooMany = normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3', 'a4'] }, range, null)
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2'], opportunityId: OPPORTUNITY }, range, null).ok).toBe(true)
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3'], opportunityId: OPPORTUNITY }, range, null).ok).toBe(true)
+    const tooMany = normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3', 'a4'], opportunityId: OPPORTUNITY }, range, null)
     expect(tooMany.ok).toBe(false)
     if (!tooMany.ok) expect(tooMany.message).toContain('3–4 人')
   })
 
-  it('類型只收一般／產學；學號只收英數', () => {
+  it('類型只收一般／產學；產學合作一定要選合作案（C3-11）、一般專題不看合作案；學號只收英數', () => {
     expect(normalizeProposeInput({ groupType: 'exception', memberStudentNos: [] }, { min: 1, max: 5 }, null)).toMatchObject({
       ok: false,
       details: { field: 'groupType' },
+    })
+    const noCase = normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'] }, { min: 1, max: 5 }, null)
+    expect(noCase).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'opportunityId' } })
+    if (!noCase.ok) expect(noCase.message).toBe('請選合作案。')
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'], opportunityId: '  ' }, { min: 1, max: 5 }, null)).toMatchObject({
+      ok: false,
+      details: { field: 'opportunityId' },
+    })
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'], opportunityId: 'not-a-uuid' }, { min: 1, max: 5 }, null)).toMatchObject({
+      ok: false,
+      details: { field: 'opportunityId' },
+    })
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'], opportunityId: ` ${OPPORTUNITY} ` }, { min: 1, max: 5 }, null)).toEqual({
+      ok: true,
+      value: { groupType: 'industry', memberStudentNos: ['a1'], opportunityId: OPPORTUNITY },
+    })
+    expect(normalizeProposeInput({ groupType: 'general', memberStudentNos: ['a1'], opportunityId: OPPORTUNITY }, { min: 1, max: 5 }, null)).toEqual({
+      ok: true,
+      value: { groupType: 'general', memberStudentNos: ['a1'], opportunityId: null },
     })
     expect(normalizeProposeInput({ groupType: 'general', memberStudentNos: ["41'; drop"] }, { min: 1, max: 5 }, null)).toMatchObject({
       ok: false,

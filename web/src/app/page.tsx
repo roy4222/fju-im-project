@@ -4,7 +4,6 @@ import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail
 import { redirect } from 'next/navigation'
 import { EMAIL_VERIFY_PATH, homeForUser, isRegistrationOpen } from '@/composition/accounts'
 import { feItem, feSection, frontEditScope, type FrontEditScope } from '@/app/_ui/front-edit/mark'
-import { HomeHeroPixel } from '@/app/_ui/fx/home-hero-pixel'
 import { homeFor, renderActor } from '@/app/_ui/guard'
 import type { QuickCardKey, SiteTexts } from '@/application/site'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
@@ -108,8 +107,8 @@ export default async function HomePage() {
           fetchPriority="high"
           data-testid="home-hero-image"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden />
-        <HomeHeroPixel />
+        {/* `data-home-pixel`：頁首在漸層後面插入橫幅 Pixel（`fx/home-hero-pixel.tsx`），首頁本身不帶前端元件。 */}
+        <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden data-home-pixel />
         <div className="relative mx-auto flex min-h-[440px] max-w-6xl flex-col justify-center gap-5 px-5 py-16 md:min-h-[520px]">
           <span className="inline-flex items-center gap-2.5 text-[15px] font-bold tracking-widest opacity-90">
             <span className="inline-block h-0.75 w-7 bg-primary" aria-hidden />

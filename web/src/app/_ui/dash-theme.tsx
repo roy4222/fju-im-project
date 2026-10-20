@@ -118,5 +118,5 @@ export function DashThemeToggle() {
   )
 }
 
-/** 404／403 壞掉頁特效引擎的延遲載入（C4-05）：寫在這支是為了打包，原因見 `fx/fuzzy-text.tsx`。 */
-export const loadBrokenFx = () => import('@/app/_ui/fx/fuzzy-engine')
+/** 共用 client entry 只保留一個延遲入口；各特效的 import() 在下載後才出現。 */
+export const loadFx = () => import('@/app/_ui/fx/lazy-loaders')
