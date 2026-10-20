@@ -3,11 +3,13 @@ import Link from 'next/link'
 import { IconChevronDown } from '@tabler/icons-react'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { loadBrokenFx, loadEasterEgg, loadFlyingButton, loadHomePixel, loadStaggeredMenu } from '@/app/_ui/dash-theme'
+import { loadFx } from '@/app/_ui/dash-theme'
 import * as eggRules from '@/app/_ui/easter-egg-rules'
 import { useBrokenFx } from '@/app/_ui/fx/fuzzy-text'
-import { useFxAllowed, usePixelTouchAllowed } from '@/app/_ui/fx/media-query'
 import { cn } from '@/shared/cn'
+
+const loadBrokenFx = () => loadFx().then((m) => m.loadBrokenFx())
+const loadFlyingButton = () => loadFx().then((m) => m.loadFlyingButton())
 
 /**
  * 一個導覽項目。`children` 是下拉（原型：最新公告 → 公告列表／競賽資訊；歷屆專題 → 一覽／優秀專題／榮譽榜）；
@@ -30,23 +32,20 @@ function isActive(item: NavItem, current: string | undefined): boolean {
  * 掛在頁首而不是首頁：首頁有自己的前端元件時，打包工具會把頁首共用程式重複打包一份給首頁（約 1.6 KB）。
  */
 function useHomePixel(pathname: string) {
-  // 用 media-query 的訂閱：使用者中途改系統設定（例如開減少動態）就停掉拿掉、或換模式重掛（#773 Review r1）。
-  const fx = useFxAllowed()
-  const touch = usePixelTouchAllowed()
-  const mode = fx ? 'always' : touch ? 'tap' : null
   useEffect(() => {
     const marker = document.querySelector('[data-home-pixel]')
-    if (!marker || !mode) return
+    if (!marker) return
     let stop: (() => void) | undefined
     let dead = false
-    void loadHomePixel().then((m) => {
-      if (!dead) stop = m.mountHomeHeroPixel(marker, mode)
+    void loadFx().then(async (loaders) => {
+      const media = await loaders.loadPixelMedia()
+      if (!dead) stop = media.observeHomePixel(marker, loaders.loadHomePixel)
     })
     return () => {
       dead = true
       stop?.()
     }
-  }, [pathname, mode])
+  }, [pathname])
 }
 
 type MenuPanel = ComponentType<{ open: boolean; onClose: () => void; children: ReactNode }>
@@ -63,7 +62,7 @@ function MenuTrigger({ wide, children }: { wide: boolean; children: ReactNode })
 
   function onClick() {
     if (Panel) return setOpen(true)
-    void loadStaggeredMenu().then((m) => {
+    void loadFx().then((m) => m.loadStaggeredMenu()).then((m) => {
       setPanel({ C: m.StaggeredMenu })
       setOpen(true)
     })
@@ -125,7 +124,7 @@ export function SiteHeader({
   const pathname = usePathname()
   useHomePixel(pathname)
   // 彩蛋模組載過才有；換頁時叫它收掉訊息與起飛（#773 Review r1）。
-  const egg = useRef<Awaited<ReturnType<typeof loadEasterEgg>> | null>(null)
+  const egg = useRef<typeof import('@/app/_ui/easter-egg') | null>(null)
   useEffect(() => () => egg.current?.eggLeave(), [pathname])
 
   return (
@@ -141,7 +140,7 @@ export function SiteHeader({
             e.preventDefault()
             const logo = e.currentTarget
             const at = Date.now()
-            void loadEasterEgg().then((m) => {
+            void loadFx().then((m) => m.loadEasterEgg()).then((m) => {
               egg.current = m
               m.eggLogoClick(logo, at, eggRules, loadFlyingButton)
             })
