@@ -551,6 +551,31 @@ describe('新增學生與「請設定密碼」信（AC-C2-27）', () => {
     expect(await one('select count(*)::int as n from users where lower(email) = $1', [email])).toEqual({ n: 0 })
   })
 
+  it('屆別已封存：新增學生（直接或經新增成員）回 COHORT_ARCHIVED，帳號、學號、帳本、稽核都不多（AC-55 F3）', async () => {
+    const archived = (
+      await one<{ id: string }>(
+        `insert into cohorts (id, code, name, status, created_by_kind) values (gen_random_uuid(), 'c209x', '113 學年度專題', 'archived', 'system') returning id`,
+      )
+    ).id
+    const counts = () =>
+      one(`select (select count(*)::int from users) as users, (select count(*)::int from user_profiles) as profiles,
+        (select count(*)::int from student_identities) as identities, (select count(*)::int from role_assignments) as roles,
+        (select count(*)::int from user_status_events) as status_events, (select count(*)::int from operation_records) as ledger,
+        (select count(*)::int from audit_events) as audits`)
+    const before = await counts()
+    const email = uniqueEmail('s6')
+    const input = { name: '己', email, studentNo: 'F4444444', cohortId: archived, requestId: requestId() }
+    const direct = await command.createStudent(admin(), adminHeaders, input)
+    expect(direct).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect((direct as { message: string }).message).toContain('已封存')
+    expect(await command.createMember(admin(), adminHeaders, { ...input, kind: 'student', requestId: requestId() })).toMatchObject({
+      ok: false,
+      code: 'COHORT_ARCHIVED',
+    })
+    expect(await counts()).toEqual(before)
+    expect(await one('select count(*)::int as n from mail_outbox where to_email = $1', [email])).toEqual({ n: 0 })
+  })
+
   it('信交不出去：帳號照樣建好，回執說信沒寄（setupMailRequested=false）', async () => {
     const failing = new (await import('@/infrastructure/accounts/account-command')).PgAccountCommand({
       audit: new (await import('@/infrastructure/ops/audit-writer')).PgAuditWriter(),

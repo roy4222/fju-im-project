@@ -30,7 +30,7 @@ import {
   type TeacherCreatedWithSecret,
   type TemporaryPasswordReceipt,
 } from '@/application/accounts'
-import { isRequestId } from '@/application/cohorts'
+import { cohortLabel, isRequestId } from '@/application/cohorts'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { defaultNextStep, type ErrorCode } from '@/shared/errors'
 import { err, ok, type Err, type Result, type SecretOnce } from '@/shared/result'
@@ -447,10 +447,18 @@ export class PgAccountCommand implements AccountCommand {
         return ok({ ...(begun.receipt as StudentAccountReceipt), setupMailRequested: null }, meta(now, input.requestId))
       }
 
-      const cohort = await tx.query<{ code: string }>('select code from cohorts where id = $1', [member.cohortId])
+      // FOR SHARE：封存要等這筆建好才拿得到鎖，建帳不會插進封存之後（AC-55、AC-56）。
+      const cohort = await tx.query<{ code: string; name: string; status: string }>(
+        'select code, name, status from cohorts where id = $1 for share',
+        [member.cohortId],
+      )
       if (!cohort.rowCount) {
         await tx.query('rollback')
         return err('VALIDATION_FAILED', '找不到這個屆別，請重新選。', { details: { field: 'cohortId' } })
+      }
+      if (cohort.rows[0]!.status === 'archived') {
+        await tx.query('rollback')
+        return err('COHORT_ARCHIVED', `${cohortLabel(cohort.rows[0]!)}已封存，不能再新增學生。`, { details: { field: 'cohortId' } })
       }
       const cohortCode = cohort.rows[0]!.code
       const existing = await tx.query('select 1 from users where lower(email) = $1', [member.email])
