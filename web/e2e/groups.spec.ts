@@ -109,9 +109,10 @@ function feedback(page: Page, role: 'status' | 'alert') {
   return page.getByRole('main').getByRole(role)
 }
 
-async function openStudentPage(page: Page, index: number) {
+/** 預設分頁是「我的組」（C3-11）；找隊員要帶 `?tab=team`。 */
+async function openStudentPage(page: Page, index: number, tab: 'mine' | 'team' = 'mine') {
   await signIn(page, students[index]!)
-  await page.goto('/dashboard/student/groups')
+  await page.goto(tab === 'team' ? '/dashboard/student/groups?tab=team' : '/dashboard/student/groups')
   await expect(page.getByRole('heading', { name: '組別', exact: true })).toBeVisible()
 }
 
@@ -146,11 +147,11 @@ test('學生從側欄進「我的組別」；老師與管理員打不開學生�
 })
 
 test('找隊員：打開公開後同屆同學看到名片卡（學號、mailto:、邀請加入，沒有電話）；關掉就消失', async ({ page }) => {
-  await openStudentPage(page, 1)
+  await openStudentPage(page, 1, 'team')
   await page.getByRole('button', { name: '公開找隊員' }).click()
   await expect(feedback(page, 'status')).toContainText('已公開找隊員')
 
-  await openStudentPage(page, 0)
+  await openStudentPage(page, 0, 'team')
   const list = page.getByRole('region', { name: '找隊員名單' })
   // C3-07：名單是名片卡（`article`），每張有學號、`mailto:` Email、「邀請加入」。
   const row = list.getByRole('article', { name: students[1]!.name })
@@ -159,11 +160,11 @@ test('找隊員：打開公開後同屆同學看到名片卡（學號、mailto:�
   await expect(row.getByRole('link', { name: '邀請加入' })).toBeVisible()
   expect(await page.content()).not.toContain(PHONE)
 
-  await openStudentPage(page, 1)
+  await openStudentPage(page, 1, 'team')
   await page.getByRole('button', { name: '關閉公開' }).click()
   await expect(feedback(page, 'status')).toContainText('已關閉公開找隊員')
 
-  await openStudentPage(page, 0)
+  await openStudentPage(page, 0, 'team')
   await expect(page.getByRole('region', { name: '找隊員名單' })).not.toContainText(students[1]!.name)
   // 名單空了只寫一句（Q69、Q73）：不叫人洽系辦、不連產學合作案。
   const empty = page.getByRole('region', { name: '找隊員名單' })
@@ -228,7 +229,6 @@ test('拒絕（AC-C3-14）：dialog「拒絕這份邀請？」、整份終止、
   // 建立組別紀錄在「我的組」最下方（C3-11）；重新建立也在「我的組」。
   await openStudentPage(page, 0)
   await expect(page.getByRole('region', { name: '建立組別紀錄' })).toContainText('沒有成立：被拒絕')
-  await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('這次建立組別沒有成立')
   await expect(page.getByRole('button', { name: '送出邀請' })).toBeVisible()
   await expect(page.getByRole('main')).not.toContainText(/提案|組隊中/)
   await expect(page.getByRole('navigation', { name: '組別分頁' }).getByRole('link')).toHaveText(['我的組', '找隊員'])

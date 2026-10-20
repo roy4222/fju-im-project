@@ -165,7 +165,9 @@ export default async function StudentGroupsPage({
   // 哪些情況要列已發布的合作案：沒分組、沒有建立中的組別（建立組別表單要）；或已成組的產學組目前沒有合作案（組長要重選）。
   const isLeader = group?.members.some((m) => m.userId === userId && m.isLeader) ?? false
   const formShown = tab === 'mine' && !group && !proposal
-  const canPickOpportunity = tab === 'mine' && !!group && group.groupType === 'industry' && !view.link && isLeader
+  // 產學組的組長在「我的組」一直掛著選案元件（有連結時只剩回饋）；沒有有效連結才列已發布的案給他選。
+  const leaderOfIndustry = tab === 'mine' && !!group && group.groupType === 'industry' && isLeader
+  const canPickOpportunity = leaderOfIndustry && !view.link
 
   // 每個分頁只查自己要的：名單只在找隊員（還沒成組）、自己的名片在找隊員與建立組別表單、里程碑只在我的組（已成組）。
   const [teammates, items, schedule, myCard, opportunities] = await Promise.all([
@@ -279,8 +281,14 @@ export default async function StudentGroupsPage({
               <OpportunityRow
                 link={view.link}
                 picker={
-                  canPickOpportunity ? (
-                    <RequestOpportunityForm groupId={group.id} revision={group.revision} requestId={randomUUID()} opportunities={opportunityOptions} />
+                  leaderOfIndustry ? (
+                    <RequestOpportunityForm
+                      groupId={group.id}
+                      revision={group.revision}
+                      requestId={randomUUID()}
+                      opportunities={opportunityOptions}
+                      canPick={canPickOpportunity}
+                    />
                   ) : null
                 }
               />
@@ -331,7 +339,7 @@ export default async function StudentGroupsPage({
               <span className="tabular font-semibold text-foreground">
                 {confirmedCount}／{proposal.invitations.length} 已確認
               </span>
-              <span>・每個人用自己的帳號按確認；全員確認後組別成立。建立中不能改名單或類型，要改請撤回後重新建立。</span>
+              <span>・本屆{size}（含你自己）。每個人用自己的帳號按確認；全員確認後組別成立。建立中不能改名單或類型，要改請撤回後重新建立。</span>
             </div>
           </>
         ) : groupingClosed ? (
@@ -373,14 +381,13 @@ export default async function StudentGroupsPage({
   return shell(
     header,
     <>
-      {formShown && !groupingClosed ? (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+      {/* 狀態卡一直是這個 div 的第一個孩子：送出邀請、拒絕之後畫面換樣子時元件不重掛，剛剛那句回饋還在。 */}
+      {tab === 'mine' ? (
+        <div className={cn('grid gap-5', formShown && !groupingClosed && 'lg:grid-cols-[minmax(0,1fr)_17rem]')}>
           {statusCard}
-          <InviteProgress />
+          {formShown && !groupingClosed ? <InviteProgress /> : null}
         </div>
-      ) : (
-        statusCard
-      )}
+      ) : null}
 
       {tab === 'team' && group ? (
         <div className="dash-card">
@@ -512,11 +519,9 @@ function OpportunityRow({ link, picker }: { link: StudentGroupView['link']; pick
           ・{link.state === 'pending' ? '待老師確認' : '已確認'}
         </span>
       ) : (
-        <>
-          <span className="text-muted-foreground">還沒有合作案</span>
-          {picker}
-        </>
+        <span className="text-muted-foreground">還沒有合作案</span>
       )}
+      {picker}
     </div>
   )
 }

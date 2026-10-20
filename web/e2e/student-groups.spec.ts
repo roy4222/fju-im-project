@@ -233,7 +233,7 @@ test.beforeAll(async () => {
     [groupId, members[0]!.userId, changedAt, adminId, LEADER_REASON],
   )
 
-  // 成組的那份提案（里程碑「發起提案」、提案紀錄「已成立（G07）」）。
+  // 成組的那份建立紀錄（里程碑「建立組別」、建立組別紀錄「已成立（G07）」）。
   const proposal = await pool.query<{ id: string }>(
     `insert into group_proposals (id, cohort_id, proposer_user_id, group_type, expires_business_at, state, established_group_id,
                                   created_real_at, created_business_at, closed_real_at, closed_business_at, closed_by_kind, closed_by_user_id)
@@ -253,7 +253,7 @@ test.beforeAll(async () => {
   )
 
   // 兩件整組一份的作業：一件已送出（昨天）、一件 60 天後截止還沒送。
-  const sent = await groupItem(`ST5 提案書 ${stamp}`, new Date(now.getTime() + 5 * DAY))
+  const sent = await groupItem(`ST5 計畫書 ${stamp}`, new Date(now.getTime() + 5 * DAY))
   await groupItem(`ST5 期末報告 ${stamp}`, laterDue)
   await pool.query(
     `insert into submission_versions (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers,
@@ -321,7 +321,7 @@ test('AC-ST-16：已成組預設「我的組」：頁首卡、兩個分頁、組
   await expect(steps).toHaveCount(4)
   await expect(steps.nth(0)).toContainText(`已完成建立組別${md(proposedAt)}`)
   await expect(steps.nth(1)).toContainText(`已完成成組${md(establishedAt)}`)
-  await expect(steps.nth(2)).toContainText(`已完成ST5 提案書 ${stamp}${md(submittedAt)}`)
+  await expect(steps.nth(2)).toContainText(`已完成ST5 計畫書 ${stamp}${md(submittedAt)}`)
   await expect(steps.nth(3)).toContainText(`還沒到ST5 期末報告 ${stamp}${Number(ymd(laterDue).split('-')[1])} 月`)
 
   // 拿掉的填充句（產學面板 ST-10 已拿掉，整頁都不能有）；一般組沒有「合作案」那一行（AC-C3-14：也沒有「提案」「組隊中」）。
@@ -346,7 +346,7 @@ test('AC-ST-16：已成組預設「我的組」：頁首卡、兩個分頁、組
 test('AC-ST-18／AC-C3-13：「我的組」最下方 section「紀錄」兩段（組別異動、建立組別紀錄），沒有系辦理由；?tab=log 視同我的組；找隊員看不到', async ({ page }) => {
   await signIn(page, viewer)
   await page.goto(`${GROUPS}?tab=mine`)
-  const log = page.getByRole('region', { name: '紀錄' })
+  const log = page.getByRole('region', { name: '紀錄', exact: true })
   const history = log.getByRole('list', { name: '組別異動' })
   await expect(history).toContainText(`組長 ${members[2]!.name} → ${members[0]!.name}`)
   await expect(history).toContainText(ADVISOR_NAME)
@@ -367,7 +367,7 @@ test('AC-ST-18／AC-C3-13：「我的組」最下方 section「紀錄」兩段�
   const tabs = page.getByRole('navigation', { name: '組別分頁' })
   await expect(tabs.getByRole('link')).toHaveText(['我的組', '找隊員'])
   await expect(tabs.getByRole('link', { name: '我的組' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('region', { name: '紀錄' }).getByRole('list', { name: '組別異動' })).toContainText(`組長 ${members[2]!.name} → ${members[0]!.name}`)
+  await expect(page.getByRole('region', { name: '紀錄', exact: true }).getByRole('list', { name: '組別異動' })).toContainText(`組長 ${members[2]!.name} → ${members[0]!.name}`)
   await expect(page.getByRole('region', { name: '建立組別紀錄' })).toContainText('已成立（G07）')
   await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('組員（5 人）')
 
@@ -376,7 +376,7 @@ test('AC-ST-18／AC-C3-13：「我的組」最下方 section「紀錄」兩段�
   await expect(page.getByRole('main')).toContainText('組別已成立，名單在「我的組」')
   await expect(page.getByRole('list', { name: '組別異動' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: '建立組別紀錄' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: '紀錄' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '紀錄', exact: true })).toHaveCount(0)
 })
 
 test('AC-ST-17：分組期過了，「我的組」只寫「分組期已經結束」，沒有表單、沒有「請聯絡系辦」', async ({ page }) => {
@@ -388,7 +388,7 @@ test('AC-ST-17：分組期過了，「我的組」只寫「分組期已經結束
     await expect(page.getByRole('navigation', { name: '組別分頁' }).getByRole('link', { name: '我的組' })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('region', { name: '我的組別狀態' })).toContainText('分組期已經結束')
     await expect(page.getByRole('button', { name: '送出邀請' })).toHaveCount(0)
-    await expect(page.getByRole('region', { name: '邀請進度' })).toHaveCount(0)
+    await expect(page.getByRole('complementary', { name: '邀請進度' })).toHaveCount(0)
     await expect(main).not.toContainText('請聯絡系辦')
   } finally {
     await setClock(now, 'e2e ST-5：回到真實時間')
@@ -433,14 +433,14 @@ test('AC-ST-17／AC-C3-11：未分組預設「我的組」＝建立組別：第�
   await expect(status.getByRole('radio', { name: '一般專題' })).toBeVisible()
   await expect(status.getByRole('radio', { name: '產學合作' })).toBeVisible()
   // 選一般專題時沒有「合作案」欄。
-  await expect(status.getByLabel('合作案')).toHaveCount(0)
+  await expect(status.getByLabel('合作案', { exact: true })).toHaveCount(0)
   // 第一格是自己：頭像、姓名、「你」、學號。
   const loneSelf = await pool.query<{ display_name: string; student_no: string }>('select display_name, student_no from user_profiles where user_id = $1', [loner.userId])
   await expect(status).toContainText(loneSelf.rows[0]!.display_name)
   await expect(status).toContainText(loneSelf.rows[0]!.student_no)
   await expect(status.getByText('你', { exact: true })).toBeVisible()
   // 右欄「邀請進度」三步。
-  const progress = page.getByRole('region', { name: '邀請進度' })
+  const progress = page.getByRole('complementary', { name: '邀請進度' })
   await expect(progress.getByRole('listitem')).toHaveCount(3)
   await expect(progress).toContainText('送出邀請')
   await expect(progress).toContainText('同學確認')
@@ -497,7 +497,7 @@ test('AC-ST-17／AC-C3-11：未分組預設「我的組」＝建立組別：第�
   await expect(seats.filter({ hasText: others[0]!.name })).toContainText('待確認')
   await expect(status.getByRole('button', { name: '撤回', exact: true })).toBeVisible()
   await expect(tabs.getByRole('link', { name: '我的組' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('region', { name: '邀請進度' })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: '邀請進度' })).toHaveCount(0)
   await expect(main).toContainText('本屆每組 2–5 人')
   await expect(main).not.toContainText(/提案|組隊中/)
 
@@ -518,7 +518,7 @@ test('AC-C3-12／AC-C3-26（學生側）：產學合作必選合作案（只列�
   const main = page.getByRole('main')
   const status = page.getByRole('region', { name: '我的組別狀態' })
   await status.getByRole('radio', { name: '產學合作' }).check()
-  const picker = status.getByLabel('合作案')
+  const picker = status.getByLabel('合作案', { exact: true })
   await expect(picker).toBeVisible()
   // 下拉只有已發布的甲與丙（乙是草稿）；還有一個「請選合作案」的空選項。
   await expect(picker.getByRole('option')).toHaveCount(3)

@@ -1,5 +1,5 @@
 'use client'
-import { useActionState, useCallback, useEffect, useRef, useState } from 'react'
+import { startTransition, useActionState, useCallback, useEffect, useRef, useState } from 'react'
 import { IconPlus } from '@tabler/icons-react'
 import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
 import type { AvatarUser } from '@/application/accounts'
@@ -102,13 +102,20 @@ export function ProposeForm({
   invite: string[]
 }) {
   const [state, formAction, pending] = useActionState(proposeAction, undefined)
+  // 自己送、不用 `<form action>`：React 19 在 action 結束後會把表單欄位重設成初值，被擋（例如沒選合作案）時
+  // 四個學號與類型就全部清掉；這裡改成送出時自己讀 FormData，欄位留著讓同學改了再送。
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    startTransition(() => formAction(data))
+  }
   const [groupType, setGroupType] = useState(groupTypes[0]?.value ?? 'general')
   // 一開始顯示的格數：至少要填的人數，或預填進來的人數（較多者），都不超過上限。
   const [slots, setSlots] = useState(Math.min(otherSlots, Math.max(requiredOthers, invite.length)))
   // 停在舊頁面時才會撞到分組截止；伺服器的句子尾巴叫人聯絡系辦，學生頁不寫（Q69），只留「分組期已經結束…」。
   const shown = state && !state.ok ? { ...state, message: state.message.replace(/；需要分組請聯絡系辦。$/, '。') } : state
   return (
-    <form action={formAction} className="space-y-5">
+    <form onSubmit={submit} className="space-y-5">
       <input type="hidden" name="requestId" value={requestId} />
       <fieldset>
         <legend className={LABEL}>組別類型</legend>
@@ -238,19 +245,26 @@ function MemberSlot({ index, required, defaultValue, maxLength }: { index: numbe
 
 // ── 已成組的產學組：組長選合作案 ───────────────────────────────────────────
 
-/** 「還沒有合作案」時組長選案（C3-11；規格③ §7.3）：走 C3-09 的 `request`，成 `pending` 等負責老師確認。 */
+/**
+ * 「還沒有合作案」時組長選案（C3-11；規格③ §7.3）：走 C3-09 的 `request`，成 `pending` 等負責老師確認。
+ * 一直掛在合作案那一行（`canPick` 是 false 時只剩上一次的回饋）：選完頁面重新整理、那一行換成案名，剛剛那句回饋還在。
+ */
 export function RequestOpportunityForm({
   groupId,
   revision,
   requestId,
   opportunities,
+  canPick,
 }: {
   groupId: string
   revision: number
   requestId: string
   opportunities: OpportunityOption[]
+  /** 目前沒有有效連結（才顯示下拉與送出）。 */
+  canPick: boolean
 }) {
   const [state, formAction, pending] = useActionState(requestOpportunityAction, undefined)
+  if (!canPick) return <Feedback state={state} />
   return (
     <form action={formAction} className="flex w-full flex-col gap-2 sm:max-w-xl">
       <input type="hidden" name="requestId" value={requestId} />
