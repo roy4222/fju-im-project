@@ -45,7 +45,7 @@ describe('錯誤碼清單（契約 02 §1）', () => {
       expect(isErrorCode(code)).toBe(true)
     }
     // 契約 02 §1 七個分類逐格點數：身分 6、授權 8、狀態 20（SH-9 加 FILE_GONE）、併發 2、輸入 7、帳本 1、系統 2（VB-2 加 TURNSTILE_UNAVAILABLE）。
-    expect(ERROR_CODES).toHaveLength(46)
+    expect(ERROR_CODES).toHaveLength(47)
     const perCategory = ERROR_CODES.reduce<Record<string, number>>((acc, code) => {
       acc[errorCategory(code)] = (acc[errorCategory(code)] ?? 0) + 1
       return acc
@@ -53,7 +53,7 @@ describe('錯誤碼清單（契約 02 §1）', () => {
     expect(perCategory).toEqual({
       identity: 6,
       authorization: 8,
-      state: 20,
+      state: 21,
       concurrency: 2,
       input: 7,
       ledger: 1,

@@ -212,6 +212,8 @@ async function recipientsOf(type: string, code: string): Promise<string[][]> {
 const sorted = (...list: string[]) => [...list].sort()
 
 test('負責老師確認指導（AC-C3-25）：待確認要帶的組有 G01（頭像一列、組長）；確認後 status、連結變 active、全組與老師收到通知；G01 移到已帶的組、我指導的組、全部組別標「你」', async ({ page }) => {
+  await openAdminPage(page)
+  await expect(page.getByRole('article', { name: 'G01', exact: true })).toContainText('合作案待確認')
   await openIndustryTab(page, teacherA)
   const row = caseRow(page)
   const pending = row.getByRole('region', { name: '待確認要帶的組' })
@@ -288,19 +290,21 @@ test('負責老師婉拒（AC-C3-26）：理由留空；G08 從待確認消失�
 test('管理員逐組指派 → 重派（先列原老師的評分指派，清單是空的）→ 解除；原老師另收通知', async ({ page }) => {
   await openAdminPage(page)
   const table = page.getByRole('region', { name: '全部組別' })
-  const row = () => table.getByRole('row').filter({ hasText: 'G02' })
+  const row = () => table.getByRole('article', { name: 'G02', exact: true })
   await expect(row()).toContainText('尚未指派')
 
+  if ((await row().locator('details').getAttribute('open')) === null) await row().locator('summary').click()
   await row().getByRole('button', { name: '指派指導老師：G02' }).click()
   let dialog = page.getByRole('dialog', { name: '指派 G02 的指導老師' })
   await dialog.getByLabel('指導老師').selectOption({ label: `${NAME_A}（${teacherA.email}）` })
-  await dialog.getByLabel('理由（必填）').fill('115 抽籤結果')
+  await dialog.getByLabel('理由（可不填）').fill('115 抽籤結果')
   await dialog.getByRole('button', { name: '確認指派' }).click()
   await expect(row().getByRole('status')).toContainText(`已指派 ${NAME_A} 老師指導 G02`)
   await expect(row()).toContainText(NAME_A)
   expect(await recipientsOf('advisor.assigned', 'G02')).toEqual([sorted(...memberIds.get('G02')!, teacherA.userId)])
 
   await page.reload()
+  if ((await row().locator('details').getAttribute('open')) === null) await row().locator('summary').click()
   await row().getByRole('button', { name: '重派指導老師：G02' }).click()
   dialog = page.getByRole('dialog', { name: '重派 G02 的指導老師' })
   await expect(dialog).toContainText(`目前：${NAME_A}`)
@@ -310,7 +314,7 @@ test('管理員逐組指派 → 重派（先列原老師的評分指派，清單
   // 原老師不在選項裡。
   await expect(dialog.getByLabel('指導老師').locator('option', { hasText: teacherA.email })).toHaveCount(0)
   await dialog.getByLabel('指導老師').selectOption({ label: `${NAME_B}（${teacherB.email}）` })
-  await dialog.getByLabel('理由（必填）').fill(`${NAME_A}休假`)
+  await dialog.getByLabel('理由（可不填）').fill(`${NAME_A}休假`)
   await dialog.getByRole('button', { name: '確認重派' }).click()
   await expect(row().getByRole('status')).toContainText(`G02 的指導老師已從 ${NAME_A} 換成 ${NAME_B}`)
   expect(await activeAdvisor('G02')).toEqual([teacherB.userId])
@@ -318,16 +322,17 @@ test('管理員逐組指派 → 重派（先列原老師的評分指派，清單
   expect(await recipientsOf('advisor.replaced', 'G02')).toEqual([[teacherA.userId]])
 
   await page.reload()
-  const detail = page.getByRole('dialog', { name: 'G02 詳情' })
-  await row().getByRole('button', { name: 'G02 詳情' }).click()
-  const history = detail.getByRole('region', { name: '異動歷程' })
+  const detail = page.getByRole('main')
+  await row().getByRole('link', { name: '進入小組' }).click()
+  const history = detail.getByRole('region', { name: '異動紀錄' })
   await expect(history).toContainText(`指導老師 ${NAME_A} → ${NAME_B}`)
   await expect(history).toContainText(`理由：${NAME_A}休假`)
-  await detail.getByRole('button', { name: '關閉' }).click()
+  await openAdminPage(page)
 
+  if ((await row().locator('details').getAttribute('open')) === null) await row().locator('summary').click()
   await row().getByRole('button', { name: '解除指導老師：G02' }).click()
   dialog = page.getByRole('dialog', { name: '解除 G02 的指導老師？' })
-  await dialog.getByLabel('理由（必填）').fill('抽籤更正')
+  await dialog.getByLabel('理由（可不填）').fill('抽籤更正')
   await dialog.getByRole('button', { name: '確定解除' }).click()
   await expect(row().getByRole('status')).toContainText(`已解除 ${NAME_B} 老師對 G02 的指導`)
   await expect(row()).toContainText('尚未指派')
@@ -337,11 +342,12 @@ test('管理員逐組指派 → 重派（先列原老師的評分指派，清單
 test('學生的「我的組別」看得到指導老師與指派歷程（看不到理由）', async ({ page }) => {
   // 上一案最後解除了；再用畫面指派一次，學生才有老師可看。
   await openAdminPage(page)
-  const row = page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G02' })
+  const row = page.getByRole('region', { name: '全部組別' }).getByRole('article', { name: 'G02', exact: true })
+  if ((await row.locator('details').getAttribute('open')) === null) await row.locator('summary').click()
   await row.getByRole('button', { name: '指派指導老師：G02' }).click()
   const dialog = page.getByRole('dialog', { name: '指派 G02 的指導老師' })
   await dialog.getByLabel('指導老師').selectOption({ label: `${NAME_A}（${teacherA.email}）` })
-  await dialog.getByLabel('理由（必填）').fill('重新抽籤')
+  await dialog.getByLabel('理由（可不填）').fill('重新抽籤')
   await dialog.getByRole('button', { name: '確認指派' }).click()
   await expect(row.getByRole('status')).toContainText(`已指派 ${NAME_A} 老師指導 G02`)
 
@@ -384,7 +390,7 @@ test('批次指派 CSV：六類預覽、有錯不能執行；修正後填理由�
   await expect(dialog.getByTestId('advisor-batch-count-duplicate')).toHaveText('2')
   await expect(dialog.getByTestId('advisor-batch-row-2')).toContainText('重複')
   await expect(dialog.getByTestId('advisor-batch-row-5')).toContainText('組別不存在')
-  await dialog.getByLabel('理由（必填，整批共用）').fill('115 抽籤結果')
+  await dialog.getByLabel('理由（可不填，整批共用）').fill('115 抽籤結果')
   await expect(dialog.getByRole('button', { name: /確認執行/ })).toBeDisabled()
   await dialog.getByRole('button', { name: '關閉' }).click()
 
@@ -394,7 +400,7 @@ test('批次指派 CSV：六類預覽、有錯不能執行；修正後填理由�
   dialog = await uploadBatch(page, 'advisors-fixed.csv', fixed)
   await expect(dialog.getByTestId('advisor-batch-count-new')).toHaveText('2')
   await expect(dialog.getByTestId('advisor-batch-count-reassign')).toHaveText('1')
-  await dialog.getByLabel('理由（必填，整批共用）').fill('115 抽籤結果')
+  await expect(dialog.getByLabel('理由（可不填，整批共用）')).toHaveValue('')
   const execute = dialog.getByRole('button', { name: '確認執行（3 組）' })
   await expect(execute).toBeDisabled()
   await dialog.getByRole('checkbox', { name: /確認重派 1 組/ }).check()
@@ -412,7 +418,7 @@ test('批次指派 CSV：六類預覽、有錯不能執行；修正後填理由�
 
   await page.reload()
   const table = page.getByRole('region', { name: '全部組別' })
-  await expect(table.getByRole('row').filter({ hasText: 'G06' })).toContainText(NAME_B)
+  await expect(table.getByRole('article', { name: 'G06', exact: true })).toContainText(NAME_B)
   // G08 在上面被婉拒、沒有指導老師（C3-09 的 fixture）；其餘都已指派。
   await expect(page.getByTestId('advisor-summary')).toContainText('1 組尚未指派')
 })
