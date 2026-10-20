@@ -5,9 +5,9 @@ import { currentActor } from '@/app/_ui/guard'
 import { googleSignInErrorMessage } from '@/app/_ui/oauth-messages'
 import { GoogleButton } from '@/app/login/google-button'
 import { homeForUser, isRegistrationOpen, PASSWORD_MIN_LENGTH } from '@/composition/accounts'
-import { signUpStepAction } from './actions'
-import { RegisterForm } from './_components/register-form'
-import { RegisterFrame, stepDir } from './_components/register-frame'
+import { signUpStepAction } from '@/app/register/actions'
+import { RegisterForm } from '@/app/register/_components/register-form'
+import { RegisterFrame, stepDir } from '@/app/register/_components/register-frame'
 
 export const metadata = { title: '註冊｜資管系專題平台' }
 

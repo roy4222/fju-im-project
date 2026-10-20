@@ -3,11 +3,11 @@ import { notFound, redirect } from 'next/navigation'
 import { Turnstile } from '@/app/_turnstile/turnstile'
 import { currentActor } from '@/app/_ui/guard'
 import { EMAIL_VERIFY_PATH, getRegistrationCommand, homeForUser, isRegistrationOpen } from '@/composition/accounts'
-import { backToSignupStep } from '../actions'
-import { decodeResume, RESUME_COOKIE } from '../_components/form-data'
-import { RegisterFrame, stepDir } from '../_components/register-frame'
-import { resendOtpAction, resendResumeOtpAction, verifyOtpAction } from './actions'
-import { ResendForm, VerifyForm } from './verify-form'
+import { backToSignupStep } from '@/app/register/actions'
+import { decodeResume, RESUME_COOKIE } from '@/app/register/_components/form-data'
+import { RegisterFrame, stepDir } from '@/app/register/_components/register-frame'
+import { resendOtpAction, resendResumeOtpAction, verifyOtpAction } from '@/app/register/verify/actions'
+import { ResendForm, VerifyForm } from '@/app/register/verify/verify-form'
 
 export const metadata = { title: '驗證 Email｜資管系專題平台', robots: { index: false } }
 

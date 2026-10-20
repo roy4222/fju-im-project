@@ -8,9 +8,9 @@ import {
   homeForUser,
   isRegistrationOpen,
 } from '@/composition/accounts'
-import { ApplicationForm } from '../application-form'
-import { RegisterFrame, stepDir } from '../_components/register-frame'
-import { applyStepAction } from './actions'
+import { ApplicationForm } from '@/app/register/application-form'
+import { RegisterFrame, stepDir } from '@/app/register/_components/register-frame'
+import { applyStepAction } from '@/app/register/apply/actions'
 
 export const metadata = { title: '填學生資料｜資管系專題平台', robots: { index: false } }
 
