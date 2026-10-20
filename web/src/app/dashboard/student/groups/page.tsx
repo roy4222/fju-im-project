@@ -115,6 +115,9 @@ export default async function StudentGroupsPage({
   const cohortId = studentCohortOf(actor)
   const params = await searchParams
   const tab: Tab = tabOf(params.tab) ?? 'mine'
+  // `?invite=` 是找隊員按過「邀請加入」的學號清單（建立組別表單的初值；C3 §4.4 可連按多張卡）：分頁連結要帶著它走。
+  const invited = typeof params.invite === 'string' ? params.invite.split(',').map((no) => no.trim()).filter(Boolean) : []
+  const tabHref = (key: Tab) => `${BASE}?tab=${key}${invited.length > 0 ? `&invite=${invited.map(encodeURIComponent).join(',')}` : ''}`
 
   const shell = (header: React.ReactNode, children: React.ReactNode) => (
     <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/groups">
@@ -125,7 +128,7 @@ export default async function StudentGroupsPage({
           {TABS.map(([key, label]) => (
             <Link
               key={key}
-              href={`${BASE}?tab=${key}`}
+              href={tabHref(key)}
               aria-current={tab === key ? 'page' : undefined}
               className={cn(
                 '-mb-px inline-flex h-11 items-center border-b-2 px-4 text-sm font-semibold transition-colors',
@@ -155,10 +158,9 @@ export default async function StudentGroupsPage({
   const group = view.group
   const proposal = view.openProposal
 
-  // 找隊員的搜尋與技能篩選在伺服器（`?q=`、`?skill=`，C3 §4.4）；`?invite=` 是按過「邀請加入」的學號清單（建立組別表單的初值）。
+  // 找隊員的搜尋與技能篩選在伺服器（`?q=`、`?skill=`，C3 §4.4）。
   const q = typeof params.q === 'string' ? params.q.trim() : ''
   const skill = typeof params.skill === 'string' ? params.skill.trim() : ''
-  const invited = typeof params.invite === 'string' ? params.invite.split(',').map((no) => no.trim()).filter(Boolean) : []
 
   // 哪些情況要列已發布的合作案：沒分組、沒有建立中的組別（建立組別表單要）；或已成組的產學組目前沒有合作案（組長要重選）。
   const isLeader = group?.members.some((m) => m.userId === userId && m.isLeader) ?? false
@@ -341,7 +343,7 @@ export default async function StudentGroupsPage({
           <div className="px-6 pt-6 pb-2">
             <h2 className="text-[15px] font-bold">建立組別</h2>
             <p className="mt-1 mb-4 text-[13px] text-muted-foreground">
-              本屆{size}（含你自己）。送出後每位同學會收到通知，全員按確認後組別成立；要在 {cohort.proposalDefaultDays} 天內全員確認，而且不能超過分組期（組隊、選指導老師、交提案的期間）。
+              本屆{size}（含你自己）。送出後每位同學會收到通知，全員按確認後組別成立；要在 {cohort.proposalDefaultDays} 天內全員確認，而且不能超過分組期（組隊、選指導老師、交專題計畫的期間）。
             </p>
             {/* `key`：從找隊員再按一次「邀請加入」回來時清單變了，整張表單重掛、預填跟著更新（defaultValue 規則）。 */}
             <ProposeForm
