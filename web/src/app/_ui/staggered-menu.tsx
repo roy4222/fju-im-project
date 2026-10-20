@@ -1,26 +1,24 @@
 'use client'
 import './staggered-menu.css'
-import { useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 /**
- * 前台手機選單（Staggered Menu B，規格④ 設計方案 §5）：原生 `<dialog>` `showModal()`，取代原本的 `Sheet` 抽屜。
+ * 前台手機選單的面板（Staggered Menu B，規格④ 設計方案 §5）：原生 `<dialog>` `showModal()`，取代原本的 `Sheet` 抽屜。
+ * 觸發鈕在 `site-header.tsx`；這支連同 CSS 是**點開才下載**（載入樁 `loadStaggeredMenu` 在 `dash-theme.tsx`，主腦裁定 C4-09 ESCALATE 1），
+ * 所以只 import react 與自己的 CSS，不碰 `cn`、`ui/button` 這類共用模組（否則 Turbopack 會重切共用 chunk）；選項由頁首當 children 傳進來。
  * 開啟時三層色塊（深藍、橘、淺藍）依序從右滑入，面板再滑入、選項逐項淡入；全部是 CSS（`staggered-menu.css`）。
  * Tab 在選單裡循環；Esc、點背景、點選項都會關；關了焦點回觸發鈕（原生 dialog 的行為）。
- * `wide`：觸發鈕到 1280（`xl`）才收起，給登入後頂列放不下「我的後台」的 1024～1279（設計方案 §8 原因 C）。
- * 減少動態：不畫色塊層，面板 0.2 s 淡入。SSR 輸出關著的 dialog，client 接手。
+ * 減少動態：不畫色塊層，面板 0.2 s 淡入。
  */
-export function StaggeredMenu({ wide, children }: { wide?: boolean; children: ReactNode }) {
+export function StaggeredMenu({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const [open, setOpen] = useState(false)
-  const [layers, setLayers] = useState(true)
+  const [layers] = useState(() => !matchMedia('(prefers-reduced-motion: reduce)').matches)
 
-  function show() {
+  useEffect(() => {
     const el = dialog.current
-    if (!el || el.open) return
-    setLayers(!matchMedia('(prefers-reduced-motion: reduce)').matches)
-    el.showModal()
-    setOpen(true)
-  }
+    if (open && el && !el.open) el.showModal()
+  }, [open])
+
   const close = () => dialog.current?.close()
 
   function onClick(event: MouseEvent<HTMLDialogElement>) {
@@ -44,36 +42,23 @@ export function StaggeredMenu({ wide, children }: { wide?: boolean; children: Re
   }
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={show}
-        aria-expanded={open}
-        aria-label={open ? '關閉選單' : '開啟選單'}
-        data-open={open ? '1' : '0'}
-        className={`sm-trigger inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[15px] font-semibold pointer-coarse:min-h-11 hover:bg-accent ${wide ? 'xl:hidden' : 'lg:hidden'}`}
-      >
-        選單
-        <span aria-hidden className="sm-plus" />
-      </button>
-      <dialog ref={dialog} className="sm-dialog" data-open={open ? '1' : '0'} onClose={() => setOpen(false)} onClick={onClick} onKeyDown={onKeyDown}>
-        {open && layers ? (
-          <>
-            <span aria-hidden className="sm-layer" />
-            <span aria-hidden className="sm-layer" />
-            <span aria-hidden className="sm-layer" />
-          </>
-        ) : null}
-        <div className={layers ? 'sm-panel' : 'sm-panel sm-panel-plain'}>
-          <div className="flex items-center justify-between px-4 pt-4">
-            <span className="text-base font-semibold">選單</span>
-            <button type="button" aria-label="收起選單" className="sm-close inline-flex size-9 items-center justify-center rounded-lg pointer-coarse:size-11 hover:bg-accent">
-              <span aria-hidden className="sm-plus" />
-            </button>
-          </div>
-          {children}
+    <dialog ref={dialog} className="sm-dialog" data-open={open ? '1' : '0'} onClose={onClose} onClick={onClick} onKeyDown={onKeyDown}>
+      {open && layers ? (
+        <>
+          <span aria-hidden className="sm-layer" />
+          <span aria-hidden className="sm-layer" />
+          <span aria-hidden className="sm-layer" />
+        </>
+      ) : null}
+      <div className={layers ? 'sm-panel' : 'sm-panel sm-panel-plain'}>
+        <div className="flex items-center justify-between px-4 pt-4">
+          <span className="text-base font-semibold">選單</span>
+          <button type="button" aria-label="收起選單" className="inline-flex size-9 items-center justify-center rounded-lg text-xl pointer-coarse:size-11 hover:bg-accent">
+            <span aria-hidden>×</span>
+          </button>
         </div>
-      </dialog>
-    </>
+        {children}
+      </div>
+    </dialog>
   )
 }

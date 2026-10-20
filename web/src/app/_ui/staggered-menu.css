@@ -1,30 +1,10 @@
 /* ==========================================================================
    前台手機選單 Staggered Menu B（staggered-menu.tsx，規格④ 設計方案 §5）。
    開啟：三層色塊（深藍 #13305C、橘 #E56E00、淺藍 #8DB6E6）依序從右滑入 0.35 s，面板接著滑入，
-   選項按 :nth-child 逐項淡入（延遲寫在 CSS，不用 style 屬性）。觸發鈕的「＋」轉成 ×。
+   選項按 :nth-child 逐項淡入（延遲寫在 CSS，不用 style 屬性）。跟著面板一起點開才下載。
    減少動態：沒有色塊層（元件不渲染）、面板 0.2 s 淡入。
    ========================================================================== */
 @layer components {
-  .sm-plus {
-    position: relative;
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    transition: transform 0.3s ease;
-  }
-  .sm-plus::before,
-  .sm-plus::after {
-    content: '';
-    position: absolute;
-    inset: 5px 0 auto;
-    height: 2px;
-    border-radius: 1px;
-    background: currentColor;
-  }
-  .sm-plus::after { transform: rotate(90deg); }
-  .sm-trigger[data-open='1'] .sm-plus,
-  .sm-close .sm-plus { transform: rotate(45deg); }
-
   .sm-dialog {
     position: fixed;
     inset: 0;
