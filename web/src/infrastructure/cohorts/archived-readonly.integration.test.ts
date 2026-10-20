@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type IsolatedDatabase } from '../../../test/db'
@@ -9,6 +10,8 @@ import type { ItemInput } from '@/application/items'
 import type { SchemeStageInput } from '@/application/grading'
 import type { Result } from '@/shared/result'
 import { PgAccountCommand } from '@/infrastructure/accounts/account-command'
+import { PgAccountDirectoryCommand } from '@/infrastructure/accounts/account-directory-command'
+import { SessionRevocationExecutor } from '@/infrastructure/accounts/session-revocation'
 import { PgRegistrationCommand } from '@/infrastructure/accounts/registration-command'
 import { PgProfileEditCommand } from '@/infrastructure/accounts/pg-profile-edit'
 import { PgRosterCommand } from '@/infrastructure/accounts/roster-command'
@@ -28,7 +31,7 @@ import { PgItemCommand } from '@/infrastructure/items/pg-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
-import { FsFileStorage } from '@/infrastructure/ops/file-storage'
+import { FsFileStorage, PgFileAdminCommand } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
 import { PgReminders } from '@/infrastructure/reminders/pg-reminders'
@@ -48,7 +51,9 @@ import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submiss
  * 全域設定、帳密／頭像、通知已讀、未綁屆別的產學題目及暫存 CSV 上傳不寫屆別工作資料。
  * 吃呼叫端 tx 的 signoff hook／EventPublisher 等由上層命令的同交易快照涵蓋；不是獨立入口。
  * 帳號停用的組長接任明訂略過封存屆（accounts/directory.ts、pg-groups.ts #leaderships）。
- * 新建屆別用於 fixture；unarchive 是 AC-56e 的明訂例外。其餘待裁定者在下方逐列 todo。
+ * 新建屆別用於 fixture；unarchive 是 AC-56e 的明訂例外。
+ * #715 主腦 10/21 04:30 裁定：六類維護操作也允許；下方以七列驗證（個資更正／移出分開）。
+ * 本輪假設與反證：例外必須成功；未到期提案若改變、引用檔案若被刪、去識別化若破壞歷史，即推翻。
  */
 let owner: IsolatedDatabase
 let app: Pool
@@ -88,6 +93,10 @@ function makeCommands(pool: () => Pick<Pool, 'connect'> = () => app) {
     items: new PgItemCommand({ ...common, files, dueWork, responses: new PgResponsePresence() }),
     submissions: new PgSubmissionCommand({ ...common, files }), signoff,
     showcase: new PgShowcaseCommand({ ...common, files }), reminders: new PgReminders({ ...common, reader: () => app }),
+    fileAdmin: new PgFileAdminCommand({ ...common, db: () => app }),
+    // 只替換外部 Better Auth 撤登入呼叫；去識別化與撤登入工作仍在隔離資料庫實跑。
+    directory: new PgAccountDirectoryCommand({ ...common, db: () => app, leaders: groups,
+      revocations: new SessionRevocationExecutor({ db: () => app, call: async () => undefined }) }),
     profile: new PgProfileCardCommand({ ...common, db: () => app }),
     // Better Auth 與寄信是外部邊界；只有新增學生兩列用此測試替身，屆別／身分／帳本仍走真 PostgreSQL。
     accounts: new PgAccountCommand({ ...common, db: () => app, sendSetupMail: async () => undefined, auth: {
@@ -321,7 +330,7 @@ const denied: DenialCase[] = [
     return () => name === 'moveRule' ? commands.items.moveRule(admin, first.itemId, 'down', randomUUID())
       : commands.items.reorderRules(admin, s.cohortId, [second.itemId, first.itemId], randomUUID())
   } })),
-  { ...direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })), issue: '#715 F1：待主腦開子票（附件上傳漏擋）' },
+  { ...direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })), issue: '#789 F1：附件上傳漏擋' },
   direct('GradingCommand.createSchemeVersion', s => commands.grading.createSchemeVersion(admin, { cohortId: s.cohortId, stages: STAGES }, randomUUID())),
   { name: 'GradingCommand.publishScheme', prepare: async s => {
     const { versionId } = receipt(await commands.grading.createSchemeVersion(admin, { cohortId: s.cohortId, stages: STAGES }, randomUUID()))
@@ -416,7 +425,7 @@ const denied: DenialCase[] = [
     return () => commands.profileEdit.edit(admin, { userId: other.spare.id, name: '轉入學生', role: 'student', studentNo: other.spare.studentNo, cohortId: s.cohortId, requestId: randomUUID() })
   } },
 
-  ...(['createStudent', 'createMember'] as const).map(name => ({ name: `AccountCommand.${name}/student`, issue: '#715 F3：待主腦開子票（新增學生漏擋）', prepare: async (s: Scenario): Promise<Run> => {
+  ...(['createStudent', 'createMember'] as const).map(name => ({ name: `AccountCommand.${name}/student`, issue: '#790 F3：新增學生漏擋', prepare: async (s: Scenario): Promise<Run> => {
     const input = { kind: 'student', name: '系辦新增學生', email: `new-${randomUUID()}@example.com`, studentNo: '499123458', cohortId: s.cohortId, requestId: randomUUID() }
     return () => commands.accounts[name](admin, new Headers(), input)
   } })),
@@ -518,12 +527,164 @@ describe.each(allowed)('AC-55 允許例外：$name', testCase => {
   })
 })
 
-it.todo('待裁定：ProfileEditCommand.edit 原屆個資／移出；pg-profile-edit.ts 只擋改入封存屆；建議帳號資料更正另列例外')
-it.todo('待裁定：ProposalExpiryHandler.expire；pg-groups.ts #expireLocked 仍終止過期提案；建議由主腦決定是否保留背景到期清理')
-it.todo('待裁定：FileAdminCommand.deleteUnreferenced；files.ts 未引用檔清理、無屆別限制；建議維運清理例外')
-it.todo('待裁定：AccountDirectoryCommand.deidentify；directory.ts 保留歷史但匿名化帳號；建議個資處理例外')
-it.todo('待裁定：ProfileCardCommand.save 不改 openToJoin；profile-card-command.ts 只在公開開關變動時擋封存；建議本人簡介維護例外')
-it.todo('待裁定：ItemCommand.renameResourceCategory；ports.ts 明訂封存資源也改跨屆分類名；建議列為公開分類例外')
+type MaintenanceCase = { name: string; basis: string; prepare: (s: Scenario) => Promise<() => Promise<void>> }
+
+// 每列依據都加上 #715 主腦 10/21 04:30 裁定；命令、檔案 IO 與歷史資料均實跑。
+const maintenanceAllowed: MaintenanceCase[] = [
+  ...(['sameCohort', 'moveOut'] as const).map(mode => ({
+    name: `ProfileEditCommand.edit/${mode}`,
+    basis: 'infrastructure/accounts/pg-profile-edit.ts edit、規格② §3.8／AC-C2-22：有效分組先移出；主腦裁定允許原屆更正與移出封存屆',
+    prepare: async (s: Scenario) => {
+      const targetCohortId = mode === 'moveOut' ? (await scenario()).cohortId : s.cohortId
+      // 沿用 AC-C2-22 的調屆前置條件，封存前先結束組員關聯；歷史列必須保留。
+      if (mode === 'moveOut') receipt(await commands.groups.removeMember(admin, { groupId: s.groupId,
+        revision: await revision('groups', s.groupId), userId: s.second.id, successorLeaderUserId: null, reason: '下屆續修' }, randomUUID()))
+      return async () => {
+        if (mode === 'moveOut') {
+          // 保留首輪找到的反例：仍有有效分組的組長不是可調屆的輸入，封存不取消此限制。
+          const before = await snapshot()
+          expect(await commands.profileEdit.edit(admin, { userId: s.student.id, name: '仍在組內', role: 'student',
+            studentNo: s.student.studentNo, cohortId: targetCohortId, requestId: randomUUID() })).toMatchObject({ ok: false, code: 'CONFLICT', details: { field: 'cohortId' } })
+          expect(await snapshot()).toEqual(before)
+        }
+        const memberships = (await owner.sql('select * from group_memberships where user_id=$1 order by id', [s.second.id])).rows
+        expect(memberships).toHaveLength(1)
+        expect(memberships[0]!.valid_to).toEqual(mode === 'moveOut' ? expect.any(Date) : null)
+        expect(await commands.profileEdit.edit(admin, { userId: s.second.id, name: '更正後姓名', role: 'student',
+          studentNo: s.second.studentNo, cohortId: targetCohortId, requestId: randomUUID() })).toMatchObject({ ok: true })
+        expect((await owner.sql('select display_name,cohort_id from user_profiles where user_id=$1', [s.second.id])).rows)
+          .toEqual([{ display_name: '更正後姓名', cohort_id: targetCohortId }])
+        expect((await owner.sql('select cohort_id,student_no from student_identities where user_id=$1', [s.second.id])).rows)
+          .toEqual([{ cohort_id: targetCohortId, student_no: s.second.studentNo }])
+        expect((await owner.sql('select * from group_memberships where user_id=$1 order by id', [s.second.id])).rows).toEqual(memberships)
+      }
+    },
+  })),
+  { name: 'ProposalExpiryHandler.expire', basis: 'groups/pg-groups.ts #expireLocked：只終止到期 open 提案；主腦裁定允許背景收尾', prepare: async s => {
+    const invited = await user('student', s.cohortId)
+    const { proposalId } = receipt(await commands.groups.propose(s.spare.actor, { groupType: 'general', memberStudentNos: [invited.studentNo] }, randomUUID()))
+    businessNow = new Date('2026-10-06T02:00:00Z')
+    const later = await user('student', s.cohortId)
+    const laterInvitee = await user('student', s.cohortId)
+    const future = receipt(await commands.groups.propose(later.actor, { groupType: 'general', memberStudentNos: [laterInvitee.studentNo] }, randomUUID()))
+    businessNow = new Date('2026-10-09T02:00:00Z')
+    return async () => {
+      const before = await snapshot()
+      expect(await commands.groups.expire(future.proposalId, 1)).toBe('not_due')
+      expect(await snapshot()).toEqual(before)
+      const pending = (await owner.sql('select * from group_proposals where id=$1', [future.proposalId])).rows
+      expect(pending).toMatchObject([{ state: 'open' }])
+      expect(await commands.groups.expire(proposalId, 1)).toBe('expired')
+      expect((await owner.sql('select state,termination_kind,closed_by_kind from group_proposals where id=$1', [proposalId])).rows)
+        .toEqual([{ state: 'terminated', termination_kind: 'expired', closed_by_kind: 'worker' }])
+      expect((await owner.sql('select * from proposal_occupancy where proposal_id=$1', [proposalId])).rows).toEqual([])
+      expect((await owner.sql('select state from due_work where subject_id=$1', [proposalId])).rows).toEqual([{ state: 'cancelled' }])
+      expect((await owner.sql('select * from group_proposals where id=$1', [future.proposalId])).rows).toEqual(pending)
+      expect((await owner.sql('select * from proposal_occupancy where proposal_id=$1', [future.proposalId])).rows).toHaveLength(2)
+      const after = await snapshot()
+      expect(await commands.groups.expire(proposalId, 1)).toBe('not_open')
+      expect(await snapshot()).toEqual(after)
+    }
+  } },
+  { name: 'FileAdminCommand.deleteUnreferenced', basis: 'ops/files.ts FileAdminCommand、file-storage.ts：引用仍為 CONFLICT；主腦裁定允許維運清理', prepare: async s => {
+    const bytes = new TextEncoder().encode('%PDF-1.4\n% 歷史附件\n')
+    const upload = async () => {
+      const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
+        fileName: 'history.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
+      return receipt(await commands.files.upload(adminId, ticket.ticket,
+        new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length)).fileId
+    }
+    const unreferenced = await upload()
+    const referenced = await upload()
+    const history = await item(s, { placement: 'news', audienceKind: 'public', receiverUnit: 'none', fields: [], dueAt: '', attachmentFileIds: [referenced] })
+    receipt(await commands.items.changeStatus(admin, history.itemId, history.revision, 'archive', randomUUID()))
+    return async () => {
+      const file = (await owner.sql('select * from stored_files where id=$1', [referenced])).rows[0]!
+      const refs = (await owner.sql('select * from file_references where file_id=$1 order by id', [referenced])).rows
+      expect(refs).toMatchObject([{ released_at: null }])
+      expect(await commands.fileAdmin.deleteUnreferenced(admin, unreferenced, randomUUID())).toMatchObject({ ok: true, receipt: { fileId: unreferenced } })
+      expect((await owner.sql('select status from stored_files where id=$1', [unreferenced])).rows).toEqual([{ status: 'soft_deleted' }])
+      const beforeRefusal = await snapshot()
+      expect(await commands.fileAdmin.deleteUnreferenced(admin, referenced, randomUUID())).toMatchObject({ ok: false, code: 'CONFLICT' })
+      expect(await snapshot()).toEqual(beforeRefusal)
+      expect((await owner.sql('select * from stored_files where id=$1', [referenced])).rows).toEqual([file])
+      expect((await owner.sql('select * from file_references where file_id=$1 order by id', [referenced])).rows).toEqual(refs)
+      expect(await readFile(join(root, String(file.storage_key)))).toEqual(Buffer.from(bytes))
+    }
+  } },
+  { name: 'AccountDirectoryCommand.deidentify', basis: 'accounts/directory.ts ACC-14：保留歷史業務關聯；主腦裁定允許個資處理', prepare: async s => {
+    const i = await item(s)
+    receipt(await commands.submissions.saveDraft(s.student.actor, i.itemId, 0, { topic: '保留的正式繳交' }, randomUUID()))
+    receipt(await commands.submissions.submit(s.student.actor, i.itemId, 1, randomUUID()))
+    const assignmentId = await assignment(s)
+    receipt(await commands.grading.submitFinal(s.teacher.actor, scores(assignmentId), randomUUID()))
+    const { versionId } = await signoffVersion(s)
+    const checksum = String((await owner.sql('select content_checksum from signoff_package_versions where id=$1', [versionId])).rows[0]!.content_checksum)
+    receipt(await commands.signoff.respond(s.student.actor, { versionId, contentChecksum: checksum, decision: 'agree' }, randomUUID()))
+    receipt(await commands.signoff.voidVersion(admin, { versionId, reason: '保留已結束的歷史版本' }, randomUUID()))
+    return async () => {
+      const before = await snapshot()
+      expect((await owner.sql('select id from submission_versions where submitted_by_user_id=$1', [s.student.id])).rows).toHaveLength(1)
+      expect((await owner.sql('select id from approvals where user_id=$1', [s.student.id])).rows).toHaveLength(1)
+      expect(await commands.directory.deidentify(admin, { userId: s.student.id, reason: '本人申請', confirmText: s.student.email,
+        requestId: randomUUID() }, { headers: new Headers() })).toMatchObject({ ok: true, receipt: { userId: s.student.id } })
+      expect((await owner.sql('select status,email,deidentified_at from users where id=$1', [s.student.id])).rows)
+        .toEqual([{ status: 'disabled', email: `deidentified-${s.student.id}@deidentified.invalid`, deidentified_at: expect.any(Date) }])
+      expect((await owner.sql('select student_no,phone,contact_email from user_profiles where user_id=$1', [s.student.id])).rows)
+        .toEqual([{ student_no: null, phone: null, contact_email: `deidentified-${s.student.id}@deidentified.invalid` }])
+      const after = await snapshot()
+      for (const table of ['groups', 'group_memberships', 'group_leaders', 'submission_versions', 'evaluator_assignments', 'evaluations',
+        'evaluation_status', 'signoff_packages', 'signoff_package_versions', 'signoff_version_status', 'approvals']) {
+        expect(before).toHaveProperty(table)
+        expect(after[table], table).toEqual(before[table])
+      }
+    }
+  } },
+  { name: 'ProfileCardCommand.save/unchangedOpenToJoin', basis: 'accounts/profile-card-command.ts save：只在找組開關變動時擋封存；主腦裁定允許本人簡介', prepare: async s => async () => {
+    expect((await owner.sql('select open_to_join from user_profiles where user_id=$1', [s.spare.id])).rows).toEqual([{ open_to_join: false }])
+    expect(await commands.profile.save(s.spare.actor, { bio: '更新本人簡介', skills: ['後端'], contactEmail: s.spare.email,
+      openToJoin: false, revision: 1 }, randomUUID())).toMatchObject({ ok: true, receipt: { revision: 2 } })
+    expect((await owner.sql('select bio,skills,open_to_join,revision from user_profiles where user_id=$1', [s.spare.id])).rows)
+      .toEqual([{ bio: '更新本人簡介', skills: ['後端'], open_to_join: false, revision: 2 }])
+  } },
+  { name: 'ItemCommand.renameResourceCategory', basis: 'items/ports.ts renameResourceCategory：封存資源也改共用分類名；主腦裁定允許跨屆分類維護', prepare: async s => {
+    const alsoArchived = await scenario()
+    const active = await scenario()
+    const from = `原分類-${s.code}`
+    const to = `新分類-${s.code}`
+    const items: Awaited<ReturnType<typeof item>>[] = []
+    for (const cohort of [s, alsoArchived, active]) {
+      items.push(await item(cohort, { placement: 'resource', audienceKind: 'public', receiverUnit: 'none', fields: [], dueAt: '', category: from }))
+    }
+    const untouched = await item(s, { placement: 'resource', audienceKind: 'public', receiverUnit: 'none', fields: [], dueAt: '', category: '其他分類' })
+    await archive(alsoArchived)
+    return async () => {
+      const before = await snapshot()
+      expect(await commands.items.renameResourceCategory(admin, { from, to, requestId: randomUUID() })).toMatchObject({ ok: true, receipt: { from, to, count: 3 } })
+      for (const i of items) {
+        expect((await owner.sql('select category,revision from managed_items where id=$1', [i.itemId])).rows)
+          .toEqual([{ category: to, revision: i.revision + 1 }])
+      }
+      expect((await owner.sql('select category,revision from managed_items where id=$1', [untouched.itemId])).rows)
+        .toEqual([{ category: '其他分類', revision: untouched.revision }])
+      expect((await snapshot()).item_versions).toEqual(before.item_versions)
+      expect((await new PgCohortStatusQuery(() => app).get(alsoArchived.cohortId))?.status).toBe('archived')
+      expect((await new PgCohortStatusQuery(() => app).get(active.cohortId))?.status).toBe('active')
+    }
+  } },
+]
+
+describe.each(maintenanceAllowed)('AC-55 主腦已裁定例外：$name', testCase => {
+  it(`#715 主腦 10/21 04:30：${testCase.basis}`, async () => {
+    const s = await scenario()
+    const check = await testCase.prepare(s)
+    await archive(s)
+    const before = await snapshot()
+    await check()
+    expect(await snapshot()).not.toEqual(before)
+    expect((await new PgCohortStatusQuery(() => app).get(s.cohortId))?.status).toBe('archived')
+  })
+})
 
 /** 真連線攔截只加同步屏障，不替換 SQL、回傳值或守門。release 還原池內 client。 */
 function heldPool(match: (sql: string) => boolean) {
@@ -640,7 +801,7 @@ describe('AC-56c：封存前成功的 requestId 封存後重播', () => {
     replay = await commands.submissions.submit(s.student.actor, s.itemId, 1, requestId)
     after = await snapshot()
   })
-  it.fails('#715 F2：待主腦開子票；重播應回 COHORT_ARCHIVED 而非原回執', () => {
+  it.fails('#789 F2：重播應回 COHORT_ARCHIVED 而非原回執', () => {
     expect(replay).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
   })
   it('重播沒有增加 operation_records 或修改其他資料', () => {
