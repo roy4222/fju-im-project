@@ -2,7 +2,7 @@ import 'server-only'
 import type { ResolvedActor } from '@/application/accounts'
 import {
   isCacheableDownload,
-  PUBLIC_IMAGE_MAX_AGE_SECONDS,
+  PUBLIC_FILE_MAX_AGE_SECONDS,
   type FileDownload,
   type FileListRow,
   type StoredFileReceipt,
@@ -92,7 +92,7 @@ export async function uploadFile(
 export { contentDispositionFor as contentDisposition } from '@/application/ops'
 
 /** 這個下載能不能快取、快取幾秒（S16：訪客也拿得到的檔一律可快取，不看檔型；路由不自己判斷）。 */
-export { isCacheableDownload, PUBLIC_IMAGE_MAX_AGE_SECONDS } from '@/application/ops'
+export { isCacheableDownload, PUBLIC_FILE_MAX_AGE_SECONDS } from '@/application/ops'
 
 /**
  * `/api/files/[id]` 與 `/api/files/[id]/preview`：每次都重新認人、重新授權（預覽與下載同一個函式，權限不會比下載寬）。
@@ -154,11 +154,11 @@ export function fileFailureResponse(
 /**
  * 公開檔（訪客也拿得到的檔，不看檔型，判斷在 `isCacheableDownload`）讓瀏覽器與 Cloudflare 短時間快取（V4、S16）。
  * 可見性會變（下架、撤回、換檔、刪除），授權結果永不跨請求快取（契約 02 §8），所以只給
- * `PUBLIC_IMAGE_MAX_AGE_SECONDS`（5 分鐘），而且 `must-revalidate`：過期後一定回來重新授權。
+ * `PUBLIC_FILE_MAX_AGE_SECONDS`（5 分鐘），而且 `must-revalidate`：過期後一定回來重新授權。
  * 不加 `vary: cookie`：公開回應對任何人都一樣；私有回應是 `no-store`，不會被存。
  */
-const PUBLIC_IMAGE_HEADERS = {
-  'cache-control': `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`,
+const PUBLIC_FILE_HEADERS = {
+  'cache-control': `public, max-age=${PUBLIC_FILE_MAX_AGE_SECONDS}, must-revalidate`,
   'x-content-type-options': 'nosniff',
 } as const
 
@@ -181,7 +181,7 @@ function matchesETag(ifNoneMatch: string | null, etag: string): boolean {
 export function fileCacheHeaders(file: FileDownload): { readonly headers: Record<string, string>; readonly etag: string | null } {
   const cacheable = isCacheableDownload(file)
   const avatar = file.purpose === 'avatar'
-  const headers = cacheable ? PUBLIC_IMAGE_HEADERS : avatar ? AVATAR_HEADERS : PRIVATE_FILE_HEADERS
+  const headers = cacheable ? PUBLIC_FILE_HEADERS : avatar ? AVATAR_HEADERS : PRIVATE_FILE_HEADERS
   const etag = (cacheable || avatar) && file.checksum ? `"${file.checksum}"` : null
   return { headers: { ...headers, ...(etag ? { etag } : {}) }, etag }
 }

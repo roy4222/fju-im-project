@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expect, request as playwrightRequest, test, type APIResponse, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { PUBLIC_IMAGE_MAX_AGE_SECONDS } from '../src/application/ops/files'
+import { PUBLIC_FILE_MAX_AGE_SECONDS } from '../src/application/ops/files'
 import { createItemInDialog, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -238,7 +238,7 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
  */
 test.describe('V4／S16 公開檔可快取；私有檔不快取', () => {
   const V4 = `${CODE}-V4`
-  const PUBLIC_CACHE = `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`
+  const PUBLIC_CACHE = `public, max-age=${PUBLIC_FILE_MAX_AGE_SECONDS}, must-revalidate`
   /** 1×1 的真 PNG（上傳收檔會看簽章，`mime_detected = image/png`）。 */
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
   /**

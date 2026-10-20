@@ -7,7 +7,7 @@ import {
   extensionOf,
   fileInUseMessage,
   isCacheableDownload,
-  PUBLIC_IMAGE_MAX_AGE_SECONDS,
+  PUBLIC_FILE_MAX_AGE_SECONDS,
   sanitizeDisplayName,
   storageKeyFor,
   tempKeyFor,
@@ -191,7 +191,7 @@ describe('公開檔可快取（V4，設計方案 §3.4；S16，⑤ 設計方案 
   })
 
   it('瀏覽器與 Cloudflare 快取秒數是 5 分鐘（Q62 定案，S16 不變）', () => {
-    expect(PUBLIC_IMAGE_MAX_AGE_SECONDS).toBe(300)
+    expect(PUBLIC_FILE_MAX_AGE_SECONDS).toBe(300)
   })
 })
 
