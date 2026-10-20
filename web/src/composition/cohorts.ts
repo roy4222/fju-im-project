@@ -17,7 +17,7 @@ import { PgTimelineCommand, PgTimelineQuery } from '@/infrastructure/cohorts/pg-
 /** 模組 02 屆別的實例組裝（票 5、票 11）。 */
 let cohortCommand: CohortCommand | undefined
 let cohortStatusQuery: CohortStatusQuery | undefined
-let timelineCommand: TimelineCommand | undefined
+let timelineCommand: PgTimelineCommand | undefined
 let timelineQuery: TimelineQuery | undefined
 let businessClock: PgBusinessClock | undefined
 
@@ -62,7 +62,7 @@ export function getCohortStatusQuery(): CohortStatusQuery {
   return cohortStatusQuery
 }
 
-export function getTimelineCommand(): TimelineCommand {
+function pgTimelineCommand(): PgTimelineCommand {
   timelineCommand ??= new PgTimelineCommand({
     audit: getAuditWriter(),
     ledger: getOperationLedger(),
@@ -70,6 +70,15 @@ export function getTimelineCommand(): TimelineCommand {
     businessClock: clock(),
   })
   return timelineCommand
+}
+
+export function getTimelineCommand(): TimelineCommand {
+  return pgTimelineCommand()
+}
+
+/** 甘特拖階段分界放開後的預覽（③ §9.2 確認框；C3-13）：不寫入，跟 `saveSchedule` 同一個實例。 */
+export function getSchedulePreview(): Pick<PgTimelineCommand, 'previewSchedule'> {
+  return pgTimelineCommand()
 }
 
 export function getTimelineQuery(): TimelineQuery {
