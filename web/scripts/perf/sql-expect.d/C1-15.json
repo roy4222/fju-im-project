@@ -1,0 +1,17 @@
+{
+  "ticket": "C1-15",
+  "override": {
+    "/dashboard/admin": {
+      "from": "base",
+      "value": {
+        "as": "admin",
+        "baseline": 22,
+        "max": 22,
+        "identity": 0,
+        "noDuplicate": [
+          "select (select count(*) from registration_applications ra join users x on x.id = ra.user_id where ra.state = ? and x.status = ?) as pendingapplications, count(*) filter "
+        ]
+      }
+    }
+  }
+}
