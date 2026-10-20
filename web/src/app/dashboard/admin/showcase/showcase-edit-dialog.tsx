@@ -397,7 +397,7 @@ export function ShowcaseEditDialog({
           </div>
           <p className="-mt-2 text-xs text-muted-foreground">
             選了獎項、而且作品公開中，才會出現在
-            <a href="/projects/featured" className="mx-1 underline underline-offset-2" target="_blank">
+            <a href="/projects/featured" className="mx-1 underline underline-offset-2" target="_blank" rel="noopener noreferrer">
               「優秀專題」
             </a>
             與首頁輪播；沒有獎項的只在登入後的「歷屆專題一覽」。

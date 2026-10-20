@@ -5,7 +5,7 @@ import type { ShowcaseEntryView } from './showcase-view'
 
 /**
  * 按「刪除」才載入；Server Function 與共用樣式由首載外殼傳入。
- * 首次開啟後保留掛載，關窗不丟掉送出中的 action，仍會顯示完成提示；新的 requestId 代表再次開窗。
+ * 完成提示在 action 回來時送出，關窗卸載後仍能提示；新的 requestId 代表再次開窗。
  */
 export function ShowcaseDeleteDialog({
   entry,
@@ -13,6 +13,7 @@ export function ShowcaseDeleteDialog({
   deleteEntry,
   dialogClass,
   cancelClass,
+  onCancel,
   onDeleted,
 }: {
   entry: ShowcaseEntryView
@@ -20,23 +21,25 @@ export function ShowcaseDeleteDialog({
   deleteEntry: typeof deleteEntryAction
   dialogClass: string
   cancelClass: string
+  onCancel: () => void
   onDeleted: (message: string) => void
 }) {
-  const [state, action, pending] = useActionState(deleteEntry, undefined)
   const dialog = useRef<HTMLDialogElement>(null)
+  const [state, action, pending] = useActionState(async (previous: Awaited<ReturnType<typeof deleteEntryAction>>, form: FormData) => {
+    const result = await deleteEntry(previous, form)
+    if (result?.ok) {
+      dialog.current?.close()
+      onDeleted(result.message)
+    }
+    return result
+  }, undefined)
 
   useEffect(() => {
     const el = dialog.current
     if (el && !el.open) el.showModal()
   }, [requestId])
-  useEffect(() => {
-    if (!state?.ok) return
-    dialog.current?.close()
-    onDeleted(state.message)
-  }, [state, onDeleted])
-
   return (
-    <dialog ref={dialog} aria-label="刪除作品" className={dialogClass}>
+    <dialog ref={dialog} aria-label="刪除作品" className={dialogClass} onCancel={(e) => { e.preventDefault(); onCancel() }}>
       <form action={action} className="flex flex-col gap-4 px-6 py-5">
         <input type="hidden" name="requestId" value={requestId} />
         <input type="hidden" name="entryId" value={entry.entryId} />
@@ -50,7 +53,7 @@ export function ShowcaseDeleteDialog({
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <button type="button" className={cancelClass} onClick={() => dialog.current?.close()}>
+          <button type="button" className={cancelClass} onClick={onCancel}>
             取消
           </button>
           <button

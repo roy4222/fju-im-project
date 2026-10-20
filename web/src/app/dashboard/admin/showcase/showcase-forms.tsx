@@ -1,7 +1,7 @@
 'use client'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { IconChevronDown, IconGripVertical, IconPencilPlus } from '@tabler/icons-react'
 import { deleteEntryAction, requestPosterUploadAction, saveEntryAction, saveHomeOrderAction, withdrawAction } from './actions'
 import type { ShowcaseDialogTarget } from './showcase-edit-dialog'
@@ -34,7 +34,7 @@ const EDIT_DIALOG_DEPS = {
  *   `ItemFormDialog placement='honor'`（帶榮譽榜區選的屆別，封存屆別也可以）。
  * - `EntryRowActions`：作品列的「編輯」（開視窗）、「刪除」（公開中停用、按鈕寫原因；能刪時一句確認）。
  * - `HomeOrderPanel`：首頁輪播順序，原生拖曳或上移／下移，按一次「儲存首頁順序」。
- * - 成功後右下角一句提示（整頁共用一個，掛在「新增」旁；列被刪掉也還看得到）；資料由 Server Action 的 `refresh()` 重新整理。
+ * - 成功後右下角一句提示（整頁共用一個；列被刪掉也還看得到）；資料由 Server Action 的 `refresh()` 重新整理。
  */
 
 /** `field`：失敗時是哪一欄（目前只有存草稿的 `videoUrl` 會帶），訊息改顯示在那一欄下面。 */
@@ -70,7 +70,7 @@ function Toast({ text }: { text: string | null }) {
   )
 }
 
-/** 整頁共用的提示：列上的動作呼叫 `showToast`，`ToastHost`（掛在「新增」旁，頁面只有一個）顯示。 */
+/** 整頁共用的提示：列上的動作呼叫 `showToast`，`ShowcaseDialogs` 裡唯一的 `ToastHost` 顯示。 */
 const toastListeners = new Set<(text: string) => void>()
 
 function showToast(text: string) {
@@ -91,25 +91,74 @@ function ToastHost() {
 /** 視窗共用的設定（伺服器帶進來的句子與上限）。 */
 export type ShowcaseDialogConfig = { videoUrlMessage: string; awardLabelMax: number }
 
-type Honor = { cohortId: string; options: EditorVocabulary }
+type DialogTarget =
+  | ShowcaseDialogTarget
+  | { mode: 'delete'; entry: ShowcaseEntryView }
+  | { mode: 'honor'; cohortId: string; options: EditorVocabulary }
+
+const DialogContext = createContext<((target: DialogTarget) => void) | null>(null)
+
+/** 全頁只有一個視窗目標；chunk 晚到時，已被取代的目標不會再掛載開窗。 */
+export function ShowcaseDialogs({ config, children }: { config: ShowcaseDialogConfig; children: ReactNode }) {
+  const router = useRouter()
+  const [current, setCurrent] = useState<{ target: DialogTarget; key: string } | null>(null)
+  const target = current?.target
+  const close = () => setCurrent(null)
+  const done = (message: string) => {
+    // 刪除送出後可先關窗；晚到的結果只提示，不把後來開的另一個視窗關掉。
+    setCurrent((now) => now?.key === current?.key ? null : now)
+    showToast(message)
+  }
+
+  return (
+    <DialogContext.Provider value={(target) => setCurrent({ target, key: crypto.randomUUID() })}>
+      {children}
+      {target?.mode === 'delete' ? (
+        <ShowcaseDeleteDialog
+          key={current?.key}
+          entry={target.entry}
+          requestId={current!.key}
+          deleteEntry={deleteEntryAction}
+          dialogClass={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}
+          cancelClass={SECONDARY}
+          onCancel={close}
+          onDeleted={done}
+        />
+      ) : target?.mode === 'honor' ? (
+        <ItemFormDialog
+          key={current?.key}
+          open
+          title="新增榮譽"
+          placement="honor"
+          cohortId={target.cohortId}
+          options={target.options}
+          onCancel={close}
+          onDone={(result) => {
+            done(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
+            router.refresh()
+          }}
+        />
+      ) : target ? (
+        <ShowcaseEditDialog key={current?.key} target={target} {...config} {...EDIT_DIALOG_DEPS} onCancel={close} onSaved={done} />
+      ) : null}
+      <ToastHost />
+    </DialogContext.Provider>
+  )
+}
 
 export function ShowcaseNewMenu({
-  config,
   create,
   backfillCohorts,
   honorCohort,
 }: {
-  config: ShowcaseDialogConfig
   /** 「作品」：建草稿的屆別與還沒有作品的組；沒有進行中的屆別是 null（選項停用並寫原因）。 */
   create: { cohortLabel: string; groups: readonly { readonly id: string; readonly code: string }[] } | null
   backfillCohorts: readonly { readonly id: string; readonly label: string }[]
   /** 榮譽榜區目前選的屆別。 */
   honorCohort: { id: string; label: string } | null
 }) {
-  const router = useRouter()
+  const showDialog = useContext(DialogContext)!
   const [open, setOpen] = useState(false)
-  const [target, setTarget] = useState<ShowcaseDialogTarget | null>(null)
-  const [honor, setHonor] = useState<Honor | null>(null)
   const [loading, setLoading] = useState(false)
   const box = useRef<HTMLDivElement>(null)
 
@@ -135,7 +184,7 @@ export function ShowcaseNewMenu({
     setLoading(true)
     try {
       const context = await frontEditContextAction({ cohortId: honorCohort.id })
-      if (context.ok) setHonor({ cohortId: context.cohortId, options: context.options })
+      if (context.ok) showDialog({ mode: 'honor', cohortId: context.cohortId, options: context.options })
       else showToast(context.message)
     } catch {
       showToast('表單資料載入失敗，請再按一次。')
@@ -172,7 +221,7 @@ export function ShowcaseNewMenu({
             disabled={createReason !== null}
             onClick={() => {
               setOpen(false)
-              if (create) setTarget({ mode: 'create', cohortLabel: create.cohortLabel, groups: create.groups })
+              if (create) showDialog({ mode: 'create', cohortLabel: create.cohortLabel, groups: create.groups })
             }}
           >
             <span>作品</span>
@@ -184,7 +233,7 @@ export function ShowcaseNewMenu({
             className={MENU_ITEM}
             onClick={() => {
               setOpen(false)
-              setTarget({ mode: 'backfill', cohorts: backfillCohorts })
+              showDialog({ mode: 'backfill', cohorts: backfillCohorts })
             }}
           >
             <span>補登歷屆作品</span>
@@ -198,97 +247,34 @@ export function ShowcaseNewMenu({
           </button>
         </div>
       ) : null}
-      {target ? (
-        <ShowcaseEditDialog
-          target={target}
-          {...config}
-          {...EDIT_DIALOG_DEPS}
-          onCancel={() => setTarget(null)}
-          onSaved={(message) => {
-            setTarget(null)
-            showToast(message)
-          }}
-        />
-      ) : null}
-      {honor ? (
-        <ItemFormDialog
-          open
-          title="新增榮譽"
-          placement="honor"
-          cohortId={honor.cohortId}
-          options={honor.options}
-          onCancel={() => setHonor(null)}
-          onDone={(result) => {
-            setHonor(null)
-            showToast(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
-            router.refresh()
-          }}
-        />
-      ) : null}
-      <ToastHost />
     </div>
   )
 }
 
 /** 作品列的「編輯」「刪除」。 */
-export function EntryRowActions({ entry, config }: { entry: ShowcaseEntryView; config: ShowcaseDialogConfig }) {
-  const [editing, setEditing] = useState(false)
+export function EntryRowActions({ entry }: { entry: ShowcaseEntryView }) {
+  const showDialog = useContext(DialogContext)!
   const name = entry.title || '（未填題目）'
   return (
     <span className="flex flex-wrap items-center gap-1.5 md:justify-end">
-      <button type="button" className={ROW_BTN} aria-label={`編輯：${name}`} onClick={() => setEditing(true)}>
+      <button type="button" className={ROW_BTN} aria-label={`編輯：${name}`} onClick={() => showDialog({ mode: 'edit', entry })}>
         編輯
       </button>
-      <DeleteEntryButton entry={entry} onDeleted={showToast} />
-      {editing ? (
-        <ShowcaseEditDialog
-          target={{ mode: 'edit', entry }}
-          {...config}
-          {...EDIT_DIALOG_DEPS}
-          onCancel={() => setEditing(false)}
-          onSaved={(message) => {
-            setEditing(false)
-            showToast(message)
-          }}
-        />
-      ) : null}
+      {entry.deleteBlocked ? (
+        <button type="button" className={cn(ROW_BTN, 'whitespace-normal')} disabled data-testid="delete-blocked">
+          {entry.deleteBlocked}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className={cn(ROW_BTN, 'text-destructive hover:bg-destructive-subtle')}
+          aria-label={`刪除：${name}`}
+          onClick={() => showDialog({ mode: 'delete', entry })}
+        >
+          刪除
+        </button>
+      )}
     </span>
-  )
-}
-
-/** 刪除：公開中停用、按鈕本身寫原因；能刪時一句確認（不能恢復）。 */
-function DeleteEntryButton({ entry, onDeleted }: { entry: ShowcaseEntryView; onDeleted: (text: string) => void }) {
-  const [deleteRequest, setDeleteRequest] = useState<string | null>(null)
-  const name = entry.title || '（未填題目）'
-
-  if (entry.deleteBlocked) {
-    return (
-      <button type="button" className={cn(ROW_BTN, 'whitespace-normal')} disabled data-testid="delete-blocked">
-        {entry.deleteBlocked}
-      </button>
-    )
-  }
-  return (
-    <>
-      <button
-        type="button"
-        className={cn(ROW_BTN, 'text-destructive hover:bg-destructive-subtle')}
-        aria-label={`刪除：${name}`}
-        onClick={() => setDeleteRequest(crypto.randomUUID())}
-      >
-        刪除
-      </button>
-      {deleteRequest ? (
-        <ShowcaseDeleteDialog
-          entry={entry}
-          requestId={deleteRequest}
-          deleteEntry={deleteEntryAction}
-          dialogClass={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}
-          cancelClass={SECONDARY}
-          onDeleted={onDeleted}
-        />
-      ) : null}
-    </>
   )
 }
 
