@@ -785,6 +785,21 @@ const stageRow = async (seq: number) =>
     .rows[0]!.start
 const cohortRevision = async () => (await pool.query<{ revision: number }>('select revision from cohorts where id = $1', [cohortId])).rows[0]!.revision
 const NO_RESPONSE = '沒有收到伺服器回應，請重新整理頁面看看。'
+/** 把把手捲到甘特可視區正中間（滑鼠往左拖才不會拖出甘特）。 */
+async function centerHandle(page: Page, handle: Locator) {
+  const box = (await handle.boundingBox())!
+  await page.locator('.gantt-scroll').evaluate((el, x) => {
+    const rect = el.getBoundingClientRect()
+    el.scrollLeft += x - (rect.left + rect.width / 2)
+  }, box.x)
+}
+
+/** 把手鍵盤：← 一天、Enter 送出（跟拖拉放開同一條 `saveSchedule`；把手常被捲到可視區邊緣，滑鼠往左拖會拖出甘特）。 */
+async function nudge(handle: Locator, days: number) {
+  await handle.focus()
+  for (let i = 0; i < days; i += 1) await handle.press('ArrowLeft')
+  await handle.press('Enter')
+}
 
 test('FIX-1 預覽還沒回來時又拖一次：第二次不接；確認框取消 → 回到最初的位置，資料不變', async ({ page }) => {
   await signIn(page)
@@ -797,8 +812,14 @@ test('FIX-1 預覽還沒回來時又拖一次：第二次不接；確認框取�
   const handle = stageHandle(page, 3)
   await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
 
+  // 滑鼠連拖兩次（鍵盤調整在 gantt 裡本來就會等前一次，Review 是用滑鼠重現的）。
+  await centerHandle(page, handle)
   await drag(page, handle, -7 * DAY_PX) // 預覽延遲中
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(addDays(origin, -7))}（`))
   await drag(page, handle, -7 * DAY_PX) // 再拖一次
+  // 等兩次預覽都回來再取消（Review 的情境）。Next 的 server action 會排隊一個一個送，各延遲 2 秒，
+  // 第二次最晚約 4.5 秒才回來，所以等 6 秒。
+  await page.waitForTimeout(6_000)
   await expect(confirmBox(page)).toBeVisible()
   await confirmBox(page).getByRole('button', { name: '取消' }).click()
   await expect(confirmBox(page)).toHaveCount(0)
@@ -814,7 +835,7 @@ test('FIX-2 按「確定」後儲存還在跑：「取消」停用、Esc 關不�
   await openGantt(page)
   const origin = await stageRow(3)
   const revision = await cohortRevision()
-  await drag(page, stageHandle(page, 3), -7 * DAY_PX)
+  await nudge(stageHandle(page, 3), 7)
   await expect(confirmBox(page)).toBeVisible()
   await confirmBox(page).getByRole('button', { name: '確定' }).click()
   await expect(confirmBox(page).getByRole('button', { name: '儲存中…' })).toBeDisabled()
@@ -838,13 +859,13 @@ test('FIX-3 斷線：預覽或儲存的請求失敗 → 回彈、錯誤句、不
   const alert = page.getByTestId('gantt').getByRole('alert')
 
   // 預覽斷線：不開確認框，回彈＋錯誤句。
-  await drag(page, handle, -7 * DAY_PX)
+  await nudge(handle, 7)
   await expect(alert).toHaveText(NO_RESPONSE)
   await expect(confirmBox(page)).toHaveCount(0)
   await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
 
   // 預覽成功、儲存斷線：關框、回彈＋錯誤句。
-  await drag(page, handle, -7 * DAY_PX)
+  await nudge(handle, 7)
   await expect(confirmBox(page)).toBeVisible()
   await confirmBox(page).getByRole('button', { name: '確定' }).click()
   await expect(confirmBox(page)).toHaveCount(0)
