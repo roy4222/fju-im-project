@@ -127,31 +127,30 @@ try {
 
   await t.step({
     caption: '系辦看到待審申請',
-    narration: '換系辦登入。首頁的待審磚直接進帳號管理，新申請旁寫著「不在本屆名單上」，提醒系辦要自己核實。',
-    status: { kind: 'ok', evidence: 'story-2 第 2 步' },
+    narration: '換系辦登入。首頁的待審磚直接進帳號底下的「待審核」分頁，新申請旁寫著「不在本屆名單上」，提醒系辦要自己核實。',
+    status: { kind: 'ok', evidence: 'story-2 第 2 步；C2-07 待審搬到 /dashboard/admin/accounts/pending' },
   }, async () => {
     await t.offRecord(async () => {
       await switchTo(page, await sessionOf('系辦管理員'));
       await t.goto('/dashboard/admin');
     });
-    await t.click(main.getByRole('link', { name: /^審核帳號 \d+ ／/ }));
+    await t.click(main.getByRole('link', { name: /^審核帳號（\d+）/ }));
+    await page.waitForURL(/\/dashboard\/admin\/accounts\/pending/);
     const row = main.getByRole('region', { name: '待審核' }).getByRole('row').filter({ hasText: student.name });
     await t.scroll(row);
-    await t.hover(row.getByRole('cell', { name: '不在本屆名單上' }));
+    await t.hover(row.getByText('不在本屆名單上'));
   });
 
   await t.step({
     caption: '核准註冊',
-    narration: '審核要選怎麼確認是本人，沒選會被擋。核准後他就歸到「新註冊加入這屆」的屆別。',
-    status: { kind: 'ok', evidence: 'story-1 第 24 步' },
+    narration: '核准不再問怎麼確認是本人。名單有這個人，按一下就核准；名單沒有，只要選一屆。這位同學不在名單上，所以跳出小視窗選屆別。',
+    status: { kind: 'ok', evidence: 'story-1 第 24 步；C2-10 核准一鍵、不問核實方式與理由' },
   }, async () => {
-    await t.click(main.getByRole('button', { name: `審核 ${student.name}` }));
-    const dialog = page.getByRole('dialog', { name: `審核 ${student.name}` });
+    await t.click(main.getByRole('button', { name: `核准 ${student.name}`, exact: true }));
+    const dialog = page.getByRole('dialog', { name: `核准 ${student.name}` });
     await t.waitStable({ ready: dialog });
     await t.hover(dialog.getByRole('combobox', { name: '核准進哪一屆' }));
-    await t.click(dialog.getByRole('radio', { name: '當面核對學生證或其他身分證件' }));
-    await t.type(dialog.getByRole('textbox', { name: /^理由/ }), '當面核對學生證，資料無誤');
-    await t.click(dialog.getByRole('button', { name: '核准' }));
+    await t.click(dialog.getByRole('button', { name: '核准', exact: true }));
     const done = dialog.getByRole('status').getByText('已核准');
     await t.waitStable({ ready: done });
     await t.hover(dialog.getByRole('status').getByText(/已開通，進入 示範 114 屆/));

@@ -62,9 +62,11 @@ try {
 
   await t.step({
     caption: '我的帳號在哪',
-    narration: '登入後右上角是頭像和名字，點開有我的帳號、我的後台、登出。',
-    status: { kind: 'ok', evidence: 'UX 新生 任務 3' },
+    narration: '登入後前台右上角只有一顆「我的後台」。帳號相關的事都在後台：按「我的後台」進去，右上角頭像點開有我的帳號、登出。',
+    status: { kind: 'ok', evidence: 'UX 新生 任務 3；C2-14 前台不再有頭像選單' },
   }, async () => {
+    await t.click(banner.getByRole('link', { name: '我的後台' }));
+    await page.waitForURL(/\/dashboard\/student/);
     await t.click(banner.getByRole('button', { name: '帳號選單' }));
     const menu = page.getByRole('menu', { name: '帳號選單' });
     await t.waitStable({ ready: menu });
@@ -131,9 +133,10 @@ try {
 
   await t.step({
     caption: '登出',
-    narration: '登出在帳號選單最下面，回到訪客狀態。',
-    status: { kind: 'ok', evidence: '既有保證' },
+    narration: '登出在後台頭像選單最下面，回到訪客狀態。',
+    status: { kind: 'ok', evidence: '既有保證；C2-14 登出只在後台頭像選單' },
   }, async () => {
+    await t.goto('/dashboard/student', { ready: main });
     await t.click(banner.getByRole('button', { name: '帳號選單' }));
     const menu = page.getByRole('menu', { name: '帳號選單' });
     await t.waitStable({ ready: menu });
