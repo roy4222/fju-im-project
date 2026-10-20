@@ -133,11 +133,22 @@ export async function dissolveGroupAction(_state: AdminGroupActionState, formDat
     text(formData, 'requestId'),
   )
   if (!result.ok) return { ok: false, message: result.message }
-  // 解散後這組不在「全部組別」裡了（詳情跟著消失），回執改在「已解散的組別」那一塊顯示。
+  // 刪除後切到「已刪除」篩選顯示回執，仍可從紀錄入口查看原組。
   const cohortId = text(formData, 'cohortId')
-  if (UUID.test(cohortId)) redirect(`/dashboard/admin/groups?cohort=${cohortId}&dissolved=${result.receipt.groupId}`)
+  if (UUID.test(cohortId)) redirect(`/dashboard/admin/groups?cohort=${cohortId}&status=deleted&dissolved=${result.receipt.groupId}`)
   refresh()
   return { ok: true, message: describeDissolveReceipt(result.receipt) }
+}
+
+export async function unlinkGroupOpportunityAction(_state: AdminGroupActionState, formData: FormData): Promise<AdminGroupActionState> {
+  const result = await getOpportunityCommand().unlink(
+    await currentActor(),
+    { linkId: text(formData, 'linkId'), reason: text(formData, 'reason') },
+    text(formData, 'requestId'),
+  )
+  if (!result.ok) return { ok: false, message: result.message }
+  refresh()
+  return { ok: true, message: describeLinkReceipt(result.receipt) }
 }
 
 // ── 指導老師（票 19）─────────────────────────────────────────────────────────

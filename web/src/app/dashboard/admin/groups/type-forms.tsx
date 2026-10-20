@@ -54,7 +54,7 @@ export function GroupTypeCell({
           <Pill className="bg-transparent">{typeLabels[group.groupType]}</Pill>
         )}
         <button type="button" className={ROW_GHOST} aria-label={`改組別類型：${group.code}`} onClick={dialog.open}>
-          改類型
+          編輯
         </button>
       </div>
       <Feedback state={state?.ok ? state : undefined} />
@@ -89,7 +89,7 @@ export function GroupTypeCell({
           <input type="hidden" name="requestId" value={requestId} />
           <div>
             <label htmlFor={`type-reason-${group.id}`} className={LABEL}>
-              理由（必填）
+              理由（可不填）
             </label>
             <textarea
               id={`type-reason-${group.id}`}

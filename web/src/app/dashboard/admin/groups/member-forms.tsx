@@ -1,531 +1,164 @@
 'use client'
-import { useActionState, useEffect, useState } from 'react'
-import { addMemberAction, changeLeaderAction, loadGroupHistoryAction, removeMemberAction } from './actions'
-import {
-  DIALOG,
-  Feedback,
-  INPUT,
-  LABEL,
-  PRIMARY,
-  SECONDARY,
-  useCloseOnSuccess,
-  useDialog,
-  type AdminGroupActionState,
-} from './admin-group-forms'
-import { IconUserPlus } from '@tabler/icons-react'
-import { PANEL_TABLE_HEAD, PANEL_TABLE_ROW, PanelEmpty, Pill } from '@/app/_ui/dashboard/primitives'
-import { BTN_ROW } from '@/app/_ui/dashboard/look'
+import { createContext, useActionState, useContext, useState, type ReactNode } from 'react'
+import { addMemberAction, changeLeaderAction, removeMemberAction } from './actions'
+import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog, type AdminGroupActionState } from './admin-group-forms'
 
-/** 組別詳情：原型是從右邊滑出的側板（Sheet）；這裡用同一個原生對話框，只把它放到右側、滿高。 */
-const SHEET =
-  'm-0 ml-auto h-dvh max-h-dvh w-[min(30rem,100vw)] overflow-y-auto border-0 border-l border-border bg-popover p-0 text-sm text-popover-foreground shadow-xl backdrop:bg-black/10 backdrop:backdrop-blur-xs'
+const MemberMessage = createContext<((state: AdminGroupActionState) => void) | null>(null)
 
-/**
- * 票 14：管理員加入組員、組別詳情（移出、換組長、異動歷程）。原型 `JoinGroupDialog`、`group-detail-sheet`。
- *
- * 人數和設定不符只提醒不擋（2026-09-24 定案）；畫面上的提醒是預覽，最後以伺服器回執為準。
- * 回饋一律是伺服器回的句子。
- */
+/** 列移除或換組長後按鈕會卸載，回執留在頁面層。 */
+export function MemberFeedback({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<AdminGroupActionState>()
+  return <MemberMessage.Provider value={setState}><Feedback state={state} />{children}</MemberMessage.Provider>
+}
+
+function useMemberAction(command: typeof removeMemberAction) {
+  const publish = useContext(MemberMessage)
+  const result = useActionState(async (previous: AdminGroupActionState, data: FormData) => {
+    publish?.(undefined)
+    const next = await command(previous, data)
+    if (next?.ok) publish?.(next)
+    return next
+  }, undefined)
+  return { result, shared: publish !== null }
+}
 
 type Size = { min: number; max: number }
-
-/** 人數和設定不符的提醒句（和 application 的 `groupSizeWarning` 同一句；client 不能引 application）。 */
-function sizeHint(count: number, size: Size): string | null {
-  if (count < size.min) return `人數與設定不符：${count} 人，少於本屆每組最少 ${size.min} 人`
-  if (count > size.max) return `人數與設定不符：${count} 人，超過本屆每組最多 ${size.max} 人`
-  return null
-}
-
-function SizeReminder({ text }: { text: string | null }) {
-  if (!text) return null
-  return (
-    <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
-      {text}；系辦調整允許，但請確認這是特殊情況。
-    </p>
-  )
-}
-
-/**
- * 理由欄。受控：React 在 action 回來後會重設表單裡**非受控**的欄位，被伺服器拒絕（例如忘了選接任）時
- * 已經打好的理由不能跟著不見。
- */
-function ReasonField({ id, maxLength, placeholder }: { id: string; maxLength: number; placeholder: string }) {
-  const [value, setValue] = useState('')
-  return (
-    <div>
-      <label htmlFor={id} className={LABEL}>
-        理由（必填）
-      </label>
-      <textarea
-        id={id}
-        name="reason"
-        rows={3}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        className={INPUT}
-      />
-    </div>
-  )
-}
-
-/** 受控的下拉選單（理由同）：第一個選項是「請選…」的空值。 */
-function MemberSelect({
-  id,
-  name,
-  label,
-  placeholder,
-  options,
-}: {
-  id: string
-  name: string
-  label: string
-  placeholder: string
-  options: GroupDetailMember[]
-}) {
-  const [value, setValue] = useState('')
-  return (
-    <div>
-      <label htmlFor={id} className={LABEL}>
-        {label}
-      </label>
-      <select id={id} name={name} value={value} onChange={(e) => setValue(e.target.value)} className={INPUT}>
-        <option value="" disabled>
-          {placeholder}
-        </option>
-        {options.map((m) => (
-          <option key={m.userId} value={m.userId}>
-            {m.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
-function Actions({
-  pending,
-  disabled = false,
-  cancel,
-  submit,
-  onCancel,
-}: {
-  pending: boolean
-  disabled?: boolean
-  cancel: string
-  submit: string
-  onCancel: () => void
-}) {
-  return (
-    <div className="flex justify-end gap-2 pt-1">
-      <button type="button" className={SECONDARY} onClick={onCancel}>
-        {cancel}
-      </button>
-      <button type="submit" disabled={pending || disabled} className={PRIMARY}>
-        {pending ? '處理中…' : submit}
-      </button>
-    </div>
-  )
-}
-
-/** 加入對話框可選的組別。 */
-export type JoinableGroup = { id: string; code: string; revision: number; memberCount: number }
-export type UngroupedRow = { name: string; studentNo: string; openToJoin: boolean; inProposal: boolean }
-
-/**
- * 「未分組學生」整段（原型 `JoinGroupDialog`）：表格＋每列「加入某組」＋**一個**共用的加入對話框。
- * 對話框與回饋放在表格外面：加入成功後那一列會從表格消失，回饋不能跟著那一列一起不見。
- */
-export function UngroupedStudents({
-  students,
-  totalStudents,
-  groups,
-  size,
-  requestId,
-  reasonMaxLength,
-}: {
-  students: UngroupedRow[]
-  /** 本屆學生總數（已分組＋未分組）；0 時說「還沒有學生」，不說「都分好組了」。 */
-  totalStudents: number
-  groups: JoinableGroup[]
-  size: Size
-  requestId: string
-  reasonMaxLength: number
-}) {
-  const [state, formAction, pending] = useActionState(addMemberAction, undefined)
-  const dialog = useDialog()
-  const [student, setStudent] = useState<UngroupedRow | null>(null)
-  const [groupId, setGroupId] = useState('')
-  useCloseOnSuccess(state, dialog.close)
-  const target = groups.find((g) => g.id === groupId) ?? groups[0]
-
-  const pick = (row: UngroupedRow) => {
-    setStudent(row)
-    dialog.open()
-  }
-
-  return (
-    <div>
-      {state?.ok ? (
-        <div className="px-5 pb-3">
-          <Feedback state={state} />
-        </div>
-      ) : null}
-      {students.length === 0 ? (
-        totalStudents === 0 ? (
-          <PanelEmpty title="本屆還沒有學生" hint="先匯入名單，學生註冊並經核准後會出現在這裡。" />
-        ) : (
-          <PanelEmpty title="本屆學生都分好組了" />
-        )
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-sm">
-            <thead>
-              <tr className={PANEL_TABLE_HEAD}>
-                <th scope="col" className="px-5 py-2.5 font-semibold">姓名</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">學號</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">找組員</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">提案</th>
-                <th scope="col" className="px-5 py-2.5">
-                  <span className="sr-only">動作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((u) => (
-                <tr key={u.studentNo} className={PANEL_TABLE_ROW}>
-                  <td className="px-5 py-2.5 font-semibold">{u.name}</td>
-                  <td className="tabular px-4 py-2.5">{u.studentNo}</td>
-                  <td className="px-4 py-2.5">{u.openToJoin ? <Pill tone="brand">公開找組員</Pill> : <Pill>未公開</Pill>}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{u.inProposal ? '組隊中（等全員確認）' : '—'}</td>
-                  <td className="px-5 py-2.5 text-right">
-                    <button type="button" className={BTN_ROW} aria-label={`加入某組：${u.name}`} onClick={() => pick(u)}>
-                      <IconUserPlus aria-hidden />
-                      加入某組
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <dialog ref={dialog.ref} aria-label={student ? `把 ${student.name} 加入組別` : '加入組別'} className={DIALOG}>
-        {student ? (
-          <form key={`${student.studentNo}-${requestId}`} action={formAction} className="space-y-4 p-5">
-            <h2 className="text-lg font-extrabold text-foreground">把 {student.name} 加入組別</h2>
-            <p className="text-sm text-muted-foreground">
-              {student.studentNo}・{student.openToJoin ? '本人有公開找組員' : '本人沒有公開找組員，加入前請先聯絡'}。
-              加入後全組會收到通知；成員改變，之後的站內同意書要重新同意。
-            </p>
-            {student.inProposal ? (
-              <p className="rounded-lg bg-danger-subtle px-3 py-2 text-sm text-danger-on-subtle">
-                這位同學正在某份提案裡等確認：要加入請先在「組隊中（等全員確認）」作廢那份提案（理由另填），或等它結束。
-              </p>
-            ) : null}
-            <input type="hidden" name="studentNo" value={student.studentNo} />
-            <input type="hidden" name="requestId" value={requestId} />
-            <input type="hidden" name="groupId" value={target?.id ?? ''} />
-            <input type="hidden" name="revision" value={target?.revision ?? ''} />
-            {groups.length > 0 ? (
-              <div>
-                <label htmlFor="add-member-group" className={LABEL}>
-                  組別
-                </label>
-                <select
-                  id="add-member-group"
-                  value={target?.id}
-                  onChange={(e) => setGroupId(e.target.value)}
-                  className={INPUT}
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.code}・目前 {g.memberCount} 人
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <p className="text-sm text-danger">本屆還沒有成立的組別，沒有組可以加入。</p>
-            )}
-            {target ? <SizeReminder text={sizeHint(target.memberCount + 1, size)} /> : null}
-            <ReasonField id="add-member-reason" maxLength={reasonMaxLength} placeholder="例：轉學生，系上安排加入" />
-            <Feedback state={state?.ok ? undefined : state} />
-            <Actions pending={pending} disabled={groups.length === 0} cancel="先不要" submit="確認加入" onCancel={dialog.close} />
-          </form>
-        ) : null}
-      </dialog>
-    </div>
-  )
-}
-
 export type GroupDetailMember = { userId: string; name: string; studentNo: string | null; isLeader: boolean }
 export type GroupDetailHistory = { key: string; atLabel: string; text: string; reason: string | null }
 export type GroupHistoryOutcome = { ok: true; history: GroupDetailHistory[] } | { ok: false; message: string }
-type DetailGroup = { id: string; code: string; revision: number; members: GroupDetailMember[] }
+type DetailGroup = { id: string; code: string; revision: number; members: readonly GroupDetailMember[] }
+const ROW = 'rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11'
 
-/**
- * 組別詳情：成員與組長、移出、換組長、成立後的異動歷程。
- * 移出與換組長各自一個小對話框；成功後頁面重新整理，詳情維持打開、看得到新名單與新歷程。
- */
-export function GroupDetailButton({
-  group,
-  size,
-  requestIds,
-  reasonMaxLength,
-}: {
-  group: DetailGroup & { typeLabel: string }
-  size: Size
-  requestIds: { remove: string; leader: string }
-  reasonMaxLength: number
-}) {
-  const dialog = useDialog()
-  const removeDialog = useDialog()
-  const [message, setMessage] = useState<AdminGroupActionState>(undefined)
-  const [removing, setRemoving] = useState<GroupDetailMember | null>(null)
-  const leader = group.members.find((m) => m.isLeader) ?? null
-  const single = group.members.length <= 1
-  // 歷程不隨頁面載入（SH-B4）：第一次打開才取；成員或組長變動後（頁面重新整理，詳情維持打開）重取。
-  // 每次打開遞增載入序號並清掉舊結果：上次失敗（網路中斷）也能靠關閉重開重新載入；晚回來的舊回應不覆蓋新的。
-  const [loadSeq, setLoadSeq] = useState(0)
-  const [history, setHistory] = useState<GroupHistoryOutcome | null>(null)
-  const stamp = `${group.revision}:${group.members.map((m) => `${m.userId}${m.isLeader ? '*' : ''}`).join(',')}`
-  useEffect(() => {
-    if (loadSeq === 0) return
-    let current = true
-    loadGroupHistoryAction(group.id)
-      .then((outcome) => current && setHistory(outcome))
-      .catch(() => current && setHistory({ ok: false, message: '歷程載入失敗，請關閉後再開一次。' }))
-    return () => {
-      current = false
-    }
-  }, [loadSeq, group.id, stamp])
-
-  return (
-    <div>
-      {/* 原型：點組別代碼打開詳情（成員、老師、異動與例外處理）。 */}
-      <button
-        type="button"
-        className="tabular rounded-md text-sm font-bold whitespace-nowrap text-ink underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-brand"
-        aria-label={`${group.code} 詳情`}
-        onClick={() => {
-          setHistory(null)
-          setLoadSeq((n) => n + 1)
-          dialog.open()
-        }}
-      >
-        {group.code}
-      </button>
-      <dialog ref={dialog.ref} aria-label={`${group.code} 詳情`} className={SHEET}>
-        <div className="space-y-4 p-5">
-          <div>
-            <p className="text-xs font-semibold text-primary">{group.typeLabel}</p>
-            <h2 className="text-lg font-extrabold text-foreground tabular-nums">
-              {group.code}・{group.members.length} 人
-            </h2>
-          </div>
-          <SizeReminder text={sizeHint(group.members.length, size)} />
-          <Feedback state={message} />
-
-          <section aria-label="成員" className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-foreground">成員</h3>
-              {single ? null : (
-                <ChangeLeaderDialog
-                  group={group}
-                  leader={leader}
-                  requestId={requestIds.leader}
-                  reasonMaxLength={reasonMaxLength}
-                  onDone={setMessage}
-                />
-              )}
-            </div>
-            <ul aria-label="成員名單" className="divide-y divide-border rounded-lg border border-border">
-              {group.members.map((m) => (
-                <li key={m.userId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                  <span className="text-foreground">
-                    {m.name}
-                    <span className="ml-1 text-xs text-muted-foreground tabular-nums">{m.studentNo}</span>
-                    {m.isLeader ? (
-                      <Pill tone="brand" className="ml-2">
-                        組長
-                      </Pill>
-                    ) : null}
-                  </span>
-                  {single ? null : (
-                    <button
-                      type="button"
-                      className={BTN_ROW}
-                      aria-label={`移出：${m.name}`}
-                      onClick={() => {
-                        setRemoving(m)
-                        removeDialog.open()
-                      }}
-                    >
-                      移出
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-            {single ? (
-              <p className="text-xs text-muted-foreground">只剩一人時不能再移出。</p>
-            ) : null}
-            {/* 只有一個移出對話框：移出成功後那一列會消失，對話框與回饋不能跟著那一列一起不見。 */}
-            <RemoveMemberDialog
-              handle={removeDialog}
-              group={group}
-              member={removing}
-              size={size}
-              requestId={requestIds.remove}
-              reasonMaxLength={reasonMaxLength}
-              onDone={setMessage}
-            />
-          </section>
-
-          <section aria-label="異動歷程" className="space-y-2">
-            <h3 className="text-sm font-semibold text-foreground">異動歷程</h3>
-            {history === null ? (
-              <p className="text-sm text-muted-foreground">
-                載入中…
-              </p>
-            ) : !history.ok ? (
-              <p role="alert" className="text-sm text-danger">
-                {history.message}
-              </p>
-            ) : history.history.length > 0 ? (
-              <ol className="space-y-2 text-sm">
-                {history.history.map((h) => (
-                  <li key={h.key} className="rounded-lg border border-border px-3 py-2">
-                    <p className="text-foreground">
-                      <span className="mr-2 text-xs text-muted-foreground tabular-nums">{h.atLabel}</span>
-                      {h.text}
-                    </p>
-                    {h.reason ? <p className="mt-0.5 text-xs text-muted-foreground">理由：{h.reason}</p> : null}
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="text-sm text-muted-foreground">成立後沒有調整過成員或組長。</p>
-            )}
-          </section>
-
-          <div className="flex justify-end pt-1">
-            <button type="button" className={SECONDARY} onClick={dialog.close}>
-              關閉
-            </button>
-          </div>
-        </div>
-      </dialog>
-    </div>
-  )
+function Reason({ id, maxLength }: { id: string; maxLength: number }) {
+  const [value, setValue] = useState('')
+  return <div>
+    <label htmlFor={id} className={LABEL}>理由（可不填）</label>
+    <textarea id={id} name="reason" rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={maxLength} className={INPUT} />
+  </div>
 }
 
-/** 成功就關掉小對話框、把回饋交給詳情顯示。 */
-function useDoneOnSuccess(state: AdminGroupActionState, close: () => void, onDone: (state: AdminGroupActionState) => void) {
-  useEffect(() => {
-    if (state?.ok) {
-      close()
-      onDone(state)
-    }
-  }, [state, close, onDone])
+function Hidden({ group, requestId }: { group: { id: string; revision: number }; requestId: string }) {
+  return <>
+    <input type="hidden" name="groupId" value={group.id} />
+    <input type="hidden" name="revision" value={group.revision} />
+    <input type="hidden" name="requestId" value={requestId} />
+  </>
 }
 
-function RemoveMemberDialog({
-  handle,
-  group,
-  member,
-  size,
-  requestId,
-  reasonMaxLength,
-  onDone,
-}: {
-  handle: ReturnType<typeof useDialog>
+function SizeReminder({ count, size }: { count: number; size: Size }) {
+  const bound = count < size.min ? `少於本屆每組最少 ${size.min} 人` : count > size.max ? `超過本屆每組最多 ${size.max} 人` : null
+  return bound ? <p className="rounded-lg bg-warning-subtle p-3 text-sm text-warning-on-subtle">人數與設定不符：{count} 人，{bound}；系辦調整允許，但請確認這是特殊情況。</p> : null
+}
+
+function Submit({ pending, disabled = false, label, close }: { pending: boolean; disabled?: boolean; label: string; close: () => void }) {
+  return <div className="flex justify-end gap-2">
+    <button type="button" className={SECONDARY} onClick={close}>先不要</button>
+    <button type="submit" className={PRIMARY} disabled={pending || disabled}>{pending ? '處理中…' : label}</button>
+  </div>
+}
+
+/** 卡片加入入口：同屆可加入的學生由總覽一次帶入。 */
+export function AddMemberButton({ group, students, size, requestId, reasonMaxLength }: {
   group: DetailGroup
-  member: GroupDetailMember | null
+  students: readonly { name: string; studentNo: string; inProposal: boolean }[]
   size: Size
   requestId: string
   reasonMaxLength: number
-  onDone: (state: AdminGroupActionState) => void
 }) {
-  const [state, formAction, pending] = useActionState(removeMemberAction, undefined)
-  useDoneOnSuccess(state, handle.close, onDone)
-  const others = member ? group.members.filter((m) => m.userId !== member.userId) : []
-  const fieldId = `remove-${group.id}`
-
-  return (
-    <dialog ref={handle.ref} aria-label={member ? `把 ${member.name} 移出 ${group.code}？` : '移出組員'} className={DIALOG}>
-      {member ? (
-        <form key={`${member.userId}-${group.revision}`} action={formAction} className="space-y-4 p-5">
-          <h2 className="text-lg font-extrabold text-foreground">
-            把 {member.name} 移出 {group.code}？
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            移出後他回到未分組、不能再看這組的資料；全組會收到通知，他只收到本人的異動說明（不含理由）。成員改變，之後的站內同意書要重新同意。
-          </p>
-          <input type="hidden" name="groupId" value={group.id} />
-          <input type="hidden" name="revision" value={group.revision} />
-          <input type="hidden" name="userId" value={member.userId} />
-          <input type="hidden" name="requestId" value={requestId} />
-          {member.isLeader ? (
-            <MemberSelect
-              id={`${fieldId}-successor`}
-              name="successorLeaderUserId"
-              label={`接任組長（${member.name} 是組長，必填）`}
-              placeholder="請選一位留在組裡的成員"
-              options={others}
-            />
-          ) : null}
-          <SizeReminder text={sizeHint(others.length, size)} />
-          <ReasonField id={`${fieldId}-reason`} maxLength={reasonMaxLength} placeholder="例：休學" />
-          <Feedback state={state?.ok ? undefined : state} />
-          <Actions pending={pending} cancel="先不要" submit="確定移出" onCancel={handle.close} />
-        </form>
-      ) : null}
+  const [state, action, pending] = useActionState(addMemberAction, undefined)
+  const dialog = useDialog()
+  useCloseOnSuccess(state, dialog.close)
+  const available = students.filter((s) => !s.inProposal)
+  return <div>
+    <button type="button" className={ROW} onClick={dialog.open} aria-label={`加人：${group.code}`}>＋加人</button>
+    <Feedback state={state?.ok ? state : undefined} />
+    <dialog ref={dialog.ref} className={DIALOG} aria-label={`把學生加入 ${group.code}`}>
+      <form key={`${group.revision}-${requestId}`} action={action} className="space-y-4 p-5">
+        <h2 className="text-lg font-bold">把學生加入 {group.code}</h2>
+        <Hidden group={group} requestId={requestId} />
+        <label className={LABEL} htmlFor={`add-${group.id}-student`}>未分組學生</label>
+        <select id={`add-${group.id}-student`} name="studentNo" className={INPUT} defaultValue="">
+          <option value="" disabled>請選一位學生</option>
+          {available.map((s) => <option key={s.studentNo} value={s.studentNo}>{s.name}（{s.studentNo}）</option>)}
+        </select>
+        {available.length === 0 ? <p>目前沒有可加入的學生。</p> : null}
+        <SizeReminder count={group.members.length + 1} size={size} />
+        <Reason id={`add-${group.id}-reason`} maxLength={reasonMaxLength} />
+        <Feedback state={state?.ok ? undefined : state} />
+        <Submit pending={pending} disabled={available.length === 0} label="確認加入" close={dialog.close} />
+      </form>
     </dialog>
-  )
+  </div>
 }
 
-function ChangeLeaderDialog({
-  group,
-  leader,
-  requestId,
-  reasonMaxLength,
-  onDone,
-}: {
+/** 卡片可以選成員；詳情列直接指定成員。 */
+export function RemoveMemberButton({ group, member, size, requestId, reasonMaxLength }: {
   group: DetailGroup
-  leader: GroupDetailMember | null
+  member?: GroupDetailMember
+  size: Size
   requestId: string
   reasonMaxLength: number
-  onDone: (state: AdminGroupActionState) => void
 }) {
-  const [state, formAction, pending] = useActionState(changeLeaderAction, undefined)
+  const { result: [state, action, pending], shared } = useMemberAction(removeMemberAction)
   const dialog = useDialog()
-  useDoneOnSuccess(state, dialog.close, onDone)
-  const candidates = group.members.filter((m) => !m.isLeader)
-  const fieldId = `leader-${group.id}`
+  const [selected, setSelected] = useState(member?.userId ?? '')
+  useCloseOnSuccess(state, dialog.close)
+  const target = group.members.find((m) => m.userId === (member?.userId ?? selected))
+  const single = group.members.length <= 1
+  return <div>
+    <button type="button" className={ROW} disabled={single} onClick={dialog.open} aria-label={member ? `移除：${member.name}` : `移除組員：${group.code}`}>移除</button>
+    {single ? <p className="text-xs text-muted-foreground">只剩一人時不能再移出。</p> : null}
+    <Feedback state={!shared && state?.ok ? state : undefined} />
+    <dialog ref={dialog.ref} className={DIALOG} aria-label={`移除 ${group.code} 的組員`}>
+      <form key={`${group.revision}-${target?.userId ?? ''}`} action={action} className="space-y-4 p-5">
+        <h2 className="text-lg font-bold">移除 {group.code} 的組員</h2>
+        <Hidden group={group} requestId={requestId} />
+        {member ? <><input type="hidden" name="userId" value={member.userId} /><p>移除 {member.name}</p></> : <>
+          <label htmlFor={`remove-${group.id}-member`} className={LABEL}>要移除的組員</label>
+          <select id={`remove-${group.id}-member`} name="userId" className={INPUT} value={selected} onChange={(e) => setSelected(e.target.value)}>
+            <option value="" disabled>請選一位組員</option>
+            {group.members.map((m) => <option key={m.userId} value={m.userId}>{m.name}{m.isLeader ? '（組長）' : ''}</option>)}
+          </select>
+        </>}
+        {target?.isLeader ? <>
+          <label htmlFor={`remove-${group.id}-successor`} className={LABEL}>接任組長（{target.name} 是組長，必填）</label>
+          <select id={`remove-${group.id}-successor`} name="successorLeaderUserId" className={INPUT} defaultValue="">
+            <option value="" disabled>請選一位留在組裡的成員</option>
+            {group.members.filter((m) => m.userId !== target.userId).map((m) => <option key={m.userId} value={m.userId}>{m.name}</option>)}
+          </select>
+        </> : null}
+        <p className="text-sm text-muted-foreground">移除後回到未分組；成員變更後，站內同意書需要重新同意。</p>
+        <SizeReminder count={group.members.length - 1} size={size} />
+        <Reason id={`remove-${group.id}-${member?.userId ?? 'pick'}-reason`} maxLength={reasonMaxLength} />
+        <Feedback state={state?.ok ? undefined : state} />
+        <Submit pending={pending} label="確定移除" close={dialog.close} />
+      </form>
+    </dialog>
+  </div>
+}
 
-  return (
-    <div>
-      <button type="button" className={BTN_ROW} onClick={dialog.open}>
-        換組長
-      </button>
-      <dialog ref={dialog.ref} aria-label={`換 ${group.code} 的組長`} className={DIALOG}>
-        <form key={group.revision} action={formAction} className="space-y-4 p-5">
-          <h2 className="text-lg font-extrabold text-foreground">換 {group.code} 的組長</h2>
-          <p className="text-sm text-muted-foreground">
-            目前組長：{leader?.name ?? '（沒有）'}。成員沒變，不需要重簽；全組會收到通知，歷程會記下這次更換。
-          </p>
-          <input type="hidden" name="groupId" value={group.id} />
-          <input type="hidden" name="revision" value={group.revision} />
-          <input type="hidden" name="requestId" value={requestId} />
-          <MemberSelect id={`${fieldId}-new`} name="newLeaderUserId" label="新組長" placeholder="請選一位成員" options={candidates} />
-          <ReasonField id={`${fieldId}-reason`} maxLength={reasonMaxLength} placeholder="例：原組長請辭，全組同意" />
-          <Feedback state={state?.ok ? undefined : state} />
-          <Actions pending={pending} cancel="先不換" submit="確定更換" onCancel={dialog.close} />
-        </form>
-      </dialog>
-    </div>
-  )
+export function SetLeaderButton({ group, member, requestId, reasonMaxLength }: {
+  group: DetailGroup
+  member: GroupDetailMember
+  requestId: string
+  reasonMaxLength: number
+}) {
+  const { result: [state, action, pending], shared } = useMemberAction(changeLeaderAction)
+  const dialog = useDialog()
+  useCloseOnSuccess(state, dialog.close)
+  return <div>
+    <button type="button" className={ROW} onClick={dialog.open} aria-label={`設為組長：${member.name}`}>設為組長</button>
+    <Feedback state={!shared && state?.ok ? state : undefined} />
+    <dialog ref={dialog.ref} className={DIALOG} aria-label={`把 ${group.code} 的組長換成 ${member.name}？`}>
+      <form key={`${group.revision}-${member.userId}`} action={action} className="space-y-4 p-5">
+        <h2 className="text-lg font-bold">把 {group.code} 的組長換成 {member.name}？</h2>
+        <Hidden group={group} requestId={requestId} />
+        <input type="hidden" name="newLeaderUserId" value={member.userId} />
+        <p>成員沒有改變，不需要重簽；全組會收到通知。</p>
+        <Reason id={`leader-${group.id}-${member.userId}-reason`} maxLength={reasonMaxLength} />
+        <Feedback state={state?.ok ? undefined : state} />
+        <Submit pending={pending} label="確定更換" close={dialog.close} />
+      </form>
+    </dialog>
+  </div>
 }

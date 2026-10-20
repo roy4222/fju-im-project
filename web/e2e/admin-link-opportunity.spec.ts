@@ -122,6 +122,7 @@ async function openGroups(page: Page, cohort: string) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
   await page.goto(`/dashboard/admin/groups?cohort=${cohort}`)
   await expect(page.getByRole('heading', { name: '分組', exact: true })).toBeVisible()
+  await page.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
   return page.getByRole('region', { name: '全部組別' })
 }
 
@@ -147,7 +148,7 @@ test('AC-AD-11 首次連結：下拉只有已發布的案、理由可留空；�
   await groups.getByRole('button', { name: '連結合作案 G03' }).click()
   const dialog = page.getByRole('dialog', { name: '把 G03 連到合作案' })
   await expect(dialog.getByRole('heading', { name: '把 G03 連到合作案' })).toBeVisible()
-  await expect(dialog.getByText('可留空')).toBeVisible()
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
 
   // 本次種了四筆（甲丙已發布、乙草稿、丁下架）：搜尋戳記只剩甲、丙。
   await narrowTo(dialog, TAG, 2)
@@ -161,6 +162,7 @@ test('AC-AD-11 首次連結：下拉只有已發布的案、理由可留空；�
 
   await page.reload()
   const row = page.getByRole('region', { name: '全部組別' })
+  await row.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
   await expect(row.getByRole('link', { name: `${甲}・研發部` })).toBeVisible()
   await expect(row.getByRole('button', { name: '改連結 G03' })).toBeVisible()
 
@@ -175,7 +177,7 @@ test('AC-AD-11 換案：填了理由換成，稽核 opportunity.switch 帶理由
   await groups.getByRole('button', { name: '改連結 G03' }).click()
   const dialog = page.getByRole('dialog', { name: '把 G03 改連到別的合作案' })
   await expect(dialog).toContainText(`目前連結：${甲}・研發部`)
-  await expect(dialog.getByText('換案必填')).toBeVisible()
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
 
   await narrowTo(dialog, TAG, 2)
   await dialog.getByLabel('合作案').selectOption({ label: `${丙}・資訊部・王老師` })
@@ -250,10 +252,26 @@ test('AC-AD-12 一般組 G01：列上與詳情都沒有連結入口', async ({ p
   const groups = await openGroups(page, cohortId)
   await expect(groups.getByRole('button', { name: '連結合作案 G03' })).toHaveCount(0) // G03 已連結，入口是「改連結」
   await expect(groups.getByRole('button', { name: /連結合作案 G01|改連結 G01/ })).toHaveCount(0)
-  await groups.getByRole('button', { name: 'G01 詳情' }).click()
-  const detail = page.getByRole('dialog', { name: 'G01 詳情' })
+  await groups.getByRole('article', { name: 'G01', exact: true }).getByRole('link', { name: '進入小組' }).click()
+  const detail = page.getByRole('main')
   await expect(detail).toBeVisible()
-  await expect(detail).not.toContainText('連結合作案')
+  await expect(detail.getByRole('region', { name: '合作案', exact: true })).toHaveCount(0)
+  await expect(detail.getByRole('button', { name: /連結合作案|改連結/ })).toHaveCount(0)
+})
+
+test('C3-12：詳情解除合作案理由留空，回執留在頁面，重整後連結已解除', async ({ page }) => {
+  const groups = await openGroups(page, cohortId)
+  await groups.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
+  await groups.getByRole('article', { name: 'G03', exact: true }).getByRole('link', { name: '進入小組' }).click()
+  await page.getByRole('button', { name: '解除合作案', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '解除 G03 的合作案' })
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
+  await dialog.getByRole('button', { name: '確定解除' }).click()
+  await expect(page.getByRole('status')).toContainText(`已解除 G03 與「${甲}・研發部」的連結`)
+  await expect(page.getByRole('region', { name: '合作案', exact: true })).toContainText('尚未連結合作案')
+  await page.reload()
+  await expect(page.getByRole('button', { name: '解除合作案', exact: true })).toHaveCount(0)
+  expect((await audits('opportunity.unlink', groupIds.get('G03')!)).map((a) => a.reason)).toEqual([''])
 })
 
 test.describe('AC-AD-37 合作案超過 50 筆', () => {
@@ -312,6 +330,7 @@ test.describe('AC-AD-37 合作案超過 50 筆', () => {
     await expect(dialog).toBeHidden()
     await page.reload()
     const row = page.getByRole('region', { name: '全部組別' })
+  await row.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
     await expect(row.getByRole('link', { name: `${name(51)}・${DEPT}` })).toBeVisible()
     await expect(row.getByRole('button', { name: '改連結 G03' })).toBeVisible()
     expect(await audits('opportunity.link', g03)).toEqual([{ reason: null }])
