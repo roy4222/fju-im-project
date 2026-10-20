@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expect, request as playwrightRequest, test, type APIResponse, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { PUBLIC_IMAGE_MAX_AGE_SECONDS } from '../src/application/ops/files'
+import { PUBLIC_FILE_MAX_AGE_SECONDS } from '../src/application/ops/files'
 import { createItemInDialog, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -226,19 +226,19 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
 })
 
 /**
- * V4（第 1 批訪客，設計方案 §3.4；AC-V18～V25、V35）：公開圖片讓瀏覽器快取，私有檔與非圖片檔絕不快取。
+ * V4（第 1 批訪客，設計方案 §3.4；AC-V18～V25、V35）＋S16（⑤ 設計方案 §3、AC-16～20）：公開檔可快取，私有檔絕不快取。
  *
- * 可快取＝訪客走同一條下載政策也放行（`publicRead`）**而且** `mime_detected` 是 PNG／JPEG。資料都走真的後台畫面建
+ * 可快取＝訪客走同一條下載政策也放行（`publicRead`），不看檔型（S16 推翻 Q62「只快取 PNG／JPEG」）。資料都走真的後台畫面建
  * （海報、公告封面與附件、首頁大圖都是真的上傳），每一步都用 API 抓回應標頭核對：
- * - 草稿海報、沒獎項的已發布海報、「本屆學生」公告的 PNG 附件、公開公告的 PDF 附件：`private, no-store`、沒有 ETag、
+ * - 草稿海報、沒獎項的已發布海報、「本屆學生」公告的 PNG 附件：`private, no-store`、沒有 ETag、
  *   帶 `If-None-Match` 也照樣 200；
- * - 有獎項的海報、公開公告的 PNG 封面、首頁現任大圖：`public, max-age=…, must-revalidate`＋強 ETag，帶 ETag 回 304；
+ * - 有獎項的海報、公開公告的 PNG 封面與 PDF 附件、首頁現任大圖：`public, max-age=…, must-revalidate`＋強 ETag，帶 ETag 回 304；
  * - 下架、換圖之後帶舊 ETag：先授權再看 ETag，拿到 401／303，不是 304。
  * 304 與 HEAD 不漏檔案描述子：找出本機 app 程序（聽 BASE_URL 那個埠的程序），連打 50 次 304、20 次 HEAD 前後數它開著的檔。
  */
-test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', () => {
+test.describe('V4／S16 公開檔可快取；私有檔不快取', () => {
   const V4 = `${CODE}-V4`
-  const PUBLIC_CACHE = `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`
+  const PUBLIC_CACHE = `public, max-age=${PUBLIC_FILE_MAX_AGE_SECONDS}, must-revalidate`
   /** 1×1 的真 PNG（上傳收檔會看簽章，`mime_detected = image/png`）。 */
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
   /**
@@ -338,17 +338,25 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
   test('AC-V24：草稿海報只在草稿上 → 系辦拿得到但不可快取；沒獎項的已發布海報 → 學生拿得到但不可快取、訪客 401', async ({ page }) => {
     await asAdmin(page)
     await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-    const create = page.getByRole('form', { name: '建立成果展示草稿' })
+    // C1-09：成果展示改成清單＋編輯視窗（「新增 › 作品」建草稿、列上「編輯」開視窗、按一次「儲存」）。
+    await page.getByRole('button', { name: '新增', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^作品/ }).click()
+    const create = page.getByTestId('showcase-edit-dialog')
     await create.getByLabel('組別').selectOption({ label: 'G01' })
-    await create.getByRole('button', { name: '建立草稿' }).click()
-    await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
-    const g01 = page.getByTestId('showcase-draft').filter({ hasText: 'G01' })
+    await create.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('已替 G01 建立成果展示草稿')
+    const openG01 = async () => {
+      await page.getByTestId('entry-row').filter({ hasText: 'G01' }).getByRole('button', { name: /^編輯：/ }).click()
+      return page.getByTestId('showcase-edit-dialog')
+    }
+    let g01 = await openG01()
     await g01.getByLabel('題目').fill(`${V4} 快取海報`)
     await g01.getByLabel('摘要').fill('V4 測試用的作品。')
     await g01.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: BIG_PNG })
     await expect(g01.getByTestId('poster-name')).toContainText('poster.png')
-    await g01.getByRole('button', { name: '儲存草稿' }).click()
-    await expect(g01.getByRole('status')).toContainText('G01 的成果展示草稿已儲存')
+    await g01.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('G01 的成果展示草稿已儲存')
+    await expect(g01).toHaveCount(0)
 
     const draft = (
       await pool.query<{ entry_id: string; poster_file_id: string }>(
@@ -364,9 +372,10 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expectPrivate(await fetchFile(null, {}, posterId), 401)
 
     // 發布（沒有獎項）→ 海報 U：登入的學生 200 不可快取；訪客 401。
-    await g01.getByLabel(/已取得這組同學同意公開/).check()
-    await g01.getByRole('button', { name: '發布', exact: true }).click()
-    await expect(g01.getByRole('group', { name: '公開' }).getByRole('status')).toContainText('已發布（第 1 版）')
+    g01 = await openG01()
+    await g01.getByLabel(/儲存後發布：已取得這組同學同意公開/).check()
+    await g01.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('已發布（第 1 版）')
     expect(
       (await pool.query('select v.poster_file_id from showcase_entries e join showcase_versions v on v.id = e.current_version_id where e.id = $1', [draft.entry_id]))
         .rows[0]!.poster_file_id,
@@ -378,11 +387,12 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
   test('AC-V18、V23：有獎項的已發布海報 → 訪客與學生都拿到公開快取標頭與 ETag', async ({ page }) => {
     await asAdmin(page)
     await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-    const awardForm = page.getByTestId('showcase-draft').filter({ hasText: 'G01' }).getByRole('form', { name: /的獎項/ })
+    await page.getByTestId('entry-row').filter({ hasText: 'G01' }).getByRole('button', { name: /^編輯：/ }).click()
+    const awardForm = page.getByTestId('showcase-edit-dialog')
     await awardForm.getByLabel('獎項等級').selectOption('excellent')
     await awardForm.getByLabel(/獎項名稱/).fill('V4 優秀專題')
-    await awardForm.getByRole('button', { name: '儲存獎項' }).click()
-    await expect(awardForm.getByRole('status')).toContainText('V4 優秀專題')
+    await awardForm.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('V4 優秀專題')
 
     await expectPublic(await fetchFile(null, {}, posterId), posterId)
     await expectPublic(await fetchFile(student, {}, posterId), posterId)
@@ -421,7 +431,7 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expect(after.length, `打之前 ${before.length} 個、之後 ${after.length} 個`).toBeLessThanOrEqual(before.length)
   })
 
-  test('AC-V21、V35：公開公告的 PNG 封面可快取；同一則的 PDF 附件不可快取；下架後封面帶舊 ETag 是 401 不是 304', async ({ page }) => {
+  test('AC-V21、V35（S16 改寫）：公開公告的 PNG 封面與 PDF 附件都可快取；下架後帶舊 ETag 是 401 不是 304', async ({ page }) => {
     publicItemId = await publishItem(page, {
       title: `${V4} 公開公告`,
       audience: 'public',
@@ -439,9 +449,20 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expect((await storedFile(coverId)).mime_detected).toBe('image/png')
     expect((await storedFile(publicPdfId)).mime_detected).toBe('application/pdf')
 
-    // AC-V35：訪客政策放行的 PDF，訪客與本屆學生各兩次（含帶 If-None-Match）都 200 全檔、不可快取。
-    await expectPrivateDownload(null, publicPdfId)
-    await expectPrivateDownload(student, publicPdfId)
+    // AC-V35（S16 改寫，AC-16）：訪客政策放行的 PDF 可快取——訪客與本屆學生都 200＋public＋ETag，帶 ETag 回 304。
+    for (const as of [null, student]) {
+      await expectPublic(await fetchFile(as, {}, publicPdfId), publicPdfId)
+      const notModified = await fetchFile(as, { 'if-none-match': `"${(await storedFile(publicPdfId)).checksum}"` }, publicPdfId)
+      expect(notModified.status()).toBe(304)
+      expect(notModified.headers()['cache-control']).toBe(PUBLIC_CACHE)
+    }
+    // AC-20：預覽路由的快取標頭與 ETag 跟下載一致。
+    const preview = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    const previewed = await preview.get(`/api/files/${publicPdfId}/preview`)
+    expect(previewed.status()).toBe(200)
+    expect(previewed.headers()['cache-control']).toBe(PUBLIC_CACHE)
+    expect(previewed.headers()['etag']).toBe(`"${(await storedFile(publicPdfId)).checksum}"`)
+    await preview.dispose()
 
     // AC-V21：封面公開可快取；系辦下架後訪客帶舊 ETag → 401（不是 304），系辦仍拿得到但不可快取。
     await expectPublic(await fetchFile(null, {}, coverId), coverId)
@@ -451,6 +472,10 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
     await expect(page.getByTestId('item-status')).toHaveText('已下架')
     for (const headers of [{}, { 'if-none-match': etag }] as Record<string, string>[]) expectPrivate(await fetchFile(null, headers, coverId), 401)
+    // AC-17：PDF 附件同樣，下架後訪客帶舊 ETag → 401；登入學生 → 403；都不是 304。
+    const pdfEtag = `"${(await storedFile(publicPdfId)).checksum}"`
+    expectPrivate(await fetchFile(null, { 'if-none-match': pdfEtag }, publicPdfId), 401)
+    expectPrivate(await fetchFile(student, { 'if-none-match': pdfEtag }, publicPdfId), 403)
     const navigation = await fetchFile(null, { ...DOCUMENT, 'if-none-match': etag }, coverId)
     expect(navigation.status()).toBe(303)
     expect(navigation.headers()['cache-control']).toBe('private, no-store')

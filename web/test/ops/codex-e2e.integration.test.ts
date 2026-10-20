@@ -17,6 +17,9 @@ const script = path.join(repoRoot, 'ops/codex-e2e.sh')
  *
  * 腳本交給 codex 的環境是白名單，所以假 `codex` 不能靠環境變數拿測試旋鈕：
  * 記錄檔與控制檔（ctl/leak、ctl/exit）的路徑直接寫進假 codex 的內容。
+ *
+ * 每個用例都真的 spawn bash 跑腳本，機器忙時會超過單元測試的 5 秒上限，所以放在整合層
+ * （`*.integration.test.ts`，不在 `pnpm -C web verify` 預設集；CI 的 integration job 會跑）。
  */
 
 const EMAIL = 'e2e-secret@example.test'

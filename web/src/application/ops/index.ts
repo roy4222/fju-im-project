@@ -47,7 +47,7 @@ export {
   formatBytes,
   isCacheableDownload,
   isUuid,
-  PUBLIC_IMAGE_MAX_AGE_SECONDS,
+  PUBLIC_FILE_MAX_AGE_SECONDS,
   sanitizeDisplayName,
   storageKeyFor,
   tempKeyFor,

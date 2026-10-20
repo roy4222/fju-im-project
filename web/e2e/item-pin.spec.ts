@@ -208,8 +208,9 @@ test('AC-V04：首頁最新公告第一張是 A（帶「置頂」），B 第二�
   await expect(cards.nth(0)).toContainText(A)
   await expect(cards.nth(0).getByTestId('pinned-tag')).toHaveText('置頂')
   await expect(cards.nth(1)).toContainText(B)
-  await expect(region.locator('ul')).not.toContainText(A)
-  await expect(region.locator('ul')).not.toContainText(B)
+  // 右側列表只在公告多於卡片數時才畫（資料庫裡別支 spec 的公告多寡會變）；沒有列表也算「不含」。
+  await expect(region.locator('ul').getByText(A)).toHaveCount(0)
+  await expect(region.locator('ul').getByText(B)).toHaveCount(0)
 })
 
 /** 首頁「進行中的競賽」每張卡是本題的哪一則（AC-V06）；別支 spec 的競賽記成 `other`。 */

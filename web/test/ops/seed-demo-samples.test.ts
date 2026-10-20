@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { parseBulkStudentNos } from '@/application/accounts/directory'
 import { analyzeRoster, type CohortOption } from '@/application/accounts/roster'
 import { analyzeAdvisorCsv, type BatchGroupFact, type BatchTeacherFact } from '@/application/groups/advisors'
+import { analyzeGroupImportCsv, GROUP_IMPORT_COLUMNS, type ImportGroupFact, type ImportStudentFact } from '@/application/groups/import'
 
 /**
  * 第三波 W8（Q20，AC-28）：三個匯入對話框的「下載範例檔」。不需要資料庫。
@@ -39,6 +40,7 @@ const SAMPLES = {
   roster: '名單匯入範例.csv',
   advisors: '批次指派指導老師範例.csv',
   disable: '批次停用範例.txt',
+  groupImport: '分組匯入範例.csv',
 } as const
 
 describe('範例檔：UTF-8 含 BOM', () => {
@@ -119,6 +121,29 @@ describe('範例檔原樣上傳：預覽沒有格式錯誤', () => {
   })
 })
 
+describe('C3-16 分組匯入範例', () => {
+  it('表頭是 學號,組別代碼,類型；4 列都能做（建新組 G10 兩人＋G11 一人、加入 G09 一人），學號都是示範資料的未分組學生', () => {
+    const text = read(SAMPLES.groupImport).toString('utf8')
+    expect(text.replace(/^\uFEFF/, '').split('\r\n')[0]).toBe(GROUP_IMPORT_COLUMNS.join(','))
+    const studentsByNo = new Map<string, ImportStudentFact>(
+      demo.UNGROUPED.map((u) => [u.studentNo, { userId: `user:${u.studentNo}`, name: u.name, groupCode: null, proposerName: null }]),
+    )
+    const groupsByCode = new Map<string, ImportGroupFact>(
+      demo.GROUPS.map((g) => [g.code, { id: g.key, code: g.code, status: 'active', memberCount: g.members.length }]),
+    )
+    const r = analyzeGroupImportCsv(text, { studentsByNo, groupsByCode, sizeMax: 5 })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.analysis.rows).toHaveLength(4)
+    expect(r.analysis.rows.map((row) => [row.groupCode, row.kind])).toEqual([
+      ['G10', 'create'],
+      ['G10', 'create'],
+      ['G09', 'add'],
+      ['G11', 'create'],
+    ])
+  })
+})
+
 describe('C3-01 示範資料（規格③ §10.3）', () => {
   const SKILL_PRESETS = ['前端', '後端', '資料庫', '資料分析', 'AI', 'UI 設計', '簡報', '企劃', 'Python', 'JavaScript', 'Figma']
 
@@ -164,6 +189,11 @@ describe('對話框的「下載範例檔」連結', () => {
     ['src/app/dashboard/admin/groups/advisor-forms.tsx', SAMPLES.advisors],
     ['src/app/dashboard/admin/accounts/bulk-disable-dialog.tsx', SAMPLES.disable],
   ] as const
+  it(`import-dialog.tsx 連到 /samples/${SAMPLES.groupImport}（帶 download、文字「下載範本」），檔案存在`, () => {
+    const source = fs.readFileSync(path.join(webRoot, 'src/app/dashboard/admin/groups/import-dialog.tsx'), 'utf8')
+    expect(source).toMatch(new RegExp(`<a href="/samples/${SAMPLES.groupImport.replace('.', '\\.')}" download[\\s\\S]*?下載範本`))
+    expect(fs.existsSync(path.join(samples, SAMPLES.groupImport))).toBe(true)
+  })
   for (const [file, sample] of dialogs) {
     it(`${path.basename(file)} 連到 /samples/${sample}（帶 download），檔案存在`, () => {
       const source = fs.readFileSync(path.join(webRoot, file), 'utf8')

@@ -7,13 +7,13 @@ import { sharedTestSession, toPlaywrightCookie } from './session'
  * C 階段規格② C2-01：後台路由總表、分頁列、舊網址轉址（設計方案 §2、§8；AC-C2-01～09）。
  *
  * - 舊網址（`/dashboard/admin/settings`、`/dashboard/admin/affairs?placement=resource|submission|requirement|rules`、
- *   C2-07 加的 `/dashboard/admin/accounts?status=pending|disabled`）每條三種回應：
+ *   C2-07 加的 `/dashboard/admin/accounts?status=pending|disabled`、C2-22 加的 `/dashboard/admin/signoff`）每條三種回應：
  *   沒登入→登入頁、學生→`/403`、系辦→**307** 到新位置（頁面 `redirect()` 的 digest；用 `REDIRECT` 陣列斷，再斷 location），
- *   其餘 query 照帶；`?placement=honor` 不轉（①做完榮譽榜才轉）。
+ *   其餘 query 照帶；①C1-09 加 `?placement=honor` → 成果展示（榮譽榜同頁，AC-14a）。
  * - 五個側欄項目的分頁列：標籤、順序、href、`aria-current`、側欄那一項亮；新分頁都 200。
  * - 作業、資源下載、專題規則三個分頁接的是既有清單：列出那一類的既有項目（`affair-row`），不是空外殼。
  *
- * 接手刪掉的 `admin-settings-home.spec.ts`（設定總頁四張卡）與 `pages.spec.ts` PROTECTED 拿掉的 `/settings` 一列。
+ * 接手刪掉的 `admin-settings-home.spec.ts`（設定總頁四張卡）與 `pages.spec.ts` PROTECTED 拿掉的 `/settings`、`/signoff` 兩列。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
@@ -91,6 +91,11 @@ const OLD_URLS = [
   { from: '/dashboard/admin/accounts?status=disabled', to: '/dashboard/admin/accounts/disabled' },
   // C2-17（AC-C2-04）：首頁設定搬到前台編輯模式，舊網址回前台首頁。
   { from: '/dashboard/admin/home-settings', to: '/' },
+  // ①C1-09（AC-14a）：「榮譽」篩選搬到成果展示分頁的榮譽榜區。
+  { from: '/dashboard/admin/affairs?placement=honor', to: '/dashboard/admin/showcase' },
+  // C2-22（AC-C2-07）：舊同意書頁轉到作業分頁（同意書做進作業，C1-11）；接手 `pages.spec.ts` PROTECTED 拿掉的 `/signoff` 一列。
+  { from: '/dashboard/admin/signoff', to: '/dashboard/admin/affairs/assignments' },
+  { from: '/dashboard/admin/signoff?cohort=115', to: '/dashboard/admin/affairs/assignments?cohort=115' },
 ] as const
 
 for (const { from, to } of OLD_URLS) {
@@ -116,13 +121,17 @@ for (const { from, to } of OLD_URLS) {
   })
 }
 
-test('?placement=honor 不轉：200 留在公告頁，仍是「榮譽」篩選（①做完榮譽榜才轉）', async ({ page }) => {
+test('AC-14a：公告頁「種類」沒有「榮譽」、沒有榮譽說明與「新增榮譽」「管理歷屆榮譽」；榮譽在成果展示的榮譽榜區', async ({ page }) => {
   await asAdmin(page)
-  const response = await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}&placement=honor`)
+  const response = await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   expect(response?.status()).toBe(200)
-  expect(new URL(page.url()).pathname).toBe('/dashboard/admin/affairs')
-  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '榮譽', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('affair-row').filter({ hasText: TITLE.honor })).toHaveCount(1)
+  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '公告', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '榮譽', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('honor-list-hint')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '新增榮譽' })).toHaveCount(0)
+  await expect(page.getByText('管理歷屆榮譽')).toHaveCount(0)
+  await page.goto(`/dashboard/admin/showcase?honor=${cohortId}`)
+  await expect(page.getByTestId('honor-row').filter({ hasText: TITLE.honor })).toHaveCount(1)
 })
 
 test('帳號列表還在用的 ?status=active 不轉：200 留在全部帳號', async ({ request }) => {
@@ -234,12 +243,17 @@ test('「帳號分頁」：四個分頁都 200、四個連結依序、側欄「�
   }
 })
 
-test('同意書仍 200、沒有分頁列，側欄「成績」亮', async ({ page }) => {
+test('打舊同意書網址（C2-22；AC-C2-07）：系辦落在作業分頁（分頁列「作業」是目前頁）；老師也到 /403', async ({ page, request }) => {
   await asAdmin(page)
-  const response = await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
-  expect(response?.status()).toBe(200)
-  await expect(page.locator('main nav[aria-label$="分頁"]')).toHaveCount(0)
-  await expect(sidebar(page).getByRole('link', { name: '成績', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.goto(`/dashboard/admin/signoff?cohort=${cohortId}`)
+  await expect(page).toHaveURL(`/dashboard/admin/affairs/assignments?cohort=${cohortId}`)
+  await expect(page.getByTestId('tab-intro')).toContainText(FINGERPRINTS['/dashboard/admin/affairs/assignments']!)
+  await expect(page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '作業', exact: true })).toHaveAttribute('aria-current', 'page')
+
+  const { cookie } = await sharedTestSession(request, 'teacher')
+  const response = await request.get('/dashboard/admin/signoff', { headers: { cookie }, maxRedirects: 0 })
+  expect(REDIRECT).toContain(response.status())
+  expect(location(response)).toBe('/403')
 })
 
 // ── 三個公告分頁接既有清單（AC-C2-05） ──
@@ -268,8 +282,8 @@ test('專題規則分頁每列有上移、下移（只有一章時都停用）',
   await expect(row.getByRole('button', { name: `下移「${TITLE.rules}」` })).toBeDisabled()
 })
 
-test('公告頁的「種類」只剩 全部／公告／榮譽／逾期', async ({ page }) => {
+test('公告頁的「種類」只剩 全部／公告／逾期（榮譽搬到成果展示，C1-09）', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link')).toHaveText(['全部', '公告', '榮譽', '逾期'])
+  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link')).toHaveText(['全部', '公告', '逾期'])
 })

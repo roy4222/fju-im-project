@@ -1,0 +1,25 @@
+{
+  "ticket": "C5-15",
+  "set": {
+    "/dashboard/admin/cohorts": { "as": "admin", "baseline": 4, "max": 4, "identity": 0 }
+  },
+  "override": {
+    "/dashboard/student": { "from": "base", "value": { "as": "student", "baseline": 15, "max": 15, "identity": 0 } },
+    "/dashboard/student/groups": { "from": "base", "value": { "as": "student", "baseline": 17, "max": 17, "identity": 0 } },
+    "/dashboard/teacher": {
+      "from": "base",
+      "value": {
+        "as": "teacher",
+        "baseline": 20,
+        "max": 20,
+        "identity": 0,
+        "noDuplicate": [
+          "select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages, ",
+          "select distinct on (e.assignment_id) e.assignment_id, e.scores, e.comment, e.submitted_real_at, ev.reason, ev.real_at as returned_at from evaluations ",
+          "select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, p.item_id, mi.title as item_title, v.id as version_id, v.version_no, s.state, s.cause, v.participants, "
+        ]
+      }
+    }
+  },
+  "delete": [{ "key": "/dashboard/admin/settings", "from": "base" }]
+}

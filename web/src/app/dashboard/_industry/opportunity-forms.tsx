@@ -12,16 +12,20 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react'
-import type { NormalizedOpportunity, OpportunityField } from '@/application/groups'
+import type { NormalizedOpportunity } from '@/application/groups'
 import { IconEyeOff, IconPlus, IconTrash } from '@tabler/icons-react'
-import { ALERT, BTN_OUTLINE_TALL, BTN_ROW, BTN_ROW_GHOST, BTN_SUBMIT, DIALOG, DIALOG_TITLE, INPUT as INPUT_BASE, NOTE, TEXTAREA } from '@/app/_ui/dashboard/look'
+import { ALERT, BTN_OUTLINE_TALL, BTN_ROW, BTN_ROW_GHOST, BTN_SUBMIT, DIALOG, DIALOG_TITLE, NOTE, TEXTAREA } from '@/app/_ui/dashboard/look'
 import { buttonVariants } from '@/app/_ui/ui/button'
-import { cn } from '@/shared/cn'
 import { changeOpportunityStatusAction, deleteOpportunityAction, saveOpportunityAction, unlinkOpportunityAction } from './actions'
+import { OpportunityFormBody, type OpportunityFormLabels, type OwnerTeacherOption } from './front-edit/opportunity'
+
+export type { OpportunityFormLabels, OwnerTeacherOption } from './front-edit/opportunity'
 
 /**
  * 合作案管理會動的部分（票 20；原型 `IndustryFormDialog`）：新增／編輯對話框、發布／下架／重新發布、解除連結；
- * 第三波 W11：系辦新增時從選單指定負責老師、刪除（危險操作）。
+ * 第三波 W11：系辦新增時從選單指定負責老師、刪除。
+ * C3-10：欄位格抽成 `OpportunityFormBody`（`./front-edit/opportunity.tsx`，前台直接編輯的延遲模組共用同一份）；
+ * 刪除改成每列一顆，不能刪的直接 disabled 寫原因（§6.5）；解除連結理由選填。
  *
  * 規則全在用例裡判；這裡只顯示伺服器回來的句子。欄位出錯時伺服器回是哪一欄，對話框把焦點移過去並標紅。
  * 原型的「網際網路公開（含聯絡資訊）」選項不做（產品 6.1：合作案一律登入後可見，聯絡資訊只有負責老師與系辦）。
@@ -34,12 +38,11 @@ const PRIMARY = BTN_SUBMIT
 const SECONDARY = BTN_OUTLINE_TALL
 const ROW_BUTTON = BTN_ROW
 const ROW_GHOST = BTN_ROW_GHOST
-const INPUT = `mt-1.5 ${INPUT_BASE} h-11`
 const AREA = `mt-1.5 ${TEXTAREA}`
 const LABEL = 'block text-sm font-semibold text-foreground'
 const DIALOG_BOX = DIALOG['2xl']
 const DIALOG_SMALL = DIALOG.md
-// 危險操作（第三波 §9 規則 1）：淡紅、跟日常按鈕分開。
+// 刪除（第三波 §9 規則 1）：淡紅、跟日常按鈕分開；不能刪時 disabled、旁邊寫原因（C3-10 §6.5）。
 const DANGER = buttonVariants({ variant: 'destructive', size: 'sm', className: 'press rounded-lg' })
 const DANGER_SUBMIT = buttonVariants({ variant: 'destructive', size: 'lg', className: 'press h-11 rounded-lg px-5' })
 
@@ -70,15 +73,7 @@ function submitWithoutReset(action: (formData: FormData) => void) {
   }
 }
 
-export type OpportunityFormLabels = {
-  readonly fields: Record<OpportunityField, string>
-  readonly limits: Record<OpportunityField, number>
-}
-
 type Initial = { opportunityId: string; revision: number; values: NormalizedOpportunity; name: string }
-
-/** 系辦新增時的負責老師選項（帳號正常、目前是老師）。 */
-export type OwnerTeacherOption = { readonly userId: string; readonly name: string; readonly loginEmail: string }
 
 /**
  * 新增（老師、系辦）或編輯（案主、系辦）合作案。`initial` 沒給就是新增：可以「儲存草稿」或「儲存並發布」。
@@ -102,7 +97,6 @@ export function OpportunityFormDialog({
   const formRef = useRef<HTMLFormElement>(null)
   const editing = Boolean(initial)
   const pickOwner = !editing && teachers !== undefined
-  const ownerInvalid = !state?.ok && state?.field === 'ownerTeacherUserId'
 
   useEffect(() => {
     if (state?.ok) {
@@ -113,29 +107,6 @@ export function OpportunityFormDialog({
     }
     // 只看 action 回傳：dialog、editing 從這次 render 讀就對了，放進依賴會在 setVersion 重繪後再跑一次。
   }, [state])
-
-  const value = (field: OpportunityField) => initial?.values[field] ?? ''
-  const field = (name: OpportunityField, options: { required?: boolean; textarea?: boolean; rows?: number; type?: string; span?: boolean } = {}) => {
-    const id = `opp-${initial?.opportunityId ?? 'new'}-${name}`
-    const invalid = !state?.ok && state?.field === name
-    const common = {
-      id,
-      name,
-      defaultValue: value(name) ?? '',
-      maxLength: labels.limits[name],
-      'aria-invalid': invalid || undefined,
-      className: cn(options.textarea ? AREA : INPUT, invalid && 'border-destructive', options.textarea && 'resize-y'),
-    }
-    return (
-      <div className={options.span ? 'sm:col-span-2' : undefined}>
-        <label htmlFor={id} className={LABEL}>
-          {labels.fields[name]}
-          {options.required ? <span className="ml-0.5 text-destructive">*</span> : null}
-        </label>
-        {options.textarea ? <textarea rows={options.rows ?? 3} {...common} /> : <input type={options.type ?? 'text'} {...common} />}
-      </div>
-    )
-  }
 
   return (
     <>
@@ -171,60 +142,13 @@ export function OpportunityFormDialog({
             </>
           ) : null}
           <div className="grid max-h-[60vh] gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
-            {pickOwner ? (
-              <div className="sm:col-span-2">
-                <label htmlFor="opp-new-ownerTeacherUserId" className={LABEL}>
-                  負責老師<span className="ml-0.5 text-destructive">*</span>
-                </label>
-                <select
-                  id="opp-new-ownerTeacherUserId"
-                  name="ownerTeacherUserId"
-                  defaultValue=""
-                  aria-invalid={ownerInvalid || undefined}
-                  aria-describedby="opp-new-owner-hint"
-                  className={cn(INPUT, ownerInvalid && 'border-destructive')}
-                >
-                  <option value="" disabled>
-                    請選負責老師
-                  </option>
-                  {teachers!.map((t) => (
-                    <option key={t.userId} value={t.userId}>
-                      {t.name}（{t.loginEmail}）
-                    </option>
-                  ))}
-                </select>
-                <p id="opp-new-owner-hint" className="mt-1 text-xs text-muted-foreground">
-                  {teachers!.length === 0
-                    ? '目前沒有可選的老師：請先到「帳號」建立或核准老師帳號。'
-                    : '這位老師會在「我的合作案」看到它，能編輯、下架，也看得到聯絡資訊。'}
-                </p>
-              </div>
-            ) : null}
-            {field('companyName', { required: true })}
-            {field('department', { required: true })}
-            {field('content', { required: true, textarea: true, rows: 5, span: true })}
-            {field('requirements', { textarea: true, rows: 3, span: true })}
-            {field('notes', { textarea: true, rows: 2, span: true })}
-            <fieldset className="sm:col-span-2">
-              <legend className={LABEL}>備註給誰看</legend>
-              <div className="mt-1.5 flex flex-wrap gap-4 text-sm text-foreground">
-                <label className="flex items-center gap-2">
-                  <input type="radio" className="accent-brand" name="notesVisibility" value="internal" defaultChecked={(initial?.values.notesVisibility ?? 'internal') === 'internal'} />
-                  只有負責老師與系辦
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="radio" className="accent-brand" name="notesVisibility" value="signed_in" defaultChecked={initial?.values.notesVisibility === 'signed_in'} />
-                  登入的學生與老師
-                </label>
-              </div>
-            </fieldset>
-            <p className="mt-1 rounded-lg bg-muted px-3 py-2 text-xs font-semibold text-muted-foreground sm:col-span-2">
-              以下只有負責老師與系辦看得到，不會因為發布而公開。
-            </p>
-            {field('address', { span: true })}
-            {field('contactName')}
-            {field('contactPhone', { type: 'tel' })}
-            {field('contactEmail', { type: 'email', span: true })}
+            <OpportunityFormBody
+              labels={labels}
+              values={initial?.values ?? null}
+              teachers={pickOwner ? teachers : undefined}
+              invalidField={!state?.ok ? state?.field : null}
+              idPrefix={`opp-${initial?.opportunityId ?? 'new'}`}
+            />
           </div>
           <div className="space-y-3 border-t border-border px-6 py-4">
             <IndustryFeedback state={state?.ok ? undefined : state} />
@@ -314,7 +238,7 @@ export function OpportunityStatusButton({
 }
 
 /**
- * 一案的「連結的組別」格：每組一顆「解除」；案主或系辦解除時理由必填，該組組員與案主會收到通知。
+ * 一案的「連結的組別」格：每組一顆「解除」；案主或系辦解除時理由可不填（C3-10），該組組員與案主會收到通知。
  *
  * 整格是同一個元件（同一份動作狀態）：解除成功、那一組從清單消失之後，回饋句子仍留在這一格。
  */
@@ -388,7 +312,7 @@ export function LinkedGroupsCell({
           <input type="hidden" name="requestId" value={`${requestId}`} />
           <div>
             <label htmlFor={`unlink-reason-${requestId}`} className={LABEL}>
-              理由（必填）
+              理由（可不填）
             </label>
             <textarea
               id={`unlink-reason-${requestId}`}
@@ -437,7 +361,7 @@ export function OpportunityNotice() {
 
 /**
  * 刪除合作案（第三波 W11；系辦）：只限草稿或已下架、沒連組別。不能刪的（`blocker`，查詢層依同一條規則算好）
- * 一樣有這顆按鈕，對話框只說明要先做什麼（§9 規則 4）；規則以伺服器為準。
+ * 這顆按鈕 disabled、旁邊直接寫原因（C3-10 §6.5；不再跳「還不能刪除」對話框）；規則以伺服器為準。
  * 可以刪的走危險操作確認：寫清楚對象、後果、不能恢復，確認鈕寫動作。
  */
 export function DeleteOpportunityButton({
@@ -468,56 +392,58 @@ export function DeleteOpportunityButton({
     if (state?.ok) dialog.close()
   }, [state, dialog])
 
+  if (blocker) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <button type="button" className={DANGER} disabled aria-label={`刪除：${name}`} aria-describedby={`${requestId}-delete-blocker`} title={blocker}>
+          <IconTrash aria-hidden />
+          刪除
+        </button>
+        <span id={`${requestId}-delete-blocker`} className="text-xs text-muted-foreground">
+          {blocker}
+        </span>
+      </span>
+    )
+  }
+
   return (
     <>
       <button type="button" className={DANGER} onClick={dialog.open} aria-label={`刪除：${name}`}>
         <IconTrash aria-hidden />
         刪除
       </button>
-      <dialog ref={dialog.ref} aria-label={blocker ? `還不能刪除「${name}」` : `刪除「${name}」`} className={DIALOG_SMALL}>
-        {blocker ? (
-          <div className="space-y-4 p-5">
-            <h2 className={DIALOG_TITLE}>還不能刪除「{name}」</h2>
-            <p className="text-sm text-muted-foreground">{blocker}</p>
-            <div className="flex justify-end pt-1">
-              <button type="button" className={SECONDARY} onClick={dialog.close}>
-                知道了
-              </button>
+      <dialog ref={dialog.ref} aria-label={`刪除「${name}」`} className={DIALOG_SMALL}>
+        <form action={action} className="space-y-4 p-5">
+          <h2 className={DIALOG_TITLE}>刪除「{name}」？</h2>
+          <dl className="space-y-1 rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+            <div>
+              <dt className="inline font-semibold">對象：</dt>
+              <dd className="inline">
+                {name}（{ownerName} 老師負責，{statusLabel}）
+              </dd>
             </div>
+            <div>
+              <dt className="inline font-semibold">後果：</dt>
+              <dd className="inline">從系辦「合作案」、負責老師的「我的合作案」與前台合作案頁消失。</dd>
+            </div>
+            <div>
+              <dt className="inline font-semibold">能不能恢復：</dt>
+              <dd className="inline">不能。刪除紀錄會留在操作紀錄。</dd>
+            </div>
+          </dl>
+          <input type="hidden" name="opportunityId" value={opportunityId} />
+          <input type="hidden" name="revision" value={revision} />
+          <input type="hidden" name="requestId" value={requestId} />
+          <IndustryFeedback state={state?.ok ? undefined : state} />
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" className={SECONDARY} onClick={dialog.close}>
+              先不要
+            </button>
+            <button type="submit" disabled={pending} className={DANGER_SUBMIT}>
+              {pending ? '處理中…' : '刪除這個合作案'}
+            </button>
           </div>
-        ) : (
-          <form action={action} className="space-y-4 p-5">
-            <h2 className={DIALOG_TITLE}>刪除「{name}」？</h2>
-            <dl className="space-y-1 rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-              <div>
-                <dt className="inline font-semibold">對象：</dt>
-                <dd className="inline">
-                  {name}（{ownerName} 老師負責，{statusLabel}）
-                </dd>
-              </div>
-              <div>
-                <dt className="inline font-semibold">後果：</dt>
-                <dd className="inline">從系辦「合作案」、負責老師的「我的合作案」與前台合作案頁消失。</dd>
-              </div>
-              <div>
-                <dt className="inline font-semibold">能不能恢復：</dt>
-                <dd className="inline">不能。刪除紀錄會留在操作紀錄。</dd>
-              </div>
-            </dl>
-            <input type="hidden" name="opportunityId" value={opportunityId} />
-            <input type="hidden" name="revision" value={revision} />
-            <input type="hidden" name="requestId" value={requestId} />
-            <IndustryFeedback state={state?.ok ? undefined : state} />
-            <div className="flex justify-end gap-2 pt-1">
-              <button type="button" className={SECONDARY} onClick={dialog.close}>
-                先不要
-              </button>
-              <button type="submit" disabled={pending} className={DANGER_SUBMIT}>
-                {pending ? '處理中…' : '刪除這個合作案'}
-              </button>
-            </div>
-          </form>
-        )}
+        </form>
       </dialog>
     </>
   )

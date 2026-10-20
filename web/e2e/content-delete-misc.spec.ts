@@ -10,7 +10,9 @@ import { createTestSession, toPlaywrightCookie, type TestSession } from './sessi
  * 2. 發布中的合作案被擋（要先下架）；下架後還連著組別也被擋（要先解除連結）；解除後刪得掉，
  *    後台清單與前台詳情都消失（詳情變 404）。
  * 3. 排定中的活動被擋（要先取消）；已取消的刪得掉，從「已取消」清單消失。
- * 刪除入口只在頁面底部的「危險操作」區（§9 規則 1）：日常清單的列上沒有刪除鈕。
+ * 4. C3-10（AC-C3-30）：系辦在前台 `/industry` 開編輯模式，合作案表單模組按下才載入（獨立 chunk）；
+ *    編輯只改一欄、新增要選負責老師；刪發布中的案回「要先下架」、確認框不關。
+ * 合作案的刪除在每一列的動作裡（C3-10，規格③ §6.5）：不能刪的 disabled 寫原因；活動的刪除仍在「危險操作」區（C3-06 才改）。
  * 刪除的資料層規則（刪除標記、稽核、重送、權限）由 pg-timeline／pg-opportunities 的整合測試證明。
  *
  * 屆別、組別、活動與組別連結直接用 owner 連線準備；W11 的動作全程用真的畫面與按鈕。
@@ -25,6 +27,9 @@ const stamp = Date.now().toString(36).toUpperCase()
 const CODE = `W11-${stamp}`
 const GROUP = `G${stamp.slice(-3)}`
 const COMPANY = `系辦建案${stamp.slice(-4)}`
+const FE_COMPANY = `前台編輯${stamp.slice(-4)}`
+const FE_NEW_COMPANY = `前台新增${stamp.slice(-4)}`
+const PASSWORD = 'E2e-Password-Correct-9'
 const NAME = `${COMPANY}・資訊部`
 const SCHEDULED = `W11 發表會 ${stamp.slice(-4)}`
 const CANCELLED = `W11 說明會 ${stamp.slice(-4)}`
@@ -142,6 +147,11 @@ test('純系辦帳號新增合作案並指定負責老師；前台看得到，�
   const row = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })
   await expect(row).toContainText('已發布')
   await expect(row).toContainText(`負責老師${stamp.slice(-3)} 老師`)
+  // C3-10（AC-C3-23）：負責老師名字旁有 24px 頭像（名字就在旁邊，頭像是裝飾、alt 空）。
+  const avatar = row.locator('img')
+  await expect(avatar).toHaveCount(1)
+  await expect(avatar).toHaveAttribute('width', '24')
+  await expect(avatar).toHaveAttribute('alt', '')
 
   const owner = await pool.query('select owner_teacher_user_id, created_by_user_id from industry_opportunities where company_name = $1', [
     COMPANY,
@@ -160,22 +170,18 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await signIn(page, admin)
   await page.goto('/dashboard/admin/industry')
   const row = page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })
-  // 刪除入口在頁面底部的「危險操作」區，不跟編輯、下架並列（§9 規則 1）。
-  const danger = page.getByRole('region', { name: '危險操作' })
+  // C3-10（AC-C3-23）：「刪除」在每一列的動作裡；頁面沒有「危險操作」區。
   await expect(row).toBeVisible()
-  await expect(row.getByRole('button', { name: /^刪除/ })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: `刪除：${NAME}` })).toHaveCount(1)
-  await expect(danger.getByRole('button', { name: `刪除：${NAME}` })).toBeVisible()
-  await expect(danger.getByTestId('danger-opportunity').filter({ hasText: NAME })).toContainText('要先「下架」')
+  await expect(page.getByRole('region', { name: '危險操作' })).toHaveCount(0)
+  const remove = row.getByRole('button', { name: `刪除：${NAME}` })
+  await expect(remove).toHaveCount(1)
 
-  // 發布中：對話框只說明原因，沒有刪除鈕。
-  await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
-  const blocked = page.getByRole('dialog', { name: `還不能刪除「${NAME}」` })
-  await expect(blocked).toContainText('要先「下架」才能刪除')
-  await expect(blocked.getByRole('button', { name: '刪除這個合作案' })).toHaveCount(0)
-  await blocked.getByRole('button', { name: '知道了' }).click()
+  // 發布中：按鈕 disabled、旁邊直接寫原因；沒有「還不能刪除」對話框。
+  await expect(remove).toBeDisabled()
+  await expect(row).toContainText('要先「下架」才能刪除')
+  await expect(page.getByRole('dialog', { name: `還不能刪除「${NAME}」` })).toHaveCount(0)
 
-  // 連著組別、下架後：還是被擋，說明要先解除連結，並列出是哪一組。
+  // 連著組別、下架後：還是 disabled，原因改成要先解除連結，並列出是哪一組。
   await pool.query(
     `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at)
      values (gen_random_uuid(), $1, $2, now(), $3, now())`,
@@ -185,34 +191,31 @@ test('合作案：發布中要先下架、連著組別要先解除；解除後�
   await row.getByRole('button', { name: `下架：${NAME}` }).click()
   await page.getByRole('dialog', { name: `下架「${NAME}」` }).getByRole('button', { name: '確認下架' }).click()
   await expect(row).toContainText('已下架')
-  await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
-  const linked = page.getByRole('dialog', { name: `還不能刪除「${NAME}」` })
-  await expect(linked).toContainText('要先「解除」連結才能刪除')
-  await expect(linked).toContainText(GROUP)
-  await linked.getByRole('button', { name: '知道了' }).click()
+  await expect(remove).toBeDisabled()
+  await expect(row).toContainText('要先「解除」連結才能刪除')
+  await expect(row).toContainText(GROUP)
 
-  // 解除連結後就能刪：危險操作的確認視窗寫清楚對象、後果、不能恢復。
+  // 解除連結：理由可不填（留空直接成功）；解除後就能刪：確認視窗寫清楚對象、後果、不能恢復。
   await row.getByRole('button', { name: `解除連結：${GROUP}` }).click()
   const unlink = page.getByRole('dialog', { name: `解除 ${GROUP} 的連結` })
-  await unlink.getByLabel('理由（必填）').fill('題目取消')
+  await expect(unlink.getByLabel('理由（可不填）')).toHaveValue('')
   await unlink.getByRole('button', { name: '確認解除' }).click()
   await expect(row).toContainText('尚無組別連結')
 
-  // 刪的是全站最後一件：清單變空後危險操作區仍在，「已刪除」的句子不會跟著整區卸載
-  // （曾經整區 return null，CI 資料庫剛好只有這一件時就看不到句子）。
+  // 刪的是全站最後一件：清單變空後「已刪除」的句子仍看得到（句子掛在清單外層，不隨列卸載）。
   const restore = await hideOtherOpportunities(id)
   try {
     await page.reload()
-    await expect(danger.getByTestId('danger-opportunity')).toHaveCount(1)
-    await danger.getByRole('button', { name: `刪除：${NAME}` }).click()
+    await expect(page.getByTestId('managed-opportunity')).toHaveCount(1)
+    await expect(remove).toBeEnabled()
+    await remove.click()
     const confirm = page.getByRole('dialog', { name: `刪除「${NAME}」` })
     await expect(confirm).toContainText('已下架')
     await expect(confirm).toContainText('不能。')
     await confirm.getByRole('button', { name: '刪除這個合作案' }).click()
-    await expect(danger.getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
-    await expect(danger).toContainText('目前沒有合作案。')
+    await expect(page.getByRole('status').filter({ hasText: `已刪除「${NAME}」` })).toBeVisible()
+    await expect(page.getByRole('main')).toContainText('還沒有合作案')
     await expect(page.getByTestId('managed-opportunity').filter({ hasText: COMPANY })).toHaveCount(0)
-    await expect(page.getByTestId('danger-opportunity')).toHaveCount(0)
   } finally {
     await restore()
   }
@@ -295,4 +298,86 @@ test('活動：刪掉該屆最後一個活動，危險操作區仍在、「已�
   await expect(danger.getByRole('status').filter({ hasText: `已刪除活動「${LAST}」` })).toBeVisible()
   await expect(danger).toContainText('目前沒有活動。')
   await expect(page.getByTestId('danger-activity')).toHaveCount(0)
+})
+
+/** 從登入頁用密碼登入：前台編輯模式要靠登入時設的提示 cookie（同 front-edit.spec）。 */
+async function signInByPassword(page: Page, session: TestSession) {
+  await page.context().clearCookies()
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(session.email)
+  await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
+  await page.getByRole('button', { name: '登入', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 })
+}
+
+test('前台 /industry 編輯模式：合作案表單模組按下才載入；編輯只改一欄、刪發布中的案被擋、新增要選負責老師（AC-C3-30）', async ({ page }) => {
+  test.setTimeout(90_000)
+  const inserted = await pool.query<{ id: string }>(
+    `insert into industry_opportunities
+       (id, owner_teacher_user_id, company_name, department, content, requirements, status,
+        published_business_at, created_by_kind, created_by_user_id)
+     values (gen_random_uuid(), $1, $2, '資訊部', 'AC-C3-30 前台編輯測試', '原本的條件', 'published', now(), 'user', $1)
+     returning id`,
+    [teacher.userId, FE_COMPANY],
+  )
+  const feId = inserted.rows[0]!.id
+  const scripts: string[] = []
+  page.on('response', (response) => {
+    if (response.request().resourceType() === 'script') scripts.push(response.url())
+  })
+
+  await signInByPassword(page, admin)
+  await page.goto('/industry')
+  await page.getByRole('button', { name: '編輯頁面' }).click()
+  const layer = page.getByTestId('front-edit-layer')
+  await expect(layer).toBeAttached()
+
+  // 編輯：按下才載入模組（Network 多一支 script chunk）；載完 detail 之前只有「載入中…」，初值是資料庫裡的原始欄位。
+  const before = scripts.length
+  await layer.getByRole('button', { name: `編輯「${FE_COMPANY}」` }).click()
+  const dialog = page.getByRole('dialog', { name: '編輯合作案' })
+  const form = dialog.getByTestId('fe-opportunity-form')
+  await expect(form).toBeVisible()
+  const chunks = scripts.slice(before)
+  expect(chunks.length, '合作案表單模組應該按下才載入（獨立 chunk）').toBeGreaterThan(0)
+  test.info().annotations.push({ type: 'opportunity-fe-chunk', description: chunks.map((u) => new URL(u).pathname).join(', ') })
+  await expect(form.getByLabel('公司名稱')).toHaveValue(FE_COMPANY)
+  await expect(form.getByLabel('對學生的條件／需求')).toHaveValue('原本的條件')
+  await expect(form.getByRole('combobox', { name: /負責老師/ })).toHaveCount(0)
+  await form.getByLabel('對學生的條件／需求').fill('前台改過的條件')
+  await form.getByRole('button', { name: '儲存修改' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: '已儲存' })).toBeVisible()
+  const edited = await pool.query('select requirements, revision, company_name, content from industry_opportunities where id = $1', [feId])
+  expect(edited.rows[0]).toEqual({ requirements: '前台改過的條件', revision: 2, company_name: FE_COMPANY, content: 'AC-C3-30 前台編輯測試' })
+
+  // 刪除：發布中的案由用例擋下，原因留在確認框裡、不關窗。
+  await expect(layer).toBeAttached()
+  await layer.getByRole('button', { name: `刪除「${FE_COMPANY}」` }).click()
+  const confirm = page.getByRole('alertdialog', { name: '刪除' })
+  await confirm.getByRole('button', { name: '確定刪除' }).click()
+  await expect(confirm.getByRole('alert')).toContainText('要先「下架」')
+  await expect(confirm).toBeVisible()
+  await confirm.getByRole('button', { name: '取消' }).click()
+  await expect(confirm).toHaveCount(0)
+  expect((await pool.query('select deleted_at from industry_opportunities where id = $1', [feId])).rows[0]).toEqual({ deleted_at: null })
+
+  // 新增：系辦要選負責老師；「儲存並發布」後框架 toast「已發布」，資料庫裡是那位老師的已發布案。
+  await layer.getByRole('button', { name: '新增合作案（產學合作）' }).click()
+  const addDialog = page.getByRole('dialog', { name: '新增合作案' })
+  const addForm = addDialog.getByTestId('fe-opportunity-form')
+  await expect(addForm).toBeVisible()
+  await addForm.getByLabel('公司名稱').fill(FE_NEW_COMPANY)
+  await addForm.getByLabel('需求部門').fill('研發部')
+  await addForm.getByLabel('專題／合作內容').fill('AC-C3-30 前台新增')
+  await addForm.getByRole('button', { name: '儲存並發布' }).click()
+  await expect(addDialog.getByRole('alert')).toContainText('請選負責老師')
+  await expect(addForm.getByLabel('公司名稱')).toHaveValue(FE_NEW_COMPANY)
+  await addForm.getByRole('combobox', { name: /負責老師/ }).selectOption(teacher.userId)
+  await addForm.getByRole('button', { name: '儲存並發布' }).click()
+  await expect(addDialog).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: '已發布' })).toBeVisible()
+  const created = await pool.query('select owner_teacher_user_id, status, created_by_user_id from industry_opportunities where company_name = $1', [FE_NEW_COMPANY])
+  expect(created.rows).toEqual([{ owner_teacher_user_id: teacher.userId, status: 'published', created_by_user_id: admin.userId }])
+  await expect(page.getByTestId('opportunity-card').filter({ hasText: FE_NEW_COMPANY })).toBeVisible()
 })

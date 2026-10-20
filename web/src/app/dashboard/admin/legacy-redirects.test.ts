@@ -32,8 +32,13 @@ describe('legacyAdminRedirect', () => {
     expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement: ['rules', 'resource'] })).toBe('/dashboard/admin/affairs/rules')
   })
 
-  it('還留在公告頁的篩選不轉：榮譽（①做完榮譽榜才轉）、公告、逾期、全部、沒帶、不認得的值', () => {
-    for (const placement of ['honor', 'news', 'overdue', 'all', 'nope', undefined]) {
+  it('?placement=honor 轉到成果展示（榮譽榜同頁，C1-09；AC-14a），placement 拿掉、其餘 query 照帶', () => {
+    expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement: 'honor' })).toBe('/dashboard/admin/showcase')
+    expect(legacyAdminRedirect('/dashboard/admin/affairs', { cohort: 'c-1', placement: 'honor' })).toBe('/dashboard/admin/showcase?cohort=c-1')
+  })
+
+  it('還留在公告頁的篩選不轉：公告、逾期、全部、沒帶、不認得的值', () => {
+    for (const placement of ['news', 'overdue', 'all', 'nope', undefined]) {
       expect(legacyAdminRedirect('/dashboard/admin/affairs', { placement, cohort: '115' })).toBeNull()
     }
   })
@@ -64,10 +69,17 @@ describe('legacyAdminRedirect', () => {
     }
   })
 
-  it('首頁設定（C2-17）轉回前台首頁；不是舊網址就不轉（同意書還沒輪到；分頁本身不轉）', () => {
+  it('首頁設定（C2-17）轉回前台首頁；不是舊網址就不轉（同意書版本頁、分頁本身不轉）', () => {
     expect(legacyAdminRedirect('/dashboard/admin/home-settings')).toBe('/')
-    expect(legacyAdminRedirect('/dashboard/admin/signoff')).toBeNull()
+    expect(legacyAdminRedirect('/dashboard/admin/signoff/00000000-0000-0000-0000-000000000000')).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/accounts/pending', { status: 'disabled' })).toBeNull()
     expect(legacyAdminRedirect('/dashboard/admin/affairs/resources', { placement: 'rules' })).toBeNull()
+  })
+
+  it('同意書（C2-22；AC-C2-07）轉到作業分頁，query 照帶', () => {
+    expect(legacyAdminRedirect('/dashboard/admin/signoff')).toBe('/dashboard/admin/affairs/assignments')
+    expect(legacyAdminRedirect('/dashboard/admin/signoff', { cohort: 'c-1', purpose: 'final_document' })).toBe(
+      '/dashboard/admin/affairs/assignments?cohort=c-1&purpose=final_document',
+    )
   })
 })
