@@ -287,24 +287,23 @@ export class PgTimelineCommand implements TimelineCommand {
       )
 
       const changedStages = plan.filter((p) => p.rangeChanged).map((p) => p.seq)
-      // 日期有變：同一筆交易發 `timeline.stage_changed`（③ §9.2；只改名稱、說明不發；沒有收件組就不發）。
+      // 日期有變：同一筆交易發 `timeline.stage_changed`（③ §9.2；只改名稱、說明不發）。
+      // 沒有收件組也照發（recipients 空、worker 不產生通知）：事件是「階段改過」的紀錄，不只是寄信。
       const summary = stageChangeSummary(current, next)
       if (summary) {
         const work = await groupWorkIn(tx, cohortId, summary.windows)
-        if (work.recipients.length > 0) {
-          await this.#events.publish(tx, {
-            type: 'timeline.stage_changed',
-            scope: 'cohort',
-            cohortId,
-            source: { type: 'timeline', id: cohortId, version: cohort.revision + 1 },
-            actor: { kind: 'user', userId },
-            recipients: work.recipients,
-            recipientBasis: { basis: 'group_items_in_changed_stages', groupIds: work.groupIds, itemIds: work.itemIds },
-            payload: { title: summary.notificationTitle, changedStages: summary.changedStages },
-            occurredRealAt: realAt,
-            occurredBusinessAt: businessAt,
-          })
-        }
+        await this.#events.publish(tx, {
+          type: 'timeline.stage_changed',
+          scope: 'cohort',
+          cohortId,
+          source: { type: 'timeline', id: cohortId, version: cohort.revision + 1 },
+          actor: { kind: 'user', userId },
+          recipients: work.recipients,
+          recipientBasis: { basis: 'group_items_in_changed_stages', groupIds: work.groupIds, itemIds: work.itemIds },
+          payload: { title: summary.notificationTitle, changedStages: summary.changedStages },
+          occurredRealAt: realAt,
+          occurredBusinessAt: businessAt,
+        })
       }
       await this.#audit.append(tx, {
         actorKind: 'user',

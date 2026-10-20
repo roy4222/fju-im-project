@@ -26,6 +26,8 @@ import type { ActionResult, GanttEditor, GanttProps } from '@/app/dashboard/_tim
  * - `saveSchedule`（拖階段分界／年度結束日放開，C3-13）：先 `previewScheduleAction`（不寫入，回確認框的句子與「有 N 個整組作業」）
  *   → `StageConfirmDialog` →「確定」才 `saveStageDatesAction`；「取消」／Esc resolve `{ ok:false, cancelled:true }`（gantt 只回彈）。
  *   儲存失敗關掉確認框、把錯誤句交回 gantt（回彈＋`role="alert"`）。
+ *   預覽中或確認框開著時不接新的拖拉（直接回 cancelled，gantt 回到這次之前的位置），取消一律回到最初的位置；
+ *   儲存中不能取消（按鈕停用、Esc 擋下），存完才關；預覽或儲存的請求斷線一樣回彈＋錯誤句（Review FIX）。
  * - `moveActivity`、`remove` 直通 action；成功後 action 自己 `refresh()`，甘特等新資料進來再換掉樂觀位置。
  */
 
@@ -41,6 +43,7 @@ const StageConfirmDialog = dynamic(() => import('@/app/dashboard/_timeline/gantt
 type ScheduleInput = Parameters<GanttEditor['saveSchedule']>[0]
 type ScheduleOutcome = Awaited<ReturnType<GanttEditor['saveSchedule']>>
 type StageConfirmState = { summary: string; input: ScheduleInput }
+const NO_RESPONSE = '沒有收到伺服器回應，請重新整理頁面看看。'
 
 type ActivityDialogState =
   | { mode: 'create'; prefill: { startDate: string; endDate: string } }
@@ -70,16 +73,34 @@ export function GanttMount({
   const [confirmBusy, setConfirmBusy] = useState(false)
   // 等確認框結果的那個 `saveSchedule` promise。
   const settle = useRef<((outcome: ScheduleOutcome) => void) | null>(null)
+  // 預覽中或確認框開著：一次只走一個確認流程。儲存中：不能取消。
+  const flowing = useRef(false)
+  const saving = useRef(false)
   const cohortId = gantt.cohortId
 
   const editor = useMemo<GanttEditor>(
     () => ({
       cohortRevision,
       saveSchedule: async (input): Promise<ScheduleOutcome> => {
-        const preview = await previewScheduleAction(cohortId, input)
-        if (!preview.ok) return preview
-        if (!preview.changed) return saveStageDatesAction(cohortId, input)
-        settle.current?.({ ok: false, cancelled: true })
+        // 第一個 await 之前就鎖：前一次還在預覽或確認，這次不接（gantt 回到這次之前的位置，也就是前一次的暫定位置）。
+        if (flowing.current) return { ok: false, cancelled: true }
+        flowing.current = true
+        let preview: Awaited<ReturnType<typeof previewScheduleAction>>
+        try {
+          preview = await previewScheduleAction(cohortId, input)
+        } catch {
+          flowing.current = false
+          return { ok: false, message: NO_RESPONSE }
+        }
+        if (!preview.ok || !preview.changed) {
+          try {
+            return preview.ok ? await saveStageDatesAction(cohortId, input) : preview
+          } catch {
+            return { ok: false, message: NO_RESPONSE }
+          } finally {
+            flowing.current = false
+          }
+        }
         setNotice(undefined)
         setConfirmBusy(false)
         setConfirm({ summary: preview.message, input })
@@ -119,14 +140,26 @@ export function GanttMount({
   const finishConfirm = useCallback((outcome: ScheduleOutcome) => {
     setConfirm(null)
     setConfirmBusy(false)
+    saving.current = false
+    flowing.current = false
     settle.current?.(outcome)
     settle.current = null
   }, [])
-  const cancelConfirm = useCallback(() => finishConfirm({ ok: false, cancelled: true }), [finishConfirm])
+  const cancelConfirm = useCallback(() => {
+    if (saving.current) return // 儲存中不能取消：請求已送出，等它回來
+    finishConfirm({ ok: false, cancelled: true })
+  }, [finishConfirm])
   const acceptConfirm = useCallback(async () => {
-    if (!confirm) return
+    if (!confirm || saving.current) return
+    saving.current = true
     setConfirmBusy(true)
-    finishConfirm(await saveStageDatesAction(cohortId, confirm.input))
+    let outcome: ScheduleOutcome
+    try {
+      outcome = await saveStageDatesAction(cohortId, confirm.input)
+    } catch {
+      outcome = { ok: false, message: NO_RESPONSE }
+    }
+    finishConfirm(outcome)
   }, [cohortId, confirm, finishConfirm])
 
   const closeDialog = useCallback(() => setDialog(null), [])
