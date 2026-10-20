@@ -187,7 +187,14 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-const draftCard = (page: Page) => page.getByTestId('showcase-draft').filter({ hasText: 'G01' })
+/** 開 G01 那件作品的編輯視窗（C1-09：成果展示改成清單＋編輯視窗，按一次「儲存」）。 */
+async function draftCard(page: Page) {
+  await page.getByTestId('entry-row').filter({ hasText: 'G01' }).getByRole('button', { name: /^編輯：/ }).click()
+  const dialog = page.getByTestId('showcase-edit-dialog')
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+const showcaseToast = (page: Page) => page.getByTestId('showcase-toast')
 
 test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況與下一步；學生直接開管理員頁被擋', async ({ page }) => {
   await asAdmin(page)
@@ -230,44 +237,48 @@ test('空狀態與入口：四頁在側欄、還沒資料時各自說明現況�
 test('精選草稿：建立、填題目摘要影片、上傳 PNG 海報、儲存；重新整理都在；沒有「尚無授權」閘門、草稿有「發布」按鈕', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  const create = page.getByRole('form', { name: '建立成果展示草稿' })
+  await page.getByRole('button', { name: '新增', exact: true }).click()
+  await page.getByRole('menuitem', { name: /^作品/ }).click()
+  const create = page.getByTestId('showcase-edit-dialog')
   await create.getByLabel('組別').selectOption({ label: 'G01' })
-  await create.getByRole('button', { name: '建立草稿' }).click()
-  await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
+  await create.getByRole('button', { name: '儲存', exact: true }).click()
+  await expect(showcaseToast(page)).toContainText('已替 G01 建立成果展示草稿')
 
-  const card = draftCard(page)
+  const card = await draftCard(page)
   await card.getByLabel('題目').fill(TITLE_1)
   await card.getByLabel('摘要').fill(SUMMARY_1)
   // 驗收 P-05：網址格式不對時，瀏覽器的提示說得出怎麼改（不是只有「請輸入網址。」），瀏覽器擋在送出前。
   const video = card.getByLabel('影片連結')
   await video.fill('youtu.be/t25-demo')
-  await card.getByRole('button', { name: '儲存草稿' }).click()
+  await card.getByRole('button', { name: '儲存', exact: true }).click()
   expect(await video.evaluate((el) => (el as HTMLInputElement).validationMessage)).toBe('影片連結只收 YouTube 影片網址（例如 https://www.youtube.com/watch?v=… 或 https://youtu.be/…），不公開影片也可以。')
   await video.fill('https://youtu.be/t25-demo')
   await card.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: PNG })
   await expect(card.getByTestId('poster-name')).toContainText('poster.png')
-  await card.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(card.getByRole('status')).toContainText('G01 的成果展示草稿已儲存（第 2 版），海報已更新。草稿不會公開。')
+  await card.getByRole('button', { name: '儲存', exact: true }).click()
+  await expect(showcaseToast(page)).toContainText('G01 的成果展示草稿已儲存（第 2 版），海報已更新。草稿不會公開。')
 
   await page.reload()
-  const again = draftCard(page)
+  const again = await draftCard(page)
   await expect(again.getByLabel('題目')).toHaveValue(TITLE_1)
   await expect(again.getByLabel('摘要')).toHaveValue(SUMMARY_1)
   await expect(again.getByLabel('影片連結')).toHaveValue('https://youtu.be/t25-demo')
   await expect(again.getByTestId('poster-name')).toHaveText('poster.png')
-  // 第三波 W2（衝突表 #1）：閘門格拿掉；草稿列有「發布」（沒勾同意前停用）。
+  // 第三波 W2（衝突表 #1）：閘門格拿掉；草稿有「發布」（要勾同意，預設沒勾）。
   await expect(page.getByTestId('gate')).toHaveCount(0)
-  await expect(again.getByRole('button', { name: '發布', exact: true })).toBeDisabled()
+  await expect(again.getByLabel(/儲存後發布：已取得這組同學同意公開/)).not.toBeChecked()
   // 已存的海報經下載授權顯示得出來（不是破圖）。
   await expect(again.getByRole('img', { name: 'G01 海報' })).toHaveJSProperty('naturalWidth', 1)
-  // 一組只有一份：建立草稿的下拉已經沒有 G01。
-  await expect(page.getByText('這一屆每一組都已經有成果展示草稿了')).toBeVisible()
+  // 一組只有一份：「新增 › 作品」已經沒有可以選的組。
+  await again.getByRole('button', { name: '取消' }).click()
+  await page.getByRole('button', { name: '新增', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: /^作品/ })).toBeDisabled()
 })
 
 test('精選草稿：海報換成非圖片被拒、原海報保留；兩個分頁同時改，後存的被要求重新載入', async ({ page, context }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  const card = draftCard(page)
+  const card = await draftCard(page)
   await card.getByLabel('選擇海報圖檔').setInputFiles({ name: 'report.pdf', mimeType: 'application/pdf', buffer: PDF })
   await expect(card.getByRole('alert')).toContainText('只接受 .png、.jpg、.jpeg 檔')
   await card.getByLabel('選擇海報圖檔').setInputFiles({ name: 'fake.png', mimeType: 'image/png', buffer: PDF })
@@ -277,16 +288,17 @@ test('精選草稿：海報換成非圖片被拒、原海報保留；兩個分�
   // A2 在另一個分頁先存；A1 用舊的版本再存 → 被拒。
   const other = await context.newPage()
   await other.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  await draftCard(other).getByLabel('影片連結').fill('https://youtu.be/t25-second')
-  await draftCard(other).getByRole('button', { name: '儲存草稿' }).click()
-  await expect(draftCard(other).getByRole('status')).toContainText('第 3 版')
+  const otherCard = await draftCard(other)
+  await otherCard.getByLabel('影片連結').fill('https://youtu.be/t25-second')
+  await otherCard.getByRole('button', { name: '儲存', exact: true }).click()
+  await expect(showcaseToast(other)).toContainText('第 3 版')
   await other.close()
 
   await card.getByLabel('影片連結').fill('https://youtu.be/t25-stale')
-  await card.getByRole('button', { name: '儲存草稿' }).click()
+  await card.getByRole('button', { name: '儲存', exact: true }).click()
   await expect(card.getByRole('alert').filter({ hasText: '被別人更新' })).toContainText('剛剛已經被別人更新了，請重新載入')
   await page.reload()
-  await expect(draftCard(page).getByLabel('影片連結')).toHaveValue('https://youtu.be/t25-second')
+  await expect((await draftCard(page)).getByLabel('影片連結')).toHaveValue('https://youtu.be/t25-second')
 })
 
 test('建簽核版本：全文空、沒選精選草稿被拒；選好後回執含參與者；版本頁全文後列授權範圍與採認待確認標示', async ({ page }) => {
@@ -348,9 +360,10 @@ test('通知：參與學生收到「輪到你同意」，主指導沒有', async
 test('改草稿不影響已凍結的範圍；同用途再建一版，v1 標「已失效（內容變更）」、v2 收集中', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-  await draftCard(page).getByLabel('題目').fill('改過的題目')
-  await draftCard(page).getByRole('button', { name: '儲存草稿' }).click()
-  await expect(draftCard(page).getByRole('status')).toContainText('已儲存')
+  const card = await draftCard(page)
+  await card.getByLabel('題目').fill('改過的題目')
+  await card.getByRole('button', { name: '儲存', exact: true }).click()
+  await expect(showcaseToast(page)).toContainText('已儲存')
 
   await page.goto(`/dashboard/admin/signoff/${finalV1}`)
   await expect(page.getByTestId('scope-title')).toHaveText(TITLE_1)

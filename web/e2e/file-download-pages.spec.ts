@@ -338,17 +338,25 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
   test('AC-V24：草稿海報只在草稿上 → 系辦拿得到但不可快取；沒獎項的已發布海報 → 學生拿得到但不可快取、訪客 401', async ({ page }) => {
     await asAdmin(page)
     await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-    const create = page.getByRole('form', { name: '建立成果展示草稿' })
+    // C1-09：成果展示改成清單＋編輯視窗（「新增 › 作品」建草稿、列上「編輯」開視窗、按一次「儲存」）。
+    await page.getByRole('button', { name: '新增', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^作品/ }).click()
+    const create = page.getByTestId('showcase-edit-dialog')
     await create.getByLabel('組別').selectOption({ label: 'G01' })
-    await create.getByRole('button', { name: '建立草稿' }).click()
-    await expect(create.getByRole('status')).toContainText('已替 G01 建立成果展示草稿')
-    const g01 = page.getByTestId('showcase-draft').filter({ hasText: 'G01' })
+    await create.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('已替 G01 建立成果展示草稿')
+    const openG01 = async () => {
+      await page.getByTestId('entry-row').filter({ hasText: 'G01' }).getByRole('button', { name: /^編輯：/ }).click()
+      return page.getByTestId('showcase-edit-dialog')
+    }
+    let g01 = await openG01()
     await g01.getByLabel('題目').fill(`${V4} 快取海報`)
     await g01.getByLabel('摘要').fill('V4 測試用的作品。')
     await g01.getByLabel('選擇海報圖檔').setInputFiles({ name: 'poster.png', mimeType: 'image/png', buffer: BIG_PNG })
     await expect(g01.getByTestId('poster-name')).toContainText('poster.png')
-    await g01.getByRole('button', { name: '儲存草稿' }).click()
-    await expect(g01.getByRole('status')).toContainText('G01 的成果展示草稿已儲存')
+    await g01.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('G01 的成果展示草稿已儲存')
+    await expect(g01).toHaveCount(0)
 
     const draft = (
       await pool.query<{ entry_id: string; poster_file_id: string }>(
@@ -364,9 +372,10 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expectPrivate(await fetchFile(null, {}, posterId), 401)
 
     // 發布（沒有獎項）→ 海報 U：登入的學生 200 不可快取；訪客 401。
-    await g01.getByLabel(/已取得這組同學同意公開/).check()
-    await g01.getByRole('button', { name: '發布', exact: true }).click()
-    await expect(g01.getByRole('group', { name: '公開' }).getByRole('status')).toContainText('已發布（第 1 版）')
+    g01 = await openG01()
+    await g01.getByLabel(/儲存後發布：已取得這組同學同意公開/).check()
+    await g01.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('已發布（第 1 版）')
     expect(
       (await pool.query('select v.poster_file_id from showcase_entries e join showcase_versions v on v.id = e.current_version_id where e.id = $1', [draft.entry_id]))
         .rows[0]!.poster_file_id,
@@ -378,11 +387,12 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
   test('AC-V18、V23：有獎項的已發布海報 → 訪客與學生都拿到公開快取標頭與 ETag', async ({ page }) => {
     await asAdmin(page)
     await page.goto(`/dashboard/admin/showcase?cohort=${cohortId}`)
-    const awardForm = page.getByTestId('showcase-draft').filter({ hasText: 'G01' }).getByRole('form', { name: /的獎項/ })
+    await page.getByTestId('entry-row').filter({ hasText: 'G01' }).getByRole('button', { name: /^編輯：/ }).click()
+    const awardForm = page.getByTestId('showcase-edit-dialog')
     await awardForm.getByLabel('獎項等級').selectOption('excellent')
     await awardForm.getByLabel(/獎項名稱/).fill('V4 優秀專題')
-    await awardForm.getByRole('button', { name: '儲存獎項' }).click()
-    await expect(awardForm.getByRole('status')).toContainText('V4 優秀專題')
+    await awardForm.getByRole('button', { name: '儲存', exact: true }).click()
+    await expect(page.getByTestId('showcase-toast')).toContainText('V4 優秀專題')
 
     await expectPublic(await fetchFile(null, {}, posterId), posterId)
     await expectPublic(await fetchFile(student, {}, posterId), posterId)
