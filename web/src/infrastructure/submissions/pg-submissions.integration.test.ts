@@ -298,6 +298,21 @@ describe('只看得到、只填得了自己在收件名單上的項目', () => {
     expect(await ledger()).toBe(1)
     expect(Number((await owner.sql('select count(*) as n from submission_versions where item_id = $1', [itemId])).rows[0]!.n)).toBe(1)
   })
+
+  it('封存前成功的存草稿，封存後用同一個 requestId 重播：回 COHORT_ARCHIVED，帳本不多列（AC-56c）', async () => {
+    const { cohortId, student, itemId } = await scenario()
+    const requestId = randomUUID()
+    expect(await submissions.saveDraft(studentActor(student), itemId, 0, COMPLETE, requestId)).toMatchObject({ ok: true })
+    const ledger = async () => Number((await owner.sql('select count(*) as n from operation_records where request_id = $1', [requestId])).rows[0]!.n)
+    expect(await ledger()).toBe(1)
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    expect(await submissions.saveDraft(studentActor(student), itemId, 0, COMPLETE, requestId)).toMatchObject({
+      ok: false,
+      code: 'COHORT_ARCHIVED',
+    })
+    expect(await ledger()).toBe(1)
+  })
 })
 
 describe('老師也能交作業（C 階段規格① §3.2、§5.3；AC-20）：名單上的老師走同一條路', () => {

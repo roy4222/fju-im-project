@@ -298,6 +298,7 @@ describe('授權：只有管理員能建立、編輯、發布、上傳', () => {
       expect(created.ok || created.code).toBe('FORBIDDEN')
       const upload = await items.startUpload(actor, {
         cohortId,
+        placement: 'news',
         kind: 'attachment',
         fileName: 'a.pdf',
         declaredMime: 'application/pdf',
@@ -948,6 +949,7 @@ describe('附件與封面（共用檔案能力；下載依對象）', () => {
     const { cohortId } = await newCohort()
     const cover = await items.startUpload(adminActor(), {
       cohortId,
+      placement: 'news',
       kind: 'cover',
       fileName: 'cover.pdf',
       declaredMime: 'application/pdf',
@@ -956,12 +958,79 @@ describe('附件與封面（共用檔案能力；下載依對象）', () => {
     expect(cover.ok || cover.code).toBe('FILE_TYPE_REJECTED')
     const attachment = await items.startUpload(adminActor(), {
       cohortId,
+      placement: 'news',
       kind: 'attachment',
       fileName: '說明.pdf',
       declaredMime: 'application/pdf',
       declaredSize: 100,
     })
     expect(attachment.ok).toBe(true)
+  })
+
+  describe('封存屆別的上傳（AC-55 F1）：只有榮譽還能開始上傳', () => {
+    const start = (cohortId: string, placement: string, kind: 'attachment' | 'cover' = 'attachment') =>
+      items.startUpload(adminActor(), {
+        cohortId,
+        placement,
+        kind,
+        fileName: kind === 'cover' ? '封面.png' : '說明.pdf',
+        declaredMime: kind === 'cover' ? 'image/png' : 'application/pdf',
+        declaredSize: 100,
+      })
+    const storedFiles = () => count('select count(*) as n from stored_files')
+
+    it('封存後公告、作業、不認得的位置一律 COHORT_ARCHIVED，不多一個檔；榮譽的附件與封面照樣拿得到 ticket；沒封存的照舊', async () => {
+      const active = await newCohort()
+      expect((await start(active.cohortId, 'news')).ok).toBe(true)
+      expect((await start(active.cohortId, 'submission')).ok).toBe(true)
+
+      const { cohortId } = await newCohort()
+      await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+      const before = await storedFiles()
+      for (const placement of ['news', 'resource', 'submission', 'rules', 'showcase', '', 'HONOR', 'honor ']) {
+        const refused = await start(cohortId, placement)
+        expect(refused.ok || refused.code, placement).toBe('COHORT_ARCHIVED')
+      }
+      expect((await start(cohortId, 'news', 'cover')).ok || 'refused').toBe('refused')
+      expect(await storedFiles()).toBe(before)
+
+      expect((await start(cohortId, 'honor')).ok).toBe(true)
+      expect((await start(cohortId, 'honor', 'cover')).ok).toBe(true)
+    })
+
+    it('謊報成榮譽拿到 ticket 傳上去，存成非榮譽項目時被封存守門擋下，檔案沒有被引用', async () => {
+      const { cohortId } = await newCohort()
+      const news = await mustCreate(cohortId, { placement: 'news', audienceKind: 'public', receiverUnit: 'none' })
+      await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+
+      const issued = await start(cohortId, 'honor')
+      if (!issued.ok) throw new Error(issued.message)
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(PDF)
+          controller.close()
+        },
+      })
+      const stored = await storage.upload(adminId, issued.receipt.ticket, stream, PDF.length)
+      if (!stored.ok) throw new Error(stored.message)
+      const fileId = stored.receipt.fileId
+
+      const created = await items.create(
+        adminActor(),
+        input(cohortId, { placement: 'news', audienceKind: 'public', attachmentFileIds: [fileId] }),
+        randomUUID(),
+      )
+      expect(created.ok || created.code).toBe('COHORT_ARCHIVED')
+      const saved = await items.saveDraft(
+        adminActor(),
+        news.itemId,
+        news.revision,
+        input(cohortId, { placement: 'news', audienceKind: 'public', attachmentFileIds: [fileId] }),
+        randomUUID(),
+      )
+      expect(saved.ok || saved.code).toBe('COHORT_ARCHIVED')
+      expect(await count('select count(*) as n from file_references where file_id = $1', [fileId])).toBe(0)
+    })
   })
 
   it('下載授權：草稿只有管理員；發布後本屆學生可以、別屆學生與老師不行', async () => {

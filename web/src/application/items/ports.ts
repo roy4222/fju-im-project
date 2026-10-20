@@ -79,6 +79,8 @@ export type RenameCategoryReceipt = { readonly from: string; readonly to: string
 
 export type StartItemUploadInput = {
   readonly cohortId: string
+  /** 檔案要用在哪個位置的項目：屆別封存後只有榮譽還能上傳（同存草稿的封存規則）；不認得的值當成非榮譽。 */
+  readonly placement: string
   readonly kind: ItemFileKind
   readonly fileName: string
   readonly declaredMime: string

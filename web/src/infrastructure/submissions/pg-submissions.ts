@@ -227,6 +227,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
       if (!locked) return notInRoster()
       const notReceiver = receiverDenied(actor, locked)
       if (notReceiver) return notReceiver
+      const archived = this.#archivedGuard(locked, businessAt)
+      if (archived) return archived
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -325,12 +327,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const notReceiver = receiverDenied(actor, locked)
       if (notReceiver) return notReceiver
       const { item } = locked
-      // 屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重播也回 COHORT_ARCHIVED，不回原回執。
-      // 走整套守門，名單、免繳這些排在封存前面的拒絕碼順序不變。
-      if (locked.cohortStatus === 'archived') {
-        const archived = this.#guard(locked, businessAt)
-        if (archived) return archived
-      }
+      const archived = this.#archivedGuard(locked, businessAt)
+      if (archived) return archived
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -925,6 +923,14 @@ export class PgSubmissionCommand implements SubmissionCommand {
       return err('DEADLINE_PASSED', `已經截止（截止：${formatTaipeiMinute(item.due_at!)}，含此分鐘，臺灣時間）；需要補交請聯絡系辦。`)
     }
     return null
+  }
+
+  /**
+   * 屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重播也回 COHORT_ARCHIVED，不回原回執。
+   * 走整套守門，名單、免繳這些排在封存前面的拒絕碼順序不變；沒封存回 null，照舊先查重播。
+   */
+  #archivedGuard(locked: Locked, businessAt: Date): Err | null {
+    return locked.cohortStatus === 'archived' ? this.#guard(locked, businessAt) : null
   }
 
   /**

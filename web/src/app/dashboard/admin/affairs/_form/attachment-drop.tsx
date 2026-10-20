@@ -15,6 +15,7 @@ export const MAX_ATTACHMENTS = 20
 
 export function AttachmentDrop({
   cohortId,
+  placement,
   attachments,
   onChange,
   accept,
@@ -22,6 +23,8 @@ export function AttachmentDrop({
   disabled,
 }: {
   cohortId: string
+  /** 項目目前的位置：屆別封存後只有榮譽能上傳，伺服器照這個判斷。 */
+  placement: string
   attachments: readonly FileChip[]
   onChange: (next: FileChip[]) => void
   accept: string
@@ -44,7 +47,7 @@ export function AttachmentDrop({
     setBusy(true)
     const added: FileChip[] = []
     for (const file of files.slice(0, room)) {
-      const result = await uploadItemFile(file, cohortId, 'attachment')
+      const result = await uploadItemFile(file, cohortId, placement, 'attachment')
       if (!result.ok) {
         setError(`${file.name}：${result.message}`)
         break
