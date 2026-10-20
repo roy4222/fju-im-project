@@ -461,7 +461,7 @@ const denied: DenialCase[] = [
     return () => commands.profileEdit.edit(admin, { userId: other.spare.id, name: '轉入學生', role: 'student', studentNo: other.spare.studentNo, cohortId: s.cohortId, requestId: randomUUID() })
   } },
 
-  ...(['createStudent', 'createMember'] as const).map(name => ({ name: `AccountCommand.${name}/student`, issue: '#790 F3：新增學生漏擋', writesWhenArchived: true, prepare: async (s: Scenario): Promise<Run> => {
+  ...(['createStudent', 'createMember'] as const).map(name => ({ name: `AccountCommand.${name}/student`, prepare: async (s: Scenario): Promise<Run> => {
     const input = { kind: 'student', name: '系辦新增學生', email: `new-${randomUUID()}@example.com`, studentNo: '499123458', cohortId: s.cohortId, requestId: randomUUID() }
     return () => commands.accounts[name](admin, new Headers(), input)
   } })),
