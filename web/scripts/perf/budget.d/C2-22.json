@@ -1,0 +1,6 @@
+{
+  "ticket": "C2-22",
+  "override": {
+    "/dashboard/admin/signoff": { "from": "base", "value": { "baseline": 224.6, "limit": 248 } }
+  }
+}
