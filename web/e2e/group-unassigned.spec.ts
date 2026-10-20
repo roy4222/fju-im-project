@@ -229,7 +229,7 @@ test('AC-C3-19：Q 列「終止建立：E」理由留空 → 成功；Q 與 E �
   // E 自己的紀錄：只寫「系辦終止」，沒有理由。
   await signIn(page, eSession)
   await page.goto('/dashboard/student/groups?tab=log')
-  const log = page.locator('section[aria-label="提案紀錄"]')
+  const log = page.locator('section[aria-label="建立組別紀錄"]')
   await expect(log).toContainText('沒有成立：系辦終止')
   await expect(log).not.toContainText('理由')
 })

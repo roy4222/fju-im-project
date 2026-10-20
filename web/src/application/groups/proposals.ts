@@ -67,12 +67,16 @@ export type ProposeInput = {
   readonly groupType: string
   /** 其他組員的學號（不含自己；含了也會自動去掉）。空白欄會被略過。 */
   readonly memberStudentNos: readonly string[]
+  /** 產學合作必選的合作案（C3-11；規格③ §5.2、§7.3）。一般專題不看這一欄。 */
+  readonly opportunityId?: string
 }
 
 export type NormalizedProposal = {
   readonly groupType: GroupType
   /** 去空白、去重複、去掉自己之後的其他組員學號，依輸入順序。 */
   readonly memberStudentNos: readonly string[]
+  /** 產學合作選的合作案；一般專題一律 null。 */
+  readonly opportunityId: string | null
 }
 
 /**
@@ -86,6 +90,11 @@ export function normalizeProposeInput(
 ): { ok: true; value: NormalizedProposal } | Err {
   if (!(GROUP_TYPES as readonly string[]).includes(input.groupType)) {
     return err('VALIDATION_FAILED', '請選組別類型（一般專題或產學合作）。', { details: { field: 'groupType' } })
+  }
+  // 產學合作一定要選合作案（已發布、未刪除由資料庫那層再查一次）；一般專題帶了也不理。
+  const opportunityId = input.groupType === 'industry' ? (input.opportunityId ?? '').trim() : ''
+  if (input.groupType === 'industry' && !isUuid(opportunityId)) {
+    return err('VALIDATION_FAILED', '請選合作案。', { details: { field: 'opportunityId' } })
   }
 
   const seen = new Set<string>()
@@ -114,7 +123,10 @@ export function normalizeProposeInput(
     )
   }
 
-  return { ok: true, value: { groupType: input.groupType as GroupType, memberStudentNos: members } }
+  return {
+    ok: true,
+    value: { groupType: input.groupType as GroupType, memberStudentNos: members, opportunityId: opportunityId || null },
+  }
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
