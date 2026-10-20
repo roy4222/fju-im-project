@@ -30,6 +30,7 @@ import { PgGradeExporter } from '@/infrastructure/grading/pg-grade-export'
 import { PgItemCommand } from '@/infrastructure/items/pg-items'
 import { PgDueWorkScheduler } from '@/infrastructure/notifications/pg-due-work-scheduler'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
+import { PgTestNotificationCommand } from '@/infrastructure/notifications/pg-test-notification'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { FsFileStorage, PgFileAdminCommand } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
@@ -37,6 +38,7 @@ import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flag
 import { PgReminders } from '@/infrastructure/reminders/pg-reminders'
 import { PgShowcaseCommand } from '@/infrastructure/showcase/pg-showcase'
 import { PgSignoffCommand, PgSignoffQuery } from '@/infrastructure/signoff/pg-signoff'
+import { PgConsentPublishHook } from '@/infrastructure/signoff/pg-consent-bridge'
 import { PgResponsePresence } from '@/infrastructure/submissions/pg-response-presence'
 import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
@@ -44,12 +46,13 @@ import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submiss
  * #715 / AC-55–56：經 application/index.ts 匯出的真命令，以 fju_app 執行。
  * 假設：封存拒絕寫入；鎖序決定送出結果；封存優先於重播、解封不延長截止。
  * 反證：錯誤碼不符、任一持久列變動、未實際等鎖、重播成功或逾期仍可送出。
- * 每列另跑 active 正例；準備資料、命令執行在 beforeEach，不讓 it.fails 吞掉 fixture/SQL 錯誤。
+ * 每列另跑 active 正例；準備資料、命令執行在 suite 的 beforeAll，並明確重設時鐘。
+ * Review FIX：beforeEach 的錯誤也會被 it.fails 反轉；beforeAll 的錯誤必須讓整個 suite 失敗。
  * 只有拒絕斷言可預期失敗；全資料庫快照也含帳本、稽核、事件、到期工作、檔案與引用。
  * ⑤-12 ESCALATE 1 裁定：成果展示、榮譽為對外紀錄例外；D-08 匯出允許。
  * 盤點：rg 'export (interface|type) .*Command' application 與各模組 index.ts，再核對實作寫入點。
  * 全域設定、帳密／頭像、通知已讀、未綁屆別的產學題目及暫存 CSV 上傳不寫屆別工作資料。
- * 吃呼叫端 tx 的 signoff hook／EventPublisher 等由上層命令的同交易快照涵蓋；不是獨立入口。
+ * 吃呼叫端 tx 的 signoff hook／EventPublisher 等由上層命令的同交易快照涵蓋；createForGroup 獨立列出。
  * 帳號停用的組長接任明訂略過封存屆（accounts/directory.ts、pg-groups.ts #leaderships）。
  * 新建屆別用於 fixture；unarchive 是 AC-56e 的明訂例外。
  * #715 主腦 10/21 04:30 裁定：六類維護操作也允許；下方以七列驗證（個資更正／移出分開）。
@@ -82,6 +85,7 @@ function makeCommands(pool: () => Pick<Pool, 'connect'> = () => app) {
     ticketSecret: () => 'c5-12-local-integration-ticket-secret', policies: {}, db: () => app })
   const dueWork = new PgDueWorkScheduler({ testKindsEnabled: false })
   const signoff = new PgSignoffCommand({ ...common, files })
+  const consent = new PgConsentPublishHook({ ...common, signoff })
   const groups = new PgGroupCommand({ ...common, dueWork, signoff })
   return {
     cohorts: new PgCohortCommand(common), timeline: new PgTimelineCommand(common),
@@ -90,8 +94,9 @@ function makeCommands(pool: () => Pick<Pool, 'connect'> = () => app) {
     advisors: new PgAdvisorCommand({ ...common, files, signoff }), opportunities: new PgOpportunityCommand(common),
     grading: new PgGradingCommand(common), results: new PgGradingResultsCommand(common),
     settlements: new PgGradingSettlementCommand(common), stageSettings: new PgGradingStageSettingCommand(common),
-    items: new PgItemCommand({ ...common, files, dueWork, responses: new PgResponsePresence() }),
-    submissions: new PgSubmissionCommand({ ...common, files }), signoff,
+    items: new PgItemCommand({ ...common, files, dueWork, responses: new PgResponsePresence(), consent }),
+    submissions: new PgSubmissionCommand({ ...common, files }), signoff, consent,
+    testNotification: new PgTestNotificationCommand({ ...common, enabled: true, reader: () => app }),
     showcase: new PgShowcaseCommand({ ...common, files }), reminders: new PgReminders({ ...common, reader: () => app }),
     fileAdmin: new PgFileAdminCommand({ ...common, db: () => app }),
     // 只替換外部 Better Auth 撤登入呼叫；去識別化與撤登入工作仍在隔離資料庫實跑。
@@ -331,6 +336,36 @@ const denied: DenialCase[] = [
       : commands.items.reorderRules(admin, s.cohortId, [second.itemId, first.itemId], randomUUID())
   } })),
   { ...direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })), issue: '#789 F1：附件上傳漏擋' },
+  { name: 'FileStorage.upload/preArchiveTicket', issue: '#792 F4：封存前憑證仍可完成上傳', prepare: async s => {
+    const bytes = new TextEncoder().encode('%PDF-1.4\n% 封存前取得憑證的工作附件\n')
+    const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
+      fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
+    return () => commands.files.upload(adminId, ticket.ticket,
+      new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length)
+  } },
+  ...(['fresh', 'replay'] as const).map(mode => ({ name: `ConsentPublishHook.createForGroup/${mode}`,
+    ...(mode === 'replay' ? { issue: '#792 F5：補建同意書重播漏擋' } : {}),
+    prepare: async (s: Scenario): Promise<Run> => {
+      // 發布至少要有一組已指派老師。G02 正常建包，G01 無老師先跳過，之後才補建。
+      const otherGroupId = randomUUID()
+      await owner.sql(`insert into groups (id,cohort_id,code,group_type,established_real_at,established_business_at,created_by_kind)
+        values ($1,$2,'G02','general',now(),$3,'system')`, [otherGroupId, s.cohortId, businessNow])
+      await owner.sql(`insert into group_memberships (id,group_id,cohort_id,user_id,valid_from,added_by_kind)
+        values (gen_random_uuid(),$1,$2,$3,now()-interval '1 day','system')`, [otherGroupId, s.cohortId, s.spare.id])
+      receipt(await commands.advisors.assign(admin, { groupId: otherGroupId, revision: await revision('groups', otherGroupId),
+        teacherUserId: s.teacher.id, reason: '', gradingSelections: [] }, randomUUID()))
+      const i = await item(s, { receiverUnit: 'group', stageId: null, dueAt: '', fields: [],
+        consentMode: 'form', consentPurpose: 'result_confirmation' })
+      expect((await owner.sql('select group_id from signoff_packages where item_id=$1', [i.itemId])).rows)
+        .toEqual([{ group_id: otherGroupId }])
+      receipt(await commands.advisors.assign(admin, { groupId: s.groupId, revision: await revision('groups', s.groupId),
+        teacherUserId: s.teacher.id, reason: '', gradingSelections: [] }, randomUUID()))
+      const requestId = randomUUID()
+      const run = () => commands.consent.createForGroup(admin, { itemId: i.itemId, groupId: s.groupId }, requestId)
+      if (mode === 'replay') receipt(await run())
+      return run
+    },
+  })),
   direct('GradingCommand.createSchemeVersion', s => commands.grading.createSchemeVersion(admin, { cohortId: s.cohortId, stages: STAGES }, randomUUID())),
   { name: 'GradingCommand.publishScheme', prepare: async s => {
     const { versionId } = receipt(await commands.grading.createSchemeVersion(admin, { cohortId: s.cohortId, stages: STAGES }, randomUUID()))
@@ -473,7 +508,8 @@ describe.each(denied)('AC-55 應拒絕：$name', testCase => {
     let result: Result<unknown>
     let before: Awaited<ReturnType<typeof snapshot>>
     let after: Awaited<ReturnType<typeof snapshot>>
-    beforeEach(async () => {
+    beforeAll(async () => {
+      businessNow = new Date('2026-10-01T02:00:00Z')
       const s = await scenario()
       const run = await testCase.prepare(s)
       await archive(s)
@@ -529,8 +565,40 @@ describe.each(allowed)('AC-55 允許例外：$name', testCase => {
 
 type MaintenanceCase = { name: string; basis: string; prepare: (s: Scenario) => Promise<() => Promise<void>> }
 
-// 每列依據都加上 #715 主腦 10/21 04:30 裁定；命令、檔案 IO 與歷史資料均實跑。
+// 每列依據都加上 #715 主腦裁定；命令、檔案 IO 與歷史資料均實跑。
 const maintenanceAllowed: MaintenanceCase[] = [
+  { name: 'TestNotificationCommand.send',
+    basis: 'notifications/pg-test-notification.ts：維運測試通知；#788 Review 1 主腦裁定封存後仍允許',
+    prepare: async s => async () => {
+      const requestId = randomUUID()
+      const sent = receipt(await commands.testNotification.send(admin,
+        { recipientUserId: s.student.id, cohortId: s.cohortId, title: '封存屆維運測試' }, requestId))
+      expect((await owner.sql('select type,cohort_id,recipients,payload from domain_events where id=$1', [sent.eventId])).rows)
+        .toEqual([{ type: 'test.notification', cohort_id: s.cohortId, recipients: [s.student.id], payload: { title: '封存屆維運測試' } }])
+      expect((await owner.sql("select target_id from audit_events where action='notification.test.send' and cohort_id=$1", [s.cohortId])).rows)
+        .toEqual([{ target_id: s.student.id }])
+    },
+  },
+  { name: 'ItemCommand.startUpload + FileStorage.upload/honor',
+    basis: '規格① 設計方案 §4.5、#715 例外裁定及 #788 Review 1：封存屆榮譽附件上傳允許',
+    prepare: async s => async () => {
+      const bytes = new TextEncoder().encode('%PDF-1.4\n% 榮譽獎狀\n')
+      // #789 尚未加入 placement：依主腦裁定先用現行共用入口，並實際把檔案綁到榮譽。
+      const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
+        fileName: 'award.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
+      const stored = receipt(await commands.files.upload(adminId, ticket.ticket,
+        new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length))
+      const honor = receipt(await commands.items.create(admin, itemInput(s, { placement: 'honor', audienceKind: 'public',
+        receiverUnit: 'none', fields: [], dueAt: '', title: '專題競賽佳作', attachmentFileIds: [stored.fileId] }), randomUUID()))
+      const file = (await owner.sql('select status,cohort_id,storage_key from stored_files where id=$1', [stored.fileId])).rows[0]!
+      expect(file).toMatchObject({ status: 'stored', cohort_id: s.cohortId })
+      expect(await readFile(join(root, String(file.storage_key)))).toEqual(Buffer.from(bytes))
+      expect((await owner.sql('select file_id from item_attachments where item_id=$1', [honor.itemId])).rows)
+        .toEqual([{ file_id: stored.fileId }])
+      expect((await owner.sql('select released_at from file_references where file_id=$1', [stored.fileId])).rows)
+        .toEqual([{ released_at: null }])
+    },
+  },
   ...(['sameCohort', 'moveOut'] as const).map(mode => ({
     name: `ProfileEditCommand.edit/${mode}`,
     basis: 'infrastructure/accounts/pg-profile-edit.ts edit、規格② §3.8／AC-C2-22：有效分組先移出；主腦裁定允許原屆更正與移出封存屆',
@@ -675,7 +743,7 @@ const maintenanceAllowed: MaintenanceCase[] = [
 ]
 
 describe.each(maintenanceAllowed)('AC-55 主腦已裁定例外：$name', testCase => {
-  it(`#715 主腦 10/21 04:30：${testCase.basis}`, async () => {
+  it(`#715 主腦裁定：${testCase.basis}`, async () => {
     const s = await scenario()
     const check = await testCase.prepare(s)
     await archive(s)
@@ -792,7 +860,8 @@ describe('AC-56c：封存前成功的 requestId 封存後重播', () => {
   let replay: Result<unknown>
   let before: Awaited<ReturnType<typeof snapshot>>
   let after: Awaited<ReturnType<typeof snapshot>>
-  beforeEach(async () => {
+  beforeAll(async () => {
+    businessNow = new Date('2026-10-01T02:00:00Z')
     const s = await preparedSubmission()
     const requestId = randomUUID()
     receipt(await commands.submissions.submit(s.student.actor, s.itemId, 1, requestId))
