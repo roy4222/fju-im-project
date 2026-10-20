@@ -1,15 +1,31 @@
 'use client'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useActionState, useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { IconChevronDown, IconGripVertical, IconPencilPlus } from '@tabler/icons-react'
-import { deleteEntryAction, saveHomeOrderAction } from './actions'
-import { ShowcaseEditDialog, type ShowcaseDialogTarget } from './showcase-edit-dialog'
+import { deleteEntryAction, requestPosterUploadAction, saveEntryAction, saveHomeOrderAction, withdrawAction } from './actions'
+import type { ShowcaseDialogTarget } from './showcase-edit-dialog'
 import { ItemFormDialog } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
 import { frontEditContextAction } from '@/app/dashboard/admin/affairs/front-edit-context-action'
 import type { EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-model'
-import { DIALOG, Feedback, PRIMARY, SECONDARY } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { homeOrderPatch, type ShowcaseEntryView } from '@/app/dashboard/admin/showcase/showcase-view'
 import { cn } from '@/shared/cn'
+
+// 只在新增／編輯時下載視窗。Server Function 與共用樣式由首載外殼傳入，
+// 避免延遲 chunk 靜態引用 actions／Button／look 後重切全站共用 chunk。
+const ShowcaseEditDialog = dynamic(() => import('./showcase-edit-dialog').then((m) => m.ShowcaseEditDialog), {
+  ssr: false,
+  loading: () => <span role="status" className="text-sm text-muted-foreground">表單載入中…</span>,
+})
+const ShowcaseDeleteDialog = dynamic(() => import('./showcase-delete-dialog').then((m) => m.ShowcaseDeleteDialog), {
+  ssr: false,
+  loading: () => <span role="status" className="text-sm text-muted-foreground">表單載入中…</span>,
+})
+const EDIT_DIALOG_DEPS = {
+  actions: { requestPosterUploadAction, saveEntryAction, withdrawAction },
+  styles: { DIALOG, INPUT, LABEL, PRIMARY, SECONDARY },
+}
 
 /**
  * 公告與作業 › 成果展示會動的部分（C 階段規格① §4.5；C1-09 把原本攤開的四塊表單重組成清單＋一個視窗）：
@@ -186,6 +202,7 @@ export function ShowcaseNewMenu({
         <ShowcaseEditDialog
           target={target}
           {...config}
+          {...EDIT_DIALOG_DEPS}
           onCancel={() => setTarget(null)}
           onSaved={(message) => {
             setTarget(null)
@@ -227,6 +244,7 @@ export function EntryRowActions({ entry, config }: { entry: ShowcaseEntryView; c
         <ShowcaseEditDialog
           target={{ mode: 'edit', entry }}
           {...config}
+          {...EDIT_DIALOG_DEPS}
           onCancel={() => setEditing(false)}
           onSaved={(message) => {
             setEditing(false)
@@ -240,16 +258,8 @@ export function EntryRowActions({ entry, config }: { entry: ShowcaseEntryView; c
 
 /** 刪除：公開中停用、按鈕本身寫原因；能刪時一句確認（不能恢復）。 */
 function DeleteEntryButton({ entry, onDeleted }: { entry: ShowcaseEntryView; onDeleted: (text: string) => void }) {
-  const [state, action, pending] = useActionState(deleteEntryAction, undefined)
-  const dialog = useRef<HTMLDialogElement>(null)
-  const [requestId, setRequestId] = useState('')
+  const [deleteRequest, setDeleteRequest] = useState<string | null>(null)
   const name = entry.title || '（未填題目）'
-
-  useEffect(() => {
-    if (!state?.ok) return
-    dialog.current?.close()
-    onDeleted(state.message)
-  }, [state, onDeleted])
 
   if (entry.deleteBlocked) {
     return (
@@ -264,36 +274,20 @@ function DeleteEntryButton({ entry, onDeleted }: { entry: ShowcaseEntryView; onD
         type="button"
         className={cn(ROW_BTN, 'text-destructive hover:bg-destructive-subtle')}
         aria-label={`刪除：${name}`}
-        onClick={() => {
-          setRequestId(crypto.randomUUID())
-          dialog.current?.showModal()
-        }}
+        onClick={() => setDeleteRequest(crypto.randomUUID())}
       >
         刪除
       </button>
-      <dialog ref={dialog} aria-label="刪除作品" className={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}>
-        <form action={action} className="flex flex-col gap-4 px-6 py-5">
-          <input type="hidden" name="requestId" value={requestId} />
-          <input type="hidden" name="entryId" value={entry.entryId} />
-          <input type="hidden" name="revision" value={entry.entryRevision} />
-          <p className="text-base font-bold break-words">
-            確定刪除 {entry.groupLabel}「{name}」？草稿與發布過的版本一起刪掉，前台與作品網址都不再出現，不能恢復。
-          </p>
-          <Feedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2">
-            <button type="button" className={SECONDARY} onClick={() => dialog.current?.close()}>
-              取消
-            </button>
-            <button
-              type="submit"
-              className="press inline-flex h-10 items-center rounded-lg bg-destructive px-4 text-sm font-semibold text-white disabled:opacity-60"
-              disabled={pending}
-            >
-              {pending ? '刪除中…' : '刪除這件作品'}
-            </button>
-          </div>
-        </form>
-      </dialog>
+      {deleteRequest ? (
+        <ShowcaseDeleteDialog
+          entry={entry}
+          requestId={deleteRequest}
+          deleteEntry={deleteEntryAction}
+          dialogClass={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}
+          cancelClass={SECONDARY}
+          onDeleted={onDeleted}
+        />
+      ) : null}
     </>
   )
 }
