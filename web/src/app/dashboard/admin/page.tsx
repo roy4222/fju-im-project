@@ -49,6 +49,7 @@ export default async function AdminHomePage() {
           line={heroLine(home, ctx.cohort !== null)}
           compact
           cta={adminHeroCta(ctx, home.summary?.pendingApplications ?? 0)}
+          timelineHref="/timeline"
           trail
         />
 
@@ -94,8 +95,8 @@ export default async function AdminHomePage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
-          <div className="min-w-0 md:col-span-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-3">
+          <div className="min-w-0 lg:col-span-2">
             {/* 「作業完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋，沒有屆別時也要在。 */}
             <Panel title="作業完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs?placement=all`, label: '公告與作業' }} className="h-full">
               {intake.length === 0 ? (
@@ -177,7 +178,7 @@ export default async function AdminHomePage() {
             </Panel>
           </div>
 
-          <div className="min-w-0 md:col-span-2">
+          <div className="min-w-0 lg:col-span-2">
             {/* 每位老師一張小卡（全部階段、排除解散組，跟成績頁同一個 teacherProgress，AC-AD-03）。 */}
             <Panel title="老師評分進度" description={`還差 ${home.remaining} 份`} action={{ href: `${BASE}/grading`, label: '成績' }} className="h-full">
               {teachers.length === 0 ? (

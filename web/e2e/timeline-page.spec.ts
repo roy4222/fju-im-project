@@ -6,7 +6,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole
 /**
  * 學生規格 ST-6：前台「專題時程」`/timeline`（AC-ST-20、21、22、28）。
  *
- * 1. 學生：前台外殼（頂部導覽沒有「專題時程」）、屆別字、階段軌四段（現在＋還有 N 天＋說明）、整月行事曆
+ * 1. 學生：前台外殼（頂部導覽有「專題時程」，C3-17）、屆別字、階段軌四段（現在＋還有 N 天＋說明）、整月行事曆
  *    （活動、已取消、截止；只給老師的不出現）、右欄「M 月」清單與「這天的行程」、翻月。
  * 2. 訪客導登入頁；老師與系辦看到預設工作屆別的階段軌與活動（含只給老師的），沒有任何截止。
  * 3. 本屆沒有時程：一句「本屆時程還沒設定」，月曆仍可翻。
@@ -204,10 +204,10 @@ test('AC-ST-20 學生：前台外殼、屆別、階段軌、整月行事曆（�
   const response = await page.goto('/timeline')
   expect(response?.status()).toBe(200)
 
-  // 前台外殼（不是後台側欄），頂部導覽沒有「專題時程」（Q125）。
+  // 前台外殼（不是後台側欄），頂部導覽有「專題時程」（C3 AC-C3-42 取代 Q125）。
   await expect(page.getByRole('navigation', { name: '後台導覽' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: '主導覽' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: '主導覽' })).not.toContainText('專題時程')
+  await expect(page.getByRole('navigation', { name: '主導覽' })).toContainText('專題時程')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('專題時程')
   await expect(page.getByRole('navigation', { name: '麵包屑' })).toContainText('專題時程')
   await expect(page.getByRole('main')).toContainText(COHORT_NAME)
@@ -260,6 +260,29 @@ test('AC-ST-20 學生：前台外殼、屆別、階段軌、整月行事曆（�
   await expect(calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)).toHaveText(`${next.y} 年 ${next.m} 月`)
   await expect(calendar.getByRole('heading', { name: `${next.m} 月`, exact: true })).toBeVisible()
   await expect(calendar.getByRole('list', { name: '這天的行程' })).toHaveCount(0)
+})
+
+test('AC-C3-42 主導覽「專題時程」連 /timeline、排在「專題規則」之後；手機抽屜同；訪客沒有', async ({ page }) => {
+  const topLinks = (name: string) => page.getByRole('navigation', { name, exact: true }).locator(':scope > div > a')
+  await signIn(page, student)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  const labels = await topLinks('主導覽').allTextContents()
+  expect(labels.indexOf('專題時程')).toBe(labels.indexOf('專題規則') + 1)
+  await expect(topLinks('主導覽').filter({ hasText: '專題時程' })).toHaveAttribute('href', '/timeline')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: '開啟選單' }).click()
+  const drawer = page.getByRole('navigation', { name: '主導覽（手機）' })
+  const drawerLabels = await drawer.getByRole('link').allTextContents()
+  expect(drawerLabels.indexOf('專題時程')).toBe(drawerLabels.indexOf('專題規則') + 1)
+  await expect(drawer.getByRole('link', { name: '專題時程', exact: true })).toHaveAttribute('href', '/timeline')
+
+  await page.context().clearCookies()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).not.toContainText('專題時程')
 })
 
 test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的階段軌與活動（含只給老師的），沒有截止', async ({ page }) => {

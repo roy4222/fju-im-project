@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { IconHistory } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard/primitives'
@@ -110,12 +111,14 @@ export default async function AdminAuditPage({
           {formatTaipeiMinute(e.realAt)}
         </time>
         <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-          <span
-            aria-hidden
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-[10px] font-bold text-brand-on-subtle"
-          >
-            {actorLabel(e).slice(0, 1)}
-          </span>
+          {/* 找得到帳號的人用頭像（C3 §2.3）；系統、背景工作、已不存在的帳號維持純文字。旁邊已寫姓名，頭像 alt 留空。 */}
+          {e.actorKind === 'user' && e.actorUserId ? (
+            <UserAvatar
+              user={{ id: e.actorUserId, name: actorLabel(e), avatarPreset: e.actorAvatarPreset, avatarFileId: e.actorAvatarFileId }}
+              size={24}
+              decorative
+            />
+          ) : null}
           <span className="truncate">{actorLabel(e)}</span>
         </span>
         <div className="min-w-0">

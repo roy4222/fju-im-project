@@ -7,7 +7,7 @@ import { createTestSession, toPlaywrightCookie, type TestRole, type TestSession 
  *
  * 只驗不依賴角色首頁接線的部分：三角色首頁還在傳舊 props（chips、showStages、showProgress、icon、compact），
  * 合併後畫面已是新橫幅——有 `section[aria-label=現在階段]`、`stage-text`、`h1`，沒有階段四格、小格、進度條。
- * `timelineHref`、`trail`、`cta` 要等角色首頁票傳了才驗（AC-SH-24、27～31）。
+ * `timelineHref`、`trail`、`cta` 要等角色首頁票傳了才驗（AC-SH-24、27～31）；老師與系辦的「看完整時程」在下面各一條。
  *
  * 首頁看「預設工作屆別」（學生看自己所屬的屆別）：這裡建一屆並設成預設，結束時把原本的預設還回去。
  * 本機多 worker 時這支與 cohorts／timeline／admin-home-tiles 都會改這個旗標，請用 --workers=1 跑（CI 是單一 worker）。
@@ -139,11 +139,38 @@ test('老師首頁：橫幅有「看完整時程」→ /timeline 與 Pixel Card 
   await expect(hero.locator('[style]')).toHaveCount(0)
   expect(await hero.getAttribute('tabindex')).not.toBe('0')
 
-  // 老師側欄與前台導覽都沒有時程入口：從橫幅實際點得到 /timeline。
+  // 老師側欄沒有時程入口（前台導覽有，C3-17）：從橫幅實際點得到 /timeline。
   await timeline.click()
   await expect(page).toHaveURL(/\/timeline$/)
   await expect(page.getByRole('heading', { level: 1, name: '專題時程' })).toBeVisible()
   expect(csp).toEqual([])
+})
+
+test('系辦首頁：橫幅有「看完整時程」→ /timeline，Pixel Card hero-pixel 照舊（AC-C3-42）', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const hero = await openHome(page, 'admin')
+  const timeline = hero.getByRole('link', { name: '看完整時程' })
+  await expect(timeline).toHaveAttribute('href', '/timeline')
+  await pixelReady(page)
+  await expect(page.locator('section.hero [data-testid=hero-pixel]')).toHaveCount(1)
+  await expect(hero.locator('[style]')).toHaveCount(0)
+  await timeline.click()
+  await expect(page).toHaveURL(/\/timeline$/)
+  await expect(page.getByRole('heading', { level: 1, name: '專題時程' })).toBeVisible()
+})
+
+test('系辦首頁三欄格線：768 寬「本屆分組」整列寬，1024 起多欄（C4-03 斷點原則）', async ({ page }) => {
+  await openHome(page, 'admin')
+  const groups = page.locator('section', { has: page.getByRole('heading', { name: '本屆分組', exact: true }) })
+  // 卡片外面一層是格子的一格，再外面一層是三欄格線本身。
+  const grid = groups.locator('xpath=../..')
+  const widths = async () => ({ card: (await groups.boundingBox())!.width, grid: (await grid.boundingBox())!.width })
+  await page.setViewportSize({ width: 768, height: 1000 })
+  const narrow = await widths()
+  expect(Math.abs(narrow.card - narrow.grid)).toBeLessThan(2)
+  await page.setViewportSize({ width: 1024, height: 1000 })
+  const wide = await widths()
+  expect(wide.card).toBeLessThan(wide.grid / 2)
 })
 
 test('三角色首頁都有 Pixel Card（規格④ AC-14）', async ({ page }) => {
