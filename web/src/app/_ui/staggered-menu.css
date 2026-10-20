@@ -1,0 +1,68 @@
+/* ==========================================================================
+   前台手機選單 Staggered Menu B（staggered-menu.tsx，規格④ 設計方案 §5）。
+   開啟：三層色塊（深藍 #13305C、橘 #E56E00、淺藍 #8DB6E6）依序從右滑入 0.35 s，面板接著滑入，
+   選項按 :nth-child 逐項淡入（延遲寫在 CSS，不用 style 屬性）。跟著面板一起點開才下載。
+   減少動態：沒有色塊層（元件不渲染）、面板 0.2 s 淡入。
+   ========================================================================== */
+@layer components {
+  .sm-dialog {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    overflow: clip;
+  }
+  .sm-dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+  .sm-layer,
+  .sm-panel {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(20rem, 85vw);
+  }
+  .sm-layer {
+    animation: sm-slide 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .sm-layer:nth-child(1) { background: #13305c; }
+  .sm-layer:nth-child(2) { background: #e56e00; animation-delay: 0.07s; }
+  .sm-layer:nth-child(3) { background: #8db6e6; animation-delay: 0.14s; }
+  .sm-panel {
+    overflow-y: auto;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: -8px 0 24px rgb(0 0 0 / 0.15);
+    animation: sm-slide 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) 0.21s both;
+  }
+  .sm-panel:not(.sm-panel-plain) nav > * {
+    animation: sm-item 0.3s ease-out both;
+    animation-delay: 0.6s;
+  }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(1) { animation-delay: 0.3s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(2) { animation-delay: 0.33s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(3) { animation-delay: 0.36s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(4) { animation-delay: 0.39s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(5) { animation-delay: 0.42s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(6) { animation-delay: 0.45s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(7) { animation-delay: 0.48s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(8) { animation-delay: 0.51s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(9) { animation-delay: 0.54s; }
+  .sm-panel:not(.sm-panel-plain) nav > :nth-child(10) { animation-delay: 0.57s; }
+  .sm-panel-plain,
+  .sm-panel-plain nav > * {
+    animation: sm-fade 0.2s ease-out both;
+  }
+  @keyframes sm-slide {
+    from { transform: translateX(100%); }
+  }
+  @keyframes sm-item {
+    from { opacity: 0; transform: translateX(16px); }
+  }
+  @keyframes sm-fade {
+    from { opacity: 0; }
+  }
+}
