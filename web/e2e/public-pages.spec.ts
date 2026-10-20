@@ -467,34 +467,20 @@ test('撤回（還沒有人作答；畫面沒有撤回鈕，資料直接改）�
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(MEMBER_NEWS)
 })
 
-test('前台「專題時程」行事曆：屆別活動與收件截止（臺灣日期），只給老師的活動不出現', async ({ page }) => {
+test('前台「專題時程」活動清單：屆別活動與收件截止（臺灣日期、依月份分組），只給老師的活動不出現', async ({ page }) => {
   await signIn(page, student)
   await page.goto('/timeline')
 
-  // 活動（現在＋3 天）與截止（現在＋20 天）可能跨月：各自翻到那個月（讀畫面上的年月再算差），驗右欄「M 月」清單。
-  const calendar = page.getByTestId('student-calendar')
-  const heading = calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)
-  const showMonth = async (day: string) => {
-    const [shownY, shownM] = ((await heading.innerText()).match(/\d+/g) ?? []).map(Number)
-    const [y, m] = day.split('-').map(Number)
-    const diff = (y! - shownY!) * 12 + (m! - shownM!)
-    for (let i = 0; i < Math.abs(diff); i += 1) await calendar.getByRole('button', { name: diff > 0 ? '下個月' : '上個月' }).click()
-    await expect(heading).toHaveText(`${y} 年 ${m} 月`)
-    return calendar.getByRole('list', { name: `${m} 月`, exact: true })
-  }
+  // 活動（現在＋3 天）與截止（現在＋20 天）可能跨月：各自在清單那個月份的一組裡找（甘特的斷言在 timeline-page.spec）。
+  const monthList = (day: string) =>
+    page.getByRole('region', { name: '活動清單' }).getByRole('list', { name: `${Number(day.slice(5, 7))} 月`, exact: true })
   const activityDay = ymd(new Date(Date.now() + 3 * 86_400_000))
-  await expect(await showMonth(activityDay)).toContainText(ACTIVITY)
-  // 老師活動跟 ACTIVITY 同一天：翻到那個月再驗，否則它本來就不在畫面上、否定斷言會空轉。
+  await expect(monthList(activityDay).getByRole('listitem').filter({ hasText: ACTIVITY })).toContainText(activityDay)
   await expect(page.getByRole('main')).not.toContainText(TEACHER_ACTIVITY)
   const dueDay = ymd(due)
-  const month = await showMonth(dueDay)
-  await expect(month.getByRole('listitem').filter({ hasText: SUBMISSION })).toContainText('截止')
-
-  // 點截止那一天，看到這份收件的截止。
-  await calendar.getByRole('button', { name: new RegExp(`^${dueDay}`) }).click()
-  const day = calendar.getByRole('list', { name: '這天的行程' })
-  await expect(day).toContainText(SUBMISSION)
-  await expect(day).toContainText('截止')
+  const row = monthList(dueDay).getByRole('listitem').filter({ hasText: SUBMISSION })
+  await expect(row).toContainText('截止')
+  await expect(row).toContainText(dueDay)
 })
 
 test('公開首頁沒有「我的工作」：學生有要交的收件，首頁也不列（工作都在後台，C2-14）', async ({ page }) => {
