@@ -2,6 +2,7 @@ import type { AccountSummary, ResolvedActor } from '@/application/accounts'
 import type { GradingQuery, PendingReview } from '@/application/grading'
 import type { GroupQuery } from '@/application/groups'
 import type { ItemListRow, ItemQuery } from '@/application/items'
+import type { LastReminded, ReminderQuery } from '@/application/reminders'
 import type { SignoffPurpose, SignoffQuery } from '@/application/signoff'
 import type { Completion, RosterQuery } from '@/application/submissions'
 import type { StageContext } from '@/app/dashboard/_stage'
@@ -11,6 +12,7 @@ import { loadAdminSummary } from '@/app/_ui/workload'
 import { getGradingQuery } from '@/composition/grading'
 import { getGroupQuery } from '@/composition/groups'
 import { getItemQuery } from '@/composition/items'
+import { describeCooldown, getReminderQuery } from '@/composition/reminders'
 import { getSignoffQuery, SIGNOFF_PURPOSES } from '@/composition/signoff'
 import { completionOf, getRosterQuery, overdueReceiverIds } from '@/composition/submissions'
 
@@ -30,6 +32,8 @@ const DAY_MS = 86_400_000
  * - 分組：首頁只要計數，讀 `groups.homeCounts`（1 句，口徑同 `overview()`；AD-21），不讀整份總覽。
  * - 同意書：只要「等老師」與「已完成」的數字，讀 `signoff.homeCounts`（1 句，口徑同 `adminBoard`；AD-21）。
  * - 完成率與逾期：一次讀完全屆發布中作業的名單事實（`completionFacts()`，AD-19／AD-13），不再逐份讀 `roster()`；型別上只拿得到它。
+ * - 催繳冷卻（C1-15、AC-34）：評分卡讀一次 `lastReminded('grading', 屆別)`；逾期卡**每份有人逾期的作業**各讀一次
+ *   `lastReminded('item', 作業)`（1 句／份），判斷是不是全部在 24 小時冷卻內。沒有逾期的作業不讀。
  */
 export type AdminHomePorts = {
   readonly accounts: { readonly summary: (userId: string) => Promise<AccountSummary | null> }
@@ -38,6 +42,7 @@ export type AdminHomePorts = {
   readonly signoff: Pick<SignoffQuery, 'homeCounts'>
   readonly items: Pick<ItemQuery, 'list'>
   readonly roster: Pick<RosterQuery, 'completionFacts'>
+  readonly reminders: Pick<ReminderQuery, 'lastReminded'>
 }
 
 export function adminHomePorts(): AdminHomePorts {
@@ -48,6 +53,7 @@ export function adminHomePorts(): AdminHomePorts {
     signoff: getSignoffQuery(),
     items: getItemQuery(),
     roster: getRosterQuery(),
+    reminders: getReminderQuery(),
   }
 }
 
@@ -90,6 +96,10 @@ export type AdminHome = {
   readonly pendingReviews: readonly Pick<PendingReview, 'groupId' | 'groupCode'>[]
   readonly newsCount: number
   readonly news: readonly ItemListRow[]
+  /** 催繳紀錄（C1-15）：逾期卡是每份有人逾期的作業各一筆（順序同作業清單），評分卡是本屆一筆；沒有屆別是空的。 */
+  readonly reminded: { readonly overdue: readonly LastReminded[]; readonly grading: LastReminded | null }
+  /** 屆別已封存：不能催繳。 */
+  readonly archived: boolean
 }
 
 /**
@@ -102,7 +112,7 @@ export async function loadAdminHome(
   ctx: Pick<StageContext, 'cohort' | 'businessNow'>,
 ): Promise<AdminHome> {
   const cohortId = ctx.cohort?.id ?? null
-  const [summary, groupCounts, gradingResult, signoffResult, items, reviewsResult, rosters] = await Promise.all([
+  const [summary, groupCounts, gradingResult, signoffResult, items, reviewsResult, rosters, gradingReminded] = await Promise.all([
     ports.accounts.summary(actor.userId),
     cohortId ? ports.groups.homeCounts(cohortId) : Promise.resolve(null),
     cohortId ? ports.grading.adminBoard(actor, cohortId) : Promise.resolve(null),
@@ -113,7 +123,11 @@ export async function loadAdminHome(
     // 發布中的作業全部讀名單事實：逾期卡要看全部（Codex P2：只掃前 6 份會漏算），完成率列表只列前 INTAKE_LIMIT 份。
     // 一次讀完（固定 2 句 SQL），順序同作業清單；算法照舊用名單頁同一個 `completionOf`／`overdueReceiverIds`（分母不含免填與移出）。
     cohortId ? ports.roster.completionFacts(actor, cohortId) : Promise.resolve([]),
+    cohortId ? ports.reminders.lastReminded(actor, 'grading', cohortId) : Promise.resolve(null),
   ])
+  // 逾期卡的冷卻：有人逾期的作業各查一次上次催繳（口徑同逾期卡的 `overdueReceiverIds`）。讀不到當作沒催過，按鈕照樣可按，冷卻由用例再判。
+  const overdueItems = rosters.filter((r) => overdueReceiverIds([r], ctx.businessNow).size > 0)
+  const overdueReminded = await Promise.all(overdueItems.map((r) => ports.reminders.lastReminded(actor, 'item', r.item.itemId)))
   const allIntake: IntakeRow[] = rosters.map((r) => ({
     id: r.item.itemId,
     title: r.item.title,
@@ -158,7 +172,43 @@ export async function loadAdminHome(
     pendingReviews: reviewsResult?.ok ? [...reviewsResult.receipt] : [],
     newsCount: news.length,
     news: news.slice(0, NEWS_LIMIT),
+    reminded: {
+      overdue: overdueReminded.map(remindedOf),
+      grading: gradingReminded ? remindedOf(gradingReminded) : null,
+    },
+    archived: ctx.cohort?.status === 'archived',
   }
+}
+
+const NEVER: LastReminded = { at: null, nextAllowedAt: null }
+
+function remindedOf(result: Awaited<ReturnType<ReminderQuery['lastReminded']>>): LastReminded {
+  return result.ok ? { at: result.receipt.at, nextAllowedAt: result.receipt.nextAllowedAt } : NEVER
+}
+
+/** 待辦卡上的「催繳」鈕；`blocked` 是停用時寫在旁邊的原因（冷卻中），可以按是 null。 */
+export type RemindButtonState = { readonly blocked: string | null }
+
+/**
+ * 逾期卡與評分卡的「催繳」鈕（C 階段規格① §8、AC-34）。沒有要催的（逾期 0、評分送齊）或屆別封存就不放鈕，卡片照舊。
+ * - 逾期卡：有人逾期的作業**全部**在 24 小時冷卻內才停用，寫最早能再催的那份「上次催繳 N 小時前，{時間} 後可再催」；
+ *   有一份能催就能按（被冷卻的那幾份由用例略過，toast 會說）。
+ * - 評分卡：本屆 24 小時內催過就停用。
+ * `now` 是真實時間（冷卻照真實時間算，同用例）。
+ */
+export function remindButtons(home: AdminHome, now: Date): { overdue: RemindButtonState | null; grading: RemindButtonState | null } {
+  if (home.archived) return { overdue: null, grading: null }
+  const cooling = (r: LastReminded): r is { at: Date; nextAllowedAt: Date } =>
+    r.at !== null && r.nextAllowedAt !== null && r.nextAllowedAt.getTime() > now.getTime()
+  const items = home.reminded.overdue
+  let overdue: RemindButtonState | null = null
+  if (home.overdue.total > 0) {
+    const first = items.every(cooling) && items.length > 0 ? [...items].sort((a, b) => a.nextAllowedAt!.getTime() - b.nextAllowedAt!.getTime())[0] : null
+    overdue = { blocked: first ? describeCooldown(first.at!, first.nextAllowedAt!, now) : null }
+  }
+  const g = home.reminded.grading
+  const grading = home.remaining > 0 ? { blocked: g && cooling(g) ? describeCooldown(g.at, g.nextAllowedAt, now) : null } : null
+  return { overdue, grading }
 }
 
 /** 橫幅第二行：只講本屆分組，不再有「今天 N 件待處理」（AC-AD-01）。沒有屆別時是空的（橫幅自己叫人去設屆別）。 */
