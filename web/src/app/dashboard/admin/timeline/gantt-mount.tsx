@@ -1,7 +1,7 @@
 'use client'
 import dynamic from 'next/dynamic'
-import { useCallback, useMemo, useState } from 'react'
-import { deleteActivityAction, moveActivityAction, saveStageDatesAction } from './actions'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { deleteActivityAction, moveActivityAction, previewScheduleAction, saveStageDatesAction } from './actions'
 import {
   ActivityForm,
   CREATE_ACTIVITY_DESCRIPTION,
@@ -23,7 +23,9 @@ import type { ActionResult, GanttEditor, GanttProps } from '@/app/dashboard/_tim
  * - `openCreate`／`openEdit` → 活動視窗（`gantt-dialogs` 的 `ActivityDialog` 殼＋`ActivityForm`）；點空白處預填那天、全天；
  *   沒結束時間的活動被拉成跨日時帶拖後起訖（AC-C3-48），結束時間欄跟著標必填。
  * - `openStage` → `StageEditDialog`（名稱、說明、開始日、第 4 段年度結束日；整組送出）。
- * - `saveSchedule`（拖階段分界／年度結束日放開）這票直通 `saveStageDatesAction`，**不接確認框**——確認框與通知在 C3-13。
+ * - `saveSchedule`（拖階段分界／年度結束日放開，C3-13）：先 `previewScheduleAction`（不寫入，回確認框的句子與「有 N 個整組作業」）
+ *   → `StageConfirmDialog` →「確定」才 `saveStageDatesAction`；「取消」／Esc resolve `{ ok:false, cancelled:true }`（gantt 只回彈）。
+ *   儲存失敗關掉確認框、把錯誤句交回 gantt（回彈＋`role="alert"`）。
  * - `moveActivity`、`remove` 直通 action；成功後 action 自己 `refresh()`，甘特等新資料進來再換掉樂觀位置。
  */
 
@@ -34,6 +36,11 @@ const Gantt = dynamic(() => import('@/app/dashboard/_timeline/gantt/gantt'), {
 })
 // 視窗殼跟右鍵選單同一支（`gantt.tsx` 在 edit 模式已在背景先載）；打開時才掛上。
 const ActivityDialog = dynamic(() => import('@/app/dashboard/_timeline/gantt/gantt-dialogs').then((m) => m.ActivityDialog), { ssr: false })
+const StageConfirmDialog = dynamic(() => import('@/app/dashboard/_timeline/gantt/gantt-dialogs').then((m) => m.StageConfirmDialog), { ssr: false })
+
+type ScheduleInput = Parameters<GanttEditor['saveSchedule']>[0]
+type ScheduleOutcome = Awaited<ReturnType<GanttEditor['saveSchedule']>>
+type StageConfirmState = { summary: string; input: ScheduleInput }
 
 type ActivityDialogState =
   | { mode: 'create'; prefill: { startDate: string; endDate: string } }
@@ -59,12 +66,27 @@ export function GanttMount({
   const [stageSeq, setStageSeq] = useState<number | null>(null)
   const [opened, setOpened] = useState(0)
   const [notice, setNotice] = useState<TimelineActionState>(undefined)
+  const [confirm, setConfirm] = useState<StageConfirmState | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  // 等確認框結果的那個 `saveSchedule` promise。
+  const settle = useRef<((outcome: ScheduleOutcome) => void) | null>(null)
   const cohortId = gantt.cohortId
 
   const editor = useMemo<GanttEditor>(
     () => ({
       cohortRevision,
-      saveSchedule: (input) => saveStageDatesAction(cohortId, input),
+      saveSchedule: async (input): Promise<ScheduleOutcome> => {
+        const preview = await previewScheduleAction(cohortId, input)
+        if (!preview.ok) return preview
+        if (!preview.changed) return saveStageDatesAction(cohortId, input)
+        settle.current?.({ ok: false, cancelled: true })
+        setNotice(undefined)
+        setConfirmBusy(false)
+        setConfirm({ summary: preview.message, input })
+        return new Promise<ScheduleOutcome>((resolve) => {
+          settle.current = resolve
+        })
+      },
       openStage: (seq) => {
         setNotice(undefined)
         setStageSeq(seq)
@@ -93,6 +115,19 @@ export function GanttMount({
     }),
     [cohortId, cohortRevision],
   )
+
+  const finishConfirm = useCallback((outcome: ScheduleOutcome) => {
+    setConfirm(null)
+    setConfirmBusy(false)
+    settle.current?.(outcome)
+    settle.current = null
+  }, [])
+  const cancelConfirm = useCallback(() => finishConfirm({ ok: false, cancelled: true }), [finishConfirm])
+  const acceptConfirm = useCallback(async () => {
+    if (!confirm) return
+    setConfirmBusy(true)
+    finishConfirm(await saveStageDatesAction(cohortId, confirm.input))
+  }, [cohortId, confirm, finishConfirm])
 
   const closeDialog = useCallback(() => setDialog(null), [])
   const closeStage = useCallback(() => setStageSeq(null), [])
@@ -146,6 +181,9 @@ export function GanttMount({
             </div>
           )}
         />
+      ) : null}
+      {confirm ? (
+        <StageConfirmDialog open summary={confirm.summary} busy={confirmBusy} onConfirm={acceptConfirm} onCancel={cancelConfirm} />
       ) : null}
       {stageSeq !== null ? (
         <StageEditDialog key={opened} seq={stageSeq} onClose={closeStage} onSaved={setNotice} {...stageEditor} />

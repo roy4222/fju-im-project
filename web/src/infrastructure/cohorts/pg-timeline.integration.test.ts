@@ -14,6 +14,7 @@ import { PgCohortCommand, PgCohortStatusQuery } from '@/infrastructure/cohorts/p
 import { PgTimelineCommand, PgTimelineQuery } from '@/infrastructure/cohorts/pg-timeline'
 import { taipeiDateOf } from '@/shared/time'
 import { PgEventPublisher } from '@/infrastructure/notifications/pg-event-publisher'
+import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
 import { PgAuditWriter } from '@/infrastructure/ops/audit-writer'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 
@@ -627,5 +628,255 @@ describe('首頁近期活動：跨屆別的公開活動（設計方案 D-4）', 
 
     await timeline.cancelActivity(actor(adminId), sooner, 1, randomUUID())
     expect((await timelineQuery.publicActivities(10)).map((x) => x.id)).toEqual([allDayToday, later])
+  })
+})
+
+/**
+ * C3-13（③ §9.2、AC-C3-38、39、47）：階段日期改了，同一筆交易發 `timeline.stage_changed`。
+ * 收件＝截止落在變動段裡的整組作業 → 有效整組名單 → 現任組員（去重）。作業與名單只用 §14.3 契約欄位直接種：
+ * `managed_items`（placement、status、deleted_at、due_at、receiver_unit）與 `response_rosters`（receiver_kind、receiver_id、
+ * eligible_to_business_at、exempt）。
+ */
+describe('階段變動通知 timeline.stage_changed（C3-13）', () => {
+  // AC-C3-38：10/1、11/19、3/1、5/1，年度結束 6/30。
+  const AC38: ScheduleInput = {
+    stages: [
+      { name: '分組', startDate: '2026-10-01' },
+      { name: '題目與計畫書', startDate: '2026-11-19' },
+      { name: '系統開發', startDate: '2027-03-01' },
+      { name: '成果', startDate: '2027-05-01' },
+    ],
+    yearEndDate: '2027-06-30',
+  }
+  /** 第 1／2 段分界往左 7 天（11/19 → 11/12）。 */
+  const DRAGGED: ScheduleInput = { ...AC38, stages: AC38.stages.map((s, i) => (i === 1 ? { ...s, startDate: '2026-11-12' } : s)) }
+  const RENAMED: ScheduleInput = { ...AC38, stages: AC38.stages.map((s, i) => (i === 1 ? { ...s, name: '題目' } : s)) }
+
+  let n = 0
+  async function student(cohortId: string): Promise<string> {
+    n += 1
+    const user = await owner.sql(
+      `insert into users (id, name, email, email_verified, updated_at, status)
+       values (gen_random_uuid(), $1, $2, true, now(), 'active') returning id`,
+      [`學生${n}`, `s${n}-c313@example.com`],
+    )
+    const id = String(user.rows[0]!.id)
+    const studentNo = `41300${String(n).padStart(4, '0')}`
+    await owner.sql(
+      `insert into role_assignments (id, user_id, role, granted_by_user_id, granted_real_at)
+       values (gen_random_uuid(), $1, 'student', $2, now())`,
+      [id, adminId],
+    )
+    await owner.sql(
+      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, contact_email)
+       values ($1, $2, $2, $3, $4, $5)`,
+      [id, `學生${n}`, studentNo, cohortId, `s${n}-c313@contact.example.com`],
+    )
+    await owner.sql('insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)', [cohortId, studentNo, id])
+    return id
+  }
+
+  async function group(cohortId: string, code: string, size = 2): Promise<{ id: string; members: string[] }> {
+    const g = await owner.sql(
+      `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+       values (gen_random_uuid(), $1, $2, 'general', now(), now(), 'system') returning id`,
+      [cohortId, code],
+    )
+    const id = String(g.rows[0]!.id)
+    const members: string[] = []
+    for (let i = 0; i < size; i += 1) {
+      const m = await student(cohortId)
+      await owner.sql(
+        `insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind)
+         values (gen_random_uuid(), $1, $2, $3, now(), 'system')`,
+        [id, cohortId, m],
+      )
+      members.push(m)
+    }
+    return { id, members: members.sort() }
+  }
+
+  /** 已發布、有截止的收件；`roster` 是有效名單（整組作業放組 id、個人作業放學生 id）。 */
+  async function item(cohortId: string, receiverUnit: 'group' | 'individual', dueAt: string, roster: string[]): Promise<string> {
+    const created = await owner.sql(
+      `insert into managed_items
+         (id, cohort_id, placement, audience_kind, receiver_unit, status, actual_opened_at, due_at, title, summary, body_html,
+          draft_schema, created_by_kind)
+       values (gen_random_uuid(), $1, 'submission', 'cohort_students', $2, 'draft', '2026-09-20T00:00:00+08:00', $3, '作業', '', '<p>請交。</p>',
+               '{"fields":[]}'::jsonb, 'system')
+       returning id`,
+      [cohortId, receiverUnit, dueAt],
+    )
+    const id = String(created.rows[0]!.id)
+    const content = await owner.sql(
+      `insert into item_versions (id, item_id, version_no, title, summary, body_html, created_by_user_id)
+       values (gen_random_uuid(), $1, 1, '作業', '', '<p>請交。</p>', $2) returning id`,
+      [id, adminId],
+    )
+    const schema = await owner.sql(
+      `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+       values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`,
+      [id, adminId],
+    )
+    await owner.sql(`update managed_items set status = 'published', current_content_version_id = $2, current_schema_version_id = $3 where id = $1`, [
+      id,
+      content.rows[0]!.id,
+      schema.rows[0]!.id,
+    ])
+    for (const receiver of roster) {
+      await owner.sql(
+        `insert into response_rosters (id, item_id, cohort_id, receiver_kind, receiver_id, eligible_from_business_at, source, created_by_kind)
+         values (gen_random_uuid(), $1, $2, $3, $4, '2026-09-20T00:00:00+08:00', 'auto', 'system')`,
+        [id, cohortId, receiverUnit === 'group' ? 'group' : 'user', receiver],
+      )
+    }
+    return id
+  }
+
+  async function scheduled(): Promise<{ id: string }> {
+    const cohort = await newCohort('SC')
+    const saved = await timeline.saveSchedule(actor(adminId), cohort.id, AC38, cohort.revision, randomUUID())
+    if (!saved.ok) throw new Error(saved.message)
+    return cohort
+  }
+
+  async function stageEvents(cohortId: string) {
+    return (
+      await owner.sql(
+        `select id, source_type, source_id, recipients, recipient_basis, payload from domain_events
+          where type = 'timeline.stage_changed' and cohort_id = $1`,
+        [cohortId],
+      )
+    ).rows
+  }
+
+  async function notified(userIds: string[]): Promise<Record<string, number>> {
+    const rows = await owner.sql(
+      `select u, (select count(*) from notifications n where n.recipient_user_id = u and n.kind = 'due' and n.source_ref->>'type' = 'timeline')::int as n
+         from unnest($1::uuid[]) as u`,
+      [userIds],
+    )
+    return Object.fromEntries(rows.rows.map((r) => [String(r.u), Number(r.n)]))
+  }
+
+  const projector = () => new PgNotificationProjector({ pool: () => app, events: new PgEventPublisher(), businessClock, log: () => undefined })
+
+  it('AC-C3-38／39：有整組作業的組收到（G01 每人一則、連到 /timeline）；沒作業的組、未分組、老師都沒有；期限版本與 revision 照舊', async () => {
+    const cohort = await scheduled()
+    const g01 = await group(cohort.id, 'G01', 3)
+    const g02 = await group(cohort.id, 'G02', 2)
+    const x = await student(cohort.id)
+    const itemId = await item(cohort.id, 'group', '2026-12-01T23:59:00+08:00', [g01.id])
+    const revision = await revisionOf(cohort.id)
+
+    const result = await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, revision, randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [1, 2] } })
+    expect(await revisionOf(cohort.id)).toBe(revision + 1)
+    expect((await timelineQuery.schedule(cohort.id)).stages.map((s) => s.deadlineVersion)).toEqual([2, 2, 1, 1])
+    expect(await count(`select count(*) as n from audit_events where action = 'cohort.save_schedule' and target_id = $1`, [cohort.id])).toBe(2)
+
+    const events = await stageEvents(cohort.id)
+    expect(events).toHaveLength(1)
+    const event = events[0]!
+    expect(event).toMatchObject({
+      source_type: 'timeline',
+      source_id: cohort.id,
+      recipient_basis: { groupIds: [g01.id], itemIds: [itemId] },
+      payload: { title: '專題時程更新：第 2 階段『題目與計畫書』改為 11/12–2/28', changedStages: [1, 2] },
+    })
+    expect([...(event.recipients as string[])].sort()).toEqual(g01.members)
+    expect((await owner.sql('select consumer from event_projections where event_id = $1', [event.id])).rows).toEqual([{ consumer: 'notifications' }])
+
+    await projector().runOnce()
+    const counts = await notified([...g01.members, ...g02.members, x, teacherId])
+    expect(counts).toEqual(Object.fromEntries([...g01.members.map((m) => [m, 1]), ...g02.members.map((m) => [m, 0]), [x, 0], [teacherId, 0]]))
+    const note = await owner.sql(`select title, source_ref from notifications where event_id = $1 and recipient_user_id = $2`, [event.id, g01.members[0]])
+    expect(note.rows[0]).toMatchObject({
+      title: '專題時程更新：第 2 階段『題目與計畫書』改為 11/12–2/28',
+      source_ref: { type: 'timeline', id: cohort.id },
+    })
+  })
+
+  it('沒作業的組沒有：屆別有組但沒有整組作業 → 不發事件', async () => {
+    const cohort = await scheduled()
+    await group(cohort.id, 'G01')
+    const result = await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, await revisionOf(cohort.id), randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [1, 2] } })
+    expect(await stageEvents(cohort.id)).toEqual([])
+  })
+
+  it('個人作業不發：只有 receiver_unit=individual 的作業（名單含組員）→ 不發事件', async () => {
+    const cohort = await scheduled()
+    const g01 = await group(cohort.id, 'G01')
+    await item(cohort.id, 'individual', '2026-12-01T23:59:00+08:00', g01.members)
+    await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, await revisionOf(cohort.id), randomUUID())
+    expect(await stageEvents(cohort.id)).toEqual([])
+  })
+
+  it('AC-C3-47 只指定 G03 的作業不發給 G01：個人作業、別組的整組作業都不算；免填、已移出的組不算；段外的截止不算', async () => {
+    const cohort = await scheduled()
+    const g01 = await group(cohort.id, 'G01')
+    const g02 = await group(cohort.id, 'G02')
+    const g03 = await group(cohort.id, 'G03')
+    const g04 = await group(cohort.id, 'G04')
+    const g05 = await group(cohort.id, 'G05')
+    await item(cohort.id, 'individual', '2026-12-05T23:59:00+08:00', [...g01.members, ...g02.members])
+    const g03Item = await item(cohort.id, 'group', '2026-12-10T23:59:00+08:00', [g03.id, g04.id, g05.id])
+    await owner.sql(`update response_rosters set exempt = true where item_id = $1 and receiver_id = $2`, [g03Item, g04.id])
+    await owner.sql(
+      `update response_rosters set eligible_to_business_at = now(), removed_reason = '測試' where item_id = $1 and receiver_id = $2`,
+      [g03Item, g05.id],
+    )
+    // 第 3 段（沒變）裡的整組作業：G01 不會因它收到。
+    await item(cohort.id, 'group', '2027-03-15T23:59:00+08:00', [g01.id])
+
+    await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, await revisionOf(cohort.id), randomUUID())
+    const events = await stageEvents(cohort.id)
+    expect(events).toHaveLength(1)
+    expect([...(events[0]!.recipients as string[])].sort()).toEqual(g03.members)
+    expect(events[0]!.recipient_basis).toMatchObject({ groupIds: [g03.id], itemIds: [g03Item] })
+
+    await projector().runOnce()
+    const counts = await notified([...g01.members, ...g02.members, ...g03.members, ...g04.members, ...g05.members])
+    expect(Object.entries(counts).filter(([, c]) => c > 0).map(([u]) => u).sort()).toEqual(g03.members)
+  })
+
+  it('只改名稱不發：changedStages 空、沒有事件', async () => {
+    const cohort = await scheduled()
+    const g01 = await group(cohort.id, 'G01')
+    await item(cohort.id, 'group', '2026-12-01T23:59:00+08:00', [g01.id])
+    const result = await timeline.saveSchedule(actor(adminId), cohort.id, RENAMED, await revisionOf(cohort.id), randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [] } })
+    expect(await stageEvents(cohort.id)).toEqual([])
+  })
+
+  it('預覽 previewSchedule：確認框句子含「有 N 個整組作業」、不寫入；版本過期 CONFLICT；老師 FORBIDDEN', async () => {
+    const cohort = await scheduled()
+    const g01 = await group(cohort.id, 'G01')
+    await item(cohort.id, 'group', '2026-12-01T23:59:00+08:00', [g01.id])
+    await item(cohort.id, 'group', '2026-12-02T23:59:00+08:00', []) // 還沒有收件組的整組作業也算一個
+    const revision = await revisionOf(cohort.id)
+    const before = await timelineQuery.schedule(cohort.id)
+
+    expect(await timeline.previewSchedule(actor(adminId), cohort.id, DRAGGED, revision)).toEqual({
+      ok: true,
+      preview: {
+        changedStages: [1, 2],
+        groupItemCount: 2,
+        message: '第 2 階段『題目與計畫書』開始日 11/19 → 11/12（第 1 階段跟著變短）。有 2 個整組作業在這兩段裡，會重新提醒相關的組。',
+      },
+    })
+    expect(await timeline.previewSchedule(actor(adminId), cohort.id, RENAMED, revision)).toEqual({
+      ok: true,
+      preview: { changedStages: [], groupItemCount: 0, message: '' },
+    })
+    expect(await timelineQuery.schedule(cohort.id)).toEqual(before)
+    expect(await revisionOf(cohort.id)).toBe(revision)
+    expect(await stageEvents(cohort.id)).toEqual([])
+    expect(await timeline.previewSchedule(actor(adminId), cohort.id, DRAGGED, revision - 1)).toMatchObject({ ok: false, code: 'CONFLICT' })
+    expect(await timeline.previewSchedule(actor(teacherId, ['teacher']), cohort.id, DRAGGED, revision)).toMatchObject({
+      ok: false,
+      code: 'FORBIDDEN',
+    })
   })
 })

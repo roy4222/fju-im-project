@@ -226,6 +226,87 @@ export function planStageVersions(
   })
 }
 
+/** 一段變動後的日期範圍（含最後一天）：找「截止落在這段」的整組作業用。 */
+export type StageWindow = { readonly seq: number; readonly startDate: TaipeiDate; readonly lastDate: TaipeiDate }
+
+export type StageChangeSummary = {
+  /** 日期範圍有變的段（跟 `planStageVersions` 的 `rangeChanged` 同一套判定）。 */
+  readonly changedStages: number[]
+  /** 這些段變動**後**的日期範圍。 */
+  readonly windows: StageWindow[]
+  /** 確認框的句子（③ §9.2）：「第 2 階段『題目與計畫書』開始日 11/19 → 11/12（第 1 階段跟著變短）。有 N 個整組作業…」 */
+  readonly message: string
+  /** 通知標題：「專題時程更新：第 2 階段『題目與計畫書』改為 11/12–2/28」。 */
+  readonly notificationTitle: string
+}
+
+/** `2027-03-08` → `3/8`。 */
+function monthDay(date: TaipeiDate): string {
+  const [, m, d] = date.split('-').map(Number)
+  return `${m}/${d}`
+}
+
+/**
+ * 階段日期改了什麼（③ §9.2；確認框與 `timeline.stage_changed` 通知共用）。日期都沒變（只改名稱或說明）回 null。
+ *
+ * 「動了哪條分界」看開始日（或年度結束日）有沒有變；最後一天照 `stageLastDate`（下一段開始日前一天，甘特同一個算法）。
+ * `groupItemCount` 是截止落在變動段裡的整組作業數，由呼叫端查好帶進來；0 就不寫提醒那句。
+ */
+export function stageChangeSummary(
+  before: CohortSchedule,
+  after: { stages: readonly NormalizedStageInput[]; yearEndDate: TaipeiDate },
+  groupItemCount = 0,
+): StageChangeSummary | null {
+  const plan = planStageVersions(before, after)
+  const changedStages = plan.filter((p) => p.rangeChanged).map((p) => p.seq)
+  if (changedStages.length === 0) return null
+
+  const windows = changedStages.map((seq) => ({
+    seq,
+    startDate: after.stages[seq - 1]!.startDate,
+    lastDate: stageLastDate(after.stages, after.yearEndDate, seq - 1),
+  }))
+  const oldBySeq = new Map(before.stages.map((stage) => [stage.seq, stage]))
+  // 動到的分界：開始日變了的段；年度結束日另算一條。
+  const moved = plan.filter((p) => oldBySeq.get(p.seq)?.startDate !== p.startDate)
+  const yearEndMoved = before.yearEndDate !== null && before.yearEndDate !== after.yearEndDate
+  const parts = [
+    ...moved.map((p) => {
+      const from = oldBySeq.get(p.seq)?.startDate
+      return from ? `第 ${p.seq} 階段『${p.name}』開始日 ${monthDay(from)} → ${monthDay(p.startDate)}` : `第 ${p.seq} 階段『${p.name}』開始日 ${monthDay(p.startDate)}`
+    }),
+    ...(yearEndMoved ? [`年度結束日 ${monthDay(before.yearEndDate!)} → ${monthDay(after.yearEndDate)}`] : []),
+  ]
+
+  let message: string
+  let where = '變動的階段'
+  const only = moved.length + (yearEndMoved ? 1 : 0) === 1
+  if (only && yearEndMoved) {
+    const longer = after.yearEndDate > before.yearEndDate!
+    message = `${parts[0]}（第 ${STAGE_COUNT} 階段跟著變${longer ? '長' : '短'}）。`
+    where = '這段'
+  } else if (only && moved[0]!.seq > 1 && oldBySeq.has(moved[0]!.seq)) {
+    const p = moved[0]!
+    const longer = p.startDate > oldBySeq.get(p.seq)!.startDate
+    message = `${parts[0]}（第 ${p.seq - 1} 階段跟著變${longer ? '長' : '短'}）。`
+    where = '這兩段'
+  } else {
+    message = `${parts.join('；')}。`
+  }
+  if (groupItemCount > 0) message += `有 ${groupItemCount} 個整組作業在${where}裡，會重新提醒相關的組。`
+
+  // 標題列開始日變了的段；只動年度結束日時列最後一段。
+  const titled = moved.length > 0 ? moved.map((p) => p.seq) : [changedStages.at(-1)!]
+  const notificationTitle = `專題時程更新：${titled
+    .map((seq) => {
+      const w = windows.find((x) => x.seq === seq)!
+      return `第 ${seq} 階段『${after.stages[seq - 1]!.name}』改為 ${monthDay(w.startDate)}–${monthDay(w.lastDate)}`
+    })
+    .join('、')}`
+
+  return { changedStages, windows, message, notificationTitle }
+}
+
 /**
  * 成組截止（票 13）：第 1 階段（成組期）結束的那一刻＝第 2 階段開始日的 00:00（臺灣時間）。
  *

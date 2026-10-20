@@ -46,6 +46,7 @@ export type {
   StagePlan,
   StagePosition,
   StageStatus,
+  StageChangeSummary,
   TimelineStage,
   TimelineView,
 } from '@/application/cohorts/stages'
@@ -57,6 +58,7 @@ export {
   STAGE_COUNT,
   STAGE_DESCRIPTION_MAX_LENGTH,
   STAGE_NAME_MAX_LENGTH,
+  stageChangeSummary,
   stageLastDate,
   stagePositionAt,
   timelineView,

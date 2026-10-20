@@ -161,19 +161,20 @@ export function DeleteConfirmDialog({
 }
 
 /**
- * 階段分界／年度結束日的確認框（§9.2）。句子用 `gantt-model.ts` 的 `stageChangeMessage`。
- * 「確定」才儲存；「取消」或 Esc 由 adapter 讓 `saveSchedule` resolve `{ ok:false, cancelled:true }`（gantt 只回彈）。
+ * 階段分界／年度結束日的確認框（§9.2）。`summary` 是伺服器預覽算好的句子（application `stageChangeSummary`，
+ * 含「有 N 個整組作業…」；C3-13）。「確定」才儲存；「取消」或 Esc 由 adapter 讓 `saveSchedule` resolve
+ * `{ ok:false, cancelled:true }`（gantt 只回彈）。
  */
 export function StageConfirmDialog({
   open,
-  message,
+  summary,
   busy = false,
   error = null,
   onConfirm,
   onCancel,
 }: {
   open: boolean
-  message: string
+  summary: string
   busy?: boolean
   error?: string | null
   onConfirm: () => void
@@ -182,7 +183,7 @@ export function StageConfirmDialog({
   return (
     <NativeDialog open={open} title="調整階段日期" onClose={onCancel}>
       <div className="space-y-4">
-        <p className="text-sm">{message}</p>
+        <p className="text-sm">{summary}</p>
         <Alert message={error} />
         <div className="flex justify-end gap-2">
           <button type="button" className={BTN_OUTLINE} onClick={onCancel}>

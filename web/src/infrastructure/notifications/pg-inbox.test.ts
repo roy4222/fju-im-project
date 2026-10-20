@@ -86,6 +86,15 @@ describe('評分指派通知的連結（票 43：被移出後那一組不在評�
   })
 })
 
+describe('專題時程通知的連結（C3-13）', () => {
+  it('來源 timeline（屆別）→ /timeline；屆別封存標唯讀；未知來源仍無法存取', () => {
+    const timeline = (patch: Record<string, unknown>) => ({ source_ref: { type: 'timeline', id: ID }, cohort_status: 'active', ...patch })
+    expect(resolveSource(timeline({}), ['student'])).toEqual({ state: 'ok', href: '/timeline' })
+    expect(resolveSource(timeline({ cohort_status: 'archived' }), ['student'])).toEqual({ state: 'archived', href: '/timeline' })
+    expect(resolveSource(timeline({ source_ref: { type: 'unknown', id: ID } }), ['student'])).toEqual({ state: 'forbidden' })
+  })
+})
+
 describe('點開通知就算已讀（C2-15）', () => {
   const ME = '0192d6a0-0000-7000-8000-0000000000aa'
   const NOTE = '0192d6a0-0000-7000-8000-0000000000bb'
