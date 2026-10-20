@@ -3,10 +3,15 @@
  *
  * 否定斷言（「回應裡不該有這一頁的內容」）與正向斷言（「轉過去的頁真的是它」）都從這裡拿，
  * 頁面文字改了只要改這一處；`pages.spec.ts` 的反向對照會先紅，提醒指紋跟著改。
+ *
+ * D-23 放寬：下面的字面值是「基底」；之後的票不改這裡，改在 `fingerprints.d/<票號>.json`（規則見那裡的 README），
+ * `FINGERPRINTS` 是基底＋小檔合併後的結果。小檔撞鍵時這支在 import 時就丟錯，所有用到它的 spec 都載入失敗。
  */
+import { fileURLToPath } from 'node:url'
+import { mergeFromDir } from '../scripts/overlay/merge.mjs'
 
-/** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
-export const FINGERPRINTS: Record<string, string> = {
+/** 每一條受保護路由上，只有有權限的人才看得到的一段字（基底；改用 `fingerprints.d/` 小檔）。 */
+export const BASE_FINGERPRINTS: Record<string, string> = {
   '/dashboard/admin': '作業完成率',
   '/dashboard/admin/accounts': '系上所有帳號都在這裡',
   '/dashboard/admin/cohorts': '新註冊加入這屆',
@@ -54,6 +59,12 @@ export const FINGERPRINTS: Record<string, string> = {
   '/dashboard/admin/accounts/disabled': '已停用、不能登入的帳號',
   '/dashboard/admin/accounts/roster': '匯入系上提供的學生名單',
 }
+
+/** 小檔資料夾；`FINGERPRINTS_OVERLAY_DIR` 只給單元測試指到衝突 fixture 用。 */
+const overlayDir = process.env.FINGERPRINTS_OVERLAY_DIR ?? fileURLToPath(new URL('./fingerprints.d', import.meta.url))
+
+/** 基底＋小檔合併後的指紋；spec 一律用這個。 */
+export const FINGERPRINTS: Record<string, string> = mergeFromDir(BASE_FINGERPRINTS, overlayDir, 'fingerprints').merged
 
 /** 三種角色的後台首頁指紋（`identity-per-request.spec.ts` 用）。 */
 export const STUDENT_HOME = FINGERPRINTS['/dashboard/student']!

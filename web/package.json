@@ -37,7 +37,8 @@
     "perf:sql": "node scripts/perf/sql.mjs",
     "perf:bundle": "node scripts/perf/bundle.mjs",
     "perf:lab": "node scripts/perf/lab.mjs",
-    "perf:trail": "node scripts/perf/trail.mjs"
+    "perf:trail": "node scripts/perf/trail.mjs",
+    "overlay": "node scripts/overlay/cli.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

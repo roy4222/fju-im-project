@@ -53,7 +53,8 @@ const SCHEDULE: ScheduleInput = {
 const ACTIVITY: ActivityInput = {
   title: '期中發表會',
   description: '',
-  date: '2026-12-20',
+  startDate: '2026-12-20',
+  endDate: '',
   allDay: false,
   startTime: '14:00',
   endTime: '16:00',
@@ -389,7 +390,7 @@ describe('獨立活動：建立、改期、取消', () => {
     if (!created.ok) return
     const id = created.receipt.activityId
 
-    const moved = await timeline.updateActivity(actor(adminId), id, { ...ACTIVITY, date: '2026-12-22' }, 1, randomUUID())
+    const moved = await timeline.updateActivity(actor(adminId), id, { ...ACTIVITY, startDate: '2026-12-22' }, 1, randomUUID())
     expect(moved).toMatchObject({ ok: true, receipt: { action: 'updated' } })
 
     const cancelled = await timeline.cancelActivity(actor(adminId), id, 2, randomUUID())
@@ -437,11 +438,90 @@ describe('獨立活動：建立、改期、取消', () => {
       ok: false,
       code: 'VALIDATION_FAILED',
     })
+    // AC-C3-48(a)：非全天跨日沒填結束時間被擋，不留資料。
+    const crossDay = await timeline.createActivity(
+      actor(adminId),
+      cohort.id,
+      { ...ACTIVITY, startDate: '2027-04-01', endDate: '2027-04-02', startTime: '09:00', endTime: '' },
+      randomUUID(),
+    )
+    expect(crossDay).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(crossDay.ok ? '' : crossDay.message).toContain('跨日的活動要填結束時間')
     expect(await count('select count(*) as n from project_events where cohort_id = $1', [cohort.id])).toBe(0)
   })
 })
 
-describe('獨立活動：刪除（第三波 W11）', () => {
+describe('獨立活動：拖拉改起訖日 moveActivity（③ §9.1、AC-C3-48）', () => {
+  const INTERVIEW: ActivityInput = { ...ACTIVITY, title: '面談', startDate: '2027-04-01', startTime: '09:00', endTime: '' }
+
+  async function interview(cohortId: string): Promise<string> {
+    const created = await timeline.createActivity(actor(adminId), cohortId, INTERVIEW, randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    return created.receipt.activityId
+  }
+
+  async function rowOf(id: string) {
+    return (await owner.sql('select starts_at, ends_at, revision from project_events where id = $1', [id])).rows[0] as {
+      starts_at: Date
+      ends_at: Date | null
+      revision: number
+    }
+  }
+
+  it('(c) 沒寫結束時間的拉成跨日：VALIDATION_FAILED「跨日的活動要填結束時間」，資料與 revision 不變', async () => {
+    const cohort = await newCohort()
+    const id = await interview(cohort.id)
+    const result = await timeline.moveActivity(actor(adminId), id, { startDate: '2027-04-01', endDate: '2027-04-02' }, 1, randomUUID())
+    expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(result.ok ? '' : result.message).toContain('跨日的活動要填結束時間')
+    const row = await rowOf(id)
+    expect(row.starts_at.toISOString()).toBe('2027-04-01T01:00:00.000Z')
+    expect(row.ends_at).toBeNull()
+    expect(row.revision).toBe(1)
+  })
+
+  it('(d) 整段平移到 4/3：09:00 照舊、ends_at 仍 NULL、revision +1、發 calendar.changed updated', async () => {
+    const cohort = await newCohort()
+    const id = await interview(cohort.id)
+    const result = await timeline.moveActivity(actor(adminId), id, { startDate: '2027-04-03', endDate: '2027-04-03' }, 1, randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { action: 'updated', title: '面談' } })
+    const row = await rowOf(id)
+    expect(row.starts_at.toISOString()).toBe('2027-04-03T01:00:00.000Z')
+    expect(row.ends_at).toBeNull()
+    expect(row.revision).toBe(2)
+    const outbox = await owner.sql(
+      `select payload->>'action' as action from domain_events where type = 'calendar.changed' and source_id = $1 and source_version = 2`,
+      [id],
+    )
+    expect(outbox.rows).toEqual([{ action: 'updated' }])
+  })
+
+  it('全天活動拉成跨日：ends_at＝結束日次日 00:00；舊版本號 CONFLICT；老師 FORBIDDEN', async () => {
+    const cohort = await newCohort()
+    const created = await timeline.createActivity(
+      actor(adminId),
+      cohort.id,
+      { ...ACTIVITY, title: '期中展', allDay: true, startDate: '2027-03-10', startTime: '', endTime: '' },
+      randomUUID(),
+    )
+    if (!created.ok) throw new Error(created.message)
+    const id = created.receipt.activityId
+    expect(
+      await timeline.moveActivity(actor(teacherId, ['teacher']), id, { startDate: '2027-03-10', endDate: '2027-03-12' }, 1, randomUUID()),
+    ).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await timeline.moveActivity(actor(adminId), id, { startDate: '2027-03-10', endDate: '2027-03-12' }, 1, randomUUID())).toMatchObject({
+      ok: true,
+    })
+    const row = await rowOf(id)
+    expect(row.ends_at?.toISOString()).toBe('2027-03-12T16:00:00.000Z')
+    expect(await timeline.moveActivity(actor(adminId), id, { startDate: '2027-03-11', endDate: '2027-03-11' }, 1, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'CONFLICT',
+    })
+  })
+})
+
+describe('獨立活動：刪除（第三波 W11；③ 起排定中也能直接刪）', () => {
   async function cancelledActivity(cohortId: string, input: ActivityInput = ACTIVITY): Promise<string> {
     const created = await timeline.createActivity(actor(adminId), cohortId, input, randomUUID())
     if (!created.ok) throw new Error(created.message)
@@ -450,15 +530,23 @@ describe('獨立活動：刪除（第三波 W11）', () => {
     return created.receipt.activityId
   }
 
-  it('排定中的活動不能刪：說明要先取消，資料不動', async () => {
+  it('AC-C3-37：排定中的活動直接刪：status 仍 scheduled、打刪除標記、稽核 activity.deleted、calendar.changed deleted', async () => {
     const cohort = await newCohort()
     const created = await timeline.createActivity(actor(adminId), cohort.id, ACTIVITY, randomUUID())
     if (!created.ok) throw new Error(created.message)
-    const result = await timeline.deleteActivity(actor(adminId), created.receipt.activityId, 1, randomUUID())
-    expect(result).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-    expect(result.ok ? '' : result.message).toContain('要先「取消活動」')
-    expect(await timelineQuery.activities(cohort.id)).toHaveLength(1)
-    expect(await count('select count(*) as n from project_events where cohort_id = $1 and deleted_at is not null', [cohort.id])).toBe(0)
+    const id = created.receipt.activityId
+    const result = await timeline.deleteActivity(actor(adminId), id, 1, randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { action: 'deleted', title: '期中發表會' } })
+    expect(await timelineQuery.activities(cohort.id)).toEqual([])
+    const row = await owner.sql('select status, deleted_at is not null as deleted, revision from project_events where id = $1', [id])
+    expect(row.rows[0]).toEqual({ status: 'scheduled', deleted: true, revision: 2 })
+    const audit = await owner.sql(`select payload->'before'->>'status' as status from audit_events where action = 'activity.deleted' and target_id = $1`, [id])
+    expect(audit.rows).toEqual([{ status: 'scheduled' }])
+    const outbox = await owner.sql(
+      `select payload->>'action' as action from domain_events where type = 'calendar.changed' and source_id = $1 order by source_version`,
+      [id],
+    )
+    expect(outbox.rows.map((r) => r.action)).toEqual(['created', 'deleted'])
   })
 
   it('已取消的可以刪：打刪除標記不刪列；查詢不再列出；同一筆交易留 activity.deleted 稽核與 calendar.changed', async () => {
@@ -525,14 +613,14 @@ describe('首頁近期活動：跨屆別的公開活動（設計方案 D-4）', 
       if (!created.ok) throw new Error(created.message)
       return created.receipt.activityId
     }
-    const later = await create(a.id, { title: 'A 屆成果發表會', date: '2099-05-20' })
-    const sooner = await create(b.id, { title: 'B 屆說明會', date: '2099-03-01', startTime: '10:00', endTime: '' })
-    const allDayToday = await create(b.id, { title: '今天的全天活動', date: today, allDay: true, startTime: '', endTime: '' })
-    await create(a.id, { title: '已經結束', date: '2020-01-01' })
-    await create(a.id, { title: '過去只有開始時間', date: '2020-01-01', endTime: '' })
-    await create(a.id, { title: '過去的全天活動', date: '2020-01-01', allDay: true, startTime: '', endTime: '' })
-    await create(a.id, { title: '只給登入者', date: '2099-01-01', audience: 'signed_in' })
-    await create(b.id, { title: '本屆學生', date: '2099-01-01', audience: 'cohort_students' })
+    const later = await create(a.id, { title: 'A 屆成果發表會', startDate: '2099-05-20' })
+    const sooner = await create(b.id, { title: 'B 屆說明會', startDate: '2099-03-01', startTime: '10:00', endTime: '' })
+    const allDayToday = await create(b.id, { title: '今天的全天活動', startDate: today, allDay: true, startTime: '', endTime: '' })
+    await create(a.id, { title: '已經結束', startDate: '2020-01-01' })
+    await create(a.id, { title: '過去只有開始時間', startDate: '2020-01-01', endTime: '' })
+    await create(a.id, { title: '過去的全天活動', startDate: '2020-01-01', allDay: true, startTime: '', endTime: '' })
+    await create(a.id, { title: '只給登入者', startDate: '2099-01-01', audience: 'signed_in' })
+    await create(b.id, { title: '本屆學生', startDate: '2099-01-01', audience: 'cohort_students' })
 
     expect((await timelineQuery.publicActivities(10)).map((x) => x.id)).toEqual([allDayToday, sooner, later])
     expect((await timelineQuery.publicActivities(2)).map((x) => x.title)).toEqual(['今天的全天活動', 'B 屆說明會'])

@@ -40,10 +40,23 @@ export const CAUSE_LABEL: Readonly<Record<SupersedeCause, string>> = {
   reset: '系辦重新收集同意',
 }
 
-/** 失效或作廢的原因給人看的樣子：是四種代碼之一就翻成中文，否則是管理員填的理由原文。 */
+/**
+ * 狀態列 `cause` 的固定代碼（C 階段規格① §1.4：理由改選填後，退回、作廢的 `cause` 不再放使用者的理由）：
+ * - `void`：系辦作廢（理由只進稽核與事件 payload）。
+ * - `disagree`／`return`：學生不同意／指導老師退回但沒填理由（有填理由時 `cause` 仍是理由原文，畫面照舊顯示）。
+ */
+export const VOID_CAUSE = 'void'
+
+export const STATUS_CAUSE_LABEL: Readonly<Record<string, string>> = {
+  [VOID_CAUSE]: '系辦作廢',
+  disagree: '學生不同意',
+  return: '指導老師退回',
+}
+
+/** 失效或作廢的原因給人看的樣子：是固定代碼之一就翻成中文，否則是使用者填的理由原文。 */
 export function describeCause(cause: string | null): string | null {
   if (cause === null) return null
-  return (CAUSE_LABEL as Record<string, string>)[cause] ?? cause
+  return (CAUSE_LABEL as Record<string, string>)[cause] ?? STATUS_CAUSE_LABEL[cause] ?? cause
 }
 
 /** 版本頁固定標示（產品 07 §4「同意紀錄內容與匯出」：不宣稱校方已核可）。 */
@@ -131,8 +144,11 @@ export type AttachmentVersion = {
   readonly fileId: string
   readonly checksum: string
   readonly name: string
-  /** 來源：這一組哪一份收件的第幾次正式送出。 */
-  readonly source: { readonly itemTitle: string; readonly versionNo: number }
+  /**
+   * 來源：舊 API 是「這一組哪一份收件的第幾次正式送出」；同意書作業的附件（C 階段規格① §1.2，`kind: 'item_attachment'`）
+   * 是「哪一份作業（標題）、作業內容第幾版」。
+   */
+  readonly source: { readonly itemTitle: string; readonly versionNo: number; readonly kind?: 'item_attachment' }
 }
 
 export const MAX_ATTACHMENTS = 20

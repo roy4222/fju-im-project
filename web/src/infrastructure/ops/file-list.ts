@@ -9,6 +9,7 @@ import type { FileListRow, FilePurpose } from '@/application/ops'
  * 只列 `stored`（上傳完成、還沒被回收）的檔；上傳中、軟刪除、已清除的不列。
  * 引用位置只挑一個代表（附件 → 項目、封面 → 項目、繳交 → 那份收件的項目），引用數另外算有效引用的總數。
  * 已刪除的項目（第三波 W1）不算引用來源：不當代表、也不算進引用數（檔案本身照列）。
+ * 首頁大圖不寫 `file_references`（`pg-home-settings.ts`），首頁設定正指著它時也算一處在用（C1-16：在用的檔不能刪）。
  * 授權在 composition（只有系辦）；這裡不判人。
  */
 
@@ -38,6 +39,7 @@ export async function listStoredFiles(db: Pick<Pool, 'query'>): Promise<FileList
               where r.file_id = f.id and r.released_at is null
                 and not exists (select 1 from managed_items dmi
                                  where r.ref_type = 'item_attachment' and dmi.id = r.ref_id and dmi.deleted_at is not null))
+              + (select count(*)::int from home_settings hs where hs.hero_file_id = f.id)
               as active_refs,
             case when att.item_id is not null then 'item_attachment'
                  when cov.item_id is not null then 'item_cover'

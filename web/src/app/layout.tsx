@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import './globals.css'
 import { GaScript } from './_analytics/ga-script'
 import { PageView } from './_analytics/page-view'
+import { NavPending } from './_ui/nav-pending'
 
 // T2 方案 A：全站動態渲染，nonce 才能每個回應都不一樣（契約 03 §6、契約 02 §9）。
 // 快取只用在資料函式的 'use cache'，不在頁面層（契約 02 §8）。
@@ -18,6 +19,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="zh-Hant-TW">
       <body>
         {children}
+        {/* 換頁載入骨架（C4-06）：Suspense 只包骨架本身，頁面在外面。 */}
+        <NavPending />
         <GaScript />
         <PageView />
       </body>

@@ -1,4 +1,4 @@
-import type { ResolvedActor } from '@/application/accounts'
+import type { ProfileCard, ResolvedActor } from '@/application/accounts'
 import { CHANGE_REASON_MAX_LENGTH, normalizeReason } from '@/application/groups/members'
 import { err, type Err } from '@/shared/result'
 
@@ -18,7 +18,7 @@ export const GROUP_TYPE_LABEL: Record<GroupType, string> = { general: '一般專
 
 export type ProposalState = 'open' | 'established' | 'terminated'
 export const PROPOSAL_STATE_LABEL: Record<ProposalState, string> = {
-  open: '組隊中（等全員確認）',
+  open: '建立中（等全員確認）',
   established: '已成立',
   terminated: '沒有成立',
 }
@@ -34,7 +34,7 @@ export const INVITATION_STATE_LABEL: Record<InvitationState, string> = {
 
 /**
  * 提案終止的種類（Q-GRP01 的五種＋成立瞬間撞到別組的 `conflict`）。
- * 標籤就是產品文件寫的紀錄名稱。
+ * 標籤就是產品文件寫的紀錄名稱；C3-05 照規格③ §1 用詞改成「發起人撤回」「系辦終止」。
  */
 export type TerminationKind =
   | 'declined'
@@ -46,9 +46,9 @@ export type TerminationKind =
 export const TERMINATION_KIND_LABEL: Record<TerminationKind, string> = {
   declined: '被拒絕',
   member_withdrew: '成員撤回同意',
-  proposer_withdrew: '提案人撤回',
+  proposer_withdrew: '發起人撤回',
   expired: '逾期',
-  admin_voided: '管理員作廢',
+  admin_voided: '系辦終止',
   conflict: '成員已在其他組',
 }
 
@@ -67,12 +67,16 @@ export type ProposeInput = {
   readonly groupType: string
   /** 其他組員的學號（不含自己；含了也會自動去掉）。空白欄會被略過。 */
   readonly memberStudentNos: readonly string[]
+  /** 產學合作必選的合作案（C3-11；規格③ §5.2、§7.3）。一般專題不看這一欄。 */
+  readonly opportunityId?: string
 }
 
 export type NormalizedProposal = {
   readonly groupType: GroupType
   /** 去空白、去重複、去掉自己之後的其他組員學號，依輸入順序。 */
   readonly memberStudentNos: readonly string[]
+  /** 產學合作選的合作案；一般專題一律 null。 */
+  readonly opportunityId: string | null
 }
 
 /**
@@ -86,6 +90,11 @@ export function normalizeProposeInput(
 ): { ok: true; value: NormalizedProposal } | Err {
   if (!(GROUP_TYPES as readonly string[]).includes(input.groupType)) {
     return err('VALIDATION_FAILED', '請選組別類型（一般專題或產學合作）。', { details: { field: 'groupType' } })
+  }
+  // 產學合作一定要選合作案（已發布、未刪除由資料庫那層再查一次）；一般專題帶了也不理。
+  const opportunityId = input.groupType === 'industry' ? (input.opportunityId ?? '').trim() : ''
+  if (input.groupType === 'industry' && !isUuid(opportunityId)) {
+    return err('VALIDATION_FAILED', '請選合作案。', { details: { field: 'opportunityId' } })
   }
 
   const seen = new Set<string>()
@@ -114,7 +123,10 @@ export function normalizeProposeInput(
     )
   }
 
-  return { ok: true, value: { groupType: input.groupType as GroupType, memberStudentNos: members } }
+  return {
+    ok: true,
+    value: { groupType: input.groupType as GroupType, memberStudentNos: members, opportunityId: opportunityId || null },
+  }
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -127,9 +139,9 @@ export function proposalExpiry(businessNow: Date, defaultDays: number, groupingD
   return byDays.getTime() <= groupingDeadline.getTime() ? byDays : new Date(groupingDeadline.getTime())
 }
 
-/** 管理員作廢的理由：必填、去前後空白、有長度上限（和其他管理員動作同一條規則）。 */
+/** 系辦終止建立中組別的理由：選填、去前後空白、有長度上限（和其他管理員動作同一條規則）。 */
 export function normalizeVoidReason(reason: string): { ok: true; value: string } | Err {
-  return normalizeReason(reason, '作廢')
+  return normalizeReason(reason, '終止建立')
 }
 
 /** 學生的屆別（模組 01：學生的屆別在個人資料；老師與管理員沒有）。 */
@@ -149,11 +161,25 @@ export function canViewTeammates(actor: ResolvedActor, cohortId: string): boolea
   return studentCohortOf(actor) === cohortId
 }
 
-/** 找組員名單的一列：只有這三欄（電話不公開，契約 03 §4 最小揭露）。 */
-export type TeammateListing = {
-  readonly name: string
+/**
+ * 找隊員名單的一張名片卡（C3 設計方案 §4.4；票 C3-07）：本人名片去掉 `canOpenToJoin`、`revision`，
+ * 加上「邀請加入」按不了的原因。電話不在這裡（永不公開，契約 03 §4 最小揭露）。
+ */
+export type TeammateCard = Omit<ProfileCard, 'canOpenToJoin' | 'revision' | 'studentNo'> & {
   readonly studentNo: string
-  readonly contactEmail: string
+  /** 看的人已經在建立中的組別裡（或不是學生）時寫原因、按鈕 disabled；可以邀請時是 null。 */
+  readonly inviteDisabledReason: string | null
+}
+
+/** 舊名（票 13 起的找組員名單列），保留給還沒改名的引用。 */
+export type TeammateListing = TeammateCard
+
+/** 找隊員名單的篩選（`?q=`、`?skill=`；伺服器端篩）。 */
+export type TeammateFilter = {
+  /** 比對姓名、學號或技能（部分符合、不分大小寫）。 */
+  readonly q?: string
+  /** 技能完全符合。 */
+  readonly skill?: string
 }
 
 /** 組別成立的號碼：屆別內遞增，G01、G02…（S03-06 暫定規則）。 */
@@ -201,7 +227,7 @@ export function describeConfirmReceipt(receipt: ConfirmReceipt): string {
     case 'established':
       return `全員確認，組別 ${receipt.groupCode} 成立了。`
     case 'conflict':
-      return '有成員剛剛已經加入別的組，這次組隊沒有成立，大家都可以重新組隊。'
+      return '有成員剛剛已經加入別的組，這次建立組別沒有成立，大家都可以重新組隊。'
     case 'already_confirmed':
       return `你之前已經確認過了（${receipt.confirmedCount}／${receipt.memberCount} 已確認）。`
     case 'confirmed':
@@ -210,7 +236,7 @@ export function describeConfirmReceipt(receipt: ConfirmReceipt): string {
 }
 
 export function describeTerminateReceipt(receipt: TerminateReceipt): string {
-  return `這次組隊沒有成立（${TERMINATION_KIND_LABEL[receipt.terminationKind]}），大家都可以重新組隊：重新發起或接受邀請。`
+  return `這次建立組別沒有成立（${TERMINATION_KIND_LABEL[receipt.terminationKind]}），大家都可以重新組隊：重新建立組別或接受邀請。`
 }
 
 /** 到期處理器（背景工作呼叫）的結果；不是給使用者看的回執。 */

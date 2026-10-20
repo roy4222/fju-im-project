@@ -177,7 +177,7 @@ test.describe('封存與解封', () => {
 
   test.beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
-    // 每組 1 人：學生頁的「發起提案」不用填同學學號，按下去就會打到用例（AC-A-28）。
+    // 每組 1 人：學生頁的「送出邀請」（建立組別）不用填同學學號，按下去就會打到用例（AC-A-28）。
     const created = await pool.query<{ id: string }>(
       `insert into cohorts (id, code, name, status, year_end_date, group_size_min, group_size_max, created_by_kind)
        values (gen_random_uuid(), $1, $2, 'active', current_date + 300, 1, 1, 'system') returning id`,
@@ -298,11 +298,11 @@ test.describe('封存與解封', () => {
     return { open: flag.rows[0]!.open_to_join as boolean, audits: audits.rows[0]!.n as number }
   }
 
-  test('AC-A-28 封存後學生在該屆組別頁寫入：發起提案看到「已封存」', async ({ page }) => {
+  test('AC-A-28 封存後學生在該屆組別頁寫入：送出邀請（建立組別）看到「已封存」', async ({ page }) => {
     await signInAsArchivedStudent(page, false)
 
     await page.goto('/dashboard/student/groups')
-    await page.getByRole('button', { name: '發起提案' }).click()
+    await page.getByRole('button', { name: '送出邀請' }).click()
     await expect(feedback(page, 'alert')).toContainText('已封存')
     const proposals = await pool.query(`select count(*)::int as n from group_proposals where cohort_id = $1`, [cohortC])
     expect(proposals.rows[0]!.n).toBe(0)
@@ -312,11 +312,11 @@ test.describe('封存與解封', () => {
     const student = await signInAsArchivedStudent(page, false)
 
     await page.goto('/dashboard/student/groups?tab=team')
-    await page.getByRole('button', { name: '公開找組員' }).click()
+    await page.getByRole('button', { name: '公開找隊員' }).click()
     await expect(feedback(page, 'alert')).toContainText('已封存')
     expect(await openToJoinState(student.userId)).toEqual({ open: false, audits: 0 })
     await page.reload()
-    await expect(page.getByText('公開找組員：未公開')).toBeVisible()
+    await expect(page.getByText('公開找隊員：未公開')).toBeVisible()
   })
 
   test('AC-A-28 封存後按「關閉公開」：看到「已封存」，開關仍是已公開、沒有稽核', async ({ page }) => {
@@ -327,7 +327,7 @@ test.describe('封存與解封', () => {
     await expect(feedback(page, 'alert')).toContainText('已封存')
     expect(await openToJoinState(student.userId)).toEqual({ open: true, audits: 0 })
     await page.reload()
-    await expect(page.getByText('公開找組員：已公開')).toBeVisible()
+    await expect(page.getByText('公開找隊員：已公開')).toBeVisible()
   })
 
   test('AC-A-27 恢復（解除封存）：填理由 → 回到進行中、旗標按鈕回來，留稽核 cohort.unarchive', async ({ page }) => {

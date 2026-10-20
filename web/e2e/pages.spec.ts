@@ -358,6 +358,8 @@ test.describe('手機寬度', () => {
 })
 
 test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
+  let protectedGroupId: string
+  const concretePath = (path: string) => path.replace('[groupId]', protectedGroupId)
   /**
    * 這一組是回歸測試，抓的是一個真的漏過的洞。
    *
@@ -386,6 +388,13 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
           [`PAGES-${Date.now().toString(36).toUpperCase()}`],
         )
       }
+      const group = await pool.query<{ id: string }>(
+        `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+         select gen_random_uuid(), id, $1, 'general', now(), now(), 'system'
+           from cohorts where status <> 'archived' limit 1 returning id`,
+        [`PAGES-${Date.now().toString(36)}`],
+      )
+      protectedGroupId = group.rows[0]!.id
     } finally {
       await pool.end()
     }
@@ -407,6 +416,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     { path: '/dashboard/teacher/inbox', wrongRole: 'student' },
     { path: '/dashboard/student/inbox', wrongRole: 'teacher' },
     { path: '/dashboard/admin/groups', wrongRole: 'student' },
+    { path: '/dashboard/admin/groups/[groupId]', wrongRole: 'student' },
     { path: '/dashboard/student/groups', wrongRole: 'teacher' },
     { path: '/dashboard/teacher/groups', wrongRole: 'student' },
     { path: '/dashboard/admin/affairs', wrongRole: 'student' },
@@ -422,14 +432,11 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     // 評分（票 23）。
     { path: '/dashboard/admin/grading', wrongRole: 'teacher' },
     { path: '/dashboard/teacher/grading', wrongRole: 'student' },
-    // 簽核與精選（票 25）。
-    { path: '/dashboard/admin/signoff', wrongRole: 'student' },
+    // 簽核與精選（票 25）。系辦 `/signoff` C2-22 起是轉址頁，移到 admin-redirects.spec。
     { path: '/dashboard/admin/showcase', wrongRole: 'student' },
     { path: '/dashboard/student/signoff', wrongRole: 'teacher' },
     // 操作紀錄（票 36）：老師與學生都不能讀全站稽核。
     { path: '/dashboard/admin/audit', wrongRole: 'teacher' },
-    // 首頁設定（第三波 W3）。
-    { path: '/dashboard/admin/home-settings', wrongRole: 'teacher' },
     // 評分規則子頁（AD-08）。
     { path: '/dashboard/admin/grading/rules', wrongRole: 'teacher' },
     // C 階段規格② 的新分頁（C2-01）；結算之前漏列，一起補。舊設定入口頁 `/settings` 移到 admin-redirects.spec。
@@ -446,7 +453,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
 
   for (const { path, wrongRole } of PROTECTED) {
     test(`${path}：沒有 cookie 拿不到任何內容`, async ({ request }) => {
-      const response = await request.get(path, { maxRedirects: 0 })
+      const response = await request.get(concretePath(path), { maxRedirects: 0 })
       expect([302, 303, 307, 308]).toContain(response.status())
       expect(response.headers()['location']).toContain('/login')
       expect(await response.text(), '回應裡不該有這一頁的內容').not.toContain(FINGERPRINTS[path]!)
@@ -454,7 +461,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
 
     test(`${path}：角色不對（${wrongRole}）拿不到任何內容`, async ({ request }) => {
       const session = await sharedTestSession(request, wrongRole)
-      const response = await request.get(path, {
+      const response = await request.get(concretePath(path), {
         headers: { cookie: session.cookie },
         maxRedirects: 0,
       })
@@ -468,7 +475,7 @@ test.describe('直接打 HTTP 的負向情境（回歸測試）', () => {
     test(`${path}：有權限的人看得到指紋字串（上面兩條不是空轉）`, async ({ request }) => {
       const role = path.startsWith('/dashboard/admin') ? 'admin' : path.startsWith('/dashboard/teacher') ? 'teacher' : 'student'
       const session = await sharedTestSession(request, role)
-      const response = await request.get(path, { headers: { cookie: session.cookie }, maxRedirects: 0 })
+      const response = await request.get(concretePath(path), { headers: { cookie: session.cookie }, maxRedirects: 0 })
       expect(response.status()).toBe(200)
       expect(await response.text()).toContain(FINGERPRINTS[path]!)
     })

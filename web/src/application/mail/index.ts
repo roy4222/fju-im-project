@@ -11,4 +11,5 @@ export {
   PASSWORD_RESET_MINUTES,
   passwordResetMail,
   registrationResultMail,
+  reminderMail,
 } from '@/application/mail/templates'

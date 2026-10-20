@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { MyVersionDetail, VersionSummary } from '@/application/submissions'
 import { answerFields, isFileField } from '@/composition/submissions'
+import { TableScroll } from '@/app/_ui/ui/table'
 import { ChecksumDisclosure, ReceiptNoDisclosure } from '@/app/dashboard/_submissions/proof-disclosure'
 import { formatBytes } from '@/shared/format-bytes'
 import { formatTaipeiSecond } from '@/shared/time'
@@ -25,8 +26,9 @@ export function VersionTable({
   showSchemaVersion?: boolean
 }) {
   if (versions.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">還沒有正式送出過。</p>
+  // 窄螢幕保留 `min-w` 橫向捲動，首欄（第幾次）固定、右緣有捲動提示（④ C4-04 的 `TableScroll`；總表 V-9）。
   return (
-    <div className="overflow-x-auto">
+    <TableScroll stickyFirst>
       <table className="w-full min-w-[36rem] text-sm" aria-label={label}>
         <thead className="text-left text-xs text-muted-foreground">
           <tr>
@@ -74,7 +76,7 @@ export function VersionTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   )
 }
 

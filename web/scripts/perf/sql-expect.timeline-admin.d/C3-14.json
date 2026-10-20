@@ -1,0 +1,14 @@
+{
+  "ticket": "C3-14",
+  "override": {
+    "/timeline": {
+      "from": "base",
+      "value": {
+        "as": "admin",
+        "baseline": 6,
+        "max": 6,
+        "identity": 0
+      }
+    }
+  }
+}

@@ -1,8 +1,5 @@
-import Link from 'next/link'
-import { IconMapPinOff } from '@tabler/icons-react'
 import { currentActor, homeFor } from '@/app/_ui/guard'
-import { CodeNotice } from '@/app/_ui/public-content'
-import { SiteShell } from '@/app/_ui/site-shell'
+import { BrokenPage } from '@/app/_ui/broken-page'
 
 export const metadata = { title: '找不到這個頁面｜資管系專題平台' }
 
@@ -14,21 +11,5 @@ export const metadata = { title: '找不到這個頁面｜資管系專題平台'
  */
 export default async function ForbiddenPage() {
   const actor = await currentActor()
-  return (
-    <SiteShell>
-      <CodeNotice
-        code="404"
-        icon={<IconMapPinOff className="size-7" aria-hidden />}
-        title="找不到這個頁面"
-        data-testid="not-found"
-        actions={
-          <Link href={homeFor(actor)} className="btn-fju h-11.5 px-7 text-[15px]">
-            回到自己的首頁
-          </Link>
-        }
-      >
-        網址可能打錯了，或這個內容已經下架。
-      </CodeNotice>
-    </SiteShell>
-  )
+  return <BrokenPage action={{ href: homeFor(actor), label: '回到自己的首頁' }} />
 }

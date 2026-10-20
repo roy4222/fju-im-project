@@ -1,15 +1,14 @@
 'use client'
-import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { use, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { IconAlertCircle, IconCheck, IconCopy, IconDeviceFloppy, IconRefresh, IconSend } from '@tabler/icons-react'
 import { saveGradingDraftAction, submitGradingAction } from './actions'
 import { COMMENT_MAX, commentLength, type BenchSnapshot } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
 import type { FinalReceiptView } from '@/app/dashboard/teacher/grading/types'
-import { blockReason as blockReasonOf, CONFIRM_NOTE, itemErrors, missingCount, missingText, PASS_FAIL_OPTIONS, RECEIPT_NOTE, SAVED_NOTE } from '@/app/dashboard/teacher/grading/rules'
 import { DIALOG, GHOST_BUTTON, OUTLINE_BUTTON, Pill, PRIMARY_BUTTON, StampMark } from '@/app/dashboard/teacher/_ui/dash'
+import type * as Scoring from '@/app/dashboard/teacher/grading/[groupId]/bench-scoring'
 import type { SchemeStage } from '@/application/grading'
 import { cn } from '@/shared/cn'
-import { formatScore, LETTER_GRADES, parseItemScore, teacherStageScore } from '@/shared/score'
 
 /**
  * 單組評分頁右欄的評分卡（票 23、37；TE-06b 照 Q78 重做：數字項「／滿分」、等第下拉、通過制兩選一、
@@ -63,6 +62,19 @@ const RESPONSE_TIMEOUT_MS = 20_000
 
 const newRequestId = () => crypto.randomUUID()
 const subscribeNothing = () => () => {}
+
+/**
+ * 算分與規則（`rules.ts`＋`@/shared/score` 的 decimal.js）另一包載入（C1-12a）：`[groupId]` 路由的首載 JS 很緊（上限 250 KB），
+ * 這一包不算進首載。模組一載入就開始抓；`GradingBench` 第一行 `use()` 等它到了才往下畫，所以下面的函式被呼叫時
+ * `scoring` 一定已經有值。算式仍是伺服器同一份。
+ *
+ * 刻意不在評分卡外面包 `<Suspense>`：伺服器照樣先畫好整張卡；瀏覽器接手時保留伺服器的畫面等這一包；站內換頁（總覽的
+ * 「批改」連結）時停在舊頁等它到再換——包了的話換頁會先露出空白的右欄再補上。
+ */
+let scoring: typeof Scoring
+const scoringReady = import('@/app/dashboard/teacher/grading/[groupId]/bench-scoring').then((m) => {
+  scoring = m
+})
 
 type SaveDotState = 'unsaved' | 'saving' | 'saved' | 'dirty' | 'locked'
 
@@ -160,7 +172,7 @@ function normalizeContent(stage: SchemeStage, content: Content): Content {
   for (const item of stage.items) {
     const raw = (content.values[item.key] ?? '').trim()
     if (raw === '') continue
-    const parsed = parseItemScore(item, raw)
+    const parsed = scoring.parseItemScore(item, raw)
     values[item.key] = parsed.ok ? parsed.value : raw
   }
   return { values, comment: content.comment.trim() === '' ? '' : content.comment }
@@ -318,15 +330,7 @@ function onServer(stage: SchemeStage, state: Local, next: Applied): Local {
   }
 }
 
-export function GradingBench({
-  assignmentId,
-  groupCode,
-  stage,
-  snapshot,
-  eyebrow,
-  members,
-  children,
-}: {
+type BenchProps = {
   assignmentId: string
   groupCode: string
   stage: SchemeStage
@@ -338,7 +342,10 @@ export function GradingBench({
   members: string
   /** 放在組員下面的東西：階段切換、退回理由。 */
   children?: ReactNode
-}) {
+}
+
+export function GradingBench({ assignmentId, groupCode, stage, snapshot, eyebrow, members, children }: BenchProps) {
+  use(scoringReady)
   const router = useRouter()
   // hydration 完成前按鈕還沒掛上事件，而且 React 接手 textarea 時會把已設好的選取重設到開頭（Playwright 的 fill 在那一瞬間會變成前置貼入）。
   // 掛好後在 <section> 標 data-hydrated，e2e 等到它再開始輸入；畫面上沒有任何差別。
@@ -409,15 +416,16 @@ export function GradingBench({
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty, readOnly])
 
-  const result = teacherStageScore(stage.items, stage.letterMap, values)
-  const errors = itemErrors(stage.items, values)
-  const missing = missingCount(stage.items, values)
+  const result = scoring.teacherStageScore(stage.items, stage.letterMap, values)
+  const errors = scoring.itemErrors(stage.items, values)
+  const missing = scoring.missingCount(stage.items, values)
   const commentError = commentLength(comment) > COMMENT_MAX ? `評語最多 ${COMMENT_MAX} 字` : null
   const complete = missing === 0 && errors.size === 0 && commentError === null
   // 沒有改過（或唯讀）時顯示計入成績的分數；正式送出後又改了，顯示新分數的預覽。
   const showCounted = hasFinal && finalScore !== null && (readOnly || (!dirty && !draftAfterFinal))
-  const shownScore = showCounted ? finalScore : formatScore(result.score)
-  const submitWord = hasFinal ? '重新送出' : '正式送出'
+  const shownScore = showCounted ? finalScore : scoring.formatScore(result.score)
+  // C1-12（設計方案① §7.3）：按鈕「送出」，送出過是「重新送出」。
+  const submitWord = hasFinal ? '重新送出' : '送出'
   const percent = Math.max(0, Math.min(100, Number(shownScore) || 0))
   const savedText = state.ack?.savedAtText ?? savedAtText
 
@@ -485,7 +493,7 @@ export function GradingBench({
           requestId: op.requestId,
           version: outcome.data.version,
           savedAtText: outcome.data.savedAtText,
-          text: hasFinal ? SAVED_AFTER_FINAL_NOTE : SAVED_NOTE,
+          text: hasFinal ? SAVED_AFTER_FINAL_NOTE : scoring.SAVED_NOTE,
           textIfEdited: SAVED_BUT_EDITED_NOTE,
         })
       } else {
@@ -577,7 +585,7 @@ export function GradingBench({
       ? `上一次「${interrupted.kind === 'save' ? '儲存草稿' : submitWord}」結果不明：「再送一次」會用同一個請求編號重送，不會重複計分。`
       : errors.size === 0 && missing === 0 && commentError
         ? `${commentError}，刪短後才能${submitWord}。`
-        : blockReasonOf(errors, missing).replace('正式送出', submitWord)
+        : scoring.blockReason(errors, missing).replace('正式送出', submitWord)
 
   return (
     <section
@@ -761,7 +769,7 @@ export function GradingBench({
                     )}
                   >
                     <option value="">選擇等第</option>
-                    {LETTER_GRADES.map((g) => (
+                    {scoring.LETTER_GRADES.map((g) => (
                       <option key={g} value={g}>
                         {g}
                       </option>
@@ -769,7 +777,7 @@ export function GradingBench({
                   </select>
                 ) : (
                   <div role="radiogroup" aria-labelledby={`${id}-name`} id={id} className="inline-flex w-full max-w-60 gap-1 rounded-lg bg-muted p-1">
-                    {PASS_FAIL_OPTIONS.map((option, optionIndex) => (
+                    {scoring.PASS_FAIL_OPTIONS.map((option, optionIndex) => (
                       <button
                         key={option.value}
                         type="button"
@@ -885,7 +893,7 @@ export function GradingBench({
           </div>
           {!readOnly && (missing > 0 || errors.size > 0) ? (
             <button type="button" onClick={focusFirstMissing} className="tabular text-xs font-semibold text-ink underline-offset-2 hover:underline">
-              {errors.size > 0 ? `${errors.size} 項需修正` : missingText(missing)}
+              {errors.size > 0 ? `${errors.size} 項需修正` : scoring.missingText(missing)}
             </button>
           ) : null}
         </div>
@@ -948,7 +956,7 @@ export function GradingBench({
             {submitWord} {groupCode}「{stage.name}」？
           </h2>
           <p className="text-sm text-muted-foreground">
-            這一份分數是 <b className="tabular text-foreground">{formatScore(result.score)}</b>。{hasFinal ? RESUBMIT_NOTE : CONFIRM_NOTE}
+            這一份分數是 <b className="tabular text-foreground">{scoring.formatScore(result.score)}</b>。{hasFinal ? RESUBMIT_NOTE : scoring.CONFIRM_NOTE}
           </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <button type="button" className={cn(PRIMARY_BUTTON, 'h-10 flex-1')} onClick={onSubmit}>
@@ -977,7 +985,7 @@ export function GradingBench({
             <p className="tabular text-sm text-muted-foreground">
               計入成績的分數 <b className="text-[28px] font-extrabold text-foreground">{receipt.teacherScore}</b> / 100
             </p>
-            <p className="text-xs text-muted-foreground">{RECEIPT_NOTE}</p>
+            <p className="text-xs text-muted-foreground">{scoring.RECEIPT_NOTE}</p>
             <button type="button" className={OUTLINE_BUTTON} onClick={() => receiptDialog.current?.close()}>
               知道了
             </button>
@@ -994,9 +1002,9 @@ function stashLines(stage: SchemeStage, stash: Content, server: Content): string
   for (const item of stage.items) {
     const mine = (stash.values[item.key] ?? '').trim()
     const theirs = server.values[item.key] ?? ''
-    const parsed = mine === '' ? null : parseItemScore(item, mine)
+    const parsed = mine === '' ? null : scoring.parseItemScore(item, mine)
     if (mine === theirs || (parsed?.ok && parsed.value === theirs)) continue
-    const label = item.type === 'passfail' ? (PASS_FAIL_OPTIONS.find((o) => o.value === mine)?.label ?? mine) : mine
+    const label = item.type === 'passfail' ? (scoring.PASS_FAIL_OPTIONS.find((o) => o.value === mine)?.label ?? mine) : mine
     lines.push(`${item.name}：${label || '（未填）'}（已存 ${theirs || '未填'}）`)
   }
   if (stash.comment.trim() !== server.comment.trim()) lines.push(`評語：${stash.comment.trim() === '' ? '（空白）' : stash.comment}`)

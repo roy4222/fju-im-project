@@ -2,7 +2,7 @@ import 'server-only'
 import type { ResolvedActor } from '@/application/accounts'
 import {
   isCacheableDownload,
-  PUBLIC_IMAGE_MAX_AGE_SECONDS,
+  PUBLIC_FILE_MAX_AGE_SECONDS,
   type FileDownload,
   type FileListRow,
   type StoredFileReceipt,
@@ -10,9 +10,11 @@ import {
 import { createRateLimiter } from '@/shared/rate-limit'
 import type { Result } from '@/shared/result'
 import { checkStatus, resolveActor } from '@/composition/accounts'
-import { getFileStorage } from '@/composition/ops'
+import { getBusinessClock } from '@/composition/cohorts'
+import { getAuditWriter, getFileStorage, getOperationLedger } from '@/composition/ops'
 import { getPool } from '@/infrastructure/db/client'
 import { listStoredFiles } from '@/infrastructure/ops/file-list'
+import { PgFileAdminCommand } from '@/infrastructure/ops/file-storage'
 
 /**
  * 檔案管理頁（票 35）：全站已存好的檔案與引用位置。只有啟用中的系辦拿得到（其他人回 null → 頁面 404）；
@@ -28,6 +30,19 @@ export function getFileListQuery() {
 }
 
 export { FILE_LIST_LIMIT } from '@/infrastructure/ops/file-list'
+
+let fileAdminCommand: PgFileAdminCommand | undefined
+
+/** 檔案分頁的「刪除」（C1-16）：只刪沒有任何有效引用的檔；授權（只有狀態正常的系辦）在命令裡判。 */
+export function getFileAdminCommand(): PgFileAdminCommand {
+  fileAdminCommand ??= new PgFileAdminCommand({
+    db: getPool,
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    businessClock: getBusinessClock(),
+  })
+  return fileAdminCommand
+}
 
 /**
  * 檔案上傳與下載兩條 Route Handler 的門面（契約 02 §6）。
@@ -76,8 +91,8 @@ export async function uploadFile(
 /** 下載用的 `Content-Disposition`（路由只能經 composition 拿到執行期的規則）。 */
 export { contentDispositionFor as contentDisposition } from '@/application/ops'
 
-/** 這個下載能不能讓瀏覽器快取、快取幾秒（V4：只有公開的 PNG／JPEG；路由不自己比對 MIME）。 */
-export { isCacheableDownload, PUBLIC_IMAGE_MAX_AGE_SECONDS } from '@/application/ops'
+/** 這個下載能不能快取、快取幾秒（S16：訪客也拿得到的檔一律可快取，不看檔型；路由不自己判斷）。 */
+export { isCacheableDownload, PUBLIC_FILE_MAX_AGE_SECONDS } from '@/application/ops'
 
 /**
  * `/api/files/[id]` 與 `/api/files/[id]/preview`：每次都重新認人、重新授權（預覽與下載同一個函式，權限不會比下載寬）。
@@ -137,13 +152,13 @@ export function fileFailureResponse(
 }
 
 /**
- * 公開圖片（訪客也拿得到的 PNG／JPEG，判斷在 `isCacheableDownload`）讓瀏覽器短時間快取（V4）。
- * 可見性會變（下架、撤回、換圖、刪除），授權結果永不跨請求快取（契約 02 §8），所以只給瀏覽器
- * `PUBLIC_IMAGE_MAX_AGE_SECONDS`（5 分鐘），而且 `must-revalidate`：過期後一定回來重新授權。
+ * 公開檔（訪客也拿得到的檔，不看檔型，判斷在 `isCacheableDownload`）讓瀏覽器與 Cloudflare 短時間快取（V4、S16）。
+ * 可見性會變（下架、撤回、換檔、刪除），授權結果永不跨請求快取（契約 02 §8），所以只給
+ * `PUBLIC_FILE_MAX_AGE_SECONDS`（5 分鐘），而且 `must-revalidate`：過期後一定回來重新授權。
  * 不加 `vary: cookie`：公開回應對任何人都一樣；私有回應是 `no-store`，不會被存。
  */
-const PUBLIC_IMAGE_HEADERS = {
-  'cache-control': `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`,
+const PUBLIC_FILE_HEADERS = {
+  'cache-control': `public, max-age=${PUBLIC_FILE_MAX_AGE_SECONDS}, must-revalidate`,
   'x-content-type-options': 'nosniff',
 } as const
 
@@ -162,11 +177,11 @@ function matchesETag(ifNoneMatch: string | null, etag: string): boolean {
   return ifNoneMatch.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag)
 }
 
-/** 授權通過的檔案該帶的快取標頭與 ETag（公開圖片、頭像有 ETag；其他一律 `private, no-store`）。 */
+/** 授權通過的檔案該帶的快取標頭與 ETag（公開檔、頭像有 ETag；其他一律 `private, no-store`）。 */
 export function fileCacheHeaders(file: FileDownload): { readonly headers: Record<string, string>; readonly etag: string | null } {
   const cacheable = isCacheableDownload(file)
   const avatar = file.purpose === 'avatar'
-  const headers = cacheable ? PUBLIC_IMAGE_HEADERS : avatar ? AVATAR_HEADERS : PRIVATE_FILE_HEADERS
+  const headers = cacheable ? PUBLIC_FILE_HEADERS : avatar ? AVATAR_HEADERS : PRIVATE_FILE_HEADERS
   const etag = (cacheable || avatar) && file.checksum ? `"${file.checksum}"` : null
   return { headers: { ...headers, ...(etag ? { etag } : {}) }, etag }
 }

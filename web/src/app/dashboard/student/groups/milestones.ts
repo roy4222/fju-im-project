@@ -3,7 +3,8 @@ import type { MyItemRow } from '@/application/submissions'
 import { taipeiDateOf } from '@/shared/time'
 
 /**
- * 組別頁「里程碑」線（學生規格 §3.6，已定 Q120）：發起提案 → 成組 → 每件整組一份的作業依截止日排。
+ * 組別頁「里程碑」線（學生規格 §3.6，已定 Q120）：建立組別 → 成組 → 每件整組一份的作業依截止日排。
+ * 第一格的字照規格③ §1 用詞叫「建立組別」（C3-11）。
  * 已完成打勾寫日期（`M/D`），還沒到的上鎖寫月份（`N 月`）。
  *
  * 作業「送出了沒」用待辦的口徑（`itemTodo` 的 `done`，ST-1），不自己判；免繳的作業不是這一組要做的事，不列。
@@ -34,7 +35,7 @@ export function groupMilestones(input: {
   now: Date
 }): readonly Milestone[] {
   const out: Milestone[] = []
-  if (input.proposedAt) out.push({ key: 'proposed', label: '發起提案', done: true, when: monthDay(input.proposedAt) })
+  if (input.proposedAt) out.push({ key: 'proposed', label: '建立組別', done: true, when: monthDay(input.proposedAt) })
   out.push({ key: 'established', label: '成組', done: true, when: monthDay(input.establishedAt) })
   const items = input.rows
     .filter((row) => row.receiverUnit === 'group' && !row.exempt)

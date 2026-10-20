@@ -1,6 +1,18 @@
 import 'server-only'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  check,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+  type AnyPgColumn,
+} from 'drizzle-orm/pg-core'
+import { industryOpportunities } from '@/infrastructure/db/schema/advisors'
 import { users } from '@/infrastructure/db/schema/auth'
 import { cohorts } from '@/infrastructure/db/schema/base'
 
@@ -51,12 +63,8 @@ export const groups = pgTable(
     unique('groups_cohort_code_unique').on(t.cohortId, t.code),
     check('groups_group_type_check', sql`${t.groupType} in ('general','industry')`),
     check('groups_status_check', sql`${t.status} in ('active','dissolved')`),
-    // 解散一定留時間與理由；沒解散就兩個都不能有。
-    check(
-      'groups_dissolved_check',
-      sql`(${t.status} = 'dissolved') = (${t.dissolvedRealAt} is not null)
-          and (${t.status} <> 'dissolved' or ${t.dissolveReason} is not null)`,
-    ),
+    // 解散一定留時間；理由選填（規格③ §10.1）。
+    check('groups_dissolved_check', sql`(${t.status} = 'dissolved') = (${t.dissolvedRealAt} is not null)`),
     check('groups_created_by_kind_check', sql`${t.createdByKind} in ('user','system','worker')`),
     check(
       'groups_created_by_actor_check',
@@ -86,8 +94,13 @@ export const groupProposals = pgTable(
     expiresBusinessAt: timestamp('expires_business_at', tz).notNull(),
     state: text('state').notNull().default('open'),
     terminationKind: text('termination_kind'),
-    /** 只有管理員作廢必填；學生看到的通知不帶這段。 */
+    /** 管理員作廢的理由（選填，規格③ §10.1）；學生看到的通知不帶這段。 */
     reason: text('reason'),
+    /** 產學合作提案選的合作案（規格③ §5.2）；一般組為 NULL。 */
+    opportunityId: uuid('opportunity_id').references((): AnyPgColumn => industryOpportunities.id, {
+      onDelete: 'restrict',
+      onUpdate: 'restrict',
+    }),
     establishedGroupId: uuid('established_group_id').references(() => groups.id, {
       onDelete: 'restrict',
       onUpdate: 'restrict',
@@ -116,11 +129,6 @@ export const groupProposals = pgTable(
     ),
     // 標了終止就一定有終止原因；沒終止就不能有。
     check('group_proposals_terminated_kind_check', sql`(${t.state} = 'terminated') = (${t.terminationKind} is not null)`),
-    // 管理員作廢必填理由（產品模組 03「提案終止」）。
-    check(
-      'group_proposals_admin_voided_reason_check',
-      sql`${t.terminationKind} is distinct from 'admin_voided' or length(btrim(coalesce(${t.reason}, ''))) > 0`,
-    ),
     check(
       'group_proposals_established_group_check',
       sql`(${t.state} = 'established') = (${t.establishedGroupId} is not null)`,

@@ -9,7 +9,7 @@ import {
   profileEditRowBlocker,
   STUDENT_FIELDS_REQUIRED,
 } from '@/application/accounts/profile-edit'
-import { TEACHER_NAME_MAX_LENGTH } from '@/application/accounts/teachers'
+import { TEACHER_NAME_MAX_LENGTH } from '@/application/accounts/members'
 
 /** C2-08：帳號列「編輯」的純規則（調屆、學生↔老師互轉；設計方案 §3.8、§3.9）。寫入在 `pg-profile-edit.integration.test.ts`。 */
 

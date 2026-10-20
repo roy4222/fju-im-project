@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
 import { IconBook2 } from '@tabler/icons-react'
+import { feItem, feSection, frontEditScope } from '@/app/_ui/front-edit/mark'
 import { currentActor } from '@/app/_ui/guard'
 import { CleanBody, ListEmpty, PublicPage } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { getPublicItemQuery } from '@/composition/items'
+import { GradingWeights, loadGradingWeights } from './grading-weights'
 
 /**
  * 規則正文的版型（原型 `/rules`）：編號清單＝`<ol>`、灰底註解框＝`<blockquote>`。
@@ -28,17 +30,27 @@ export const metadata: Metadata = {
  * 對象是「公開訪客」的訪客就看得到；其他對象的規則只給對象內的人。
  */
 export default async function RulesPage() {
-  const sections = await getPublicItemQuery().fullText(await currentActor(), 'rules')
+  const [sections, weights] = await Promise.all([
+    currentActor().then((actor) => getPublicItemQuery().fullText(actor, 'rules')),
+    loadGradingWeights(),
+  ])
+  // 前台編輯標記（C2-16）：只有系辦經 /office-edit 改寫進來才有。
+  const fe = await frontEditScope()
+  // 評分方式（C1-14）：接在章節之後，讀自系辦評分規則；沒有已發布方案就不顯示。
+  const grading = weights ? <GradingWeights weights={weights} /> : null
 
   return (
     <SiteShell current="/rules" bare>
       <PublicPage title="專題規則">
         {sections.length === 0 ? (
-          <ListEmpty
-            icon={<IconBook2 className="size-9" aria-hidden />}
-            title="專題規則還沒發布"
-            hint="系辦發布規則後會出現在這裡。"
-          />
+          <div className="flex flex-col gap-10">
+            <ListEmpty
+              icon={<IconBook2 className="size-9" aria-hidden />}
+              title="專題規則還沒發布"
+              hint="系辦發布規則後會出現在這裡。"
+            />
+            {grading}
+          </div>
         ) : (
           <div className="grid gap-10 lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-14">
             <aside className="lg:sticky lg:top-28 lg:self-start">
@@ -55,22 +67,26 @@ export default async function RulesPage() {
                 ))}
               </nav>
             </aside>
-            <article className="flex min-w-0 flex-col gap-9">
-              {sections.map((s, index) => (
-                <section
-                  key={s.id}
-                  id={`rule-${index + 1}`}
-                  aria-labelledby={`rule-${index + 1}-title`}
-                  className="flex scroll-mt-28 flex-col gap-3"
-                >
-                  <h2 id={`rule-${index + 1}-title`} className="border-b-2 border-border pb-2 text-[22px] font-bold text-ink">
-                    {s.title}
-                  </h2>
-                  {s.summary ? <p className="text-[15px] text-muted-foreground">{s.summary}</p> : null}
-                  <CleanBody html={s.bodyHtml} className={RULE_BODY} />
-                </section>
-              ))}
-            </article>
+            <div className="flex min-w-0 flex-col gap-9">
+              <article className="flex min-w-0 flex-col gap-9" {...feSection(fe, { label: '專題規則', add: 'rules' })}>
+                {sections.map((s, index) => (
+                  <section
+                    key={s.id}
+                    id={`rule-${index + 1}`}
+                    aria-labelledby={`rule-${index + 1}-title`}
+                    className="flex scroll-mt-28 flex-col gap-3"
+                    {...feItem(fe, { kind: 'rules', id: s.id, fields: { title: s.title }, del: true })}
+                  >
+                    <h2 id={`rule-${index + 1}-title`} className="border-b-2 border-border pb-2 text-[22px] font-bold text-ink">
+                      {s.title}
+                    </h2>
+                    {s.summary ? <p className="text-[15px] text-muted-foreground">{s.summary}</p> : null}
+                    <CleanBody html={s.bodyHtml} className={RULE_BODY} />
+                  </section>
+                ))}
+              </article>
+              {grading}
+            </div>
           </div>
         )}
       </PublicPage>

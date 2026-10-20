@@ -1,0 +1,50 @@
+{
+  "ticket": "C2-17",
+  "override": {
+    "/": {
+      "from": "base",
+      "value": {
+        "as": "anonymous",
+        "baseline": 11,
+        "max": 11,
+        "identity": 0
+      }
+    },
+    "/honors": {
+      "from": "base",
+      "value": {
+        "as": "anonymous",
+        "baseline": 5,
+        "max": 5,
+        "identity": 0
+      }
+    },
+    "/news": {
+      "from": "base",
+      "value": {
+        "as": "anonymous",
+        "baseline": 4,
+        "max": 4,
+        "identity": 0
+      }
+    },
+    "/rules": {
+      "from": "C1-14",
+      "value": {
+        "as": "anonymous",
+        "baseline": 5,
+        "max": 5,
+        "identity": 0
+      }
+    },
+    "/timeline": {
+      "from": "base",
+      "value": {
+        "as": "student",
+        "baseline": 6,
+        "max": 6,
+        "identity": 0
+      }
+    }
+  }
+}

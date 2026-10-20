@@ -1,18 +1,19 @@
 import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { fillItemBody } from './item-body'
+import { createItemOnPage } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole, type TestSession } from './session'
 
 /**
- * 學生規格 ST-6：前台「專題時程」`/timeline`（AC-ST-20、21、22、28）。
+ * 學生規格 ST-6：前台「專題時程」`/timeline`（AC-ST-20、21、22、28；規格③ AC-C3-41 改成唯讀甘特＋清單）。
  *
- * 1. 學生：前台外殼（頂部導覽沒有「專題時程」）、屆別字、階段軌四段（現在＋還有 N 天＋說明）、整月行事曆
- *    （活動、已取消、截止；只給老師的不出現）、右欄「M 月」清單與「這天的行程」、翻月。
- * 2. 訪客導登入頁；老師與系辦看到預設工作屆別的階段軌與活動（含只給老師的），沒有任何截止。
- * 3. 本屆沒有時程：一句「本屆時程還沒設定」，月曆仍可翻。
- * 4. 改期、取消、改截止：同一來源，只出現在新日期、不重複；取消的留在原日期標「已取消」。
+ * 1. 學生（1280 寬）：前台外殼（頂部導覽有「專題時程」，C3-17）、屆別字、階段軌四段（現在＋還有 N 天＋說明）、
+ *    唯讀甘特（`mode=view`：沒有把手、橫條是連到清單的 `<a>`、沒有右鍵選單；只給老師的不出現；自己組的截止菱形
+ *    連到作業）、活動清單（依月份分組，已取消的劃掉）；沒有整月行事曆。390 寬：沒有甘特、甘特 chunk 不下載，只有清單。
+ * 2. 訪客導登入頁；老師與系辦看到預設工作屆別的階段軌與活動（含只給老師的）與「學生截止」。
+ * 3. 本屆沒有時程：一句「本屆時程還沒設定」，沒有甘特、清單仍在。
+ * 4. 改期、取消、改截止：同一來源，只出現在新日期、不重複；取消的甘特不畫、清單裡劃掉標「已取消」。
  *
- * 日期都從「現在」往後算（不撥模擬鐘）；翻月一律讀畫面上的年月再算差。
+ * 日期都從「現在」往後算（不撥模擬鐘）。
  * 老師視角要把「後台預設查看的屆別」暫時指到本檔的屆別，結束時還原——這是全域旗標，跟 `timeline.spec`、
  * `cohorts.spec` 平行跑會互踩，本機請單獨跑這個檔（CI 是 1 個 worker）。
  */
@@ -41,8 +42,10 @@ function ymd(date: Date): string {
 function localMinute(date: Date): string {
   return new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 16)
 }
-/** `2026-08-26` → `8 月`（右欄清單的名字）。 */
+/** `2026-08-26` → `8 月`（活動清單每個月份那一組的名字）。 */
 const monthLabel = (date: string) => `${Number(date.slice(5, 7))} 月`
+/** `2026-08-26` → `8/26`（甘特的 aria-label 寫法）。 */
+const md = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`
 
 let pool: Pool
 let cohortId = ''
@@ -92,19 +95,27 @@ async function newCohort(code: string, name: string): Promise<string> {
   )
 }
 
-/** 月曆翻到 `date` 那個月（讀畫面上的年月再算差，不假設從哪個月開始）。 */
-async function showMonth(calendar: Locator, date: string) {
-  const heading = calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)
-  const [shownY, shownM] = ((await heading.innerText()).match(/\d+/g) ?? []).map(Number)
-  const [y, m] = date.split('-').map(Number)
-  const diff = (y! - shownY!) * 12 + (m! - shownM!)
-  for (let i = 0; i < Math.abs(diff); i += 1) await calendar.getByRole('button', { name: diff > 0 ? '下個月' : '上個月' }).click()
-  await expect(heading).toHaveText(`${y} 年 ${m} 月`)
+/** 活動清單裡 `date` 那個月份的一組中，標題是 `title` 的列。 */
+function monthRow(page: Page, date: string, title: string) {
+  return activityList(page).getByRole('list', { name: monthLabel(date), exact: true }).getByRole('listitem').filter({ hasText: title })
 }
 
-/** 右欄「M 月」清單裡標題是 `title` 的列。 */
-function monthRow(calendar: Locator, date: string, title: string) {
-  return calendar.getByRole('list', { name: monthLabel(date), exact: true }).getByRole('listitem').filter({ hasText: title })
+function activityList(page: Page): Locator {
+  return page.getByRole('region', { name: '活動清單' })
+}
+
+function ganttBar(page: Page, title: string): Locator {
+  return page.getByTestId('gantt').getByTestId('gantt-bar').filter({ hasText: title })
+}
+
+/** 記下這頁載過的 JS／CSS 裡有沒有甘特（`gantt-today` 只出現在甘特元件與它的 stylesheet）。 */
+function watchGanttAssets(page: Page): () => Promise<boolean> {
+  const bodies: Promise<string>[] = []
+  page.on('response', (response) => {
+    const type = response.request().resourceType()
+    if (type === 'script' || type === 'stylesheet') bodies.push(response.text().catch(() => ''))
+  })
+  return async () => (await Promise.all(bodies)).some((body) => body.includes('gantt-today'))
 }
 
 test.beforeAll(async () => {
@@ -187,34 +198,29 @@ test.afterAll(async () => {
 test('系辦發一份 G01 要交的「期中報告」（9 天後截止）', async ({ page }) => {
   test.setTimeout(120_000)
   await signInAs(page, 'admin')
-  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
-  await fillItemBody(page, '請上傳期中報告 PDF。')
-  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
-  await page.getByRole('radio', { name: '整組一份', exact: true }).check()
-  await page.getByLabel('誰看得到').selectOption('groups')
-  await page.getByRole('checkbox', { name: /G01/ }).check()
-  await page.getByLabel('所屬階段').selectOption({ index: 1 })
-  await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(at(DUE_DAY)))
-  await page.getByLabel('要新增的欄位類型').selectOption('file')
-  await page.getByRole('button', { name: '新增欄位' }).click()
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
-  itemId = String((await pool.query<{ id: string }>('select id from managed_items where title = $1', [SUBMISSION])).rows[0]!.id)
+  // C1-06 共用表單：沒有所屬階段；預設已有一個檔案欄。
+  itemId = await createItemOnPage(page, cohortId, {
+    placement: 'submission',
+    title: SUBMISSION,
+    body: '請上傳期中報告 PDF。',
+    unit: '整組一份',
+    audience: 'groups',
+    groups: ['G01'],
+    dueAt: localMinute(at(DUE_DAY)),
+  })
 })
 
-test('AC-ST-20 學生：前台外殼、屆別、階段軌、整月行事曆（活動／已取消／截止，只給老師的不出現）', async ({ page }) => {
+test('AC-ST-20／AC-C3-41 學生 1280：前台外殼、屆別、階段軌、唯讀甘特（只給老師的不出現、自己的截止）、活動清單', async ({ page }) => {
   await signIn(page, student)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const ganttLoaded = watchGanttAssets(page)
   const response = await page.goto('/timeline')
   expect(response?.status()).toBe(200)
 
-  // 前台外殼（不是後台側欄），頂部導覽沒有「專題時程」（Q125）。
+  // 前台外殼（不是後台側欄），頂部導覽有「專題時程」（C3 AC-C3-42 取代 Q125）。
   await expect(page.getByRole('navigation', { name: '後台導覽' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: '主導覽' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: '主導覽' })).not.toContainText('專題時程')
+  await expect(page.getByRole('navigation', { name: '主導覽' })).toContainText('專題時程')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('專題時程')
   await expect(page.getByRole('navigation', { name: '麵包屑' })).toContainText('專題時程')
   await expect(page.getByRole('main')).toContainText(COHORT_NAME)
@@ -227,49 +233,96 @@ test('AC-ST-20 學生：前台外殼、屆別、階段軌、整月行事曆（�
   await expect(current).toContainText('還有 18 天')
   for (const name of STAGES) await expect(rail.getByRole('listitem').filter({ hasText: name })).toContainText(`${name}的說明`)
 
-  // 月曆一開始是今天那個月。
-  const calendar = page.getByTestId('student-calendar')
-  const today = ymd(new Date())
-  await expect(calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)).toHaveText(`${Number(today.slice(0, 4))} 年 ${Number(today.slice(5, 7))} 月`)
-  await expect(calendar).toContainText('截止')
-  await expect(calendar).toContainText('活動')
-  await expect(calendar).toContainText('競賽')
+  // 唯讀甘特：mode=view、沒有把手、沒有整月行事曆與翻月。
+  const gantt = page.getByTestId('gantt')
+  await expect(gantt).toHaveAttribute('data-mode', 'view')
+  await expect(gantt.getByTestId('gantt-handle')).toHaveCount(0)
+  await expect(page.getByTestId('student-calendar')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '下個月' })).toHaveCount(0)
+  expect(await ganttLoaded()).toBe(true)
+  // 階段卡在甘特上面，甘特在清單上面。
+  const top = async (locator: Locator) => (await locator.boundingBox())!.y
+  expect(await top(rail)).toBeLessThan(await top(gantt))
+  expect(await top(gantt)).toBeLessThan(await top(activityList(page)))
 
-  // A：活動標記與右欄「活動」；D：灰色標記與「已取消」；B 不出現。
+  // A：橫條是連到清單那一列的 <a>；右鍵沒有選單。D 已取消：甘特不畫，清單劃掉標「已取消」。B 不出現。
   const aDay = ymd(at(A_DAY))
-  await showMonth(calendar, aDay)
-  await expect(monthRow(calendar, aDay, ACTIVITY_A)).toHaveCount(1)
-  await expect(monthRow(calendar, aDay, ACTIVITY_A)).toContainText('活動')
-  await expect(calendar.getByRole('button', { name: new RegExp(`^${aDay}`) }).locator('[data-tone="event"]')).toHaveCount(1)
-  // B 跟 A 同一天：在 A 那個月顯示中驗，否定斷言才不會空轉。
+  const barA = ganttBar(page, ACTIVITY_A)
+  await expect(barA).toHaveCount(1)
+  expect(await barA.evaluate((el) => el.tagName)).toBe('A')
+  await expect(barA).toHaveAttribute('href', `#activity-${activityIds[ACTIVITY_A]}`)
+  await expect(barA).toHaveAttribute('aria-label', new RegExp(`^${ACTIVITY_A}，${md(aDay)} `))
+  await barA.click({ button: 'right' })
+  await expect(page.getByTestId('gantt-menu')).toHaveCount(0)
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await barA.click()
+  await expect(page).toHaveURL(new RegExp(`#activity-${activityIds[ACTIVITY_A]}$`))
+  await expect(monthRow(page, aDay, ACTIVITY_A)).toHaveCount(1)
+  await expect(monthRow(page, aDay, ACTIVITY_A)).toContainText('活動')
+  await expect(monthRow(page, aDay, ACTIVITY_A)).toHaveAttribute('id', `activity-${activityIds[ACTIVITY_A]}`)
   await expect(page.getByRole('main')).not.toContainText(ACTIVITY_B)
   const dDay = ymd(at(D_DAY))
-  await showMonth(calendar, dDay)
-  await expect(monthRow(calendar, dDay, ACTIVITY_D)).toContainText('已取消')
-  await expect(calendar.getByRole('button', { name: new RegExp(`^${dDay}`) }).locator('[data-tone="canceled"]')).toHaveCount(1)
+  await expect(ganttBar(page, ACTIVITY_D)).toHaveCount(0)
+  await expect(monthRow(page, dDay, ACTIVITY_D)).toContainText('已取消')
+  await expect(monthRow(page, dDay, ACTIVITY_D).getByText(ACTIVITY_D)).toHaveCSS('text-decoration-line', 'line-through')
 
-  // 截止：那個月的右欄有「期中報告」標「截止」；點那天，「這天的行程」只列當天。
+  // 截止：甘特的菱形連到自己那份作業；清單那個月有「期中報告」標「截止」。
   const dueDay = ymd(at(DUE_DAY))
-  await showMonth(calendar, dueDay)
-  await expect(monthRow(calendar, dueDay, SUBMISSION)).toContainText('截止')
-  await expect(calendar.getByRole('button', { name: new RegExp(`^${dueDay}`) }).locator('[data-tone="deadline"]')).toHaveCount(1)
-  await calendar.getByRole('button', { name: new RegExp(`^${dueDay}`) }).click()
-  const day = calendar.getByRole('list', { name: '這天的行程' })
-  await expect(day.getByRole('listitem')).toHaveCount(1)
-  await expect(day).toContainText(SUBMISSION)
-  await expect(day).not.toContainText(ACTIVITY_A)
-  await expect(day.getByRole('link')).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
-
-  // 下個月：格子換月、右欄換月份名、選的那天收起來。
-  const [y, m] = dueDay.split('-').map(Number) as [number, number]
-  const next = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 }
-  await calendar.getByRole('button', { name: '下個月' }).click()
-  await expect(calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)).toHaveText(`${next.y} 年 ${next.m} 月`)
-  await expect(calendar.getByRole('heading', { name: `${next.m} 月`, exact: true })).toBeVisible()
-  await expect(calendar.getByRole('list', { name: '這天的行程' })).toHaveCount(0)
+  const diamond = gantt.getByRole('link', { name: `作業截止：${SUBMISSION}，${md(dueDay)}`, exact: true })
+  await expect(diamond).toHaveAttribute('data-testid', 'gantt-deadline')
+  await expect(diamond).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
+  await expect(monthRow(page, dueDay, SUBMISSION)).toContainText('截止')
+  await expect(monthRow(page, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
 })
 
-test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的階段軌與活動（含只給老師的），沒有截止', async ({ page }) => {
+test('AC-C3-41 學生 390（手機）：沒有甘特、甘特 chunk 不下載；階段卡＋依月份分組的清單', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  try {
+    const page = await context.newPage()
+    await signIn(page, student)
+    const ganttLoaded = watchGanttAssets(page)
+    const response = await page.goto('/timeline')
+    expect(response?.status()).toBe(200)
+    await expect(page.getByRole('list', { name: '本屆階段' }).getByRole('listitem')).toHaveCount(4)
+    const aDay = ymd(at(A_DAY))
+    const dueDay = ymd(at(DUE_DAY))
+    await expect(activityList(page).getByRole('heading', { name: monthLabel(aDay), exact: true })).toBeVisible()
+    await expect(monthRow(page, aDay, ACTIVITY_A)).toHaveCount(1)
+    await expect(monthRow(page, dueDay, SUBMISSION)).toContainText('截止')
+    await expect(page.getByRole('main')).not.toContainText(ACTIVITY_B)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByTestId('gantt')).toHaveCount(0)
+    expect(await ganttLoaded()).toBe(false)
+  } finally {
+    await context.close()
+  }
+})
+
+test('AC-C3-42 主導覽「專題時程」連 /timeline、排在「專題規則」之後；手機抽屜同；訪客沒有', async ({ page }) => {
+  const topLinks = (name: string) => page.getByRole('navigation', { name, exact: true }).locator(':scope > div > a')
+  await signIn(page, student)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  const labels = await topLinks('主導覽').allTextContents()
+  expect(labels.indexOf('專題時程')).toBe(labels.indexOf('專題規則') + 1)
+  await expect(topLinks('主導覽').filter({ hasText: '專題時程' })).toHaveAttribute('href', '/timeline')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: '開啟選單' }).click()
+  const drawer = page.getByRole('navigation', { name: '主導覽（手機）' })
+  await expect(drawer).toBeVisible()
+  const drawerLabels = await drawer.getByRole('link').allTextContents()
+  expect(drawerLabels.indexOf('專題時程')).toBe(drawerLabels.indexOf('專題規則') + 1)
+  await expect(drawer.getByRole('link', { name: '專題時程', exact: true })).toHaveAttribute('href', '/timeline')
+
+  await page.context().clearCookies()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '主導覽', exact: true })).not.toContainText('專題時程')
+})
+
+test('AC-ST-21／AC-C3-41 訪客導登入頁；老師與系辦看到預設工作屆別的階段軌、甘特與清單（含只給老師的）與學生截止', async ({ page }) => {
   await page.context().clearCookies()
   await page.goto('/timeline')
   await expect(page).toHaveURL(/\/login\?next=%2Ftimeline$/)
@@ -280,85 +333,82 @@ test('AC-ST-21 訪客導登入頁；老師與系辦看到預設工作屆別的�
   await pool.query('update cohorts set is_default_working = true where id = $1', [cohortId])
 
   const aDay = ymd(at(A_DAY))
+  await page.setViewportSize({ width: 1280, height: 900 })
   for (const role of ['teacher', 'admin'] as const) {
     await signInAs(page, role)
     const response = await page.goto('/timeline')
     expect(response?.status(), role).toBe(200)
     await expect(page.getByRole('main')).toContainText(COHORT_NAME)
     await expect(page.getByRole('list', { name: '本屆階段' }).getByRole('listitem')).toHaveCount(4)
-    const calendar = page.getByTestId('student-calendar')
-    await showMonth(calendar, aDay)
-    await expect(monthRow(calendar, aDay, ACTIVITY_A)).toHaveCount(1)
-    await expect(monthRow(calendar, aDay, ACTIVITY_B)).toHaveCount(1)
-    // 學生截止（Q125 B 案、B15）：截止那個月有期中報告、標「學生截止」，連到老師／系辦的公告與作業列表。
+    await expect(page.getByTestId('gantt')).toHaveAttribute('data-mode', 'view')
+    await expect(page.getByTestId('gantt-handle')).toHaveCount(0)
+    await expect(ganttBar(page, ACTIVITY_A)).toHaveCount(1)
+    await expect(ganttBar(page, ACTIVITY_B)).toHaveCount(1)
+    await expect(monthRow(page, aDay, ACTIVITY_A)).toHaveCount(1)
+    await expect(monthRow(page, aDay, ACTIVITY_B)).toContainText('只給老師')
+    // 學生截止（Q125 B 案、B15）：甘特的「學生截止」列有菱形；清單截止那個月有期中報告、標「學生截止」，連到老師／系辦的公告與作業列表。
     const dueDay = ymd(at(DUE_DAY))
-    await showMonth(calendar, dueDay)
-    await expect(monthRow(calendar, dueDay, SUBMISSION)).toContainText('學生截止')
-    await expect(monthRow(calendar, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', role === 'admin' ? `/dashboard/admin/affairs?cohort=${cohortId}&placement=all` : '/dashboard/teacher/affairs')
+    const href = role === 'admin' ? `/dashboard/admin/affairs?cohort=${cohortId}&placement=all` : '/dashboard/teacher/affairs'
+    await expect(page.getByTestId('gantt')).toContainText('學生截止')
+    await expect(page.getByTestId('gantt').getByRole('link', { name: `作業截止：${SUBMISSION}，${md(dueDay)}`, exact: true })).toHaveAttribute('href', href)
+    await expect(monthRow(page, dueDay, SUBMISSION)).toContainText('學生截止')
+    await expect(monthRow(page, dueDay, SUBMISSION).getByRole('link')).toHaveAttribute('href', href)
   }
 })
 
-test('AC-ST-22 本屆沒有時程：一句「本屆時程還沒設定」，月曆仍可翻', async ({ page }) => {
+test('AC-ST-22 本屆沒有時程：一句「本屆時程還沒設定」，沒有甘特、清單仍在', async ({ page }) => {
   await signIn(page, emptyStudent)
+  await page.setViewportSize({ width: 1280, height: 900 })
   const response = await page.goto('/timeline')
   expect(response?.status()).toBe(200)
   await expect(page.getByRole('main')).toContainText('本屆時程還沒設定')
   await expect(page.getByRole('list', { name: '本屆階段' })).toHaveCount(0)
-  const calendar = page.getByTestId('student-calendar')
-  const heading = calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)
-  const before = await heading.innerText()
-  await calendar.getByRole('button', { name: '下個月' }).click()
-  await expect(heading).not.toHaveText(before)
-  await calendar.getByRole('button', { name: '上個月' }).click()
-  await expect(heading).toHaveText(before)
+  await expect(activityList(page)).toBeVisible()
+  await expect(activityList(page)).toContainText('目前沒有活動或截止。')
+  await page.waitForLoadState('networkidle')
+  await expect(page.getByTestId('gantt')).toHaveCount(0)
 })
 
-test('AC-ST-28 改期、取消、改截止：同一來源只出現在新日期，取消的留原日期標「已取消」；首頁下一件同步', async ({ page }) => {
+test('AC-ST-28 改期、取消、改截止：同一來源只出現在新日期；取消的甘特不畫、清單劃掉標「已取消」；首頁下一件同步', async ({ page }) => {
   await signIn(page, student)
-  const calendar = page.getByTestId('student-calendar')
+  await page.setViewportSize({ width: 1280, height: 900 })
   const oldDay = ymd(at(A_DAY))
   const newDay = ymd(at(A_DAY + 7))
 
-  // 1. 系辦把 A 改期（同一筆活動、revision 加一）。
+  // 1. 系辦把 A 改期（同一筆活動、revision 加一）：甘特橫條只在新日期，清單只有一列、在新日期那個月。
   await pool.query('update project_events set starts_at = $2, revision = revision + 1, updated_at = now() where id = $1', [
     activityIds[ACTIVITY_A],
     at(A_DAY + 7),
   ])
   await page.goto('/timeline')
-  await showMonth(calendar, newDay)
-  await expect(monthRow(calendar, newDay, ACTIVITY_A)).toHaveCount(1)
-  await calendar.getByRole('button', { name: new RegExp(`^${newDay}`) }).click()
-  await expect(calendar.getByRole('list', { name: '這天的行程' })).toContainText(ACTIVITY_A)
-  await showMonth(calendar, oldDay)
-  await calendar.getByRole('button', { name: new RegExp(`^${oldDay}`) }).click()
-  await expect(calendar.getByRole('list', { name: '這天的行程' })).toHaveCount(0)
-  await expect(calendar).toContainText('這天沒有截止或活動。')
+  await expect(ganttBar(page, ACTIVITY_A)).toHaveCount(1)
+  await expect(ganttBar(page, ACTIVITY_A)).toHaveAttribute('aria-label', new RegExp(`^${ACTIVITY_A}，${md(newDay)} `))
+  await expect(activityList(page).getByRole('listitem').filter({ hasText: ACTIVITY_A })).toHaveCount(1)
+  await expect(monthRow(page, newDay, ACTIVITY_A)).toContainText(newDay)
+  await expect(monthRow(page, newDay, ACTIVITY_A)).not.toContainText(oldDay)
 
-  // 2. 系辦把 A 取消：仍在新日期、標「已取消」、灰色。
+  // 2. 系辦把 A 取消：甘特不畫；清單仍在新日期、標「已取消」、劃掉。
   await pool.query("update project_events set status = 'cancelled', revision = revision + 1, updated_at = now() where id = $1", [
     activityIds[ACTIVITY_A],
   ])
   await page.goto('/timeline')
-  await showMonth(calendar, newDay)
-  await expect(monthRow(calendar, newDay, ACTIVITY_A)).toHaveCount(1)
-  await expect(monthRow(calendar, newDay, ACTIVITY_A)).toContainText('已取消')
-  await expect(calendar.getByRole('button', { name: new RegExp(`^${newDay}`) }).locator('[data-tone="canceled"]')).toHaveCount(1)
-  await calendar.getByRole('button', { name: new RegExp(`^${newDay}`) }).click()
-  await expect(calendar.getByRole('list', { name: '這天的行程' })).toContainText('已取消')
+  await expect(page.getByTestId('gantt')).toBeVisible()
+  await expect(ganttBar(page, ACTIVITY_A)).toHaveCount(0)
+  await expect(activityList(page).getByRole('listitem').filter({ hasText: ACTIVITY_A })).toHaveCount(1)
+  await expect(monthRow(page, newDay, ACTIVITY_A)).toContainText('已取消')
+  await expect(monthRow(page, newDay, ACTIVITY_A).getByText(ACTIVITY_A)).toHaveCSS('text-decoration-line', 'line-through')
 
-  // 3. 系辦把期中報告截止往後兩天：只在新日期，原日期沒有；首頁「下一件」同步。
+  // 3. 系辦把期中報告截止往後兩天：甘特菱形與清單都只在新日期；首頁「下一件」同步。
   const oldDue = ymd(at(DUE_DAY))
   const newDueAt = at(DUE_DAY + 2)
   const newDue = ymd(newDueAt)
   await pool.query('update managed_items set due_at = $2, deadline_version = deadline_version + 1 where id = $1', [itemId, newDueAt])
   await page.goto('/timeline')
-  await showMonth(calendar, newDue)
-  await expect(monthRow(calendar, newDue, SUBMISSION)).toHaveCount(1)
-  await calendar.getByRole('button', { name: new RegExp(`^${newDue}`) }).click()
-  await expect(calendar.getByRole('list', { name: '這天的行程' })).toContainText(SUBMISSION)
-  await showMonth(calendar, oldDue)
-  await calendar.getByRole('button', { name: new RegExp(`^${oldDue}`) }).click()
-  await expect(calendar.getByRole('list', { name: '這天的行程' })).toHaveCount(0)
+  const gantt = page.getByTestId('gantt')
+  await expect(gantt.getByRole('link', { name: `作業截止：${SUBMISSION}，${md(newDue)}`, exact: true })).toHaveCount(1)
+  await expect(gantt.getByRole('link', { name: `作業截止：${SUBMISSION}，${md(oldDue)}`, exact: true })).toHaveCount(0)
+  await expect(activityList(page).getByRole('listitem').filter({ hasText: SUBMISSION })).toHaveCount(1)
+  await expect(monthRow(page, newDue, SUBMISSION)).toContainText(newDue)
 
   // 首頁現在寫 `10-27 截止`，ST-2 換新橫幅後是 `10/27 截止`：兩種寫法都認，只看日期跟著變。
   await page.goto('/dashboard/student')

@@ -167,6 +167,8 @@ export type AccountRow = {
   /** 目前頭像（系辦重設頭像的對話框要顯示；沒設定時兩欄都是 null，顯示依帳號 id 固定的預設圖）。 */
   readonly avatarPreset: number | null
   readonly avatarFileId: string | null
+  /** 這個帳號有帳密登入（`accounts` 有 credential 列）；只用 Google 登入的人是 false，寄不了重設密碼信（C2-11）。 */
+  readonly hasPassword: boolean
 }
 
 export type CohortFilterOption = { readonly id: string; readonly code: string; readonly name: string }
@@ -471,6 +473,8 @@ export type BulkDisableReceipt = {
  */
 export type AdminRequestContext = { readonly headers: Headers }
 
+export type ResetMailReceipt = { readonly userId: string; readonly email: string; readonly validMinutes: number; readonly sentAt: string }
+
 /** 帳號列表、停用／恢復、批次停用、匯出（票 9）。授權用 `teachers.ts` 的 `accountAdminDenied`。 */
 export type AccountDirectoryCommand = {
   list(actor: ResolvedActor, filter: DirectoryFilter): Promise<Result<DirectoryPage>>
@@ -491,6 +495,8 @@ export type AccountDirectoryCommand = {
     input: { text: string; expectedUserIds: readonly string[]; reason: string; requestId: string },
     context: AdminRequestContext,
   ): Promise<Result<BulkDisableReceipt>>
+  /** 寄重設密碼信給有密碼的帳號（C2-11）：同一封「重設密碼」信，30 分鐘內有效；寫稽核，不含連結。 */
+  sendResetMail(actor: ResolvedActor, input: { userId: string }, context: AdminRequestContext): Promise<Result<ResetMailReceipt>>
   /** 去識別化的影響預覽（票 40）：對象、會清掉什麼、保留多少紀錄、擋住的原因。 */
   previewDeidentify(actor: ResolvedActor, userId: string): Promise<Result<DeidentifyPreview>>
   /** 去識別化（不可逆；理由＋照打登入 Email）。同一個交易撤 session、寫狀態事件與稽核。 */

@@ -142,32 +142,48 @@ export type FlagLabel = '新註冊加入這屆' | '後台預設查看中'
 
 /** 某個旗標目前在哪一屆（沒有就 null）。要先開在屆別頁。 */
 export async function flagHolder(page: Page, held: FlagLabel): Promise<string | null> {
-  const row = page.getByRole('row').filter({ hasText: held })
-  if ((await row.count()) === 0) return null
-  return (await row.first().getByRole('cell').first().innerText()).trim()
+  // C2-06 起每屆一張卡（`<section>`），持有的旗標是卡上的膠囊；卡標題是「名稱（代碼）」。
+  const card = page.locator('section').filter({ has: page.getByText(held, { exact: true }) })
+  if ((await card.count()) === 0) return null
+  const title = (await card.first().getByRole('heading').first().innerText()).trim()
+  return title.match(/（([^（）]+)）$/)?.[1] ?? title
 }
 
 /** 跑之前握著兩個旗標的屆別代碼；跑完還回去。 */
 export type Flags = { registrationOpen: string | null; defaultWorking: string | null }
 
+const COHORTS_PATH = '/dashboard/admin/cohorts'
+
+/** 開屆別設定頁：用路由＋頁面有 `<h1>` 定位，不綁標題文字（C2-06 把標題從「屆別」改成「設定」）。 */
+async function gotoCohorts(page: Page) {
+  await page.goto(COHORTS_PATH)
+  await expect(page).toHaveURL((url) => url.pathname === COHORTS_PATH)
+  await expect(page.locator('main h1').first()).toBeVisible()
+}
+
 export async function readFlags(page: Page): Promise<Flags> {
-  await page.goto('/dashboard/admin/cohorts')
-  await expect(page.getByRole('heading', { name: '屆別', exact: true })).toBeVisible()
+  await gotoCohorts(page)
   return { registrationOpen: await flagHolder(page, '新註冊加入這屆'), defaultWorking: await flagHolder(page, '後台預設查看中') }
 }
 
-/** 把兩個全系唯一的旗標還給原本的屆別（原本沒有、或原本就是這一輪的屆別就不動）。 */
+/** 把兩個全系唯一的旗標還給原本的屆別（原本沒有、或原本就是這一輪的屆別就不動）。換旗標在該屆卡上的「編輯」視窗裡。 */
 export async function restoreFlags(page: Page, previous: Flags, runCohort: string) {
-  await page.goto('/dashboard/admin/cohorts')
+  await gotoCohorts(page)
   for (const [flag, label] of [
-    [previous.registrationOpen, '開放註冊屆別'],
-    [previous.defaultWorking, '預設工作屆別'],
+    [previous.registrationOpen, '新註冊學生加入的屆別'],
+    [previous.defaultWorking, '後台預設查看的屆別'],
   ] as const) {
     if (!flag || flag === runCohort) continue
-    const button = page.getByRole('button', { name: `把 ${flag} 設為${label}` })
+    const edit = page.getByRole('button', { name: `編輯：${flag}`, exact: true })
+    if ((await edit.count()) === 0) continue
+    await edit.click()
+    const dialog = page.getByRole('dialog', { name: `編輯${flag}` })
+    const button = dialog.getByRole('button', { name: `把 ${flag} 設為${label}` })
     if ((await button.count()) > 0) {
       await button.click()
-      await expectStatus(page, `已把 ${flag} 設為${label}`)
+      await expectStatus(page, `已把${label}設為`)
+    } else {
+      await dialog.getByRole('button', { name: '關閉' }).click()
     }
   }
 }

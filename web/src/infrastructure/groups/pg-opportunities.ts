@@ -47,6 +47,7 @@ import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { personName } from '@/infrastructure/db/person-name'
 import { loadSchedule } from '@/infrastructure/groups/pg-groups'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
@@ -63,6 +64,9 @@ import { RealClock, type Clock } from '@/shared/time'
  * - 鎖順序照分組：`cohorts FOR SHARE` → `groups FOR NO KEY UPDATE` → `industry_opportunities FOR SHARE`。
  *   連結、換案、解除、改類型都把組別版本加一：組長畫面上的「改類型」「換案」帶著版本，別人先動過就 `CONFLICT`。
  * - 一組同時最多連一案由資料庫守（`opportunity_links_one_active` 部分唯一）；組別列鎖是第一道，部分唯一是後備。
+ * - C3-09（規格③ §7.2）：連結有 `state`——組長「選合作案」（`request`）建立的是 `pending`，等負責老師在分組總覽
+ *   「確認指導」（`pg-advisors.ts` 的 `claim` 把它改成 `active`）；負責老師也可以「婉拒」（`decline`：結束連結、通知全組）。
+ *   組長／系辦的 `link` 與案主老師 TE-B3 直接連的一律 `active`。
  *
  * 刪除（第三波 W11）：系辦限定，只限草稿或已下架且沒有連著組別；打刪除標記（`deleted_at`）不實體刪列。
  * 被刪的案在鎖列、列表、詳情、管理清單、連結目標全部當作不存在。
@@ -111,6 +115,12 @@ type CohortRow = { id: string; code: string; status: CohortStatus }
 
 /** `TeacherLinkTarget` 沒從 `application/groups` 的入口匯出（入口不在 A-04 可改範圍），從介面取型別。 */
 type TeacherLinkTarget = Awaited<ReturnType<OpportunityQuery['teacherLinkTargets']>>[number]
+/** C3-09 的新型別同樣從介面取（`index.ts` 不在本票可改範圍）。 */
+type RequestOpportunityInput = Parameters<OpportunityCommand['request']>[1]
+type DeclineOpportunityInput = Parameters<OpportunityCommand['decline']>[1]
+type TeacherIndustryBoard = Awaited<ReturnType<OpportunityQuery['teacherIndustryBoard']>>
+type IndustryGroupCard = TeacherIndustryBoard['cases'][number]['pending'][number]
+type LinkState = IndustryGroupCard['linkState']
 
 type Deps = {
   audit: AuditWriter<PoolClient>
@@ -601,9 +611,10 @@ export class PgOpportunityCommand implements OpportunityCommand {
         await endLink(tx, current.id, businessNow, realAt, actorId, reason)
       }
       const linkId = uuidv7()
+      // 組長換案、系辦連結、案主 TE-B3 直接連：一律 `active`（規格③ §7.2）；學生選案等確認的 `pending` 走 `request`。
       await tx.query(
-        `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, previous_link_id, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7)`,
+        `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, previous_link_id, created_at, state)
+         values ($1, $2, $3, $4, $5, $6, $7, 'active')`,
         [linkId, group.id, opportunity.id, businessNow, actorId, current?.id ?? null, realAt],
       )
       const revision = await bumpGroup(tx, group.id, realAt, actorId)
@@ -771,6 +782,219 @@ export class PgOpportunityCommand implements OpportunityCommand {
         groupId: group.id,
         groupCode: group.code,
         change: 'unlinked' as const,
+        opportunityName: name,
+        previousOpportunityName: null,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id, linkId: row.id } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  // ── 產學組的確認流程（C3-09；規格③ §7.2） ──────────────────────────────────
+
+  async request(actor: ResolvedActor, input: RequestOpportunityInput, requestId: string): Promise<Result<LinkReceipt>> {
+    const blocked = gate(actor)
+    if (blocked) return blocked
+    if (actor.kind !== 'authenticated') return err('UNAUTHENTICATED', '請先登入。')
+    if (!actor.roles.includes('student')) return err('FORBIDDEN', '只有組長可以選合作案。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(String(input.groupId ?? ''))) return groupNotFound()
+    if (!isUuid(String(input.opportunityId ?? ''))) return err('VALIDATION_FAILED', '請選合作案。', { details: { field: 'opportunityId' } })
+    if (!Number.isInteger(input.revision)) return staleRevision()
+    const actorId = actor.userId
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await lockGroup(tx, input.groupId)
+      if (!locked) return groupNotFound()
+      const { group, cohort } = locked
+      const realAt = this.#realClock.now()
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: actorId,
+          operationKind: 'opportunity.request',
+          requestId,
+          fingerprint: sha256(canonicalJson({ groupId: group.id, revision: input.revision, opportunityId: input.opportunityId })),
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<LinkReceipt>(begun)
+      const closed = writeBlocked(cohort, group, '選合作案')
+      if (closed) return closed
+      if (!(await isCurrentLeader(tx, group.id, actorId))) return err('FORBIDDEN', '只有組長可以選合作案；請請組長操作。')
+      if (group.group_type !== 'industry') {
+        return err('OPPORTUNITY_NOT_LINKABLE', `${group.code} 是一般專題，不能選合作案；要改成產學合作請先改組別類型。`)
+      }
+      const target = await tx.query<{ id: string; owner_teacher_user_id: string; company_name: string; department: string; status: OpportunityStatus }>(
+        `select id, owner_teacher_user_id, company_name, department, status from industry_opportunities
+          where id = $1 and deleted_at is null for share`,
+        [input.opportunityId],
+      )
+      const opportunity = target.rows[0]
+      // 草稿當作不存在（不透露草稿）；已下架的明講不收。
+      if (!opportunity || opportunity.status === 'draft') return notFound()
+      if (group.revision !== input.revision) return staleRevision()
+      const name = opportunityName({ companyName: opportunity.company_name, department: opportunity.department })
+      if (opportunity.status !== 'published') return err('OPPORTUNITY_NOT_LINKABLE', `「${name}」已下架，不接受新連結。`)
+      const current = await activeLink(tx, group.id)
+      if (current) return err('CONFLICT', `${group.code} 已經有合作案「${current.name}」（${current.state === 'pending' ? '等負責老師確認' : '已確認'}）；要換案請用「換案」。`)
+
+      const linkId = uuidv7()
+      await tx.query(
+        `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at, state)
+         values ($1, $2, $3, $4, $5, $6, 'pending')`,
+        [linkId, group.id, opportunity.id, businessNow, actorId, realAt],
+      )
+      const revision = await bumpGroup(tx, group.id, realAt, actorId)
+      await this.#events.publish(tx, {
+        type: 'opportunity.link_requested',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'industry_opportunity', id: opportunity.id, version: revision },
+        actor: { kind: 'user', userId: actorId },
+        recipients: [opportunity.owner_teacher_user_id],
+        recipientBasis: { groupId: group.id, basis: 'opportunity_owner', revision, ownerUserId: opportunity.owner_teacher_user_id },
+        payload: {
+          title: `組別 ${group.code} 選了你的合作案「${name}」，請到分組總覽確認是否指導`,
+          groupId: group.id,
+          code: group.code,
+          opportunityId: opportunity.id,
+          linkId,
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actorId,
+        role: 'student',
+        action: 'opportunity.request',
+        targetType: 'group',
+        targetId: group.id,
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        realAt,
+        businessAt: businessNow,
+        payload: { linkId, opportunityId: opportunity.id, revision },
+      })
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        change: 'requested' as const,
+        opportunityName: name,
+        previousOpportunityName: null,
+        requestId,
+        serverTime: realAt.toISOString(),
+      }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { groupId: group.id, linkId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
+  async decline(actor: ResolvedActor, input: DeclineOpportunityInput, requestId: string): Promise<Result<LinkReceipt>> {
+    const blocked = gate(actor)
+    if (blocked) return blocked
+    if (actor.kind !== 'authenticated') return err('UNAUTHENTICATED', '請先登入。')
+    if (!actor.roles.includes('teacher')) return err('FORBIDDEN', '只有這個合作案的負責老師可以婉拒。')
+    if (!isUuid(requestId)) return badRequestId()
+    if (!isUuid(String(input.groupId ?? ''))) return groupNotFound()
+    const reason = normalizeLinkReason(String(input.reason ?? ''), '婉拒')
+    if (!reason.ok) return reason
+    const actorId = actor.userId
+    const businessNow = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      // 先（不上鎖）看這組目前連到誰的案：連到別人的案就直接拒絕，不去鎖別人的組別列（同 `unlink`）。鎖住之後再重讀一次。
+      const peek = await activeLink(tx, input.groupId)
+      if (peek && peek.owner_teacher_user_id !== actorId) return err('FORBIDDEN', '只有這個合作案的負責老師可以婉拒。')
+      const locked = await lockGroup(tx, input.groupId)
+      if (!locked) return groupNotFound()
+      const { group, cohort } = locked
+      const realAt = this.#realClock.now()
+      // 帳本在看連結之前：婉拒成功後連結就結束了，同一個請求編號重送要能認出來、回同一張回執。
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: actorId,
+          operationKind: 'opportunity.decline',
+          requestId,
+          fingerprint: sha256(canonicalJson({ groupId: group.id, reason: reason.value })),
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<LinkReceipt>(begun)
+      const closed = writeBlocked(cohort, group, '婉拒合作案')
+      if (closed) return closed
+      const link = await tx.query<{ id: string; opportunity_id: string; state: LinkState; owner_teacher_user_id: string; company_name: string; department: string }>(
+        `select l.id, l.opportunity_id, l.state, o.owner_teacher_user_id, o.company_name, o.department
+           from opportunity_links l join industry_opportunities o on o.id = l.opportunity_id
+          where l.group_id = $1 and l.valid_to is null for update of l`,
+        [group.id],
+      )
+      const row = link.rows[0]
+      if (!row) return err('VALIDATION_FAILED', '這組目前沒有合作案連結（可能剛被解除、換案或婉拒），請重新整理頁面。')
+      if (row.owner_teacher_user_id !== actorId) return err('FORBIDDEN', '只有這個合作案的負責老師可以婉拒。')
+      const advisor = await tx.query<{ name: string }>(
+        `select ${personName('p', 'u')} as name
+           from advisor_assignments a join users u on u.id = a.teacher_user_id left join user_profiles p on p.user_id = a.teacher_user_id
+          where a.group_id = $1 and a.valid_to is null`,
+        [group.id],
+      )
+      if (advisor.rows[0]) {
+        return err('VALIDATION_FAILED', `${group.code} 已經有指導老師（${advisor.rows[0].name}），不能婉拒；要拆掉連結請用「解除」。`)
+      }
+
+      await endLink(tx, row.id, businessNow, realAt, actorId, reason.value)
+      const revision = await bumpGroup(tx, group.id, realAt, actorId)
+      const memberIds = await activeMemberIds(tx, group.id)
+      const teacher = await tx.query<{ name: string }>(
+        `select ${personName('p', 'u')} as name from users u left join user_profiles p on p.user_id = u.id where u.id = $1`,
+        [actorId],
+      )
+      const name = opportunityName({ companyName: row.company_name, department: row.department })
+      await this.#events.publish(tx, {
+        type: 'opportunity.link_declined',
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        source: { type: 'industry_opportunity', id: row.opportunity_id, version: revision },
+        actor: { kind: 'user', userId: actorId },
+        recipients: memberIds,
+        recipientBasis: { groupId: group.id, basis: 'group_memberships', revision },
+        payload: {
+          title: `${teacher.rows[0]?.name ?? ''} 老師婉拒了合作案「${name}」，請重新選合作案`,
+          groupId: group.id,
+          code: group.code,
+          opportunityId: row.opportunity_id,
+          linkId: row.id,
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessNow,
+      })
+      await this.#audit.append(tx, {
+        actorKind: 'user',
+        actorUserId: actorId,
+        role: 'teacher',
+        action: 'opportunity.decline',
+        targetType: 'group',
+        targetId: group.id,
+        scope: 'cohort',
+        cohortId: group.cohort_id,
+        reason: reason.value,
+        realAt,
+        businessAt: businessNow,
+        payload: { linkId: row.id, opportunityId: row.opportunity_id, linkStateBefore: row.state, revision },
+      })
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        change: 'declined' as const,
         opportunityName: name,
         previousOpportunityName: null,
         requestId,
@@ -1039,9 +1263,17 @@ async function isCurrentLeader(tx: Pick<PoolClient, 'query'>, groupId: string, u
 async function activeLink(
   tx: Pick<PoolClient, 'query'>,
   groupId: string,
-): Promise<{ id: string; opportunity_id: string; owner_teacher_user_id: string; name: string; status: OpportunityStatus } | null> {
-  const rows = await tx.query<{ id: string; opportunity_id: string; owner_teacher_user_id: string; company_name: string; department: string; status: OpportunityStatus }>(
-    `select l.id, l.opportunity_id, o.owner_teacher_user_id, o.company_name, o.department, o.status
+): Promise<{ id: string; opportunity_id: string; owner_teacher_user_id: string; name: string; status: OpportunityStatus; state: LinkState } | null> {
+  const rows = await tx.query<{
+    id: string
+    opportunity_id: string
+    owner_teacher_user_id: string
+    company_name: string
+    department: string
+    status: OpportunityStatus
+    state: LinkState
+  }>(
+    `select l.id, l.opportunity_id, l.state, o.owner_teacher_user_id, o.company_name, o.department, o.status
        from opportunity_links l join industry_opportunities o on o.id = l.opportunity_id
       where l.group_id = $1 and l.valid_to is null`,
     [groupId],
@@ -1054,6 +1286,7 @@ async function activeLink(
         owner_teacher_user_id: row.owner_teacher_user_id,
         name: opportunityName({ companyName: row.company_name, department: row.department }),
         status: row.status,
+        state: row.state,
       }
     : null
 }
@@ -1204,6 +1437,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
       id: string
       owner_teacher_user_id: string
       owner_name: string
+      avatar_preset: number | null
+      avatar_file_id: string | null
       company_name: string
       department: string
       content: string
@@ -1220,7 +1455,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
       withdrawn_business_at: Date | null
     }>(
       // 老師只拿到自己是案主的列（where 條件在 SQL 裡），系辦拿全部。
-      `select o.id, o.owner_teacher_user_id, ${personName('p', 'u')} as owner_name,
+      // 負責老師的頭像兩欄（C3-10）跟姓名同一句帶出：`p` 本來就 left join，查詢數不變（§2.2）。
+      `select o.id, o.owner_teacher_user_id, ${personName('p', 'u')} as owner_name, ${personAvatar('p')},
               o.company_name, o.department, o.content, o.requirements, o.notes, o.notes_visibility,
               o.address, o.contact_name, o.contact_phone, o.contact_email,
               o.status, o.revision, o.published_business_at, o.withdrawn_business_at
@@ -1238,6 +1474,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
         id: r.id,
         ownerUserId: r.owner_teacher_user_id,
         ownerName: r.owner_name,
+        ownerAvatarPreset: r.avatar_preset,
+        ownerAvatarFileId: r.avatar_file_id,
         status: r.status,
         revision: r.revision,
         publishedAt: r.published_business_at,
@@ -1347,6 +1585,86 @@ export class PgOpportunityQuery implements OpportunityQuery {
       leaderName: r.leader_name,
       revision: r.revision,
     }))
+  }
+
+  async teacherIndustryBoard(actor: ResolvedActor): Promise<TeacherIndustryBoard> {
+    if (actor.kind !== 'authenticated' || !canViewOpportunities(actor) || !actor.roles.includes('teacher')) return { cases: [] }
+    // 系辦兼老師時 `manageList` 回全部；這一頁只列自己負責的案。
+    const items = (await this.manageList(actor)).filter((o) => o.ownerUserId === actor.userId)
+    if (items.length === 0) return { cases: [] }
+    const db = this.#reader()
+    // 連到我的案、目前有效（pending 或 active）的組，連同目前的指導老師：一句；組員另一句（固定 2 句，不隨組數增加）。
+    const groups = await db.query<{
+      link_id: string
+      state: LinkState
+      opportunity_id: string
+      group_id: string
+      code: string
+      revision: number
+      cohort_code: string
+      cohort_name: string
+      advisor_user_id: string | null
+      advisor_name: string | null
+    }>(
+      `select l.id as link_id, l.state, l.opportunity_id, g.id as group_id, g.code, g.revision, c.code as cohort_code, c.name as cohort_name,
+              a.teacher_user_id as advisor_user_id, ${personName('ap', 'au')} as advisor_name
+         from opportunity_links l
+         join groups g on g.id = l.group_id
+         join cohorts c on c.id = g.cohort_id
+         left join advisor_assignments a on a.group_id = g.id and a.valid_to is null
+         left join users au on au.id = a.teacher_user_id
+         left join user_profiles ap on ap.user_id = a.teacher_user_id
+        where l.opportunity_id = any($1::uuid[]) and l.valid_to is null and g.status = 'active' and c.status <> 'archived'
+        order by c.code desc, g.code`,
+      [items.map((o) => o.id)],
+    )
+    const membersByGroup = new Map<string, IndustryGroupCard['members'][number][]>()
+    if (groups.rows.length > 0) {
+      // 組員：姓名與頭像兩欄同一句（§2.2），不選登入信箱；組長排最前面。
+      const members = await db.query<{ group_id: string; user_id: string; name: string; avatar_preset: number | null; avatar_file_id: string | null; is_leader: boolean }>(
+        `select m.group_id, m.user_id, ${personName('p', 'u')} as name, ${personAvatar('p')},
+                exists (select 1 from group_leaders gl where gl.group_id = m.group_id and gl.user_id = m.user_id and gl.valid_to is null) as is_leader
+           from group_memberships m
+           join users u on u.id = m.user_id
+           left join user_profiles p on p.user_id = m.user_id
+          where m.group_id = any($1::uuid[]) and m.valid_to is null
+          order by is_leader desc, name, m.user_id`,
+        [groups.rows.map((g) => g.group_id)],
+      )
+      for (const m of members.rows) {
+        const list = membersByGroup.get(m.group_id) ?? []
+        list.push({ userId: m.user_id, name: m.name, isLeader: m.is_leader, avatarPreset: m.avatar_preset, avatarFileId: m.avatar_file_id })
+        membersByGroup.set(m.group_id, list)
+      }
+    }
+    const cardsByOpportunity = new Map<string, IndustryGroupCard[]>()
+    for (const g of groups.rows) {
+      const list = cardsByOpportunity.get(g.opportunity_id) ?? []
+      list.push({
+        groupId: g.group_id,
+        groupCode: g.code,
+        cohortCode: g.cohort_code,
+        cohortName: g.cohort_name,
+        revision: g.revision,
+        linkId: g.link_id,
+        linkState: g.state,
+        members: membersByGroup.get(g.group_id) ?? [],
+        advisor: g.advisor_user_id ? { teacherUserId: g.advisor_user_id, teacherName: g.advisor_name ?? '' } : null,
+      })
+      cardsByOpportunity.set(g.opportunity_id, list)
+    }
+    // 分兩段：沒有指導老師的是「待確認要帶的組」（pending 或 TE-B3／系辦直接連的 active 都算）；指導老師是本人的是
+    // 「已帶的組」；指導老師是別人的兩段都不列（連結仍在那一列的連結欄）。
+    return {
+      cases: items.map((opportunity) => {
+        const cards = cardsByOpportunity.get(opportunity.id) ?? []
+        return {
+          opportunity,
+          pending: cards.filter((c) => c.advisor === null),
+          advised: cards.filter((c) => c.advisor?.teacherUserId === actor.userId),
+        }
+      }),
+    }
   }
 }
 

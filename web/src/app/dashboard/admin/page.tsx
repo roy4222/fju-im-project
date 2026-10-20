@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { IconAlertTriangle, IconChecklist, IconPencilPlus, IconSignature, IconUserQuestion } from '@tabler/icons-react'
@@ -8,7 +9,8 @@ import { DashboardShell } from '@/app/_ui/site-shell'
 import { SectionHead, TodoCard } from '@/app/_ui/dashboard/cards'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { adminHeroCta } from '@/app/dashboard/admin/home-cta'
-import { adminHomePorts, adminTodoCards, heroLine, loadAdminHome, type TodoCardKind } from '@/app/dashboard/admin/home-data'
+import { adminHomePorts, adminTodoCards, heroLine, loadAdminHome, remindButtons, type TodoCardKind } from '@/app/dashboard/admin/home-data'
+import { HomeRemindButton } from '@/app/dashboard/admin/remind-forms'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
 export const metadata = { title: '系辦首頁｜資管系專題平台' }
@@ -37,6 +39,9 @@ export default async function AdminHomePage() {
   const home = await loadAdminHome(adminHomePorts(), actor, ctx)
   const { groups, intake, teachers, news, pendingReviews } = home
 
+  // 待辦卡的「催繳」（C1-15）：逾期卡、評分卡各一顆，各自冷卻；冷卻照真實時間算（同用例）。
+  const remind = remindButtons(home, new Date())
+
   const name = actor.kind === 'authenticated' && actor.displayName ? actor.displayName : '系辦'
 
   return (
@@ -49,6 +54,7 @@ export default async function AdminHomePage() {
           line={heroLine(home, ctx.cohort !== null)}
           compact
           cta={adminHeroCta(ctx, home.summary?.pendingApplications ?? 0)}
+          timelineHref="/timeline"
           trail
         />
 
@@ -56,18 +62,35 @@ export default async function AdminHomePage() {
         <section aria-label="待辦" className="flex flex-col gap-3">
           <SectionHead title="待辦" />
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {adminTodoCards(home).map((card) => (
-              <TodoCard
-                key={card.kind}
-                tone={card.tone}
-                icon={TODO_ICON[card.kind]}
-                title={card.title}
-                meta={card.meta}
-                href={card.href}
-                pill={card.pill}
-                testId={`todo-${card.kind}`}
-              />
-            ))}
+            {adminTodoCards(home).map((card) => {
+              const tile = (
+                <TodoCard
+                  key={card.kind}
+                  tone={card.tone}
+                  icon={TODO_ICON[card.kind]}
+                  title={card.title}
+                  meta={card.meta}
+                  href={card.href}
+                  pill={card.pill}
+                  testId={`todo-${card.kind}`}
+                />
+              )
+              // 卡片本身是連結，按鈕不能放進去：放在卡片正下方，卡上原本的文字不變（AC-34）。
+              const button = card.kind === 'overdue' || card.kind === 'grading' ? remind[card.kind] : null
+              if (!button || !ctx.cohort) return tile
+              return (
+                <div key={card.kind} className="flex flex-col gap-2">
+                  {tile}
+                  <HomeRemindButton
+                    kind={card.kind as 'overdue' | 'grading'}
+                    cohortId={ctx.cohort.id}
+                    blocked={button.blocked}
+                    requestId={randomUUID()}
+                    label={card.kind === 'overdue' ? '催繳逾期未繳' : '催繳評分'}
+                  />
+                </div>
+              )
+            })}
           </div>
         </section>
 
@@ -94,8 +117,8 @@ export default async function AdminHomePage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-3">
-          <div className="min-w-0 md:col-span-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-3">
+          <div className="min-w-0 lg:col-span-2">
             {/* 「作業完成率」只有管理員看得到：pages.spec 的直接打 HTTP 回歸測試用它當指紋，沒有屆別時也要在。 */}
             <Panel title="作業完成率" description="點一列看未繳名單" action={{ href: `${BASE}/affairs?placement=all`, label: '公告與作業' }} className="h-full">
               {intake.length === 0 ? (
@@ -177,7 +200,7 @@ export default async function AdminHomePage() {
             </Panel>
           </div>
 
-          <div className="min-w-0 md:col-span-2">
+          <div className="min-w-0 lg:col-span-2">
             {/* 每位老師一張小卡（全部階段、排除解散組，跟成績頁同一個 teacherProgress，AC-AD-03）。 */}
             <Panel title="老師評分進度" description={`還差 ${home.remaining} 份`} action={{ href: `${BASE}/grading`, label: '成績' }} className="h-full">
               {teachers.length === 0 ? (

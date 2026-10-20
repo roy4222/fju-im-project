@@ -76,8 +76,11 @@ export {
   ACTIVITY_TITLE_MAX_LENGTH,
   activityDeleteBlocker,
   activityFormValues,
+  activitySpan,
+  CROSS_DAY_END_TIME_REQUIRED,
   formatActivityWhen,
   normalizeActivityInput,
+  planActivityMove,
 } from '@/application/cohorts/activities'
 export type { ClockOverride, SetBusinessClockInput } from '@/application/cohorts/business-clock'
 export { businessNowFrom, CLOCK_REASON_MAX_LENGTH, normalizeClockInput } from '@/application/cohorts/business-clock'

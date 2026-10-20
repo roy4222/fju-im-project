@@ -1,0 +1,8 @@
+{
+  "ticket": "C5-12a",
+  "set": { "/b": { "from": "C1-13", "value": { "baseline": 240, "limit": 250 } } },
+  "override": {
+    "/a": { "from": "C1-13", "value": { "baseline": 300, "limit": 330 } },
+    "$shared": { "from": "base", "value": { "baseline": 101, "limit": 230 } }
+  }
+}

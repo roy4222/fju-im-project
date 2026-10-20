@@ -1,0 +1,8 @@
+{
+  "$comment": "fixture 基底",
+  "$shared": { "baseline": 100, "limit": 230 },
+  "$rules": { "homeRoutesMustNotContain": ["recharts"] },
+  "/a": { "baseline": 0, "limit": 0 },
+  "/b": { "baseline": 10, "limit": 11 },
+  "/c": { "baseline": 20, "limit": 22 }
+}

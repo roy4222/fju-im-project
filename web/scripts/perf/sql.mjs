@@ -16,6 +16,7 @@
  *
  * 不跟隨轉址：`status` 是原始回應碼；不是 200 的列標 N/A，最後 exit 1（不輸出假零值）。
  * `--expect`：total 超過 max、identity 超過、noDuplicate 的簽名出現在 duplicates、或該簽名一句都對不到 → exit 1，並列出 duplicates 與前 5 大表。
+ *   讀的是「基底 ＋ 旁邊 `<檔名>.d/` 小檔」合併後的期望（D-23 放寬，`scripts/overlay/merge.mjs`）；小檔撞鍵 → exit 1。
  * 沒給 `--routes` 時量 `--as` 那個角色的預設後台路由＋三個公開頁（匿名只量公開頁）。
  */
 /* global performance, fetch, URL, setTimeout */
@@ -27,6 +28,7 @@ import { pathToFileURL } from 'node:url'
 import { Pool } from 'pg'
 import { DEFAULT_NAME, fail, ownerUrl, parseArgs, readState } from './db.mjs'
 import { PERF_ACCOUNTS, resolveAs, signIn } from './accounts.mjs'
+import { OverlayError, mergeFromBaseFile } from '../overlay/merge.mjs'
 
 const HERE = import.meta.dirname
 const APP_USER = 'fju_app'
@@ -134,6 +136,16 @@ export function judge(row, expect, sigs = []) {
   return why
 }
 
+/** 基底＋小檔合併後的期望；小檔撞鍵就 exit 1。 */
+function readExpect(file) {
+  try {
+    return mergeFromBaseFile(file, 'sql-expect').merged
+  } catch (e) {
+    if (e instanceof OverlayError) fail(e.message)
+    throw e
+  }
+}
+
 function logReader(opts) {
   if (opts['log-cmd']) return () => execSync(opts['log-cmd'], { encoding: 'utf8', maxBuffer: 1 << 30 })
   const name = opts.name ?? DEFAULT_NAME
@@ -156,7 +168,7 @@ async function main() {
     : [...(DEFAULT_ROUTES[who.label] ?? []), ...PUBLIC_ROUTES]
   if (!PERF_ACCOUNTS[who.label] && who.email && !opts.routes) fail('用 email 當 --as 時要給 --routes。')
   const signatures = JSON.parse(fs.readFileSync(path.join(HERE, 'signatures.json'), 'utf8'))
-  const expectAll = opts.expect ? JSON.parse(fs.readFileSync(path.resolve(opts.expect), 'utf8')) : null
+  const expectAll = opts.expect ? readExpect(path.resolve(opts.expect)) : null
   const readLog = logReader(opts)
 
   const cookie = await signIn(opts.base, who.email)

@@ -1,12 +1,14 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { fillItemForm, formReady, openAdvanced } from './create-item'
+import { fillItemBody } from './item-body'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
  * 公告通知與編輯器返回（設計方案 2026-10-08 §7 系7、系8、§13-2）：
  *
- * 1. 發布過的公告撤回成草稿再發布，通知預設不勾（對象第一次已經收過了）。
- * 2. 勾通知前看得到會寄給幾個人；更新已發布的公告並勾通知時，確認鈕寫「確認更新並通知 N 人」。
+ * 1. 發布過的公告回到草稿再發布，通知預設不勾（對象第一次已經收過了）。C1-06 起畫面沒有「撤回」，用資料直接改成撤回後的樣子。
+ * 2. 勾通知前看得到會寄給幾個人（「重要公告」在進階設定；更新已發布的公告時「通知對象這次的修改」在底部按鈕旁）。
  * 3. 在非預設屆別編輯公告後按「專題事務」返回，仍停在那一屆（網址帶 ?cohort=）。
  *
  * 全程用真的表單與按鈕；資料準備用 owner 連線直接寫。
@@ -89,57 +91,63 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-test('第一次發布「本屆學生」公告：通知預設勾', async ({ page }) => {
-  await asAdmin(page)
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
+/** 清單「新增公告」→ 一頁式共用表單（C1-06；C1-07 起直接開公告表單、不先選類型），回傳表單。 */
+async function openNewsDialog(page: Page, cohort: string) {
+  await page.goto(`/dashboard/admin/affairs?cohort=${cohort}`)
   await page.getByRole('button', { name: '新增公告' }).click()
   const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /公告/ }).check()
-  await dialog.getByLabel('標題').fill(TITLE)
-  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('週五下午兩點在 LM503。')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  await expect(dialog.getByRole('checkbox', { name: /重要公告/ })).toBeChecked()
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${TITLE}」已發布`)
+  return { dialog, form: await formReady(dialog) }
+}
+
+test('第一次發布「本屆學生」公告：通知預設勾', async ({ page }) => {
+  await asAdmin(page)
+  const { dialog, form } = await openNewsDialog(page, cohortId)
+  await fillItemForm(page, form, { title: TITLE, audience: 'cohort_students', body: '週五下午兩點在 LM503。' })
+  await openAdvanced(form)
+  const important = form.getByRole('checkbox', { name: /重要公告/ })
+  await expect(important.locator('xpath=..')).toContainText('勾選後將通知 1 人')
+  await expect(important).toBeChecked()
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('item-toast')).toHaveText('已發布')
 
   const found = await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [cohortId, TITLE])
   itemId = found.rows[0]!.id
 })
 
 test('撤回成草稿再發布：通知預設不勾，旁邊寫會通知幾個人', async ({ page }) => {
+  // C1-06 起畫面上沒有「撤回」（API 保留）：直接把資料改成撤回後的樣子；發布紀錄還在，所以算「發布過」。
+  await pool.query(`update managed_items set status = 'draft', revision = revision + 1, pinned_at = null where id = $1`, [itemId])
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/${itemId}`)
-  await page.getByRole('button', { name: '撤回', exact: true }).click()
-  await page.getByRole('dialog', { name: '撤回成草稿？' }).getByRole('button', { name: '確認撤回' }).click()
+  const form = await formReady(page)
   await expect(page.getByTestId('item-status')).toHaveText('草稿')
-
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  const important = check.getByRole('checkbox', { name: /重要公告/ })
+  await openAdvanced(form)
+  const important = form.getByRole('checkbox', { name: /重要公告/ })
+  await expect(important.locator('xpath=..')).toContainText('勾選後將通知 1 人')
   await expect(important).not.toBeChecked()
-  await expect(check).toContainText('勾選後將通知 1 人')
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toBeVisible()
-  await check.getByRole('button', { name: '繼續編輯' }).click()
-  await expect(page.getByTestId('item-status')).toHaveText('發布中')
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  const after = await pool.query<{ status: string }>('select status from managed_items where id = $1', [itemId])
+  expect(after.rows[0]!.status).toBe('published')
+  const last = await pool.query<{ notify: boolean }>(
+    `select notify from item_publications where item_id = $1 order by real_at desc, id desc limit 1`,
+    [itemId],
+  )
+  expect(last.rows[0]!.notify).toBe(false)
 })
 
-test('更新已發布的公告並勾通知：確認鈕寫「確認更新並通知 N 人」', async ({ page }) => {
+test('更新已發布的公告：「通知對象這次的修改」旁邊寫會通知幾人', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/${itemId}`)
-  await page.getByLabel('摘要').fill('改到 LM504')
-  await page.getByRole('button', { name: '發布更新' }).click()
-  const check = page.getByRole('dialog', { name: '發布更新前檢查' })
-  const notify = check.getByRole('checkbox', { name: /通知對象這次的修改/ })
+  const form = await formReady(page)
+  await openAdvanced(form)
+  await form.getByLabel('摘要', { exact: false }).fill('改到 LM504')
+  const notify = form.getByRole('checkbox', { name: /通知對象這次的修改/ })
   await notify.uncheck()
-  await expect(check.getByRole('button', { name: '確認更新', exact: true })).toBeVisible()
   await notify.check()
-  await expect(check).toContainText('勾選後將通知 1 人')
-  await expect(check.getByRole('button', { name: '確認更新並通知 1 人' })).toBeEnabled()
-  await check.getByRole('button', { name: '取消' }).click()
+  await expect(notify.locator('xpath=..')).toContainText('勾選後將通知 1 人')
+  await expect(form.getByRole('button', { name: '儲存更新' })).toBeEnabled()
 })
 
 test('在非預設屆別編輯後按「專題事務」返回，仍停在那一屆', async ({ page }) => {
@@ -155,37 +163,33 @@ test('在非預設屆別編輯後按「專題事務」返回，仍停在那一�
   await expect(page.getByRole('main')).toContainText(TITLE)
 })
 
-test('0 個學生的屆別發公告：三步驟對話框與完整編輯器都預設不勾，發布紀錄寫「沒勾通知」', async ({ page }) => {
+test('0 個學生的屆別發公告：對話框與全頁表單都預設不勾，發布紀錄寫「沒勾通知」', async ({ page }) => {
   const title = `${CODE} 沒有學生的公告`
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/affairs?cohort=${emptyCohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /公告/ }).check()
-  await dialog.getByLabel('標題').fill(title)
-  await dialog.getByLabel('誰看得到').selectOption('cohort_students')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('還沒有學生時發的公告。')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  await expect(dialog).toContainText('這個對象目前沒有可以通知的人。')
-  await expect(dialog.getByRole('checkbox', { name: /重要公告/ })).not.toBeChecked()
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText('這次沒有發站內通知。')
+  const { dialog, form } = await openNewsDialog(page, emptyCohortId)
+  await fillItemForm(page, form, { title, audience: 'cohort_students', body: '還沒有學生時發的公告。' })
+  await expect(dialog.getByTestId('recipient-preview')).toContainText('這個對象目前沒有可以通知的人。')
+  await openAdvanced(form)
+  await expect(form.getByRole('checkbox', { name: /重要公告/ })).not.toBeChecked()
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(dialog).toBeHidden()
 
   const found = await pool.query<{ id: string }>('select id from managed_items where cohort_id = $1 and title = $2', [emptyCohortId, title])
   await page.goto(`/dashboard/admin/editor/${found.rows[0]!.id}`)
-  const log = page.getByRole('region', { name: '發布紀錄' })
+  const edit = await formReady(page)
+  await openAdvanced(edit)
+  await edit.locator('summary', { hasText: '發布紀錄' }).click()
+  const log = edit.getByRole('list', { name: '發布紀錄' })
   await expect(log).toContainText('沒勾通知')
   await expect(log).not.toContainText('有勾通知')
 
-  // 完整編輯器新建一則同樣對象的公告：發布對話框同樣預設不勾。
+  // 全頁新建一則同樣對象的公告：同樣預設不勾、寫 0 人。
   await page.goto(`/dashboard/admin/editor/new?cohort=${emptyCohortId}`)
-  await page.locator('#ed-title').fill(`${CODE} 完整編輯器的公告`)
-  await page.locator('#ed-body').fill('還沒有學生時發的公告。')
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await expect(check).toContainText('勾選後將通知 0 人')
-  await expect(check.getByRole('checkbox', { name: /重要公告/ })).not.toBeChecked()
+  const fresh = await formReady(page)
+  await fresh.locator('#ed-title').fill(`${CODE} 全頁表單的公告`)
+  await fillItemBody(page, '還沒有學生時發的公告。')
+  await openAdvanced(fresh)
+  const important = fresh.getByRole('checkbox', { name: /重要公告/ })
+  await expect(important.locator('xpath=..')).toContainText('勾選後將通知 0 人')
+  await expect(important).not.toBeChecked()
 })

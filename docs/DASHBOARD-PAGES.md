@@ -1,8 +1,8 @@
 ---
 type: page-inventory
 project: FJU IM Project
-updated: 2026-10-18
-status: v6-role-split-in-progress
+updated: 2026-10-20
+status: v7-admin-structure-final
 ---
 > 2026-09-11 產品拆分核對：現行規則見[產品總規格](<product/📐 產品總規格.md>)與[模組索引](<product/🗺️ 專案目標與產品規劃.md>)。下方保留原設計／術語全文；衝突處以現行模組為準：產學須登入、專題事務單一入口（編輯器為項目操作）、個人／組別兩種收件、實際有效成員加主指導簽核。Email寄送與Google Calendar／外部訂閱延後，站內通知日曆與Google登入保留。
 
@@ -19,7 +19,7 @@ status: v6-role-split-in-progress
 |---|---|---|---|
 | 學生（3 項，Q71） | 首頁、交作業、組別 | 交作業：`/dashboard/student/signoff`、`/dashboard/student/timeline`（後者已轉址到前台 `/timeline`） | 交作業＝待交＋快到期＋待你同意（`studentTodos`，不含逾期與尚未開放，Q117、Q119） |
 | 老師（4 項，Q77） | 首頁、評分、作業區、分組總覽 | 作業區：`/dashboard/teacher/signoff`；分組總覽：`/dashboard/teacher/industry`（兩個舊網址都轉頁） | 評分＝還沒正式送出的評分；作業區＝輪到我同意的組 |
-| 系辦（6 項，Q87～Q92） | 首頁、公告與作業、分組、成績、帳號、設定 | 公告與作業：`/affairs/assignments`、`/affairs/resources`、`/affairs/rules`、`/showcase`、`/files`；分組：`/groups/unassigned`、`/industry`；成績：`/grading/rules`、`/grading/teachers`、`/grading/settle`、`/signoff`；帳號：`/accounts/pending`、`/accounts/disabled`、`/accounts/roster`；設定：`/timeline`、`/audit`、`/clock`、`/home-settings`（都在 `/dashboard/admin/` 下；「設定」本身連 `/cohorts`，舊 `/settings` 總頁轉過去，C2-01） | 帳號＝等審核的註冊申請 |
+| 系辦（6 項，Q87～Q92；C2-20 定稿） | 首頁、公告與作業、分組、成績、帳號、設定 | 公告與作業：`/affairs/assignments`、`/affairs/resources`、`/affairs/rules`、`/showcase`、`/files`；分組：`/groups/unassigned`、`/industry`；成績：`/grading/rules`、`/grading/teachers`、`/grading/settle`、`/signoff`；帳號：`/accounts/pending`、`/accounts/disabled`、`/accounts/roster`；設定：`/timeline`、`/audit`、`/clock`（都在 `/dashboard/admin/` 下；「設定」本身連 `/cohorts`，舊 `/settings` 總頁轉過去，C2-01；`/home-settings` 已刪，改在前台編輯，C2-17） | 帳號＝等審核的註冊申請 |
 
 - **側欄第一項叫「首頁」**（Q110）。
 - **通知只從頂列鈴鐺進**（Q71、Q77、Q88）：三個角色的側欄都沒有「通知」，未讀數只在鈴鐺；`/dashboard/<角色>/inbox` 頁保留，鈴鐺本身就是連到這頁的連結（點了直接進通知匣，沒有下拉選單），在通知頁時鈴鐺標目前頁（SH-1a #446）。
@@ -30,7 +30,7 @@ status: v6-role-split-in-progress
 - 「主機儲存」不在系辦後台，只在開發者後台（10/15 晚定案，AD-02）。
 - 效能預算與量法：見 [效能量測 SOP](<engineering/效能量測 SOP.md>)。
 
-### 系辦分頁表（2026-10-18 初版，C 階段規格② C2-01）
+### 系辦分頁表（2026-10-20 定稿，C 階段規格② C2-01～C2-20）
 
 分頁＝路由，每個分頁有自己的 `page.tsx` 與守衛；分頁列常數集中在 `web/src/app/dashboard/admin/_tabs.consts.ts`（規格寫的 `admin/_tabs.ts`；跟元件檔 `_tabs.tsx` 同名會撞，所以叫這個），各頁只 import。每個分頁的外殼：`h1`＝側欄名 → 分頁列 → 一行說明句（`data-testid="tab-intro"`，新分頁的 e2e 指紋）→ 內容。
 
@@ -38,13 +38,39 @@ status: v6-role-split-in-progress
 |---|---|---|
 | 公告與作業 | 公告 `/affairs`、作業 `/affairs/assignments`、資源下載 `/affairs/resources`、專題規則 `/affairs/rules`、成果展示 `/showcase`、檔案 `/files` | — |
 | 分組 | 全部組別 `/groups`、未分組學生 `/groups/unassigned`、產學合作 `/industry` | — |
-| 成績 | 成績表 `/grading`、評分規則 `/grading/rules`、評分老師 `/grading/teachers`、結算 `/grading/settle` | 同意書 `/signoff`（之後併進「作業」） |
+| 成績 | 成績表 `/grading`、評分規則 `/grading/rules`、評分老師 `/grading/teachers`、結算 `/grading/settle` | 同意書 `/signoff`（①併進「作業」後，C2-22 改轉址到 `/affairs/assignments`；轉址還沒合進來之前仍是原頁） |
 | 帳號 | 全部帳號 `/accounts`、待審核 `/accounts/pending`、已停用 `/accounts/disabled`、名單匯入 `/accounts/roster` | — |
-| 設定 | 屆別 `/cohorts`、專題時程 `/timeline`、操作紀錄 `/audit` | 首頁設定 `/home-settings`（C2-17 改前台直接編輯）、測試用時間 `/clock`（只在測試站） |
+| 設定 | 屆別 `/cohorts`、專題時程 `/timeline`、操作紀錄 `/audit` | 測試用時間 `/clock`（只在測試站，沒有任何選單入口，輸入網址進；側欄「設定」亮） |
 
-- 作業、資源下載、專題規則三頁接的是既有的公告清單（固定種類）；公告頁的「種類」篩選只剩 全部／公告／榮譽／逾期。
-- 待審核、已停用、名單匯入、未分組學生、評分老師目前是外殼（分頁列＋說明句），內容由後續票接上；「全部帳號」的分頁列在 C2-07 掛上。
-- 舊網址轉址（`web/src/app/dashboard/admin/legacy-redirects.ts`，先守衛再轉，307）：`/settings` → `/cohorts`；`/affairs?placement=resource` → `/affairs/resources`、`submission`／`requirement` → `/affairs/assignments`、`rules` → `/affairs/rules`（其餘 query 照帶）。`?placement=honor` 暫不轉；`/accounts?status=`、`/home-settings`、`/signoff` 由後續票加。
+- **作業、資源下載、專題規則**三頁接的是既有的公告清單（固定種類）；公告頁的「種類」篩選只剩 全部／公告／榮譽／逾期（榮譽篩選待①做完榮譽榜後拿掉並加 `?placement=honor` 轉址）。
+- **全部帳號**：標題列一顆「新增成員」（先選學生／老師／管理員；直接開通，寄「請設定密碼」信）。每列按鈕固定順序：編輯、寄重設密碼信、停用（已停用的是「恢復」）、更多；「更多」裡有補上身分、設為／取消管理員、重設頭像，最後一項紅字「刪除個人資料」，沒有「危險操作」標籤或區塊。不能按的按鈕 disabled，並在按鈕 `title` 與旁邊小字寫同一句原因。
+  - 編輯帳號：姓名、學號、屆別、角色（學生／老師互轉，管理員另外勾）；理由選填。學生已在組別裡不能改屆別（連到那一組）；改角色要先沒有組別／繳交（學生→老師）或沒有指導組／評分指派（老師→學生）。
+  - 寄重設密碼信：系統寄到本人的登入 Email，30 分鐘內有效，系辦看不到新密碼；只有 Google 登入、沒設密碼的人按鈕是灰的並寫原因。「收不到信？」才改發一次性臨時密碼（不問核實方式，理由選填）。
+- **待審核**：每人一張卡（名單比對、送出時間、已重送）。名單完全相符的按「核准」一鍵完成；名單沒有或有疑點的跳小視窗，只問屆別並列出要核對的地方。核准固定記核實方式 `office_review`，不問理由；退回一定要寫理由（申請人會看到）。可勾選批次核准，需要人判斷的人自動略過。
+- **自動開通**：Google 登入，或 Email 註冊且 Email 已驗證，再加上 Email、學號、姓名與本屆名單同一列、本屆開放註冊、不在批次略過名單，就不用等審核（核實方式記 `google_email_match`／`email_roster_match`）。
+- **已停用**：列表固定停用狀態；每列「恢復」「刪除個人資料」；標題列「批次停用」（貼學號或上傳 TXT，先預覽再確認）。
+- **名單匯入**：標題列「匯入名單 CSV」；下面「歷次匯入」。
+- **屆別**：標題列（分頁列右側）「新增屆別」開視窗；每屆一張卡，只有「編輯」「封存」（已封存的是「恢復」）；「轉為進行中」是卡上狀態旁的小字鈕，沒排好專題時程時灰掉並寫原因。兩個旗標（後台預設查看、新註冊加入）在「編輯」視窗裡換。還沒啟用、或身上有旗標的屆別不能封存，按鈕灰掉並寫原因。理由全部選填。
+- **專題時程**：C2 只做外殼（分頁列、說明句）；內容由③做（前台 `/timeline`、首頁橫幅「看完整時程」、導覽列入口）。
+- **測試用時間**（原「模擬時鐘」）：路由 `/clock` 保留，標題「測試用時間」，說明「只有測試站有這一頁，正式站沒有」，原因選填；沒有選單、分頁或連結入口。
+- **舊網址轉址**（`web/src/app/dashboard/admin/legacy-redirects.ts`，先守衛再轉，307）：`/settings` → `/cohorts`；`/home-settings` → 前台 `/`（首頁橫幅改前台編輯）；`/affairs?placement=resource` → `/affairs/resources`、`submission`／`requirement` → `/affairs/assignments`、`rules` → `/affairs/rules`（其餘 query 照帶）；`/accounts?status=pending` → `/accounts/pending`、`?status=disabled` → `/accounts/disabled`。`?placement=honor` 暫不轉（①）；`/signoff` 由 C2-22 加。
+- **全站原則**：理由預設選填（退回註冊仍必填）；沒有任何「危險操作／危險區」字樣；不能做的事按鈕 disabled 並直接寫原因。
+
+### 前台與帳號入口（2026-10-20，C 階段規格② C2-14）
+
+- 登入後的前台跟沒登入時一樣：右上角只有一顆「我的後台」（待審核的人是「申請進度」、要改密碼的人是「更改密碼」），沒有頭像下拉；首頁沒有「我的工作」區塊；頁尾「使用」欄列「我的後台」「隱私權政策」。
+- **我的帳號**搬進後台：網址仍是 `/account`（OAuth 回跳參數沿用），用後台外殼包起來；入口是後台右上角頭像選單的「我的帳號」。`/account/change-password`、`/account/setup` 仍是登入前置流程，沒有側欄。登出、切換到另一個後台也都在這個頭像選單。
+- **通知**點開有來源連結的列就算已讀（由伺服器動作標已讀再轉頁，不在 GET 時寫入）。
+
+### 前台編輯（2026-10-19 框架，C 階段規格② C2-16；設計方案 §6）
+
+系辦（已開通、有效的管理員角色）在前台原頁直接改內容，不跳後台。
+
+- **誰看得到**：只有系辦。登入時伺服器設一個 HttpOnly 的 `fju_office=1` 提示 cookie（登出清掉）；`web/src/proxy.ts` 看到它，就把 GET／HEAD 的 `/`、`/files`、`/rules`、`/industry`、`/privacy` 改寫到 `/office-edit/*`（網址列不變，回應加 `Cache-Control: private, no-store`）。cookie 只是提示：`/office-edit/*` 自己再判一次身分，不是系辦就只回原頁。訪客、學生、老師不經過這段，HTML 與下載的程式一個位元組都不多。
+- **直接打 `/office-edit/*`**：307 回對應的公開網址（帶原本的查詢字串）。
+- **長什麼樣**：右下角「編輯頁面」開關（狀態存 sessionStorage，換頁保持、關分頁就忘）。打開後每個可改的區塊有虛線框與標籤（可新增的有「＋新增」），每一則右上角「編輯」，可刪的多「刪除」（先確認「確定刪除『標題』？」），不能刪的按鈕寫原因（例如分類「有 3 個檔案，先移走」）；頁尾聯絡、隱私權政策、首頁橫幅、三張快速入口卡只有「編輯」。按鈕畫在頁面上另一層，不在連結裡，編輯模式下點連結照常跳頁。「完成編輯」全部收起。
+- **程式位置**：標記 `web/src/app/_ui/front-edit/mark.ts`（`feSection`／`feItem`，產生 `data-fe-*`）；表單登錄表 `forms.ts`（`FeKind`／`FeFormProps`／`FeFormModule`／`FE_FORMS`）；編輯層 `front-edit.tsx`＋`front-edit.css`、視窗 `dialog.tsx`、刪除確認 `confirm.tsx`；路由 `web/src/app/office-edit/*`（原頁元件＋編輯層，`with-front-edit.tsx`）。
+- **表單**：每種內容的表單按下「編輯／新增」才載入（登錄在 `forms.ts` 的 `FE_FORMS`）。②的首頁橫幅、快速入口、頁尾聯絡、隱私權政策已接（C2-17，取代後台「首頁設定」頁，大圖與標語存了就生效；恢復預設＝「改用預設照片」＋標語清空再儲存）；①的公告、作業、規則、資源、資源分類、榮譽已接（C1-06／C1-07／C1-09）；成果展示與③的活動、合作案還是「尚未提供」佔位（點了顯示「這個區塊還不能在前台改」），由 ①、C3-08、C3-10 接。
 
 ## 0. 2026-09-10 第五輪：Codex 三角色審查後的改版（proto/role-ux-round1）
 
@@ -123,13 +149,13 @@ Roy 看完第二輪選了 A 軌道，接著貼了一張 Ace Academy 學生後台
 | `/grading/[groupId]` | — | 單組評分（TE-06b #480）：左欄本組正式繳交與附件（PDF「在新分頁開啟」；內嵌預覽是 B）、右欄固定評分卡（數字「／滿分」、等第下拉、通過制兩選一）、「儲存草稿」「正式送出」、上一組／下一組；A 階段送出後唯讀，B 階段可自己重送、結算後鎖（Q79、Q86） | — |
 | `/grading/rules` 評分規則 | — | — | 「成績」的子頁（2026-10-15 Q87，AD-08 #454；從分頁列右側「評分規則 ↗」進）：評分規則與版本卡、評分要求與指派、新版重算與套用的入口 |
 | `/signoff` | 從「交作業」的同意書卡進（側欄不列；網址保留，進來時亮「交作業」）；左全文與表態、右「全組表態 n／人數」；支援 `?version=`；作廢版不列卡、只在頁內提示（ST-8 #458、Q123） | 舊網址，轉到 `/affairs?tab=signoff`（2026-10-15 Q77）；版本頁 `/signoff/[versionId]` 保留。收集中不把老師列「還沒回覆」、不提醒老師（TE-02 #434） | 「成績」的分頁「同意書」（AD-09 #474）：整體進度、各組一張卡（逐人小格、還沒回覆的人；收集中不列老師）、重置（必填原因，不可代簽）；「新增站內同意書」在分頁列右側 |
-| `/timeline` 時間軸 | 舊網址，轉到前台「專題時程」`/timeline`（2026-10-15 Q85 改、Q126，ST-6 #453、ST-7 #472）：階段軌＋整月行事曆，改期與取消照實顯示 | — | 「設定」的子頁「時間軸」（AD-12 #467）：四個階段與活動日期；測試站從這頁進模擬業務鐘 |
-| `/accounts` | — | — | 側欄「帳號」（原「帳號管理」，AD-11 #470）：`h1`「帳號」、待審核在最上面、篩選膠囊（全部／待審核／已核准／已停用／未設定身分，各帶數字）、Data Table（搜尋、角色／屆別／狀態篩選、排序、勾選匯出 CSV〔狀態欄寫「已核准」，Q159〕）、審核對話框；收合的「名單與停用」（匯入名單 CSV 三步預覽、批次停用、歷次匯入卡片） |
+| `/timeline` 時間軸 | 舊網址，轉到前台「專題時程」`/timeline`（2026-10-15 Q85 改、Q126，ST-6 #453、ST-7 #472）：階段軌＋整月行事曆，改期與取消照實顯示 | — | 「設定」的分頁「專題時程」（AD-12 #467；C2-01 改名）：四個階段與活動日期；測試站的測試用時間 `/clock` 不從這頁進，輸入網址 |
+| `/accounts` | — | — | 側欄「帳號」（C2 定稿見上方分頁表）：`h1`「帳號」、分頁列 全部帳號｜待審核｜已停用｜名單匯入；全部帳號是 Data Table（搜尋、角色／屆別／狀態篩選、排序、勾選匯出 CSV〔狀態欄寫「已核准」，Q159〕），每列 編輯・寄重設密碼信・停用・更多，標題列「新增成員」；待審核、已停用、名單匯入各自一頁 |
 | `/files` | — | — | 「公告與作業」的分頁「檔案」（AD-03 #476）：依類型篩選、被引用不可刪；提示改成去編輯器加附件；「主機儲存」不在系辦後台 |
-| `/home-settings` 首頁設定 | — | — | 「設定」的子頁「首頁設定」（AD-15 #475；原側欄在「專題事務」下）：前台首頁大圖與兩行標語，存了就生效（頁面由第三波 W3 提供） |
-| `/audit` | — | — | 「設定」的子頁「操作紀錄」（AD-15 #475）：事件時間線、依角色篩選、姓名搜尋（只搜已載入的近 7 天、最多 200 筆，Q113）、理由顯示 |
-| `/settings` 設定 | — | — | 側欄「設定」總頁（Q104，AD-20 #486）：四張卡「屆別」「時間軸」「首頁設定」「操作紀錄」各一句說明；子頁 `/cohorts`、`/timeline`、`/home-settings`、`/audit` 各有分頁列：屆別｜時間軸｜首頁設定｜操作紀錄 |
-| `/cohorts` 屆別 | — | — | 「設定」的子頁「屆別」（AD-12 #467）：每屆一張卡（狀態、後台預設查看、新註冊加入）、新增屆別、轉為進行中 |
+| `/home-settings` 首頁設定 | — | — | 已刪（C2-17）：307 轉到前台 `/`；大圖與兩行標語改在前台首頁「編輯頁面」的首頁橫幅表單，存了就生效 |
+| `/audit` | — | — | 「設定」的分頁「操作紀錄」（AD-15 #475）：事件時間線、依角色篩選、姓名搜尋（只搜已載入的近 7 天、最多 200 筆，Q113）、理由顯示 |
+| `/settings` 設定 | — | — | 舊入口頁（Q104，AD-20 #486 的四張卡）已拿掉（C2-01）：307 轉到 `/cohorts`；側欄「設定」直接進屆別，分頁列三個：屆別｜專題時程｜操作紀錄 |
+| `/cohorts` 屆別 | — | — | 「設定」的第一個分頁（側欄「設定」直接進這頁）：每屆一張卡（狀態、人數、組數、旗標）、卡上只有「編輯」「封存」；「新增屆別」在分頁列右側 |
 
 ## 3. 元件
 

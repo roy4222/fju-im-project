@@ -5,7 +5,7 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie } from './sess
 /**
  * 票 8：老師帳號與臨時密碼，用**真的畫面**走完「做完的樣子」三條。
  *
- * 1. 管理員直接新增老師，或先用 Email 建立預授權；老師第一次登入補姓名與聯絡資料後進老師首頁。
+ * 1. 管理員用「新增成員」建老師（C2-09：不發密碼，寄「請設定密碼」信）；老師第一次登入補姓名與聯絡資料後進老師首頁。
  * 2. 管理員替任一帳號核發只顯示一次的臨時密碼，發之前必須記錄核實方式；對方登入後被強制改密。
  * 3. 沒有任何畫面能看到既有密碼（關掉對話框、重新整理都拿不回來）。
  * 另外：預授權的 Email 別人不能搶先註冊。
@@ -44,6 +44,32 @@ async function signIn(page: Page, email: string, password: string) {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 })
 }
 
+/** 老師用「請設定密碼」信裡的連結設好密碼（信存在 `mail_outbox`，e2e 用擷取模式）。 */
+async function setPasswordFromMail(page: Page, email: string, password: string) {
+  const owner = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 1 })
+  let body = ''
+  try {
+    for (let i = 0; i < 75 && !body; i += 1) {
+      const row = await owner.query<{ body_text: string | null }>(
+        `select body_text from mail_outbox where to_email = $1 and template = 'password_reset' order by created_at desc limit 1`,
+        [email],
+      )
+      body = row.rows[0]?.body_text ?? ''
+      if (!body) await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+  } finally {
+    await owner.end()
+  }
+  const url = /https?:\/\/\S+?\/reset-password\?token=[^\s。，]+/.exec(body)?.[0]
+  if (!url) throw new Error(`mail_outbox 沒有 ${email} 的設定密碼信（e2e 要 MAIL_CAPTURE=1）`)
+  const parsed = new URL(url)
+  await page.goto(`${parsed.pathname}${parsed.search}`)
+  await page.getByLabel('新密碼', { exact: true }).fill(password)
+  await page.getByLabel('確認密碼').fill(password)
+  await page.getByRole('button', { name: '重設密碼' }).click()
+  await expect(page.getByText('密碼已重設，請用新密碼登入')).toBeVisible()
+}
+
 async function changePassword(page: Page, current: string) {
   await expect(page).toHaveURL(/\/account\/change-password$/)
   await expect(page.getByRole('heading', { name: '請先更改密碼' })).toBeVisible()
@@ -53,49 +79,32 @@ async function changePassword(page: Page, current: string) {
   await page.getByRole('button', { name: '設定新密碼' }).click()
 }
 
-test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師登入先改密碼 → 補資料 → 老師首頁', async ({ browser }) => {
+test('1＋3：新增成員（老師）→ 寄請設定密碼信 → 老師自己設密碼登入 → 補資料 → 老師首頁；系辦拿不到任何密碼', async ({ browser }) => {
   const email = `t08-direct-${run}@example.com`
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
 
+  // C2-09：新增成員不再發臨時密碼，也不問核實方式；改寄「請設定密碼」信，密碼由老師自己設。
   await admin.getByRole('button', { name: '新增成員', exact: true }).click()
-  const dialog = admin.getByRole('dialog', { name: '新增老師' })
+  const dialog = admin.getByRole('dialog', { name: '新增成員' })
   await expect(dialog).toBeVisible()
+  await dialog.getByRole('radio', { name: /^老師/ }).check()
   await dialog.getByLabel('登入 Email').fill(email)
   await dialog.getByLabel('姓名').fill('林直接老師')
-
-  // 直接新增會發臨時密碼：沒選核實方式就不送。
-  await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('請選擇怎麼確認是本人')
-  // 選項只有人能選的三種：沒有自動開通與「系辦審核」那些系統值（AC-C2-15）。
-  await expect(dialog.getByRole('group', { name: /怎麼確認是本人/ }).getByRole('radio')).toHaveCount(3)
-  await expect(dialog).not.toContainText('自動開通')
-  await expect(dialog).not.toContainText('系辦審核')
-  // 老師的核實方式不提學生證（T6 系5）。
-  await dialog.getByLabel('當面核對身分證件（教職員證、身分證）').check()
-  await expect(dialog).not.toContainText('學生證')
-  await dialog.getByRole('button', { name: '建立並產生臨時密碼' }).click()
-
-  await expect(dialog.getByRole('status')).toContainText('只顯示這一次')
-  const secret = (await dialog.getByTestId('temporary-password').innerText()).trim()
-  expect(secret).toMatch(/^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$/)
+  await dialog.getByRole('button', { name: '新增老師' }).click()
+  await expect(dialog.getByRole('status')).toContainText('已新增老師')
+  await expect(dialog.getByTestId('temporary-password')).toHaveCount(0)
   await dialog.getByRole('button', { name: '關閉' }).click()
 
-  // 3. 關掉就拿不回來：重新打開是空白表單，整頁（含 RSC payload）找不到這組密碼。
+  // 3. 關掉就沒有東西可拿：重新打開是空白表單。
   await admin.getByRole('button', { name: '新增成員', exact: true }).click()
-  await expect(dialog.getByTestId('temporary-password')).toHaveCount(0)
   await expect(dialog.getByLabel('登入 Email')).toHaveValue('')
   await dialog.getByRole('button', { name: '取消' }).click()
-  const html = await (await admin.request.get('/dashboard/admin/accounts')).text()
-  expect(html).not.toContain(secret)
 
-  // 老師：用臨時密碼登入 → 被逼著改密碼 → 補資料 → 老師首頁。
+  // 老師：用信裡的連結設密碼 → 登入 → 補資料 → 老師首頁（密碼是自己設的，不用再改）。
   const teacher = await freshPage(browser)
-  await signIn(teacher, email, secret)
-  await teacher.goto('/dashboard/teacher')
-  await expect(teacher, '改密前哪裡都去不了').toHaveURL(/\/account\/change-password$/)
-  await changePassword(teacher, secret)
-
+  await setPasswordFromMail(teacher, email, NEW_PASSWORD)
+  await signIn(teacher, email, NEW_PASSWORD)
   await expect(teacher).toHaveURL(/\/account\/setup$/)
   await expect(teacher.getByRole('heading', { name: '第一次登入：補上你的資料' })).toBeVisible()
   await expect(teacher.getByLabel('姓名')).toHaveValue('林直接老師')
@@ -109,31 +118,27 @@ test('1＋2＋3：直接新增老師 → 臨時密碼只顯示一次 → 老師�
   await expect(teacher).toHaveURL(/\/dashboard\/teacher$/)
   await expect(teacher.getByRole('heading', { name: /^歡迎回來，/ })).toBeVisible()
 
-  // 臨時密碼從此失效；新密碼登得進去，直接進老師首頁。
+  // 重新登入直接進老師首頁。
   await teacher.context().clearCookies()
-  await teacher.goto('/login')
-  await teacher.getByLabel('Email').fill(email)
-  await teacher.getByLabel('密碼', { exact: true }).fill(secret)
-  await teacher.getByRole('button', { name: '登入', exact: true }).click()
-  await expect(teacher.getByText('Email 或密碼不正確')).toBeVisible()
   await signIn(teacher, email, NEW_PASSWORD)
   await expect(teacher).toHaveURL(/\/dashboard\/teacher$/)
   await teacher.context().close()
 })
 
-test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦發臨時密碼後老師登入補資料', async ({ browser }) => {
+test('1：新增成員（老師）後 Email 被占住，別人拿同一個 Email 註冊被拒；系辦發臨時密碼後老師登入補資料', async ({ browser }) => {
   const email = `t08-preauth-${run}@example.com`
   const admin = await adminPage(browser)
   await admin.goto('/dashboard/admin/accounts')
 
   await admin.getByRole('button', { name: '新增成員', exact: true }).click()
-  const dialog = admin.getByRole('dialog', { name: '新增老師' })
-  await dialog.getByLabel('只用 Email 預先建立').check()
-  // 預授權不發密碼，也就不需要核實方式。
+  const dialog = admin.getByRole('dialog', { name: '新增成員' })
+  await dialog.getByRole('radio', { name: /^老師/ }).check()
+  // 新增成員不發密碼，也不需要核實方式。
   await expect(dialog.getByText('怎麼確認是本人')).toHaveCount(0)
   await dialog.getByLabel('登入 Email').fill(email)
-  await dialog.getByRole('button', { name: '預先建立帳號' }).click()
-  await expect(dialog.getByRole('status')).toContainText('已預先建立老師帳號')
+  await dialog.getByLabel('姓名').fill('陳預授權老師')
+  await dialog.getByRole('button', { name: '新增老師' }).click()
+  await expect(dialog.getByRole('status')).toContainText('已新增老師')
   await expect(dialog.getByTestId('temporary-password')).toHaveCount(0)
   await dialog.getByRole('button', { name: '關閉' }).click()
 
@@ -152,11 +157,9 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   await admin.getByRole('table', { name: '帳號列表' }).getByRole('row').filter({ hasText: email }).getByRole('button', { name: /^發臨時密碼給/ }).click()
   const temp = admin.getByRole('dialog', { name: '發臨時密碼' })
   await expect(temp).toContainText('老師')
-  await expect(temp.getByLabel('當面核對身分證件（教職員證、身分證）')).toBeVisible()
-  await expect(temp).not.toContainText('學生證')
-  await temp.getByLabel('經校方授權人員透過既有可信管道確認').check()
-  await temp.getByLabel(/怎麼確認的說明/).fill('系主任秘書以系上分機回撥確認')
-  // C2-10：發臨時密碼的核實方式伺服器一律記 office_review，不再因為校方管道沒寫說明而擋下（畫面的詢問由 C2-11 拿掉）。
+  // C2-11：發臨時密碼不再問怎麼確認是本人（伺服器一律記 office_review）。
+  await expect(temp).not.toContainText('怎麼確認')
+  await expect(temp.getByRole('radio')).toHaveCount(0)
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   const secret = (await temp.getByTestId('temporary-password').innerText()).trim()
   await temp.getByRole('button', { name: '關閉' }).click()
@@ -165,9 +168,7 @@ test('1：預授權只用 Email；別人拿同一個 Email 註冊被拒；系辦
   await signIn(teacher, email, secret)
   await changePassword(teacher, secret)
   await expect(teacher).toHaveURL(/\/account\/setup$/)
-  // 預授權沒填姓名：不把 Email 當成姓名預填。
-  await expect(teacher.getByLabel('姓名')).toHaveValue('')
-  await teacher.getByLabel('姓名').fill('陳預授權老師')
+  await expect(teacher.getByLabel('姓名')).toHaveValue('陳預授權老師')
   await teacher.getByRole('button', { name: '儲存並進入老師首頁' }).click()
   await expect(teacher).toHaveURL(/\/dashboard\/teacher$/)
   await teacher.context().close()
@@ -197,22 +198,19 @@ test('2＋3：替待審學生發臨時密碼 → 舊登入被登出、舊密碼�
     .getByRole('table', { name: '帳號列表' })
     .getByRole('row')
     .filter({ hasText: session.email })
-    .getByRole('button', { name: /^發臨時密碼給/ })
+    .getByRole('button', { name: /^寄重設密碼信給/ })
     .click()
+  // C2-11：有密碼的人先是「寄重設密碼信」，信收不到才從視窗裡改發臨時密碼，而且不問怎麼確認是本人。
+  await admin.getByRole('dialog', { name: '寄重設密碼信' }).getByRole('button', { name: '改發臨時密碼' }).click()
   const temp = admin.getByRole('dialog', { name: '發臨時密碼' })
   await expect(temp).toContainText('待審核')
-
-  // 沒選核實方式不送。
-  await temp.getByRole('button', { name: '產生一次性密碼' }).click()
-  await expect(temp.getByRole('alert')).toContainText('發臨時密碼前一定要核實本人')
-  await temp.getByLabel('當面核對學生證或其他身分證件').check()
+  await expect(temp).not.toContainText('怎麼確認')
   await temp.getByLabel(/理由/).fill('忘記密碼，到系辦櫃台')
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   const first = (await temp.getByTestId('temporary-password').innerText()).trim()
 
   // 重新核發：新的一組，舊的那組失效。
   await temp.getByRole('button', { name: '重新核發' }).click()
-  await temp.getByLabel('當面核對學生證或其他身分證件').check()
   await temp.getByRole('button', { name: '產生一次性密碼' }).click()
   const second = (await temp.getByTestId('temporary-password').innerText()).trim()
   expect(second).not.toBe(first)

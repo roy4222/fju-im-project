@@ -1,9 +1,11 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createItemInDialog, formReady } from './create-item'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
  * A-14（Q198）：規則章節上下移。驗收 AC-A-38、39、40（前台半段）、50。
+ * C1-08（C 階段規格① §4.4）：一頁章節卡＋原生拖曳整批排序＋就地展開編輯（AC-13）；上移／下移保留，上面的案例照舊。
  *
  * 系辦在「公告與作業」的「專題規則」分頁：列依章節位置排，每列多「上移」「下移」（首尾停用）；按完前台 `/rules`
  * 的目錄跟著換。草稿章節在系辦清單裡佔位置、前台看不到，所以跟草稿交換時前台順序不變。
@@ -54,26 +56,10 @@ async function asAdmin(page: Page) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
 }
 
-/** 三步驟快速建立一章公開的規則：發布，或在第 3 步「先存成草稿」。 */
+/** 清單「新增公告」→ 選「專題規則」→ 一頁式表單建立一章公開的規則：發布，或「儲存（先不發布）」（C1-06 共用表單）。 */
 async function quickRule(page: Page, code: string, n: number, publish: boolean) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohorts[code]}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /專題規則/ }).check()
-  await dialog.getByLabel('標題').fill(title(code, n))
-  await dialog.getByLabel('誰看得到').selectOption('public')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill(`第 ${n} 章的規則內容。`)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  if (publish) {
-    await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
-    await dialog.getByRole('button', { name: '發布', exact: true }).click()
-    await expect(dialog.getByRole('status')).toContainText(`「${title(code, n)}」已發布`)
-  } else {
-    await dialog.getByRole('button', { name: '先存成草稿' }).click()
-    await expect(dialog).toBeHidden()
-  }
+  await createItemInDialog(page, { kind: /專題規則/, title: title(code, n), body: `第 ${n} 章的規則內容。`, publish })
 }
 
 async function openRulesFilter(page: Page, code: string) {
@@ -188,4 +174,82 @@ test('AC-A-38：四章都已發布，第 3 章下移 → 系辦與前台第 3、
   await expect(row(page, FOUR, 4).getByRole('button', { name: `下移「${title(FOUR, 4)}」` })).toBeEnabled()
   await page.screenshot({ path: test.info().outputPath('rules-admin-after.png'), fullPage: true })
   expect(await publicOrder(page, FOUR)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+})
+
+/** 第 `n` 章的拖柄拖到第 `m` 章那張卡上（原生 HTML5 drag）。 */
+async function dragOnto(page: Page, code: string, n: number, m: number) {
+  await row(page, code, n).getByTestId('rule-drag-handle').dragTo(row(page, code, m))
+}
+
+test('AC-13：把第 3 張卡拖到第 1 → 卡片順序即時變、重新整理仍是新順序、前台跟著變', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  expect(await adminOrder(page, FOUR)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+  expect(await publicOrder(page, FOUR)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+  await page.screenshot({ path: test.info().outputPath('rules-public-before-drag.png'), fullPage: true })
+
+  await openRulesFilter(page, FOUR)
+  await dragOnto(page, FOUR, 4, 1)
+  // 放下那一刻畫面就換（不等伺服器）；之後伺服器回一句話。
+  expect(await adminOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+  await expect(page.getByTestId('pin-feedback')).toHaveText('已更新章節順序，前台專題規則的順序同步更新。')
+  // 上下移的停用跟著新順序。
+  await expect(row(page, FOUR, 4).getByRole('button', { name: `上移「${title(FOUR, 4)}」` })).toBeDisabled()
+  await expect(row(page, FOUR, 1).getByRole('button', { name: `上移「${title(FOUR, 1)}」` })).toBeEnabled()
+
+  await page.reload()
+  expect(await adminOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+  const positions = await pool.query<{ title: string; rules_position: number }>(
+    `select title, rules_position from managed_items where cohort_id = $1 and deleted_at is null order by rules_position`,
+    [cohorts[FOUR]],
+  )
+  expect(positions.rows.map((r) => [r.title.replace(`${FOUR} `, ''), r.rules_position])).toEqual([
+    ['第4章', 1],
+    ['第1章', 2],
+    ['第2章', 3],
+    ['第3章', 4],
+  ])
+  await page.screenshot({ path: test.info().outputPath('rules-admin-after-drag.png'), fullPage: true })
+  expect(await publicOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+  await page.screenshot({ path: test.info().outputPath('rules-public-after-drag.png'), fullPage: true })
+})
+
+test('AC-13：第 2 張卡「編輯」就地展開、改章名「儲存更新」→ 前台章名跟著變；展開另一章時前一章有未存改動會問一句', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  expect(await adminOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+
+  // 沒改東西時換章不問。
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  await formReady(row(page, FOUR, 2))
+  await row(page, FOUR, 3).getByRole('button', { name: `編輯：${title(FOUR, 3)}` }).click()
+  await expect(page.getByRole('dialog', { name: '放棄未儲存的修改？' })).toBeHidden()
+  await formReady(row(page, FOUR, 3))
+  // 一次只展開一章。
+  await expect(page.getByTestId('item-form')).toHaveCount(1)
+
+  // 第 2 張卡（第 1 章）：就地展開，沒有右欄預覽、沒有對象欄。
+  await row(page, FOUR, 1).getByRole('button', { name: `編輯：${title(FOUR, 1)}` }).click()
+  const card = row(page, FOUR, 1)
+  const form = await formReady(card)
+  await expect(form).toHaveAttribute('data-layout', 'inline')
+  await expect(form.getByLabel('對象（誰看得到）')).toHaveCount(0)
+  const renamed = `${FOUR} 第1章改名`
+  await form.getByLabel('標題', { exact: true }).fill(renamed)
+
+  // 有未存改動 → 展開別章前先問；「繼續編輯」留在原章、改的字還在。
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  const ask = page.getByRole('dialog', { name: '放棄未儲存的修改？' })
+  await expect(ask).toBeVisible()
+  await expect(ask).toContainText(`「${title(FOUR, 1)}」還有沒儲存的修改，要放棄嗎？`)
+  await ask.getByRole('button', { name: '繼續編輯' }).click()
+  await expect(ask).toBeHidden()
+  await expect(form.getByLabel('標題', { exact: true })).toHaveValue(renamed)
+
+  await form.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page.getByTestId('pin-feedback')).toHaveText('已更新')
+  await expect(page.getByTestId('item-form')).toHaveCount(0)
+  await expect.poll(() => adminOrder(page, FOUR)).toEqual(['第4章', '第1章改名', '第2章', '第3章'])
+  expect(await publicOrder(page, FOUR)).toEqual(['第4章', '第1章改名', '第2章', '第3章'])
+  await page.screenshot({ path: test.info().outputPath('rules-public-after-edit.png'), fullPage: true })
 })

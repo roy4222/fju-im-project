@@ -1,4 +1,4 @@
-import type { ItemListRow, Placement } from '@/application/items'
+import type { ItemListRow, ItemStatus, Placement, ReceiverUnit } from '@/application/items'
 import type { AffairRow } from '@/app/dashboard/admin/affairs/affairs-list'
 import { AUDIENCE_LABEL, collectsResponses, ITEM_STATUS_LABEL, PLACEMENT_LABEL, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { formatTaipeiDate, formatTaipeiMinute, isDeadlinePassed, taipeiDateOf } from '@/shared/time'
@@ -83,7 +83,7 @@ export function toAffairRow(
     status: r.status,
     statusLabel: ITEM_STATUS_LABEL[r.status],
     visibility: r.audienceKind === 'public' ? '網際網路公開' : '登入後可見',
-    audience: r.audienceKind === 'groups' ? `指定組別：${r.audienceGroupCodes.join('、') || '（還沒選）'}` : AUDIENCE_LABEL[r.audienceKind],
+    audience: audienceText(r),
     // 原型這一欄只寫日期；截止多寫到分鐘（23:59 截止跟 00:00 截止差一天）。
     date: r.dueAt ? formatTaipeiMinute(r.dueAt) : r.actualOpenedAt ? formatTaipeiDate(taipeiDateOf(r.actualOpenedAt)) : '—',
     isDue: r.dueAt !== null,
@@ -104,4 +104,44 @@ export function toAffairRow(
     canPin: r.placement === 'news' && r.status === 'published',
     move: extra.move ?? null,
   }
+}
+
+/** 「對象」欄：指定組別列出組代號，其他用對象名稱。 */
+export function audienceText(r: Pick<ItemListRow, 'audienceKind' | 'audienceGroupCodes'>): string {
+  return r.audienceKind === 'groups' ? `指定組別：${r.audienceGroupCodes.join('、') || '（還沒選）'}` : AUDIENCE_LABEL[r.audienceKind]
+}
+
+/** 個人一份數人、整組一份數組。 */
+export function unitWord(unit: ReceiverUnit): '人' | '組' {
+  return unit === 'group' ? '組' : '人'
+}
+
+/** 一份收件的回答事實（名單上任何一列：含免繳、已移出）：幾位／組正式送出過、有沒有人存過草稿。 */
+export type ResponseFacts = { readonly submitted: number; readonly started: boolean }
+
+export function responseFactsOf(entries: readonly { readonly latestVersionNo: number | null; readonly hasDraft: boolean }[]): ResponseFacts {
+  return {
+    submitted: entries.filter((e) => e.latestVersionNo !== null).length,
+    started: entries.some((e) => e.hasDraft || e.latestVersionNo !== null),
+  }
+}
+
+/** 發布中不能刪（C1-07 AC-9：畫面自己的字；伺服器的 `deleteCheck` 訊息不改）。 */
+export const DELETE_PUBLISHED_TEXT = '發布中，先下架才能刪'
+
+/**
+ * 清單「刪除」鈕上的原因（AC-9；規則同 `deleteCheck`：發布中不行、有任何回答不行）。可以刪回 null。
+ * `responses`：收件才給（草稿沒有名單、不是收件都給 null）。
+ */
+export function deleteBlockedText(status: ItemStatus, responses: ResponseFacts | null, unit: ReceiverUnit): string | null {
+  if (status === 'published') return DELETE_PUBLISHED_TEXT
+  if (!responses) return null
+  if (responses.submitted > 0) return `已有 ${responses.submitted} ${unitWord(unit)}交件，不能刪`
+  if (responses.started) return '已有人開始填寫，不能刪'
+  return null
+}
+
+/** 作業清單的繳交進度字（AC-9「3／8 組已交」）。 */
+export function progressText(done: number, required: number, unit: ReceiverUnit): string {
+  return `${done}／${required} ${unitWord(unit)}已交`
 }

@@ -6,7 +6,7 @@
  * 選哪一個轉接器只在 `composition/mail.ts` 決定。
  */
 
-export type MailTemplate = 'email_otp' | 'password_reset' | 'registration_result'
+export type MailTemplate = 'email_otp' | 'password_reset' | 'registration_result' | 'reminder'
 
 export type MailMessage = {
   readonly to: string

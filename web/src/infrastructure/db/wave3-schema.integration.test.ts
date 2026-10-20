@@ -273,7 +273,7 @@ describe('AC-2：資料庫擋住不合規的刪除與第二列首頁設定', () 
     const eventId = event.rows[0]!.id
     await expect(
       app.query(`update project_events set deleted_at = now(), deleted_by_user_id = $2 where id = $1`, [eventId, userId]),
-    ).rejects.toThrow(/project_events_deleted_check/)
+    ).resolves.toMatchObject({ rowCount: 1 })
     await app.query(`update project_events set status = 'cancelled' where id = $1`, [eventId])
     await expect(
       app.query(`update project_events set deleted_at = now(), deleted_by_user_id = $2 where id = $1`, [eventId, userId]),

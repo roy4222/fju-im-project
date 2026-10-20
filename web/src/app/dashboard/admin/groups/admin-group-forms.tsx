@@ -151,13 +151,13 @@ export function VoidProposalButton({
         <form action={formAction} className="space-y-4 p-5">
           <h2 className={DIALOG_TITLE}>作廢{label}？</h2>
           <p className="text-sm text-muted-foreground">
-            作廢後這次組隊不會成立，大家都可以重新組隊。理由只留在系辦紀錄，學生的通知只會說「管理員作廢」。
+            作廢後這次組隊不會成立，大家都可以重新組隊。理由只留在系辦紀錄，學生的通知只會說「系辦終止」。
           </p>
           <input type="hidden" name="proposalId" value={proposalId} />
           <input type="hidden" name="requestId" value={requestId} />
           <div>
             <label htmlFor={`void-reason-${proposalId}`} className={LABEL}>
-              理由（必填）
+              理由（可不填）
             </label>
             <textarea
               id={`void-reason-${proposalId}`}

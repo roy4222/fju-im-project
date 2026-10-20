@@ -13,7 +13,16 @@ export type {
   Role,
 } from '@/application/accounts/actor'
 export { ANONYMOUS, canPerform, hasRole, statusGate } from '@/application/accounts/actor'
-export type { ActorResolver, AvatarCommand } from '@/application/accounts/ports'
+export type { ActorResolver, AvatarCommand, ProfileCardCommand, ProfileCardQuery } from '@/application/accounts/ports'
+export type { ProfileCard, ProfileCardInput } from '@/application/accounts/profile-card'
+export {
+  BIO_MAX_LENGTH,
+  normalizeProfileCard,
+  SKILL_MAX_COUNT,
+  SKILL_MAX_LENGTH,
+  SKILL_PRESETS,
+  textLength,
+} from '@/application/accounts/profile-card'
 export type { AvatarChoice, AvatarUser } from '@/application/accounts/avatar'
 export { AVATAR_MAX_BYTES, AVATAR_PRESET_COUNT, avatarHashPreset, avatarUrl } from '@/application/accounts/avatar'
 export {
@@ -115,7 +124,12 @@ export {
 export type {
   AccountCommand,
   AccountLookup,
+  MemberReceipt,
+  NewMemberInput,
+  NewMemberKind,
+  NormalizedNewMember,
   NormalizedTeacherAccount,
+  StudentAccountReceipt,
   TeacherAccountInput,
   TeacherAccountReceipt,
   TeacherCreatedWithSecret,
@@ -124,15 +138,18 @@ export type {
   TeacherProfileView,
   TeacherSetupCommand,
   TemporaryPasswordReceipt,
-} from '@/application/accounts/teachers'
+} from '@/application/accounts/members'
 export {
   accountAdminDenied,
+  NEW_MEMBER_KINDS,
+  NEW_STUDENT_FIELDS_REQUIRED,
+  normalizeNewMember,
   normalizeTeacherAccountInput,
   normalizeTeacherProfile,
   normalizeTemporaryPasswordRequest,
   TEACHER_NAME_MAX_LENGTH,
   teacherSetupDenied,
-} from '@/application/accounts/teachers'
+} from '@/application/accounts/members'
 export type {
   AccountDirectoryCommand,
   AccountRow,

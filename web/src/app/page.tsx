@@ -3,14 +3,16 @@ import type { ReactNode } from 'react'
 import { IconArrowRight, IconBook2, IconClock, IconKey, IconLayoutGrid, IconMail, IconPin, IconTrophy } from '@tabler/icons-react'
 import { redirect } from 'next/navigation'
 import { EMAIL_VERIFY_PATH, homeForUser, isRegistrationOpen } from '@/composition/accounts'
+import { feItem, feSection, frontEditScope, type FrontEditScope } from '@/app/_ui/front-edit/mark'
 import { homeFor, renderActor } from '@/app/_ui/guard'
+import type { QuickCardKey, SiteTexts } from '@/application/site'
 import { AwardBadge, FirstCharAccent, imageSrc, ListEmpty, ListItem, NewsCard, Tag, publishedDate } from '@/app/_ui/public-content'
-import { SITE_CONTACT } from '@/app/_ui/site-contact'
+import { resolveSiteContact } from '@/app/_ui/site-contact'
 import { isMember, SiteShell } from '@/app/_ui/site-shell'
 import { cohortLabel, formatActivityWhen, getBusinessClock, getTimelineQuery } from '@/composition/cohorts'
 import { COMPETITION_CATEGORY, competitionStatus, getPublicItemQuery } from '@/composition/items'
 import { getPublicShowcaseQuery } from '@/composition/showcase'
-import { getHomeSettingsQuery, resolveHome } from '@/composition/site'
+import { getHomeSettingsQuery, loadSiteTexts, resolveHome } from '@/composition/site'
 import { cn } from '@/shared/cn'
 import { formatTaipeiDate, taipeiDateOf } from '@/shared/time'
 
@@ -37,13 +39,17 @@ export default async function HomePage() {
   if (actor.kind === 'authenticated' && home === '/register/pending' && (await homeForUser(actor.userId)) === EMAIL_VERIFY_PATH) {
     redirect(EMAIL_VERIFY_PATH)
   }
+  // 前台編輯標記（C2-16）：只有系辦經 /office-edit 改寫進來才有，其他人是空物件（HTML 不變）。
+  const fe = await frontEditScope()
   const items = getPublicItemQuery()
   // 優秀專題、榮譽榜、競賽資訊：跟各自的前台頁（/projects/featured、/honors、/competitions）同一份查詢，首頁只取前幾筆。
   // 競賽狀態跟 /competitions 同一套規則、同一個「今天」（業務鐘）：報名中／決賽／已結束。
   const today = taipeiDateOf(await getBusinessClock().now())
-  const [hero, latest, featured, featuredCohorts, honors, competitions, activities] = await Promise.all([
+  const [heroRow, texts, latest, featured, featuredCohorts, honors, competitions, activities] = await Promise.all([
     // 首頁大圖與兩行標語（第三波 W3「首頁設定」）：存了就生效；沒設定或恢復預設時跟改版前一字不差。
-    getHomeSettingsQuery().current().then(resolveHome),
+    getHomeSettingsQuery().current(),
+    // 三張快速入口卡的標題與說明、第三張卡的聯絡資料（C2-17 `site_texts`）；跟頁尾同一份查詢（同次 render 只查一次）。
+    loadSiteTexts(),
     items.list(actor, 'news', { limit: 6 }),
     getPublicShowcaseQuery().featured(),
     // 公開卡不帶屆別名稱（白名單）；跟 /projects/featured 一樣另查屆別清單，卡片標「第 43 屆（115）」。
@@ -55,6 +61,7 @@ export default async function HomePage() {
     // 近期活動（設計方案 D-4）：系辦設成「公開」、還沒結束的活動，訪客也看得到；結束了自然消失。
     getTimelineQuery().publicActivities(4),
   ])
+  const hero = resolveHome(heroRow)
   const featuredCohortName = new Map(featuredCohorts.map((c) => [c.code, c.name]))
   const featuredCohortLabel = (code: string) => {
     const name = featuredCohortName.get(code)
@@ -77,7 +84,17 @@ export default async function HomePage() {
   return (
     <SiteShell bare>
       {/* Hero：校園照片疊深藍漸層（系網首屏是照片，不是文字 hero）。 */}
-      <section className="relative overflow-hidden bg-ink text-ink-foreground" aria-label="專題管理平台">
+      <section
+        className="relative overflow-hidden bg-ink text-ink-foreground"
+        aria-label="專題管理平台"
+        {...feItem(fe, {
+          kind: 'hero',
+          id: 'home',
+          rev: heroRow?.revision ?? 0,
+          // 表單預填存在資料庫的值（沒設定就空白＝用預設），不是畫面上解出來的預設字。
+          fields: { title: '首頁橫幅', heroFileId: heroRow?.heroFileId ?? '', heroAlt: heroRow?.heroAlt ?? '', line1: heroRow?.line1 ?? '', line2: heroRow?.line2 ?? '' },
+        })}
+      >
         {/* 照片不走 next/image：它會輸出被正式站 CSP 擋的 style 屬性。自訂圖的 alt 是系辦填的圖片說明；預設圖是裝飾。
             首屏圖不 lazy、提早抓；寬高只是比例提示，實際大小由 CSS 決定（第 1 批 §3.5）。 */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -90,7 +107,8 @@ export default async function HomePage() {
           fetchPriority="high"
           data-testid="home-hero-image"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden />
+        {/* `data-home-pixel`：頁首在漸層後面插入橫幅 Pixel（`fx/home-hero-pixel.tsx`），首頁本身不帶前端元件。 */}
+        <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/55 to-ink/15" aria-hidden data-home-pixel />
         <div className="relative mx-auto flex min-h-[440px] max-w-6xl flex-col justify-center gap-5 px-5 py-16 md:min-h-[520px]">
           <span className="inline-flex items-center gap-2.5 text-[15px] font-bold tracking-widest opacity-90">
             <span className="inline-block h-0.75 w-7 bg-primary" aria-hidden />
@@ -114,7 +132,7 @@ export default async function HomePage() {
       </section>
 
       {/* 最新公告：灰藍標題板＋左兩張照片卡＋右側列表（系網招生訊息版型）。 */}
-      <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-news">
+      <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-news" {...feSection(fe, { label: '最新公告', add: 'news' })}>
         <PanelTitle id="home-news" title="最新公告" action={{ href: '/news', label: '查看更多' }} />
 
         {latest.length === 0 ? (
@@ -150,12 +168,12 @@ export default async function HomePage() {
 
       {/* 近期活動：沒有公開活動時整區不出現（不放空狀態）；活動沒有詳情頁，不做連結。 */}
       {activities.length > 0 ? (
-        <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-activities">
+        <section className="mx-auto max-w-6xl px-5 pt-16 md:pt-20" aria-labelledby="home-activities" {...feSection(fe, { label: '近期活動', add: 'activity' })}>
           <PanelTitle id="home-activities" title="近期活動" />
           {/* 標題第一個字另外上色會拆開字串；清單自己帶完整名稱（輔助科技與 `curl | grep 近期活動` 都認得）。 */}
           <ul className="mt-10 grid gap-6 sm:grid-cols-2" data-testid="home-activities-list" aria-label="近期活動">
             {activities.map((a) => (
-              <li key={a.id} className="fju-list-item flex flex-col gap-1.5 py-1.5">
+              <li key={a.id} className="fju-list-item flex flex-col gap-1.5 py-1.5" {...feItem(fe, { kind: 'activity', id: a.id, fields: { title: a.title }, del: true })}>
                 <span className="text-[17px] leading-snug font-bold text-foreground">{a.title}</span>
                 <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground tabular-nums">
                   <IconClock className="size-3.5" aria-hidden />
@@ -169,7 +187,7 @@ export default async function HomePage() {
       ) : null}
 
       {member ? (
-        <section className="mt-24 bg-muted/50 py-20" aria-labelledby="home-archive">
+        <section className="mt-24 bg-muted/50 py-20" aria-labelledby="home-archive" {...feSection(fe, { label: '歷屆專題一覽' })}>
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
             <div className="flex flex-col items-center gap-2 text-center">
               <SectionTitle id="home-archive">歷屆專題一覽</SectionTitle>
@@ -186,7 +204,7 @@ export default async function HomePage() {
               <>
                 <ul className="grid w-full gap-6 sm:grid-cols-2 lg:grid-cols-3" data-testid="home-archive-list">
                   {archiveCards.map((p) => (
-                    <li key={p.id}>
+                    <li key={p.id} {...feItem(fe, { kind: 'showcase', id: p.id, fields: { title: p.title } })}>
                       <PhotoCard
                         href={`/projects/${encodeURIComponent(p.id)}`}
                         image={imageSrc(p.id, p.posterFileId)}
@@ -212,7 +230,7 @@ export default async function HomePage() {
       ) : null}
 
       {/* 優秀專題（系網得獎焦點）。 */}
-      <section className={cn('py-20', member ? '' : 'mt-24 bg-muted/50')} aria-labelledby="home-featured">
+      <section className={cn('py-20', member ? '' : 'mt-24 bg-muted/50')} aria-labelledby="home-featured" {...feSection(fe, { label: '優秀專題' })}>
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-9 px-5">
           <SectionTitle id="home-featured">優秀專題</SectionTitle>
           {featured.length === 0 ? (
@@ -231,7 +249,7 @@ export default async function HomePage() {
                 aria-label="優秀專題（手機可左右滑動）"
               >
                 {featured.slice(0, 4).map((p) => (
-                  <li key={p.id} className="w-full shrink-0 snap-start md:w-auto">
+                  <li key={p.id} className="w-full shrink-0 snap-start md:w-auto" {...feItem(fe, { kind: 'showcase', id: p.id, fields: { title: p.title } })}>
                     <PhotoCard
                       href={`/projects/featured?item=${encodeURIComponent(p.id)}`}
                       image={imageSrc(p.id, p.posterFileId)}
@@ -259,7 +277,7 @@ export default async function HomePage() {
       </section>
 
       {/* 榮譽與競賽：左大照片＋右標題板與列表（系網產業實習的鏡射）。 */}
-      <section className="mt-4" aria-labelledby="home-honors">
+      <section className="mt-4" aria-labelledby="home-honors" {...feSection(fe, { label: '榮譽與競賽', add: 'honor' })}>
         <div className="grid lg:grid-cols-[minmax(0,1fr)_760px]">
           <div className="relative min-h-[240px] sm:min-h-[320px] lg:min-h-[520px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -319,9 +337,9 @@ export default async function HomePage() {
               目前沒有報名中的競賽。系辦發布競賽資訊後會出現在這裡。
             </div>
           ) : (
-            <ul className="grid gap-4 md:grid-cols-3" data-testid="home-competitions">
+            <ul className="grid gap-4 md:grid-cols-3" data-testid="home-competitions" {...feSection(fe, { label: '進行中的競賽', add: 'news' })}>
               {competitionCards.map((c) => (
-                <li key={c.id}>
+                <li key={c.id} {...feItem(fe, { kind: 'news', id: c.id, fields: { title: c.title }, del: true })}>
                   <Link
                     href={`/news/${c.id}`}
                     className="flex h-full flex-col gap-1.5 rounded-[10px] border border-border bg-card p-4.5 transition-colors hover:border-primary"
@@ -348,7 +366,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <QuickLinks home={home} member={member} registrationOpen={isRegistrationOpen()} />
+      <QuickLinks home={home} member={member} registrationOpen={isRegistrationOpen()} fe={fe} texts={texts} />
     </SiteShell>
   )
 }
@@ -429,7 +447,9 @@ function PanelTitle({
     <div
       className={cn(
         'fju-panel-title w-full max-w-[520px] px-6 py-5 md:px-10 md:py-6',
-        side === 'left' ? 'rounded-tr-[40px] md:-ml-10' : 'self-end rounded-tl-[40px] lg:-mr-10',
+        // 左側出血只在 xl（≥1280）：版心 1152 兩側各有 ≥64 px，外推 40 px 仍在 main 內；更窄時會撐出橫向捲軸（走查 11、12）。
+        // 右側不出血：「榮譽與競賽」在鋪滿全寬的格線裡，右欄本來就貼齊畫面右緣，再外推一定超出。
+        side === 'left' ? 'rounded-tr-[40px] xl:-ml-10' : 'self-end rounded-tl-[40px]',
       )}
     >
       <h2 id={id} className="type-section">
@@ -446,7 +466,20 @@ function PanelTitle({
 }
 
 /** 頁尾前的三欄快速入口（原型 `home-blocks` 的 QuickLinks；只連已經有的頁）。 */
-function QuickLinks({ home, member, registrationOpen }: { home: string | null; member: boolean; registrationOpen: boolean }) {
+function QuickLinks({
+  home,
+  member,
+  registrationOpen,
+  fe,
+  texts,
+}: {
+  home: string | null
+  member: boolean
+  registrationOpen: boolean
+  fe: FrontEditScope
+  texts: SiteTexts
+}) {
+  const contact = resolveSiteContact(texts.footer_contact?.value)
   const cols: { icon: ReactNode; title: string; links: { label: string; href: string }[]; note?: string }[] = [
     {
       icon: <IconBook2 className="size-5.5" aria-hidden />,
@@ -490,14 +523,22 @@ function QuickLinks({ home, member, registrationOpen }: { home: string | null; m
       icon: <IconMail className="size-5.5" aria-hidden />,
       title: '系辦聯絡',
       links: [
-        // 聯絡資料只寫在 `site-contact.ts` 一份（頁尾、忘記密碼頁、產學頁同一份）。
-        { label: SITE_CONTACT.address, href: SITE_CONTACT.siteHref },
-        { label: `電話 ${SITE_CONTACT.phone}`, href: SITE_CONTACT.phoneHref },
-        { label: `系網 ${SITE_CONTACT.siteLabel}`, href: SITE_CONTACT.siteHref },
+        // 聯絡資料跟頁尾同一份（`site_texts.footer_contact`，沒有就是 `site-contact.ts` 的預設）。
+        { label: contact.address, href: contact.siteHref },
+        { label: `電話 ${contact.phone}`, href: contact.phoneHref },
+        ...(contact.siteLabel ? [{ label: `系網 ${contact.siteLabel}`, href: contact.siteHref }] : []),
       ],
-      note: `${SITE_CONTACT.slogan}${SITE_CONTACT.industryNote}`,
+      note: `${contact.slogan}${contact.industryNote}`,
     },
   ]
+  // 三張卡的標題與說明都可改（`site_texts.quick_card_1..3`，Q-C2-4）：改過就蓋掉程式內預設；連結與按鈕仍由登入狀態決定。
+  const cards = cols.map((c, index) => {
+    const key = `quick_card_${index + 1}` as QuickCardKey
+    const row = texts[key]
+    const title = row?.value.title ?? c.title
+    const note = row ? row.value.description || undefined : c.note
+    return { ...c, key, title, note, rev: row?.revision ?? 0 }
+  })
   return (
     <section className="relative mt-24 overflow-hidden bg-background" aria-label="快速入口">
       {/* 原型：淡化的建築照（約三成），只在上下緣淡進背景。在頁面最底、只是裝飾，捲到附近才載入，不跟首屏搶頻寬；
@@ -514,8 +555,14 @@ function QuickLinks({ home, member, registrationOpen }: { home: string | null; m
       />
       <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-transparent to-background/80" aria-hidden />
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 py-18 md:grid-cols-3">
-        {cols.map((c) => (
-          <div key={c.title} className="flex flex-col gap-3.5">
+        {cards.map((c) => (
+          // 三張卡都可以改標題與說明；隨登入狀態變的連結不在表單裡（§6.3，Q-C2-4）。
+          <div
+            key={c.key}
+            className="flex flex-col gap-3.5"
+            data-testid={c.key}
+            {...feItem(fe, { kind: 'quick_card', id: c.key, rev: c.rev, fields: { title: c.title, description: c.note ?? '' } })}
+          >
             <div className="flex items-center gap-3 rounded-[10px] bg-card px-5 py-4 shadow-[0_2px_10px_rgba(0,51,102,0.08)]">
               <span className="text-primary">{c.icon}</span>
               <span className="text-xl font-bold">{c.title}</span>

@@ -76,7 +76,7 @@ export const ADMIN_NAV: readonly NavItem[] = [
     icon: 'groups',
     activeFor: ['/dashboard/admin/groups/unassigned', '/dashboard/admin/industry'],
   },
-  // 成績：成績表、評分規則、評分老師、結算；同意書不在分頁列，路由留著也亮這一項。
+  // 成績：成績表、評分規則、評分老師、結算。舊同意書網址（C2-22 起轉到作業分頁）保留在 activeFor，舊書籤轉走前仍亮這一項。
   {
     href: '/dashboard/admin/grading',
     label: '成績',
@@ -101,7 +101,7 @@ export const ADMIN_NAV: readonly NavItem[] = [
     href: '/dashboard/admin/cohorts',
     label: '設定',
     icon: 'settings',
-    activeFor: ['/dashboard/admin/timeline', '/dashboard/admin/audit', '/dashboard/admin/clock', '/dashboard/admin/home-settings'],
+    activeFor: ['/dashboard/admin/timeline', '/dashboard/admin/audit', '/dashboard/admin/clock'],
   },
 ]
 
@@ -143,6 +143,7 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/cohorts', role: 'admin' },
   { path: '/dashboard/admin/timeline', role: 'admin' },
   { path: '/dashboard/admin/groups', role: 'admin' },
+  { path: '/dashboard/admin/groups/[groupId]', role: 'admin' },
   // 專題事務工作台與完整編輯器（票 15）；既有項目的 `/dashboard/admin/editor/<id>` 與收件名單頁
   // `/dashboard/admin/affairs/<id>`（票 18，roster.spec 驗學生與老師被擋）同一個守衛。
   { path: '/dashboard/admin/affairs', role: 'admin' },
@@ -186,13 +187,11 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 合作案管理（票 20）。前台的 `/industry` 不在這裡：它是「登入後」內容，不分角色（頁面自己顯示登入提示）。
   { path: '/dashboard/teacher/industry', role: 'teacher' },
   { path: '/dashboard/admin/industry', role: 'admin' },
-  // 簽核與精選（票 25）；版本頁 `/dashboard/{admin,teacher}/signoff/<版本>` 同一個守衛。
-  { path: '/dashboard/admin/signoff', role: 'admin' },
+  // 簽核與精選（票 25）；老師版本頁 `/dashboard/teacher/signoff/<版本>` 同一個守衛。
+  // 系辦的 `/dashboard/admin/signoff` C2-22 起是轉址頁（到作業分頁），驗法移到 admin-redirects.spec。
   { path: '/dashboard/admin/showcase', role: 'admin' },
   // 操作紀錄（票 36）：誰、何時、對哪個對象、做了什麼、為什麼；只有管理員讀得到。
   { path: '/dashboard/admin/audit', role: 'admin' },
-  // 首頁設定（第三波 W3）：首頁大圖與兩行標語。
-  { path: '/dashboard/admin/home-settings', role: 'admin' },
   { path: '/dashboard/teacher/signoff', role: 'teacher' },
   { path: '/dashboard/student/signoff', role: 'student' },
 ]

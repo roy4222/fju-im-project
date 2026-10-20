@@ -1,5 +1,6 @@
 import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createItemInDialog, createItemOnPage, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -96,27 +97,28 @@ async function asAdmin(page: Page) {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
 }
 
-/** 用完整編輯器發布一則公告（預設公開）；競賽資訊另外填報名截止日與活動日。 */
+/** 用全頁共用表單（C1-06）發布一則公告（預設公開）；競賽資訊（進階設定）另外填報名截止日與活動日。 */
 async function publishNews(
   page: Page,
   title: string,
   options: { audience?: 'public' | 'cohort_students'; competition?: { deadline: string; event: string } } = {},
 ): Promise<string> {
   await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.locator('#ed-title').fill(title)
+  const form = await formReady(page)
+  await form.locator('#ed-title').fill(title)
   await page.locator('#ed-body').fill('置頂測試用的公告。')
-  await page.getByLabel('誰看得到').selectOption(options.audience ?? 'public')
+  await form.getByLabel('誰看得到').selectOption(options.audience ?? 'public')
   if (options.competition) {
-    await page.getByTestId('category-competition').click()
-    await page.getByLabel(/報名截止日/).fill(options.competition.deadline)
-    await page.getByLabel(/活動日/).fill(options.competition.event)
+    await openAdvanced(form)
+    await form.getByTestId('category-competition').click()
+    await form.getByLabel(/報名截止日/).fill(options.competition.deadline)
+    await form.getByLabel(/活動日/).fill(options.competition.event)
   }
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('已發布')
-  return (await itemByTitle(title)).id
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  const item = await itemByTitle(title)
+  expect(item.status).toBe('published')
+  return item.id
 }
 
 function affairRow(page: Page, title: string): Locator {
@@ -127,7 +129,9 @@ function affairRow(page: Page, title: string): Locator {
 async function togglePin(page: Page, title: string, pin: boolean) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
   const row = affairRow(page, title)
-  await row.getByRole('button', { name: pin ? `置頂「${title}」` : `取消置頂「${title}」` }).click()
+  // C1-07：置頂／取消置頂在列上的「⋯」裡（AC-10）。
+  await row.getByRole('button', { name: `更多動作：${title}` }).click()
+  await row.getByRole('menuitem', { name: pin ? `置頂「${title}」` : `取消置頂「${title}」` }).click()
   await expect(page.getByTestId('pin-feedback')).toHaveText(
     pin ? `「${title}」已置頂，前台公告與競賽資訊會排在最前面。` : `「${title}」已取消置頂。`,
   )
@@ -156,23 +160,12 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   await pool.query(`update managed_items set actual_opened_at = actual_opened_at - interval '3 days' where title = $1`, [A])
   await publishNews(page, B)
 
-  // 草稿 C：完整編輯器存草稿。
-  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.locator('#ed-title').fill(C)
-  await page.getByRole('button', { name: '存草稿' }).click()
-  await expect(page.getByRole('status')).toContainText('已存成草稿')
+  // 草稿 C：全頁共用表單「儲存（先不發布）」。
+  await createItemOnPage(page, cohortId, { title: C, publish: false })
 
-  // 發布中的榮譽 H：三步驟對話框選「榮譽／競賽」。
+  // 發布中的榮譽 H：清單「新增公告」選「榮譽／競賽」（C1-06 共用表單）。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增公告' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增公告' })
-  await dialog.getByRole('radio', { name: /榮譽／競賽/ }).check()
-  await dialog.getByLabel('標題').fill(H)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill('恭喜。')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${H}」已發布`)
+  await createItemInDialog(page, { kind: /榮譽／競賽/, title: H, body: '恭喜。' })
 
   const before = await itemByTitle(A)
   const versions = await count('select count(*) as n from item_versions where item_id = $1', [before.id])
@@ -181,7 +174,8 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   await togglePin(page, A, true)
   const row = affairRow(page, A)
   await expect(row.getByTestId('pinned-pill')).toHaveText('置頂')
-  await expect(row.getByRole('button', { name: `取消置頂「${A}」` })).toHaveText('取消置頂')
+  await row.getByRole('button', { name: `更多動作：${A}` }).click()
+  await expect(row.getByRole('menuitem', { name: `取消置頂「${A}」` })).toHaveText('取消置頂')
 
   const after = await itemByTitle(A)
   expect(after.pinned_at).not.toBeNull()
@@ -193,7 +187,8 @@ test('AC-V01、V02：系辦在工作台置頂發布中的公告；草稿與榮�
   // 草稿、榮譽、還沒置頂的 B：只有 B 有「置頂」。
   await expect(affairRow(page, C).getByRole('button', { name: /置頂/ })).toHaveCount(0)
   await expect(affairRow(page, H).getByRole('button', { name: /置頂/ })).toHaveCount(0)
-  await expect(affairRow(page, B).getByRole('button', { name: `置頂「${B}」` })).toBeVisible()
+  await affairRow(page, B).getByRole('button', { name: `更多動作：${B}` }).click()
+  await expect(affairRow(page, B).getByRole('menuitem', { name: `置頂「${B}」` })).toBeVisible()
 })
 
 test('AC-V03、V27①：訪客 /news 第一張是置頂的 A（帶「置頂」），B 第二；卡片圖都 lazy、有寬高', async ({ page }) => {
@@ -213,8 +208,9 @@ test('AC-V04：首頁最新公告第一張是 A（帶「置頂」），B 第二�
   await expect(cards.nth(0)).toContainText(A)
   await expect(cards.nth(0).getByTestId('pinned-tag')).toHaveText('置頂')
   await expect(cards.nth(1)).toContainText(B)
-  await expect(region.locator('ul')).not.toContainText(A)
-  await expect(region.locator('ul')).not.toContainText(B)
+  // 右側列表只在公告多於卡片數時才畫（資料庫裡別支 spec 的公告多寡會變）；沒有列表也算「不含」。
+  await expect(region.locator('ul').getByText(A)).toHaveCount(0)
+  await expect(region.locator('ul').getByText(B)).toHaveCount(0)
 })
 
 /** 首頁「進行中的競賽」每張卡是本題的哪一則（AC-V06）；別支 spec 的競賽記成 `other`。 */
@@ -362,12 +358,13 @@ test('AC-V09：編輯器開著 B 的時候在另一分頁置頂，回來改摘�
   await togglePin(other, B, true)
   await other.close()
 
+  const form = await formReady(page)
+  await openAdvanced(form)
   await page.locator('#ed-summary').fill('置頂之後改的摘要')
-  await page.getByRole('button', { name: '發布更新' }).click()
-  const update = page.getByRole('dialog', { name: '發布更新前檢查' })
-  await update.getByRole('checkbox', { name: /通知對象這次的修改/ }).uncheck()
-  await update.getByRole('button', { name: '確認更新' }).click()
-  await expect(update.getByRole('status')).toContainText('沒有發通知')
+  await form.getByRole('checkbox', { name: /通知對象這次的修改/ }).uncheck()
+  await form.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  expect(await count(`select count(*) as n from domain_events where type = 'item.updated' and source_id = $1`, [b.id])).toBe(0)
   const after = await pool.query<{ summary: string; pinned_at: Date | null }>('select summary, pinned_at from managed_items where id = $1', [b.id])
   expect(after.rows[0]!.summary).toBe('置頂之後改的摘要')
   expect(after.rows[0]!.pinned_at).not.toBeNull()

@@ -1,0 +1,4 @@
+{
+  "ticket": "C3-06",
+  "override": { "/dashboard/admin/timeline": { "from": "base", "value": "活動清單" } }
+}

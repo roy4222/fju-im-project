@@ -40,7 +40,8 @@ function admin(): ResolvedActor {
 const ACTIVITY: ActivityInput = {
   title: '活動',
   description: '',
-  date: '2099-01-01',
+  startDate: '2099-01-01',
+  endDate: '',
   allDay: false,
   startTime: '14:00',
   endTime: '16:00',
@@ -114,13 +115,13 @@ describe('activitiesFor：多屆活動一句查完（TE-07b）', () => {
   it('1 個屆別：跟 activities(id) 完全一樣（含已取消、不含已刪除、別屆的不混進來）', async () => {
     const mine = await newCohort()
     const other = await newCohort()
-    await create(mine, { title: '晚的', date: '2099-05-01' })
-    const cancelled = await create(mine, { title: '取消的', date: '2099-02-01' })
+    await create(mine, { title: '晚的', startDate: '2099-05-01' })
+    const cancelled = await create(mine, { title: '取消的', startDate: '2099-02-01' })
     await timeline.cancelActivity(admin(), cancelled, 1, randomUUID())
-    const removed = await create(mine, { title: '刪掉的', date: '2099-03-01' })
+    const removed = await create(mine, { title: '刪掉的', startDate: '2099-03-01' })
     await timeline.cancelActivity(admin(), removed, 1, randomUUID())
     await timeline.deleteActivity(admin(), removed, 2, randomUUID())
-    await create(mine, { title: '早的', date: '2099-01-01', audience: 'teachers' })
+    await create(mine, { title: '早的', startDate: '2099-01-01', audience: 'teachers' })
     await create(other, { title: '別屆的' })
 
     const { value, statements: n } = await counted(() => timelineQuery.activitiesFor([mine]))
@@ -132,11 +133,11 @@ describe('activitiesFor：多屆活動一句查完（TE-07b）', () => {
 
   it('3 個屆別：一句查完，結果跟逐屆查再合併排序一樣；重複的屆別 ID、格式不對的 ID 不影響', async () => {
     const [a, b, c, outside] = [await newCohort(), await newCohort(), await newCohort(), await newCohort()]
-    await create(a, { title: 'A-3 月', date: '2099-03-01' })
-    await create(b, { title: 'B-1 月', date: '2099-01-01', audience: 'signed_in' })
-    await create(c, { title: 'C-2 月', date: '2099-02-01', allDay: true, startTime: '', endTime: '' })
-    await create(a, { title: 'A-4 月', date: '2099-04-01', audience: 'teachers' })
-    await create(outside, { title: '不在名單', date: '2099-01-15' })
+    await create(a, { title: 'A-3 月', startDate: '2099-03-01' })
+    await create(b, { title: 'B-1 月', startDate: '2099-01-01', audience: 'signed_in' })
+    await create(c, { title: 'C-2 月', startDate: '2099-02-01', allDay: true, startTime: '', endTime: '' })
+    await create(a, { title: 'A-4 月', startDate: '2099-04-01', audience: 'teachers' })
+    await create(outside, { title: '不在名單', startDate: '2099-01-15' })
 
     const { value, statements: n } = await counted(() => timelineQuery.activitiesFor([a, b, c, a, 'not-a-uuid']))
     expect(n).toBe(1)

@@ -124,6 +124,15 @@ describe('EventPublisher.publish', () => {
     expect(await count('select count(*) as n from event_projections where event_id = $1', [withoutConsumer.eventId])).toBe(0)
   })
 
+  it('C3-05 新登記的三種事件（合作案待確認、婉拒、專題時程更新）都有通知消費者', async () => {
+    for (const type of ['opportunity.link_requested', 'opportunity.link_declined', 'timeline.stage_changed'] as const) {
+      const { eventId } = await inAppTransaction((tx) => publisher.publish(tx, event({ type })))
+      expect(
+        (await owner.sql('select consumer, state from event_projections where event_id = $1', [eventId])).rows,
+      ).toEqual([{ consumer: 'notifications', state: 'pending' }])
+    }
+  })
+
   it('事件寫進去就改不掉（不可變 outbox）：收件人之後不能被重新展開', async () => {
     const { eventId } = await inAppTransaction((tx) => publisher.publish(tx, event()))
     await expect(app.query(`update domain_events set recipients = '{}' where id = $1`, [eventId])).rejects.toThrow(
@@ -249,7 +258,8 @@ describe('跟業務動作同一筆交易', () => {
     const input = {
       title: '故障注入活動',
       description: '',
-      date: '2026-12-20',
+      startDate: '2026-12-20',
+      endDate: '',
       allDay: true,
       startTime: '',
       endTime: '',

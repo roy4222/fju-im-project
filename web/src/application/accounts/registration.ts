@@ -12,8 +12,8 @@ import { err, type Err, type Result } from '@/shared/result'
  * 那邊每個方法一開頭就先呼叫這裡的授權與驗證。
  *
  * 三條貫穿全檔的規則：
- * 1. **只有一種自動核准**（Q42，2026-10-15；部分推翻 Q-ACC01）：用 Google 註冊、Google 已驗證的 Email
- *    與本屆名單登記的 Email 完全相同（`autoApprovalEligible`）；其他一律系辦核實，名單比對只產生「比對結果」給系辦看。
+ * 1. **只有一種自動核准**（Q42，2026-10-15；部分推翻 Q-ACC01）：用 Google 登入，或 Email 密碼註冊且 Email 已驗證（C2-12），
+ *    而且 Email、學號、姓名與本屆名單同一列（`autoApprovalEligible`）；其他一律系辦核實，名單比對只產生「比對結果」給系辦看。
  * 2. **比對結果只給系辦看**：申請人自己的頁面不顯示命中與否——不然任何人拿別人的學號註冊
  *    再改幾次，就能問出「某學號在不在名單上」（契約 03 §4 最小揭露）。
  * 3. **核准依當時的申請資料版本**：學生改過資料，舊畫面上的核准一律 `CONFLICT`。
@@ -540,7 +540,7 @@ export function bulkApprovalSkip(
 /**
  * 第一次送申請時能不能直接開通（Q42；visitor-r3 §3.6，R1／R2 定案）。全部成立才 true：
  *
- * - 用 Google 登入，而且 Email 已驗證（密碼註冊就算 Email 相同也不算：本條要守的規則，AC-VI-56 (a)）；
+ * - 用 Google 登入，或用 Email 密碼註冊而且 Email 已驗證（C2-12，AC-C2-28）；密碼註冊但 Email 沒驗證不算（AC-VI-56 (a)、AC-C2-29）；
  * - Email＋學號＋姓名命中名單的**同一列**（`matchRoster` 的 `hit`：姓名相符、Email 比對 `same`）；
  * - 那一列在**開放註冊屆別**；
  * - 批次核准的資格也成立（`bulkApprovalSkip === null`：學號沒被占用、沒有別人同學號待審、只有一屆）。
@@ -557,7 +557,7 @@ export function autoApprovalEligible(input: {
 }): boolean {
   const { match } = input
   return (
-    input.loginMethod === 'google' &&
+    (input.loginMethod === 'google' || input.loginMethod === 'password') &&
     input.emailVerified &&
     match.status === 'matched' &&
     match.emailComparison === 'same' &&
@@ -706,7 +706,7 @@ export interface RegistrationCommand {
   /** 本人看自己的申請。 */
   viewMine(actor: ResolvedActor): Promise<Result<MyApplication>>
   /**
-   * 本人的帳號是不是 Q42 自動開通的（VB-6）：最近一筆申請已核准、核實方式是 `google_email_match`。
+   * 本人的帳號是不是 Q42 自動開通的（VB-6）：最近一筆申請已核准、核實方式是 `google_email_match` 或 `email_roster_match`。
    * 「帳號已開通」頁只給這種人看；系辦人工核准的學生不能看到「Email 與名單相同、自動開通」。
    */
   autoApprovedMine(actor: ResolvedActor): Promise<boolean>

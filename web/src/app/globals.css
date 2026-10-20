@@ -381,8 +381,13 @@
     line-height: 1.75;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    /* 母 spec 的行動版要求：任何寬度都不出現橫向捲動。 */
-    overflow-x: hidden;
+  }
+
+  /* 母 spec 的行動版要求：任何寬度都不出現橫向捲動。用 clip 不用 hidden：hidden 會讓 body 變成捲動容器，
+     程式化捲動（focus、scrollIntoView）能把整頁往左推；clip 只裁切、不能捲（規格④ §8 原因 G）。 */
+  html,
+  body {
+    overflow-x: clip;
   }
 
   h1,
@@ -514,7 +519,7 @@
   .dash-frame [data-slot='sidebar-container'] { border-right: 0 !important; }
   .dash-frame [data-slot='sidebar-rail']::after { display: none; }
   .dash-surface { background: oklch(0.975 0.008 250) !important; border-radius: 22px !important; box-shadow: 0 1px 2px rgba(0, 51, 102, 0.04), 0 12px 32px rgba(0, 51, 102, 0.06) !important; overflow: clip; }
-  @media (max-width: 767px) {
+  @media (max-width: 1023px) {
     .dash-surface { border-radius: 0 !important; box-shadow: none !important; }
   }
   /* 頂列實底：sticky 時內容不會從底下透出來。 */

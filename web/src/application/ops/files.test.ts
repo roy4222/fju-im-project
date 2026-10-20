@@ -5,8 +5,9 @@ import {
   createContentInspector,
   effectiveMaxBytes,
   extensionOf,
+  fileInUseMessage,
   isCacheableDownload,
-  PUBLIC_IMAGE_MAX_AGE_SECONDS,
+  PUBLIC_FILE_MAX_AGE_SECONDS,
   sanitizeDisplayName,
   storageKeyFor,
   tempKeyFor,
@@ -165,35 +166,38 @@ describe('檔名與路徑', () => {
   })
 })
 
-describe('公開圖片可快取（V4，設計方案 §3.4）', () => {
-  it('只有訪客也拿得到的 PNG／JPEG 可快取', () => {
-    expect(isCacheableDownload({ publicRead: true, mime: 'image/png' })).toBe(true)
-    expect(isCacheableDownload({ publicRead: true, mime: 'image/jpeg' })).toBe(true)
-  })
-
-  it('公開但不是 PNG／JPEG 的檔（PDF、Office、ZIP、判不出型別）不快取', () => {
+describe('公開檔可快取（V4，設計方案 §3.4；S16，⑤ 設計方案 §3）', () => {
+  it('訪客也拿得到的檔一律可快取，不看檔型（PDF、Office、ZIP、判不出型別也一樣）', () => {
     for (const mime of [
+      'image/png',
+      'image/jpeg',
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/zip',
       'application/octet-stream',
       'text/csv',
-      'image/gif',
-      'image/svg+xml',
-      'IMAGE/PNG',
       '',
     ]) {
-      expect(isCacheableDownload({ publicRead: true, mime }), mime).toBe(false)
+      const receipt = { publicRead: true, mime }
+      expect(isCacheableDownload(receipt), mime).toBe(true)
     }
   })
 
-  it('私有檔就算是 PNG／JPEG 也不快取', () => {
-    expect(isCacheableDownload({ publicRead: false, mime: 'image/png' })).toBe(false)
-    expect(isCacheableDownload({ publicRead: false, mime: 'image/jpeg' })).toBe(false)
-    expect(isCacheableDownload({ publicRead: false, mime: 'application/pdf' })).toBe(false)
+  it('私有檔不管什麼檔型都不快取', () => {
+    for (const mime of ['image/png', 'image/jpeg', 'application/pdf']) {
+      const receipt = { publicRead: false, mime }
+      expect(isCacheableDownload(receipt), mime).toBe(false)
+    }
   })
 
-  it('瀏覽器快取秒數是 5 分鐘（Q62 定案）', () => {
-    expect(PUBLIC_IMAGE_MAX_AGE_SECONDS).toBe(300)
+  it('瀏覽器與 Cloudflare 快取秒數是 5 分鐘（Q62 定案，S16 不變）', () => {
+    expect(PUBLIC_FILE_MAX_AGE_SECONDS).toBe(300)
+  })
+})
+
+describe('系辦刪檔（C1-16）', () => {
+  it('還有引用時的訊息帶處數', () => {
+    expect(fileInUseMessage(1)).toBe('還有 1 處在用，不能刪除；先到用到它的地方把檔案拿掉。')
+    expect(fileInUseMessage(3)).toContain('還有 3 處在用')
   })
 })

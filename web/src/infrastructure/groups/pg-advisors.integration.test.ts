@@ -138,6 +138,32 @@ async function revisionOf(groupId: string): Promise<number> {
   return Number((await owner.sql('select revision from groups where id = $1', [groupId])).rows[0]!.revision)
 }
 
+/** 某位老師負責的已發布合作案（C3-09：確認指導的前置要「這組選了本人的案」）。 */
+async function newOpportunity(ownerId: string, company = `合作案${(seq += 1)}`): Promise<string> {
+  const row = await owner.sql(
+    `insert into industry_opportunities
+       (id, owner_teacher_user_id, company_name, department, content, requirements, status, published_business_at, created_by_kind, created_by_user_id)
+     values (gen_random_uuid(), $1, $2, '資訊部', '內容', '', 'published', now(), 'user', $1) returning id`,
+    [ownerId, company],
+  )
+  return String(row.rows[0]!.id)
+}
+
+/** 把組別連到合作案：學生選的是 `pending`，TE-B3／系辦連的是 `active`。 */
+async function linkGroup(groupId: string, opportunityId: string, state: 'pending' | 'active', linkedBy: string): Promise<string> {
+  const row = await owner.sql(
+    `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at, state)
+     values (gen_random_uuid(), $1, $2, $3, $4, now(), $5) returning id`,
+    [groupId, opportunityId, businessNow, linkedBy, state],
+  )
+  return String(row.rows[0]!.id)
+}
+
+async function linkState(linkId: string): Promise<{ state: string; valid_to: Date | null }> {
+  const row = await owner.sql('select state, valid_to from opportunity_links where id = $1', [linkId])
+  return row.rows[0] as { state: string; valid_to: Date | null }
+}
+
 async function advisorRows(groupId: string) {
   const rows = await owner.sql(
     `select id, teacher_user_id, source, valid_to, ended_real_at, ended_by_user_id, end_reason, reason, previous_assignment_id
@@ -202,11 +228,13 @@ afterEach(async () => {
   await expectAtMostOneActiveAdvisorPerGroup()
 })
 
-describe('老師認領產學組（GRP-09、GRP-07）', () => {
-  it('認領尚未指派的產學組：一列有效主指導、組別版本加一、全組與老師收到通知、學生與老師看到同一位', async () => {
+describe('負責老師確認指導（C3-09 取代先按先得；GRP-09、GRP-07）', () => {
+  it('學生選了本人的案（pending）→ 確認指導：一列有效主指導、連結變 active、組別版本加一、全組與老師收到通知、學生與老師看到同一位', async () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'industry')
     const t2 = await newTeacher('王老師')
+    const opportunityId = await newOpportunity(t2.id)
+    const linkId = await linkGroup(group.id, opportunityId, 'pending', group.members[0]!.id)
     const before = await revisionOf(group.id)
 
     const result = await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, randomUUID())
@@ -216,34 +244,61 @@ describe('老師認領產學組（GRP-09、GRP-07）', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ teacher_user_id: t2.id, source: 'claim', valid_to: null, reason: null })
     expect(await revisionOf(group.id)).toBe(before + 1)
+    // AC-C3-25：連結成立（state=active），沒有新建連結。
+    expect(await linkState(linkId)).toEqual({ state: 'active', valid_to: null })
+    expect(Number((await owner.sql('select count(*) as n from opportunity_links where group_id = $1', [group.id])).rows[0]!.n)).toBe(1)
     const [event] = await eventsOf('advisor.assigned', group.id)
     expect(event!.recipients).toEqual(ids(group.members, t2))
-    const audit = await owner.sql(`select role, actor_user_id from audit_events where action = 'advisor.claim' and target_id = $1`, [
+    const audit = await owner.sql(`select role, actor_user_id, payload from audit_events where action = 'advisor.claim' and target_id = $1`, [
       group.id,
     ])
     expect(audit.rows[0]).toMatchObject({ role: 'teacher', actor_user_id: t2.id })
+    expect(audit.rows[0]!.payload).toMatchObject({ linkId, opportunityId, linkStateBefore: 'pending' })
 
     const student = await query.studentView(group.members[1]!.id, cohortId)
     expect(student.group?.advisor).toMatchObject({ teacherUserId: t2.id, teacherName: '王老師', source: 'claim' })
     const teacherSees = (await query.cohortGroups(cohortId)).find((g) => g.id === group.id)!
     expect(teacherSees.advisor?.teacherUserId).toBe(t2.id)
-    // 認領不自動建立或連結合作案。
-    expect(Number((await owner.sql('select count(*) as n from opportunity_links')).rows[0]!.n)).toBe(0)
     expect(await query.advisedGroupCount(t2.id)).toBe(1)
   })
 
-  it('一般組不能認領（由系辦指派）；不是老師不能認領；已經是自己的組再按一次說清楚', async () => {
+  it('TE-B3／系辦直接連的 active 連結、還沒有指導老師：負責老師一樣可以確認指導', async () => {
+    const cohortId = await newCohort()
+    const group = await newGroup(cohortId, 'G01', 'industry')
+    const t2 = await newTeacher('王老師')
+    const linkId = await linkGroup(group.id, await newOpportunity(t2.id), 'active', t2.id)
+    const result = await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { change: 'claimed' } })
+    expect(await linkState(linkId)).toEqual({ state: 'active', valid_to: null })
+  })
+
+  it('沒選合作案、或選的是別人的案：FORBIDDEN「這組沒有選你的合作案」；一般組仍由系辦指派；不是老師不能確認；再按一次說清楚', async () => {
     const cohortId = await newCohort()
     const general = await newGroup(cohortId, 'G01', 'general')
     const industry = await newGroup(cohortId, 'G02', 'industry')
+    const unlinked = await newGroup(cohortId, 'G03', 'industry')
     const t3 = await newTeacher('李老師')
+    const t4 = await newTeacher('周老師')
+    await linkGroup(industry.id, await newOpportunity(t3.id), 'pending', industry.members[0]!.id)
 
+    // 一般組：就算連到本人的案也不行（一般組由系辦指派）。
+    await linkGroup(general.id, await newOpportunity(t3.id), 'active', t3.id)
     const denied = await advisors.claim(actor(t3.id, ['teacher']), { groupId: general.id }, randomUUID())
     expect(denied).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(denied.ok ? '' : denied.message).toContain('系辦依抽籤結果指派')
     const student = await advisors.claim(actor(general.members[0]!.id, ['student']), { groupId: industry.id }, randomUUID())
     expect(student).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    // AC-C3-27：不是負責老師。
+    const notOwner = await advisors.claim(actor(t4.id, ['teacher']), { groupId: industry.id }, randomUUID())
+    expect(notOwner).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(notOwner.ok ? '' : notOwner.message).toContain('這組沒有選你的合作案')
+    // 還沒選案的產學組：任何老師都不能確認（不再先按先得）。
+    const noLink = await advisors.claim(actor(t3.id, ['teacher']), { groupId: unlinked.id }, randomUUID())
+    expect(noLink).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(noLink.ok ? '' : noLink.message).toContain('這組沒有選你的合作案')
     expect(await advisorRows(general.id)).toHaveLength(0)
+    expect(await advisorRows(industry.id)).toHaveLength(0)
+    expect(await advisorRows(unlinked.id)).toHaveLength(0)
 
     await advisors.claim(actor(t3.id, ['teacher']), { groupId: industry.id }, randomUUID())
     const again = await advisors.claim(actor(t3.id, ['teacher']), { groupId: industry.id }, randomUUID())
@@ -255,6 +310,7 @@ describe('老師認領產學組（GRP-09、GRP-07）', () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'industry')
     const t2 = await newTeacher('王老師')
+    await linkGroup(group.id, await newOpportunity(t2.id), 'pending', group.members[0]!.id)
     const requestId = randomUUID()
     const first = await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, requestId)
     const second = await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, requestId)
@@ -264,12 +320,14 @@ describe('老師認領產學組（GRP-09、GRP-07）', () => {
   })
 })
 
-describe('並發認領（GRP-10）', () => {
-  it('兩位老師同時按：恰一位成功，另一位 ALREADY_CLAIMED 而且訊息點名誰先認領；只有一列有效', async () => {
+describe('確認指導與系辦指派同時發生（GRP-10；C3-09 改成「確認時系辦剛指派別人」）', () => {
+  it('負責老師確認、系辦同時指派別人：恰一筆成功；確認晚到就 ALREADY_CLAIMED 並點名是誰、指派晚到就 CONFLICT；只有一列有效', async () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'industry')
     const t2 = await newTeacher('王老師')
     const t3 = await newTeacher('李老師')
+    const linkId = await linkGroup(group.id, await newOpportunity(t2.id), 'pending', group.members[0]!.id)
+    const revision = await revisionOf(group.id)
 
     // 兩筆交易都 BEGIN 了才一起往下搶組別列的鎖。
     const barrier = createBarrier(2)
@@ -295,37 +353,43 @@ describe('並發認領（GRP-10）', () => {
       },
     }))
 
-    const results = await Promise.all([
+    const [claimed, assigned] = await Promise.all([
       racing.claim(actor(t2.id, ['teacher']), { groupId: group.id }, randomUUID()),
-      racing.claim(actor(t3.id, ['teacher']), { groupId: group.id }, randomUUID()),
+      racing.assign(adminActor(), { groupId: group.id, revision, teacherUserId: t3.id, reason: '抽籤', gradingSelections: [] }, randomUUID()),
     ])
-    const winners = results.filter((r) => r.ok)
-    const losers = results.filter((r) => !r.ok)
-    expect(winners).toHaveLength(1)
-    expect(losers).toHaveLength(1)
-    expect(losers[0]).toMatchObject({ code: 'ALREADY_CLAIMED' })
-    const winnerName = winners[0]!.ok ? winners[0]!.receipt.teacherName! : ''
-    expect(losers[0]!.ok ? '' : losers[0]!.message).toContain(winnerName)
+    // 兩筆在組別列上排隊：先到的成功，後到的看到新狀態——確認晚到 → ALREADY_CLAIMED 點名李老師；指派晚到 → 版本不符 CONFLICT。
+    expect([claimed.ok, assigned.ok].filter(Boolean)).toHaveLength(1)
+    if (!claimed.ok) {
+      expect(claimed).toMatchObject({ code: 'ALREADY_CLAIMED' })
+      expect(claimed.message).toContain('剛由 李老師 老師擔任指導老師')
+      expect(assigned.ok && assigned.receipt.change).toBe('assigned')
+      expect((await linkState(linkId)).state).toBe('pending')
+    } else {
+      expect(assigned).toMatchObject({ ok: false, code: 'CONFLICT' })
+      expect(claimed.receipt.change).toBe('claimed')
+      expect((await linkState(linkId)).state).toBe('active')
+    }
 
     const active = (await advisorRows(group.id)).filter((r) => r.valid_to === null)
     expect(active).toHaveLength(1)
     expect(await eventsOf('advisor.assigned', group.id)).toHaveLength(1)
   })
 
-  it('後備防線：就算查完「還沒有」之後另一筆先寫進去，資料庫部分唯一也只讓一列成功，晚到的收到同一句衝突', async () => {
+  it('後備防線：查完「還沒有」之後系辦的指派先寫進去，資料庫部分唯一也只讓一列成功，確認的收到 ALREADY_CLAIMED、連結仍 pending', async () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'industry')
     const t2 = await newTeacher('王老師')
     const t3 = await newTeacher('李老師')
+    const linkId = await linkGroup(group.id, await newOpportunity(t2.id), 'pending', group.members[0]!.id)
 
     const disable = enableFaultInjection()
     try {
-      // 王老師的交易查完、還沒寫的那一刻，李老師的列（繞過鎖，直接以 owner 寫）先 commit。
+      // 王老師的交易查完、還沒寫的那一刻，系辦指派李老師的列（繞過鎖，直接以 owner 寫）先 commit。
       injectFault('advisor.claim.before-insert', async () => {
         await owner.sql(
-          `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id)
-           values (gen_random_uuid(), $1, $2, 'claim', now(), $2)`,
-          [group.id, t3.id],
+          `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+           values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '抽籤')`,
+          [group.id, t3.id, adminId],
         )
       })
       const result = await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, randomUUID())
@@ -335,6 +399,7 @@ describe('並發認領（GRP-10）', () => {
     }
     const active = (await advisorRows(group.id)).filter((r) => r.valid_to === null)
     expect(active.map((r) => r.teacher_user_id)).toEqual([t3.id])
+    expect((await linkState(linkId)).state).toBe('pending')
     // 王老師那筆整個回滾：沒有他的事件、帳本、稽核。
     expect(await eventsOf('advisor.assigned', group.id)).toHaveLength(0)
     expect(
@@ -344,18 +409,12 @@ describe('並發認領（GRP-10）', () => {
 })
 
 describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
-  it('一般組指派：理由必填、帶版本；指派後學生看到同一位老師；歷程記理由（學生看不到）', async () => {
+  it('一般組指派：理由選填（C3-05）、帶版本；指派後學生看到同一位老師；歷程記理由（學生看不到）', async () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'general')
     const t1 = await newTeacher('陳老師')
     const revision = await revisionOf(group.id)
 
-    const noReason = await advisors.assign(
-      adminActor(),
-      { groupId: group.id, revision, teacherUserId: t1.id, reason: ' ', gradingSelections: [] },
-      randomUUID(),
-    )
-    expect(noReason).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     const notAdmin = await advisors.assign(
       actor(t1.id, ['teacher']),
       { groupId: group.id, revision, teacherUserId: t1.id, reason: '抽籤', gradingSelections: [] },
@@ -388,6 +447,8 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
     const group = await newGroup(cohortId, 'G03', 'industry')
     const t2 = await newTeacher('王老師')
     const t3 = await newTeacher('李老師')
+    // C3-09：確認指導要先有「這組選了本人的案」。
+    await linkGroup(group.id, await newOpportunity(t2.id), 'pending', group.members[0]!.id)
     await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, randomUUID())
     const revision = await revisionOf(group.id)
 
@@ -433,7 +494,8 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
       rowCount: 1,
     })
 
-    const history = (await query.overview(cohortId)).groups.find((g) => g.id === group.id)!.history
+    // C3-09 的前置（選案）多一筆「連結合作案」歷程，這裡只看指導老師的兩筆。
+    const history = (await query.overview(cohortId)).groups.find((g) => g.id === group.id)!.history.filter((h) => h.kind.startsWith('advisor_'))
     expect(history.map((h) => [h.kind, h.userName, h.previousAdvisorName])).toEqual([
       ['advisor_assigned', '王老師', null],
       ['advisor_assigned', '李老師', '王老師'],
@@ -451,9 +513,6 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
       { groupId: group.id, revision: await revisionOf(group.id), teacherUserId: t1.id, reason: '抽籤', gradingSelections: [] },
       randomUUID(),
     )
-    const none = await advisors.unassign(adminActor(), { groupId: group.id, revision: await revisionOf(group.id), reason: '' }, randomUUID())
-    expect(none).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
-
     const done = await advisors.unassign(
       adminActor(),
       { groupId: group.id, revision: await revisionOf(group.id), reason: '抽籤更正' },
@@ -484,6 +543,54 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
     ])
   })
 
+  it('空理由重派、空理由解除（C3-05、AC-C3-45）：都成功；end_reason／reason 為 NULL 或空字串，ended_by_user_id 有值', async () => {
+    const cohortId = await newCohort()
+    const group = await newGroup(cohortId, 'G01', 'general')
+    const t1 = await newTeacher('陳老師')
+    const t2 = await newTeacher('王老師')
+    const blank = ['', null]
+    const first = await advisors.assign(
+      adminActor(),
+      { groupId: group.id, revision: await revisionOf(group.id), teacherUserId: t1.id, reason: ' ', gradingSelections: [] },
+      randomUUID(),
+    )
+    expect(first).toMatchObject({ ok: true, receipt: { change: 'assigned' } })
+
+    const reassigned = await advisors.assign(
+      adminActor(),
+      { groupId: group.id, revision: await revisionOf(group.id), teacherUserId: t2.id, reason: '', gradingSelections: [] },
+      randomUUID(),
+    )
+    expect(reassigned).toMatchObject({ ok: true, receipt: { change: 'reassigned', teacherName: '王老師', previousTeacherName: '陳老師' } })
+    const [old, current] = await advisorRows(group.id)
+    expect(old).toMatchObject({ teacher_user_id: t1.id, ended_by_user_id: adminId })
+    expect(old!.valid_to).not.toBeNull()
+    expect(old!.ended_real_at).not.toBeNull()
+    expect(blank).toContain(old!.end_reason)
+    expect(blank).toContain(old!.reason)
+    expect(current).toMatchObject({ teacher_user_id: t2.id, valid_to: null, previous_assignment_id: old!.id })
+    expect(blank).toContain(current!.reason)
+
+    const removed = await advisors.unassign(adminActor(), { groupId: group.id, revision: await revisionOf(group.id), reason: '   ' }, randomUUID())
+    expect(removed).toMatchObject({ ok: true, receipt: { change: 'unassigned', previousTeacherName: '王老師' } })
+    const ended = (await advisorRows(group.id))[1]!
+    expect(ended).toMatchObject({ teacher_user_id: t2.id, ended_by_user_id: adminId })
+    expect(ended.valid_to).not.toBeNull()
+    expect(ended.ended_real_at).not.toBeNull()
+    expect(blank).toContain(ended.end_reason)
+
+    // 全組與老師照舊收通知；異動紀錄理由欄空（畫面視為未填）。
+    expect((await eventsOf('advisor.replaced', group.id))[0]!.recipients).toEqual([t1.id])
+    expect((await eventsOf('advisor.unassigned', group.id))[0]!.recipients).toEqual(ids(group.members, t2))
+    const history = (await query.overview(cohortId)).groups.find((g) => g.id === group.id)!.history
+    expect(history.map((h) => [h.kind, h.userName])).toEqual([
+      ['advisor_assigned', '陳老師'],
+      ['advisor_assigned', '王老師'],
+      ['advisor_removed', '王老師'],
+    ])
+    for (const h of history) expect(blank).toContain(h.reason)
+  })
+
   it('停用或不是老師的帳號不能被指派；老師選項只列有效老師', async () => {
     const cohortId = await newCohort()
     const group = await newGroup(cohortId, 'G01', 'general')
@@ -508,6 +615,7 @@ describe('管理員逐組指派、重派、解除（GRP-07、GRP-11）', () => {
     const group = await newGroup(cohortId, 'G01', 'industry')
     const t2 = await newTeacher('王老師')
     const t3 = await newTeacher('李老師')
+    await linkGroup(group.id, await newOpportunity(t2.id), 'pending', group.members[0]!.id)
     const seen = await revisionOf(group.id)
     await advisors.claim(actor(t2.id, ['teacher']), { groupId: group.id }, randomUUID())
     const result = await advisors.assign(

@@ -1,29 +1,26 @@
 import Link from 'next/link'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle, pillClass } from '@/app/_ui/dashboard-kit'
-import { EmptyState, LinkButton } from '@/app/_ui/primitives'
+import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
 import { AFFAIRS_TABS } from '@/app/dashboard/admin/_tabs.consts'
-import { AffairsList } from '@/app/dashboard/admin/affairs/affairs-list'
-import { AFFAIRS_TAB_PLACEMENTS, affairsView, byRulesPosition, toAffairRow } from '@/app/dashboard/admin/affairs/affairs-view'
-import { QuickCreateDialog } from '@/app/dashboard/admin/affairs/quick-create-dialog'
+import { NewItemButton } from '@/app/dashboard/admin/affairs/_content/list-actions'
+import { RulesEditor } from '@/app/dashboard/admin/affairs/_content/rules-editor'
+import { affairsView } from '@/app/dashboard/admin/affairs/affairs-view'
 import { editorVocabulary } from '@/app/dashboard/admin/affairs/vocabulary'
-import { cohortLabel, getBusinessClock, getCohortStatusQuery } from '@/composition/cohorts'
-import { getItemQuery } from '@/composition/items'
+import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 
 export const metadata = { title: '專題規則｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/affairs/rules'
-const PLACEMENTS: readonly string[] = AFFAIRS_TAB_PLACEMENTS.rules
 
 /**
- * 公告與作業的「專題規則」分頁（C 階段規格② §2.2）：規則章節，接既有的 `AffairsList`（舊 `?placement=rules`）。
+ * 公告與作業的「專題規則」分頁（C 階段規格② §2.2）：舊 `?placement=rules` 轉到這裡。
  *
- * 依章節位置排（A-14；跟前台 `/rules`、`moveRule` 的鄰居同一個順序），每列多「上移」「下移」；首尾停用用的就是這份排好的
- * 清單（同屆、未刪除的規則，含草稿與已下架），跟伺服器的邊界判定一致。封存屆別不會出現（`affairsView` 只列未封存的）。
- * 說明句以下的內容歸規格①。
+ * 說明句以下的內容歸規格①：`RulesEditor`（C1-08；一頁編輯全文＋章節拖曳排序，上移／下移保留）。
+ * 封存屆別不會出現（`affairsView` 只列未封存的）。
  */
 export default async function AffairsRulesPage({ searchParams }: { searchParams: Promise<{ cohort?: string | string[] }> }) {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -55,13 +52,7 @@ export default async function AffairsRulesPage({ searchParams }: { searchParams:
   }
 
   const { cohorts, cohort } = view
-  const [rows, vocabulary, businessNow] = await Promise.all([
-    getItemQuery().list(cohort.id),
-    editorVocabulary(cohort.id),
-    getBusinessClock().now(),
-  ])
-  const shown = rows.filter((r) => PLACEMENTS.includes(r.placement)).sort(byRulesPosition)
-  const list = shown.map((r, index) => toAffairRow(r, businessNow, { move: { up: index > 0, down: index < shown.length - 1 } }))
+  const vocabulary = await editorVocabulary(cohort.id)
 
   return shell(
     <>
@@ -79,13 +70,10 @@ export default async function AffairsRulesPage({ searchParams }: { searchParams:
           ))}
         </nav>
       ) : null}
-      <AffairsList rows={list} filters={[]} emptyText="這一屆還沒有專題規則。按「新增規則」建立第一筆。" />
+      <RulesEditor cohortId={cohort.id} />
     </>,
     <>
-      <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}`} variant="secondary">
-        完整編輯器
-      </LinkButton>
-      <QuickCreateDialog cohortId={cohort.id} vocabulary={vocabulary} label="新增規則" placement="rules" />
+      <NewItemButton cohortId={cohort.id} vocabulary={vocabulary} placement="rules" noun="規則" />
     </>,
   )
 }

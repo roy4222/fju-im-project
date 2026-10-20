@@ -53,7 +53,7 @@ export type RespondInput = {
   /** 頁面顯示的那一版內容核對碼；和伺服器上的不一樣（舊頁、過期頁）就拒絕。 */
   readonly contentChecksum: string
   readonly decision: VoteDecision
-  /** 不同意／退回時必填。 */
+  /** 不同意／退回的理由，**選填**（C 階段規格① §1.4 X2）；有填才驗長度，寫進 `approvals.reason` 與稽核。 */
   readonly reason?: string | null
 }
 
@@ -71,8 +71,11 @@ export type RespondReceipt = {
   readonly realAt: string
 }
 
-/** 重置、重開、作廢都要理由（產品 8.2）。 */
-export type ReasonedVersionInput = { readonly versionId: string; readonly reason: string }
+/**
+ * 重置、重開、作廢的輸入。理由**選填**（C 階段規格① §1.4 X2）：狀態列的 `cause` 寫固定代碼（`reset`／`void`），
+ * 系辦填的理由只進稽核（`reason` 欄與 payload）與 `domain_events.payload.reason`。
+ */
+export type ReasonedVersionInput = { readonly versionId: string; readonly reason?: string | null }
 
 export type RestartReceipt = CreateVersionReceipt & { readonly kind: RestartKind; readonly fromVersionNo: number }
 
@@ -144,6 +147,9 @@ export type VersionDetail = {
   readonly groupCode: string
   readonly cohortCode: string
   readonly cohortName: string
+  /** 連結的同意書作業（C 階段規格① §1.2）；舊 API 建的包是 null。畫面從作業清單進來時用它回去。選填：既有替身不必補。 */
+  readonly itemId?: string | null
+  readonly itemTitle?: string | null
   /** 已經過伺服器端清洗的全文 HTML，畫面直接輸出。 */
   readonly contentHtml: string
   readonly contentChecksum: string
@@ -196,9 +202,51 @@ export type TeacherSignoffCard = {
   readonly cohortCode: string
   readonly cohortName: string
   readonly purpose: SignoffPurpose
+  /** 連結的同意書作業（C 階段規格① §1.2）；舊 API 建的包是 null。選填：既有替身不必補。 */
+  readonly itemId?: string | null
+  readonly itemTitle?: string | null
   readonly current: VersionSummary
   /** 這位老師是不是這一版快照裡的主指導、表態了沒有（票 26 卡片的「輪到你／等待學生」）。 */
   readonly mine: { readonly isSnapshotAdvisor: boolean; readonly voted: VoteResult | null }
+}
+
+/** 繳交狀況看板一列裡的一個人（學生或主指導）：此刻的名字與頭像、在目前版本的表態。 */
+export type ConsentBoardPerson = {
+  readonly userId: string
+  readonly name: string
+  readonly avatarPreset: number | null
+  readonly avatarFileId: string | null
+  readonly result: VoteResult | null
+  readonly at: Date | null
+}
+
+/**
+ * 系辦「繳交狀況」的一列＝一個對象組（C 階段規格① §3.3 `itemBoard`）。
+ * 有包：`state` 是目前版本狀態、`students`／`advisor` 照那一版的參與者快照；沒包：`state` null、`versionId` null，
+ * `skipped` 說為什麼還沒建（此刻沒有主指導／沒有組員），兩者都有就是可以按「建立」補建（`skipped` null）。
+ */
+export type ConsentBoardRow = {
+  readonly groupId: string
+  readonly groupCode: string
+  readonly packageId: string | null
+  readonly versionId: string | null
+  readonly versionNo: number | null
+  readonly state: SignoffState | null
+  readonly cause: string | null
+  readonly students: readonly ConsentBoardPerson[]
+  readonly advisor: ConsentBoardPerson | null
+  readonly skipped: ConsentSkipReason | null
+  /** 這一版上一次「提醒未同意者」的時間（24 小時冷卻；沒包或沒提醒過是 null）。 */
+  readonly lastRemindedAt: Date | null
+}
+
+export type ConsentSkipReason = 'no_advisor' | 'no_members'
+
+export type ConsentItemBoard = {
+  readonly itemId: string
+  readonly itemTitle: string
+  readonly purpose: SignoffPurpose
+  readonly rows: readonly ConsentBoardRow[]
 }
 
 // ── port ────────────────────────────────────────────────────────────────────
@@ -214,17 +262,18 @@ export interface SignoffCommand {
   /**
    * 本人表態（S11-05／06）：快照裡的學生同意／不同意、快照裡的主指導同意／退回。投的永遠是 actor 本人那一票，
    * 登入方式讀 actor 上的 session 事實。拒絕：不是目前版本或內容核對碼不符 `VERSION_SUPERSEDED`、不是參與者或已失去資格
-   * `NOT_PARTICIPANT`（管理員也是）、投過 `ALREADY_VOTED`、學生沒全同意老師先按 `STUDENTS_PENDING`、理由空 `VALIDATION_FAILED`。
+   * `NOT_PARTICIPANT`（管理員也是）、投過 `ALREADY_VOTED`、學生沒全同意老師先按 `STUDENTS_PENDING`、理由超過上限 `VALIDATION_FAILED`
+   * （理由選填；沒填的不同意／退回，狀態列的 `cause` 寫固定代碼 `disagree`／`return`）。
    */
   respond(actor: ResolvedActor, input: RespondInput, requestId: string): Promise<Result<RespondReceipt>>
 
-  /** 重置（S11-07）：收集中、等老師、已完成的版本 → 以同內容建新版重新收集（已完成的留作歷史）。理由必填。 */
+  /** 重置（S11-07）：收集中、等老師、已完成的版本 → 以同內容建新版重新收集（已完成的留作歷史）。理由選填。 */
   reset(actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<RestartReceipt>>
 
-  /** 重開（S11-12；Roy 2026-09-25＝建新版本）：退回、已失效、已作廢的版本 → 以同內容建新版重新收集。理由必填。 */
+  /** 重開（S11-12；Roy 2026-09-25＝建新版本）：退回、已失效、已作廢的版本 → 以同內容建新版重新收集。理由選填。 */
   reopen(actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<RestartReceipt>>
 
-  /** 作廢目前版本（S11-07）：之後誰都不能再表態；理由必填。 */
+  /** 作廢目前版本（S11-07）：之後誰都不能再表態；狀態 `cause` 固定寫 `void`，理由選填、只進稽核與事件 payload。 */
   voidVersion(actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<VoidReceipt>>
 
   /** 提醒還沒表態的參與者（S11-11）：同一版 24 小時內只能一次，只在收集中／等老師時可按。 */
@@ -280,4 +329,22 @@ export interface SignoffQuery {
   studentView(actor: ResolvedActor): Promise<StudentSignoffView>
   /** 老師此刻指導的組的簽核（誰由 actor 決定）；不是老師回空清單。 */
   teacherView(actor: ResolvedActor): Promise<readonly TeacherSignoffCard[]>
+  /**
+   * 同意書作業的「說明｜狀態」分頁（C 階段規格① §1.2 `byItem`）：學生此刻所在組、連到這份作業的包的目前版本
+   * （一組一包，所以最多一版）；不是學生、沒分組、這組還沒建包 → 空的。
+   */
+  studentViewByItem(actor: ResolvedActor, itemId: string): Promise<StudentSignoffView>
+  /** 老師此刻指導的組裡，連到這份作業的包（每組一張卡）；不是老師回空清單。 */
+  teacherViewByItem(actor: ResolvedActor, itemId: string): Promise<readonly TeacherSignoffCard[]>
+  /**
+   * 系辦「繳交狀況」（C 階段規格① §3.3 `itemBoard`）：這份同意書作業名單上的每個對象組一列（有包的帶進度、
+   * 沒包的說為什麼還沒建）。不是管理員 → `FORBIDDEN`；不是站內同意書作業 → `VALIDATION_FAILED`。
+   */
+  itemBoard(actor: ResolvedActor, itemId: string): Promise<Result<ConsentItemBoard>>
+  /**
+   * 舊網址 `/dashboard/admin/signoff/[versionId]` 轉址用（C 階段規格① §3.3、§6.3）：這一版所屬簽核包連到哪份同意書作業。
+   * 只給系辦（其他人 `FORBIDDEN`）；版本不存在、或包沒連結作業（舊 API 建的 `item_id is null`）時 `itemId` 是 `null`
+   * （設計寫 `Result<{ itemId } | null>`；`Result` 的回執要能展開，所以把 null 放進欄位裡）。
+   */
+  itemOfVersion(actor: ResolvedActor, versionId: string): Promise<Result<{ readonly itemId: string | null }>>
 }

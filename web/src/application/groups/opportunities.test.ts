@@ -6,8 +6,10 @@ import {
   canManageOpportunity,
   canViewOpportunities,
   describeGroupHistory,
+  describeLinkReceipt,
   groupEmailList,
   leaderTypeChangeBlockers,
+  normalizeLinkReason,
   normalizeOpportunityInput,
   normalizeRosterExportRequest,
   normalizeRosterFilter,
@@ -97,6 +99,26 @@ describe('誰看得到', () => {
     expect(canManageOpportunity(actor('t2', ['teacher']), 't1')).toBe(false)
     expect(canManageOpportunity(actor('t1', ['student']), 't1')).toBe(false)
     expect(canManageOpportunity({ kind: 'anonymous' }, 't1')).toBe(false)
+  })
+})
+
+describe('換案、解除連結的理由（C3-05：選填）', () => {
+  it('空白當作沒填；去空白；超過 200 字被拒', () => {
+    expect(normalizeLinkReason('  ', '換案')).toEqual({ ok: true, value: '' })
+    expect(normalizeLinkReason('', '解除連結')).toEqual({ ok: true, value: '' })
+    expect(normalizeLinkReason(' 企業撤案 ', '解除連結')).toEqual({ ok: true, value: '企業撤案' })
+    expect(normalizeLinkReason('字'.repeat(201), '換案')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    // C3-09：婉拒也走同一條規則（選填）。
+    expect(normalizeLinkReason('   ', '婉拒')).toEqual({ ok: true, value: '' })
+    expect(normalizeLinkReason('字'.repeat(201), '婉拒')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  })
+})
+
+describe('產學組的確認流程（C3-09；規格③ §7.1、§7.2）', () => {
+  it('選案與婉拒的回執句子', () => {
+    const base = { groupId: 'g', groupCode: 'G01', opportunityName: '甲公司・資訊部', previousOpportunityName: null }
+    expect(describeLinkReceipt({ ...base, change: 'requested' })).toBe('G01 已選「甲公司・資訊部」，等負責老師確認指導；確認後全組會收到通知。')
+    expect(describeLinkReceipt({ ...base, change: 'declined' })).toBe('已婉拒 G01 選的「甲公司・資訊部」；全組已收到通知，請他們重新選合作案。')
   })
 })
 

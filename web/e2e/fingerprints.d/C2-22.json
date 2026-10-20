@@ -1,0 +1,4 @@
+{
+  "ticket": "C2-22",
+  "delete": [{ "key": "/dashboard/admin/signoff", "from": "base" }]
+}

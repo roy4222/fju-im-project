@@ -17,10 +17,10 @@ const INPUT =
 const LABEL = 'block text-sm font-semibold'
 
 /**
- * 本人表態（票 26；原型「勾選已閱讀 → 我已閱讀並同意 → 確認框『只代表你自己的一票』」「不同意：原因必填」）。
+ * 本人表態（票 26；原型「勾選已閱讀 → 我已閱讀並同意 → 確認框『只代表你自己的一票』」；C1-11 起不同意／退回理由選填）。
  *
  * - 同意：先勾「我已完整閱讀全文與附件」才按得下去，按了再跳確認框。
- * - 不同意（學生）／退回（老師）：對話框裡理由必填。
+ * - 不同意（學生）／退回（老師）：對話框裡理由**選填**（C 階段規格① §1.4、AC-22a）；有填才記下、參與者與系辦看得到。
  * - 表單帶著這一版的內容核對碼：頁面過期（版本已換、內容不同）時伺服器拒絕，不會把票記到別的版本上。
  * - 按鈕上的字和伺服器記進 `approvals.button_text` 的是同一份常數（`BUTTON_TEXT`），由頁面傳進來。
  */
@@ -85,7 +85,7 @@ export function RespondForm({
           {hidden}
           <input type="hidden" name="decision" value="agree" />
           <h2 className="text-lg font-extrabold">確認同意？</h2>
-          <p className="text-sm text-muted-foreground">這一票只代表{who}；送出後會記下時間、這次的登入方式與按鈕原文，不能改票。</p>
+          <p className="text-sm text-muted-foreground">這一票只代表{who}；送出後會記下時間與按鈕原文，不能改票。</p>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={pending} className={`${PRIMARY} flex-1`}>
@@ -104,11 +104,11 @@ export function RespondForm({
           <input type="hidden" name="decision" value="reject" />
           <h2 className="text-lg font-extrabold">{rejectText}？</h2>
           <p className="text-sm text-muted-foreground">
-            送出後這一版回到「退回修正中」，全組要等系辦重開新版再重新閱讀；你的理由會記在紀錄上，參與者與系辦看得到。
+            送出後這一版回到「退回修正中」，全組要等系辦重開新版再重新閱讀；有填理由的話會記在紀錄上，參與者與系辦看得到。
           </p>
           <div>
             <label htmlFor={`reason-${versionId}`} className={LABEL}>
-              理由（必填）
+              理由（選填）
             </label>
             <textarea id={`reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
           </div>

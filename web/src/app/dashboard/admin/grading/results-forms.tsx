@@ -15,7 +15,7 @@ import { cn } from '@/shared/cn'
 
 /**
  * 管理員「評分」票 24 的會動部分：退回、更正、復核、改派三選一、套用新方案版本、成績匯出。
- * 規則全在用例裡判（理由必填、最終未完成、預覽過期、重複指派…）；畫面只收表單、顯示伺服器回來的句子。
+ * 規則全在用例裡判（退回理由必填、更正與改派理由選填〔C 階段規格① §1.4、X2〕、最終未完成、預覽過期、重複指派…）；畫面只收表單、顯示伺服器回來的句子。
  * 預覽過期（`CONFLICT`）時提供「重新預覽」：重新整理頁面拿新的 basis_hash／token。
  */
 
@@ -87,7 +87,7 @@ export function ReturnForm({
   )
 }
 
-/** 更正最終結果：原值保留、理由必填；老師原始輸入不動。 */
+/** 更正最終結果：原值保留、理由選填（X2）；老師原始輸入不動。 */
 export function OverrideForm({
   groupId,
   groupCode,
@@ -130,8 +130,8 @@ export function OverrideForm({
             <input name="newValue" required inputMode="decimal" className={INPUT} />
           </label>
           <label className={LABEL}>
-            更正理由
-            <textarea name="reason" required maxLength={500} rows={3} className={TEXTAREA} />
+            更正理由（選填）
+            <textarea name="reason" maxLength={500} rows={3} className={TEXTAREA} />
           </label>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">
@@ -276,8 +276,8 @@ export function ReassignForm({ preview, requestId }: { preview: ReassignmentPrev
         </label>
       ) : null}
       <label className={LABEL}>
-        理由（必填，留在指派紀錄裡；被移出的老師看得到）
-        <textarea name="reason" required maxLength={500} rows={2} className={TEXTAREA} disabled={done} />
+        理由（選填，留在指派紀錄裡；被移出的老師看得到）
+        <textarea name="reason" maxLength={500} rows={2} className={TEXTAREA} disabled={done} />
       </label>
       {preview.hasEffectiveOverride && choice !== 'keep' ? (
         <p className="text-sm text-danger">這一組有生效中的最終成績人工更正；這個選擇會改變分數來源，那筆更正會變成「需要重新確認」。</p>
