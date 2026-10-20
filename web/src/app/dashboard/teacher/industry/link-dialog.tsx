@@ -13,6 +13,8 @@ export type LinkTargetOption = { groupId: string; label: string; leaderName: str
  * 「我的合作案」每列的「連結組別」（TE-B3）：案主老師把一組連到自己負責的已發布合作案。
  * 選項只有未封存屆別裡、還沒連任何合作案的產學組（組別代碼＋組長名）；已連別案的組要由組長或系辦換案。
  * 首次連結不發通知；組員在組別頁的合作案分頁看得到。
+ * C3-09（規格③ §7.2）：連結直接 `active`，但「連結」與「要帶」是兩個動作——那一組若還沒有指導老師，
+ * 會出現在這一案底下「待確認要帶的組」，再按「確認指導」才成為指導老師。
  */
 export function LinkGroupDialog({
   opportunityId,
@@ -70,7 +72,8 @@ export function LinkGroupDialog({
           <div className="pr-8">
             <h2 className="text-lg font-extrabold text-foreground">把組別連到「{opportunityName}」</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              只列出還沒連任何合作案的產學組；已連別案的組要由組長或系辦換案。連結後組員在組別頁看得到，不另發通知。
+              只列出還沒連任何合作案的產學組；已連別案的組要由組長或系辦換案。連結後組員在組別頁看得到，不另發通知；
+              那一組會出現在這一案底下「待確認要帶的組」，要帶就再按「確認指導」。
             </p>
           </div>
           <input type="hidden" name="opportunityId" value={opportunityId} />

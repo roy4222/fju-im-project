@@ -218,6 +218,8 @@ const ACTION_LABEL: Record<string, string> = {
   'opportunity.link': '連結合作案',
   'opportunity.unlink': '解除合作案連結',
   'opportunity.switch': '換合作案',
+  'opportunity.request': '選合作案（等負責老師確認）',
+  'opportunity.decline': '婉拒合作案',
   'opportunity.delete': '刪除合作案',
   'opportunity.deleted': '刪除合作案',
   'opportunity.published': '發布合作案',

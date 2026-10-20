@@ -1,0 +1,4 @@
+{
+  "ticket": "C3-09",
+  "override": { "/dashboard/teacher/groups": { "from": "base", "value": "產學組的確認與婉拒在「產學組」分頁。" } }
+}
