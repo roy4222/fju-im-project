@@ -16,7 +16,7 @@ export function GroupDetail({ group: g, history, teachers, grading, linkOptions,
   dissolved: DissolvedGroupSummary | null
 }) {
   const active = g.status === 'active'
-  return <MemberFeedback>
+  return <div className="space-y-5 pointer-coarse:[&_button]:min-h-11 pointer-coarse:[&_button]:min-w-11 pointer-coarse:[&_a]:inline-flex pointer-coarse:[&_a]:min-h-11 pointer-coarse:[&_a]:min-w-11 pointer-coarse:[&_a]:items-center"><MemberFeedback>
     <div className="flex flex-wrap justify-end gap-3">
       {active ? <><DeleteGroup group={g} /><CopyEmailsButton code={g.code} emails={g.members.flatMap((m) => m.loginEmail ? [m.loginEmail] : [])} /></> : null}
       <Link href={`/dashboard/admin/grading/${g.id}`} className="inline-flex min-h-11 items-center rounded-lg border border-border px-3 text-sm font-semibold hover:bg-muted">成績</Link>
@@ -48,7 +48,13 @@ export function GroupDetail({ group: g, history, teachers, grading, linkOptions,
       </div>}
     </Panel>
     {active ? <Panel title="指導老師" aria-label="指導老師" bodyClassName="p-4">
-      <AdvisorControls group={g} teachers={teachers} grading={grading} />
+      <div className="flex items-start gap-3">
+        {g.advisor ? <AvatarImg user={{
+          id: g.advisor.teacherUserId, name: g.advisor.teacherName,
+          avatarPreset: g.advisor.avatarPreset, avatarFileId: g.advisor.avatarFileId,
+        }} size={40} decorative /> : null}
+        <AdvisorControls group={g} teachers={teachers} grading={grading} />
+      </div>
     </Panel> : null}
     {active && g.groupType === 'industry' ? <Panel title="合作案" aria-label="合作案" bodyClassName="space-y-3 p-4">
       {g.opportunity ? <Link href={`/industry/${g.opportunity.opportunityId}`} className="text-primary hover:underline">{g.opportunity.name}</Link> : <p>尚未連結合作案</p>}
@@ -61,5 +67,5 @@ export function GroupDetail({ group: g, history, teachers, grading, linkOptions,
         <p>{describeGroupHistory(h)}</p>{h.reason ? <p className="mt-1 text-sm text-muted-foreground">理由：{h.reason}</p> : null}
       </li>)}</ul> : <p className="text-sm text-muted-foreground">成立後還沒有異動紀錄。</p>}
     </Panel>
-  </MemberFeedback>
+  </MemberFeedback></div>
 }
