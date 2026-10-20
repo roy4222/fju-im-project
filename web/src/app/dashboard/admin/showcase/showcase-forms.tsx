@@ -46,48 +46,6 @@ const MENU = 'absolute right-0 z-30 mt-1 w-72 rounded-lg border border-border bg
 const MENU_ITEM =
   'flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left font-semibold hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11'
 
-/** 右下角一句話提示（6 秒後消失）。 */
-function useToast(): [string | null, (text: string) => void] {
-  const [toast, setToast] = useState<string | null>(null)
-  useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), 6000)
-    return () => window.clearTimeout(timer)
-  }, [toast])
-  return [toast, setToast]
-}
-
-function Toast({ text }: { text: string | null }) {
-  if (!text) return null
-  return (
-    <p
-      role="status"
-      data-testid="showcase-toast"
-      className="fixed right-4 bottom-4 z-50 max-w-[min(36rem,calc(100vw-2rem))] rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-ink-foreground shadow-lg"
-    >
-      {text}
-    </p>
-  )
-}
-
-/** 整頁共用的提示：列上的動作呼叫 `showToast`，`ShowcaseDialogs` 裡唯一的 `ToastHost` 顯示。 */
-const toastListeners = new Set<(text: string) => void>()
-
-function showToast(text: string) {
-  for (const listener of toastListeners) listener(text)
-}
-
-function ToastHost() {
-  const [toast, setToast] = useToast()
-  useEffect(() => {
-    toastListeners.add(setToast)
-    return () => {
-      toastListeners.delete(setToast)
-    }
-  }, [setToast])
-  return <Toast text={toast} />
-}
-
 /** 視窗共用的設定（伺服器帶進來的句子與上限）。 */
 export type ShowcaseDialogConfig = { videoUrlMessage: string; awardLabelMax: number }
 
@@ -96,37 +54,73 @@ type DialogTarget =
   | { mode: 'delete'; entry: ShowcaseEntryView }
   | { mode: 'honor'; cohortId: string; options: EditorVocabulary }
 
-const DialogContext = createContext<((target: DialogTarget) => void) | null>(null)
+type DialogRequest = Exclude<DialogTarget, { mode: 'honor' }> | { mode: 'honor'; cohortId: string }
+const DialogContext = createContext<((request: DialogRequest) => Promise<void>) | null>(null)
 
 /** 全頁只有一個視窗目標；chunk 晚到時，已被取代的目標不會再掛載開窗。 */
 export function ShowcaseDialogs({ config, children }: { config: ShowcaseDialogConfig; children: ReactNode }) {
   const router = useRouter()
-  const [current, setCurrent] = useState<{ target: DialogTarget; key: string } | null>(null)
-  const target = current?.target
-  const close = () => setCurrent(null)
+  const [toast, showToast] = useState<string | null>(null)
+  const [target, setCurrent] = useState<(DialogTarget & { key: number }) | null>(null)
+  const sequence = useRef(0)
+  const pending = useRef(false)
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => showToast(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+  const onPending = (value: boolean) => {
+    pending.current = value
+    if (value) sequence.current++
+  }
+  const close = () => {
+    if (pending.current) return
+    sequence.current++
+    setCurrent(null)
+  }
   const done = (message: string) => {
-    // 刪除送出後可先關窗；晚到的結果只提示，不把後來開的另一個視窗關掉。
-    setCurrent((now) => now?.key === current?.key ? null : now)
+    setCurrent((now) => now === target ? null : now)
     showToast(message)
   }
 
+  async function showDialog(request: DialogRequest) {
+    // 送出中忽略新請求。共用榮譽表單開啟期間一律不替換，保留它自己的儲存與錯誤狀態。
+    if (pending.current || target?.mode === 'honor') return
+    const id = ++sequence.current
+    let next: DialogTarget
+    if (request.mode === 'honor') {
+      try {
+        const context = await frontEditContextAction({ cohortId: request.cohortId })
+        if (id !== sequence.current) return
+        if (!context.ok) { showToast(context.message); return }
+        next = { mode: 'honor', cohortId: context.cohortId, options: context.options }
+      } catch {
+        if (id === sequence.current) showToast('表單資料載入失敗，請再按一次。')
+        return
+      }
+    } else {
+      next = request
+    }
+    setCurrent({ ...next, key: id })
+  }
+
   return (
-    <DialogContext.Provider value={(target) => setCurrent({ target, key: crypto.randomUUID() })}>
+    <DialogContext.Provider value={showDialog}>
       {children}
-      {target?.mode === 'delete' ? (
+      {target && (target.mode === 'delete' ? (
         <ShowcaseDeleteDialog
-          key={current?.key}
+          key={target.key}
           entry={target.entry}
-          requestId={current!.key}
           deleteEntry={deleteEntryAction}
-          dialogClass={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}
+          dialogClass={DIALOG}
           cancelClass={SECONDARY}
           onCancel={close}
           onDeleted={done}
+          onPending={onPending}
         />
-      ) : target?.mode === 'honor' ? (
+      ) : target.mode === 'honor' ? (
         <ItemFormDialog
-          key={current?.key}
+          key={target.key}
           open
           title="新增榮譽"
           placement="honor"
@@ -138,10 +132,18 @@ export function ShowcaseDialogs({ config, children }: { config: ShowcaseDialogCo
             router.refresh()
           }}
         />
-      ) : target ? (
-        <ShowcaseEditDialog key={current?.key} target={target} {...config} {...EDIT_DIALOG_DEPS} onCancel={close} onSaved={done} />
+      ) : (
+        <ShowcaseEditDialog key={target.key} target={target} {...config} {...EDIT_DIALOG_DEPS} onCancel={close} onSaved={done} onPending={onPending} />
+      ))}
+      {toast ? (
+        <p
+          role="status"
+          data-testid="showcase-toast"
+          className="fixed right-4 bottom-4 z-50 max-w-[min(36rem,calc(100vw-2rem))] rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-ink-foreground shadow-lg"
+        >
+          {toast}
+        </p>
       ) : null}
-      <ToastHost />
     </DialogContext.Provider>
   )
 }
@@ -178,19 +180,11 @@ export function ShowcaseNewMenu({
     }
   }, [open])
 
-  async function openHonor() {
+  function openHonor() {
     if (!honorCohort) return
     setOpen(false)
     setLoading(true)
-    try {
-      const context = await frontEditContextAction({ cohortId: honorCohort.id })
-      if (context.ok) showDialog({ mode: 'honor', cohortId: context.cohortId, options: context.options })
-      else showToast(context.message)
-    } catch {
-      showToast('表單資料載入失敗，請再按一次。')
-    } finally {
-      setLoading(false)
-    }
+    void showDialog({ mode: 'honor', cohortId: honorCohort.id }).finally(() => setLoading(false))
   }
 
   const createReason = !create

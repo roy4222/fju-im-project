@@ -71,6 +71,7 @@ export function ShowcaseEditDialog({
   styles: { DIALOG, INPUT, LABEL, PRIMARY, SECONDARY },
   onCancel,
   onSaved,
+  onPending,
 }: {
   target: ShowcaseDialogTarget
   /** 影片連結格式不對時瀏覽器顯示的提示（和伺服器驗證同一句，驗收 P-05）。 */
@@ -80,6 +81,7 @@ export function ShowcaseEditDialog({
   styles: Record<'DIALOG' | 'INPUT' | 'LABEL' | 'PRIMARY' | 'SECONDARY', string>
   onCancel: () => void
   onSaved: (message: string) => void
+  onPending: (pending: boolean) => void
 }) {
   const entry = target.mode === 'edit' ? target.entry : null
   const initial: ShowcaseDraftFields = entry ?? defaultShowcaseDraft()
@@ -115,6 +117,10 @@ export function ShowcaseEditDialog({
   const [lifecycle, setLifecycle] = useState(false)
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
   const [pending, setPending] = useState(false)
+  const setSaving = (value: boolean) => {
+    onPending(value)
+    setPending(value)
+  }
   const [error, setError] = useState<{ message: string; field?: string } | null>(null)
   const [requestIds] = useState(() => ({
     create: crypto.randomUUID(),
@@ -172,7 +178,7 @@ export function ShowcaseEditDialog({
       consent: lifecycle,
       requestIds,
     }
-    setPending(true)
+    setSaving(true)
     try {
       const result = await saveEntryAction(input)
       if (result.ok) onSaved(result.message)
@@ -180,14 +186,14 @@ export function ShowcaseEditDialog({
     } catch {
       setError({ message: '連線中斷；結果尚未確認，請重新整理頁面看看存了沒有。' })
     } finally {
-      setPending(false)
+      setSaving(false)
     }
   }
 
   async function withdraw() {
     if (!entry) return
     setError(null)
-    setPending(true)
+    setSaving(true)
     try {
       const form = new FormData()
       form.set('entryId', entry.entryId)
@@ -199,7 +205,7 @@ export function ShowcaseEditDialog({
     } catch {
       setError({ message: '連線中斷；結果尚未確認，請重新整理頁面看狀態。' })
     } finally {
-      setPending(false)
+      setSaving(false)
     }
   }
 
@@ -223,7 +229,7 @@ export function ShowcaseEditDialog({
             <h2 className="text-lg font-extrabold">{title}</h2>
             {entry ? <p className="text-xs text-muted-foreground">{entry.savedNote}</p> : null}
           </div>
-          <button type="button" className={CLOSE_BUTTON} onClick={onCancel} aria-label="關閉">
+          <button type="button" className={CLOSE_BUTTON} onClick={onCancel} aria-label="關閉" disabled={pending}>
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>

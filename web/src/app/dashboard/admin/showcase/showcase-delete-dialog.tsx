@@ -1,46 +1,51 @@
 'use client'
-import { useActionState, useEffect, useRef } from 'react'
+import { useActionState, useEffect, useRef, useState } from 'react'
 import type { deleteEntryAction } from './actions'
 import type { ShowcaseEntryView } from './showcase-view'
 
 /**
  * 按「刪除」才載入；Server Function 與共用樣式由首載外殼傳入。
- * 完成提示在 action 回來時送出，關窗卸載後仍能提示；新的 requestId 代表再次開窗。
+ * 送出到結果回來之前由 owner 保留視窗，失敗留在原表單；每次掛載產生新的 requestId。
  */
 export function ShowcaseDeleteDialog({
   entry,
-  requestId,
   deleteEntry,
   dialogClass,
   cancelClass,
   onCancel,
   onDeleted,
+  onPending,
 }: {
   entry: ShowcaseEntryView
-  requestId: string
   deleteEntry: typeof deleteEntryAction
   dialogClass: string
   cancelClass: string
   onCancel: () => void
   onDeleted: (message: string) => void
+  onPending: (pending: boolean) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
+  const [requestId] = useState(() => crypto.randomUUID())
   const [state, action, pending] = useActionState(async (previous: Awaited<ReturnType<typeof deleteEntryAction>>, form: FormData) => {
-    const result = await deleteEntry(previous, form)
-    if (result?.ok) {
-      dialog.current?.close()
-      onDeleted(result.message)
+    try {
+      const result = await deleteEntry(previous, form)
+      if (result?.ok) {
+        dialog.current?.close()
+        onDeleted(result.message)
+      }
+      return result
+    } finally {
+      onPending(false)
     }
-    return result
   }, undefined)
 
   useEffect(() => {
     const el = dialog.current
     if (el && !el.open) el.showModal()
-  }, [requestId])
+  }, [])
   return (
-    <dialog ref={dialog} aria-label="刪除作品" className={dialogClass} onCancel={(e) => { e.preventDefault(); onCancel() }}>
-      <form action={action} className="flex flex-col gap-4 px-6 py-5">
+    <dialog ref={dialog} aria-label="刪除作品" className={`${dialogClass} max-w-[28rem]`} onCancel={(e) => { e.preventDefault(); onCancel() }}>
+      <form action={action} onSubmit={() => onPending(true)} className="flex flex-col gap-4 px-6 py-5">
         <input type="hidden" name="requestId" value={requestId} />
         <input type="hidden" name="entryId" value={entry.entryId} />
         <input type="hidden" name="revision" value={entry.entryRevision} />
@@ -53,7 +58,7 @@ export function ShowcaseDeleteDialog({
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <button type="button" className={cancelClass} onClick={onCancel}>
+          <button type="button" className={cancelClass} onClick={onCancel} disabled={pending}>
             取消
           </button>
           <button
