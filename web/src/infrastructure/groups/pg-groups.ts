@@ -79,9 +79,23 @@ import { getPool } from '@/infrastructure/db/client'
 import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { personName } from '@/infrastructure/db/person-name'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { receiverFactsJoin } from '@/infrastructure/submissions/pg-submissions'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, type Err, type Result } from '@/shared/result'
 import { formatTaipeiDate, formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
+
+/**
+ * 沿用繳交狀況的 receiverFactsJoin：latest.version_no 有值才是正式繳交，草稿不算。
+ * 清單與刪除守門共用；同一句 SQL 計算整屆，不逐組發出查詢。
+ * 參數都是程式內固定 SQL 表達式，不接受使用者文字。
+ */
+function hasFormalSubmissionSql(groupId: string, cohortId: string): string {
+  return `exists (
+    select 1 from managed_items submission_item
+    ${receiverFactsJoin('submission_item.id', "'group'", groupId)}
+    where submission_item.cohort_id = ${cohortId} and latest.version_no is not null
+  )`
+}
 
 /**
  * 找組員、提案與成組（票 13；模組實作設計 03 §3、§6；產品模組 03 §5.1、§5.2、「提案終止」「組長」）。
@@ -1408,6 +1422,13 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
       if (begun.outcome !== 'fresh') return replayed<DissolveReceipt>(begun)
       const blocked = groupWriteBlocked(cohort, group, input.revision)
       if (blocked) return blocked
+      // #lockGroup 的 FOR UPDATE 與正式送出的組別 FOR SHARE 互斥：
+      // 送出先完成時這裡讀到版本；刪除先完成時送出守衛拒絕已刪除組。
+      const submitted = await tx.query<{ present: boolean }>(
+        `select ${hasFormalSubmissionSql('$1::uuid', '$2::uuid')} as present`,
+        [group.id, group.cohort_id],
+      )
+      if (submitted.rows[0]!.present) return err('GROUP_HAS_SUBMISSIONS', '這組已有繳交紀錄，不能刪除')
 
       const members = (
         await tx.query<{ id: string; user_id: string; name: string }>(
@@ -1432,7 +1453,7 @@ export class PgGroupCommand implements GroupCommand, ProposalExpiryHandler, Lead
         await tx.query(
           `update group_memberships set valid_to = greatest(valid_from, $2), removal_reason = $3, updated_at = $4
             where id = any($1::uuid[])`,
-          [members.map((m) => m.id), businessNow, `組別解散：${reason}`, realAt],
+          [members.map((m) => m.id), businessNow, reason ? `組別解散：${reason}` : '組別解散', realAt],
         )
       }
       const grading = this.#grading
@@ -2288,6 +2309,11 @@ export class PgGroupQuery implements GroupQuery {
     return (await this.#history([groupId], true)).get(groupId) ?? []
   }
 
+  async findGroup(groupId: string): Promise<(GroupSummary & { readonly status: 'active' | 'dissolved' }) | null> {
+    if (!isUuid(groupId)) return null
+    return (await this.#groups('g.id = $1 and exists (select 1 from cohorts c where c.id = g.cohort_id)', [groupId], true, false))[0] ?? null
+  }
+
   async cohortGroups(cohortId: string, opts?: { readonly history?: boolean }): Promise<GroupSummary[]> {
     if (!isUuid(cohortId)) return []
     return this.#groups(`g.cohort_id = $1 and g.status = 'active'`, [cohortId], false, opts?.history ?? true)
@@ -2369,7 +2395,7 @@ export class PgGroupQuery implements GroupQuery {
    * `withHistory`：`false` 時不查歷程（`#history` 那 5 句），每組 `history` 回 `[]`（SH-P4）。
    * 組別一句之後，組員、主指導、合作案、歷程四段彼此獨立，並行查（SH-P4）。
    */
-  async #groups(where: string, values: unknown[], forAdmin: boolean, withHistory: boolean): Promise<GroupSummary[]> {
+  async #groups(where: string, values: unknown[], forAdmin: boolean, withHistory: boolean): Promise<(GroupSummary & { readonly status: 'active' | 'dissolved' })[]> {
     const db = this.#reader()
     const groups = await db.query<{
       id: string
@@ -2378,8 +2404,11 @@ export class PgGroupQuery implements GroupQuery {
       group_type: GroupType
       established_business_at: Date
       revision: number
+      status: 'active' | 'dissolved'
+      has_formal_submission: boolean
     }>(
-      `select g.id, g.cohort_id, g.code, g.group_type, g.established_business_at, g.revision
+      `select g.id, g.cohort_id, g.code, g.group_type, g.established_business_at, g.revision, g.status,
+              ${forAdmin ? hasFormalSubmissionSql('g.id', 'g.cohort_id') : 'false'} as has_formal_submission
          from groups g where ${where} order by g.code`,
       values,
     )
@@ -2393,6 +2422,7 @@ export class PgGroupQuery implements GroupQuery {
         student_no: string | null
         is_leader: boolean
         login_email: string | null
+        department_class: string | null
         avatar_preset: number | null
         avatar_file_id: string | null
       }>(
@@ -2400,7 +2430,7 @@ export class PgGroupQuery implements GroupQuery {
         `select m.group_id, m.user_id, ${personName('p', 'u')} as name, p.student_no,
                 exists (select 1 from group_leaders l
                          where l.group_id = m.group_id and l.user_id = m.user_id and l.valid_to is null) as is_leader,
-                ${forAdmin ? 'u.email' : 'null::text'} as login_email,
+                ${forAdmin ? 'u.email' : 'null::text'} as login_email, p.department_class,
                 p.avatar_preset, p.avatar_file_id
            from group_memberships m
            join users u on u.id = m.user_id
@@ -2435,8 +2465,9 @@ export class PgGroupQuery implements GroupQuery {
         company_name: string
         department: string
         status: OpportunityStatus
+        state: 'pending' | 'active'
       }>(
-        `select l.group_id, l.id as link_id, o.id as opportunity_id, o.company_name, o.department, o.status
+        `select l.group_id, l.id as link_id, o.id as opportunity_id, o.company_name, o.department, o.status, l.state
            from opportunity_links l
            join industry_opportunities o on o.id = l.opportunity_id
           where l.group_id = any($1::uuid[]) and l.valid_to is null`,
@@ -2466,6 +2497,7 @@ export class PgGroupQuery implements GroupQuery {
           opportunityId: l.opportunity_id,
           name: opportunityName({ companyName: l.company_name, department: l.department }),
           status: l.status,
+          state: l.state,
         },
       ]),
     )
@@ -2476,6 +2508,8 @@ export class PgGroupQuery implements GroupQuery {
       groupType: g.group_type,
       establishedBusinessAt: g.established_business_at,
       revision: g.revision,
+      status: g.status,
+      ...(forAdmin ? { hasFormalSubmission: g.has_formal_submission } : {}),
       members: members.rows
         .filter((m) => m.group_id === g.id)
         .map((m) => ({
@@ -2484,6 +2518,7 @@ export class PgGroupQuery implements GroupQuery {
           studentNo: m.student_no,
           isLeader: m.is_leader,
           loginEmail: forAdmin ? m.login_email : null,
+          ...(forAdmin ? { departmentClass: m.department_class } : {}),
           avatarPreset: m.avatar_preset,
           avatarFileId: m.avatar_file_id,
         })),

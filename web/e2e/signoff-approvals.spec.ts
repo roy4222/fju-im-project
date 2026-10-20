@@ -358,11 +358,12 @@ test('主指導改派：目前版本同時失效、不自動建新版；學生�
 
   await asAdmin(page)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  const row = page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G02' })
+  const row = page.getByRole('region', { name: '全部組別' }).getByRole('article', { name: 'G02', exact: true })
+  if ((await row.locator('details').getAttribute('open')) === null) await row.locator('summary').click()
   await row.getByRole('button', { name: '重派指導老師：G02' }).click()
   const dialog = page.getByRole('dialog', { name: '重派 G02 的指導老師' })
   await dialog.getByLabel('指導老師').selectOption({ label: `${T2_NAME}（${t2.email}）` })
-  await dialog.getByLabel('理由（必填）').fill(`${T1_NAME}休假`)
+  await dialog.getByLabel('理由（可不填）').fill(`${T1_NAME}休假`)
   await dialog.getByRole('button', { name: '確認重派' }).click()
   await expect(row.getByRole('status')).toContainText('同意書目前的版本已作廢（指導老師變更），請到「同意書」建立新版')
 

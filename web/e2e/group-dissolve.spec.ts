@@ -176,54 +176,49 @@ async function signIn(page: Page, session: TestSession) {
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
 }
 
-test('系辦解散：理由必填、二次確認；解散後改列在「已解散的組別」，組員回到未分組並收到通知', async ({ page }) => {
+test('AC-C3-17：理由留空、二次確認刪除；已刪除篩選只有紀錄，成員回到未分組', async ({ page }) => {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  await expect(page.getByRole('heading', { name: '分組', exact: true, level: 1 })).toBeVisible()
-  await expect(page.getByRole('region', { name: '已解散的組別' })).toHaveCount(0)
-
-  await page.getByRole('region', { name: '全部組別' }).getByRole('button', { name: '解散 G01', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '解散 G01？' })
+  const card = page.getByRole('article', { name: 'G01', exact: true })
+  await card.locator('summary').click()
+  await card.getByRole('button', { name: '刪除 G01', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '刪除 G01？' })
   await expect(dialog).toContainText(`${members[0]!.name}、${members[1]!.name}`)
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
   const next = dialog.getByRole('button', { name: '下一步' })
-  await expect(next).toBeDisabled()
-  await dialog.getByLabel('理由（必填）').fill('全組僅剩兩人且都休學')
+  await expect(next).toBeEnabled()
   await next.click()
-
-  // 第二步：看後果、確定才送出。返回修改還看得到剛填的理由。
-  await expect(dialog.getByRole('heading', { name: '確定解散 G01？' })).toBeVisible()
-  await expect(dialog).toContainText('解散後不能復原')
+  await expect(dialog.getByRole('heading', { name: '確定刪除 G01？' })).toBeVisible()
+  await expect(dialog).toContainText('刪除後不能復原')
   await dialog.getByRole('button', { name: '返回修改' }).click()
-  await expect(dialog.getByLabel('理由（必填）')).toHaveValue('全組僅剩兩人且都休學')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByRole('button', { name: '確定解散' }).click()
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
+  await next.click()
+  await dialog.getByRole('button', { name: '確定刪除' }).click()
+  await expect(page.getByRole('status').filter({ hasText: '已刪除' })).toHaveText('已刪除 G01：2 人回到未分組')
+  await expect(page).toHaveURL(/status=deleted/)
+  await expect(card.getByRole('button')).toHaveCount(0)
+  await expect(card.getByRole('link')).toHaveText(['紀錄'])
+  await card.getByRole('link', { name: '紀錄' }).click()
+  await expect(page.getByRole('region', { name: '組員', exact: true })).toContainText(members[0]!.name)
+  await expect(page.getByRole('main')).toContainText('已刪除，原組資料只能查看')
+  await expect(page.getByRole('button', { name: /^移除：|^設為組長：|^刪除 / })).toHaveCount(0)
 
-  const dissolved = page.getByRole('region', { name: '已解散的組別' })
-  await expect(dissolved.getByRole('status')).toContainText('已解散 G01：2 人回到未分組')
-  await expect(dissolved).toContainText('全組僅剩兩人且都休學')
-  await expect(dissolved).toContainText(`${members[0]!.name}（組長）`)
-  await expect(page.getByRole('region', { name: '全部組別' }).getByRole('button', { name: 'G01 詳情' })).toHaveCount(0)
+  await page.goto(`/dashboard/admin/groups/unassigned?cohort=${cohortId}`)
   const ungrouped = page.getByRole('region', { name: '未分組學生' })
-  await expect(ungrouped).toContainText(members[0]!.name)
-  await expect(ungrouped).toContainText(members[1]!.name)
-
-  // 重新整理後還在（存進資料庫），回執那一句只在剛解散時出現。
+  for (const member of members) await expect(ungrouped).toContainText(member.name)
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  await expect(page.getByRole('region', { name: '已解散的組別' })).toContainText('G01')
-  await expect(page.getByRole('region', { name: '已解散的組別' }).getByRole('status')).toHaveCount(0)
+  await expect(card).toHaveCount(0)
+  await page.getByRole('button', { name: '篩選狀態', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: '已刪除', exact: true }).click()
+  await expect(card).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: '已刪除' })).toHaveCount(0)
 
-  const head = await pool.query<{ status: string; reason: string }>(`select status, dissolve_reason as reason from groups where id = $1`, [groupId])
-  expect(head.rows[0]).toEqual({ status: 'dissolved', reason: '全組僅剩兩人且都休學' })
-  const open = await pool.query<{ n: number }>(
-    `select (select count(*) from group_memberships where group_id = $1 and valid_to is null)::int
-          + (select count(*) from group_leaders where group_id = $1 and valid_to is null)::int as n`,
-    [groupId],
-  )
-  expect(open.rows[0]!.n).toBe(0)
-  const events = await pool.query<{ n: number }>(
-    `select cardinality(recipients)::int as n from domain_events where type = 'group.dissolved' and source_id = $1`,
-    [groupId],
-  )
+  const head = await pool.query(`select status, dissolve_reason as reason from groups where id = $1`, [groupId])
+  expect(head.rows[0]).toEqual({ status: 'dissolved', reason: '' })
+  const open = await pool.query(`select (select count(*) from group_memberships where group_id = $1 and valid_to is null)::int
+    + (select count(*) from group_leaders where group_id = $1 and valid_to is null)::int as n`, [groupId])
+  expect(open.rows[0].n).toBe(0)
+  const events = await pool.query(`select cardinality(recipients)::int as n from domain_events where type = 'group.dissolved' and source_id = $1`, [groupId])
   expect(events.rows.map((r) => r.n)).toEqual([2])
 })
 
@@ -234,13 +229,38 @@ test('學生的「我的組別」不再有解散的組', async ({ page }) => {
   await expect(page.getByRole('region', { name: '我的組別狀態' })).not.toContainText('組別 G01')
 })
 
+test('AC-C3-17：有正式繳交的組，卡片及詳情都停用刪除並解釋原因', async ({ page }) => {
+  const person = await insertStudent(null, 7)
+  const id = await insertGroup('G04', [person], new Date())
+  const item = await pool.query(`insert into managed_items
+    (id, cohort_id, placement, audience_kind, receiver_unit, title, created_by_kind)
+    values (gen_random_uuid(), $1, 'submission', 'cohort_students', 'group', '不可刪的正式繳交', 'system') returning id`, [cohortId])
+  const schema = await pool.query(`insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+    values (gen_random_uuid(), $1, 1, '{"fields":[]}'::jsonb, $2) returning id`, [item.rows[0].id, adminId])
+  await pool.query(`insert into submission_versions
+    (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+     received_real_at, received_business_at, request_id, membership_snapshot, deadline_version_at_submit)
+    values (gen_random_uuid(), $1, 'group', $2, 1, $3, '{}'::jsonb, $4, now(), now(), gen_random_uuid(), $5::jsonb, 1)`,
+  [item.rows[0].id, id, schema.rows[0].id, person.userId, JSON.stringify([person.userId])])
+  await signIn(page, await sharedTestSession(page.request, 'admin'))
+  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
+  const card = page.getByRole('article', { name: 'G04', exact: true })
+  await card.locator('summary').click()
+  await expect(card.getByRole('button', { name: '刪除 G04' })).toBeDisabled()
+  await expect(card).toContainText('這組已有繳交紀錄，不能刪除')
+  await card.getByRole('link', { name: '進入小組' }).click()
+  await expect(page.getByRole('button', { name: '刪除 G04' })).toBeDisabled()
+  await expect(page.getByRole('main')).toContainText('這組已有繳交紀錄，不能刪除')
+  expect((await pool.query('select status, revision from groups where id = $1', [id])).rows[0]).toEqual({ status: 'active', revision: 1 })
+})
+
 async function gradebookRow(page: Page) {
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
   await expect(page.getByRole('heading', { name: '成績', exact: true })).toBeVisible()
   return page.getByTestId('gradebook-row-G03')
 }
 
-test('AC-A-45：解散 G03 → 離開名單、列在「已解散的組別」；三位組員與指導老師各一則通知；成績表標「已解散」、分數照舊', async ({ page }) => {
+test('AC-A-45：沒有正式繳交但有評分的 G03 仍可刪除；通知與已解散成績保留', async ({ page }) => {
   await signIn(page, await sharedTestSession(page.request, 'admin'))
   const before = await gradebookRow(page)
   await expect(before).toContainText('80.00')
@@ -248,17 +268,18 @@ test('AC-A-45：解散 G03 → 離開名單、列在「已解散的組別」；�
 
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
   const roster = page.getByRole('region', { name: '全部組別' })
-  await expect(roster.getByTestId('roster-row').filter({ has: page.getByRole('button', { name: 'G03 詳情' }) })).toHaveCount(1)
-  await roster.getByRole('button', { name: '解散 G03', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '解散 G03？' })
-  await dialog.getByLabel('理由（必填）').fill('三人皆轉系')
+  await expect(roster.getByRole('article', { name: 'G03', exact: true })).toHaveCount(1)
+  await roster.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
+  await roster.getByRole('button', { name: '刪除 G03', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '刪除 G03？' })
+  await dialog.getByLabel('理由（可不填）').fill('三人皆轉系')
   await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByRole('button', { name: '確定解散' }).click()
+  await dialog.getByRole('button', { name: '確定刪除' }).click()
 
-  const dissolved = page.getByRole('region', { name: '已解散的組別' })
-  await expect(dissolved.getByRole('status')).toContainText('已解散 G03：3 人回到未分組')
+  const dissolved = page.getByRole('main')
+  await expect(dissolved.getByRole('status')).toContainText('已刪除 G03：3 人回到未分組')
   await expect(dissolved).toContainText('三人皆轉系')
-  await expect(roster.getByRole('button', { name: 'G03 詳情' })).toHaveCount(0)
+  await expect(roster.getByRole('link', { name: '進入小組' })).toHaveCount(0)
 
   // 指導老師也是評分老師：去重後一人一則。
   const events = await pool.query<{ recipients: string[] }>(

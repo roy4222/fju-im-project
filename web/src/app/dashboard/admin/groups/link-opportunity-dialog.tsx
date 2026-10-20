@@ -1,17 +1,17 @@
 'use client'
 import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent } from 'react'
-import { linkOpportunityAction, searchLinkOptionsAction } from './actions'
+import { linkOpportunityAction, searchLinkOptionsAction, unlinkGroupOpportunityAction } from './actions'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from './admin-group-forms'
 import { ALERT, BTN_ROW_GHOST as ROW_GHOST } from '@/app/_ui/dashboard/look'
 import type { LinkOption } from '@/application/groups'
 
 /**
- * 「把組別連到合作案」對話框（AD-06，設計方案 §3.3.1；Q73）。只放在產學組那一列，一般組不渲染。
+ * 「把組別連到合作案」對話框（AD-06，設計方案 §3.3.1；Q73）。放在產學組卡片與詳情，一般組不渲染。
  *
  * 選項：頁面先傳前 50 筆已發布合作案（`linkOptions`）；搜尋框常駐，打字或按「上一頁／下一頁」
  * 都改走 `searchLinkOptionsAction`（系辦守衛在 action）。回傳沒有總數，所以「下一頁」只在這次剛好 50 筆時出現；
  * 查詢改變時回到第一頁。
- * 理由沿用後端語意：首次連結選填、換案必填；對話框不自己擋，失敗訊息照後端原字。
+ * 首次連結與換案的理由皆可留空，失敗訊息照後端原字。
  */
 
 export type LinkOptionsOutcome =
@@ -20,6 +20,33 @@ export type LinkOptionsOutcome =
 
 const PAGE = 50
 const SEARCH_DELAY_MS = 250
+
+export function UnlinkOpportunityButton({ linkId, code, requestId, reasonMaxLength }: {
+  linkId: string | null; code: string; requestId: string; reasonMaxLength: number
+}) {
+  const [state, action, pending] = useActionState(unlinkGroupOpportunityAction, undefined)
+  const dialog = useDialog()
+  useCloseOnSuccess(state, dialog.close)
+  if (!linkId) return <Feedback state={state?.ok ? state : undefined} />
+  return <div>
+    <button type="button" className={`${ROW_GHOST} pointer-coarse:min-h-11 pointer-coarse:min-w-11`} onClick={dialog.open}>解除合作案</button>
+    <Feedback state={state?.ok ? state : undefined} />
+    <dialog ref={dialog.ref} className={DIALOG} aria-label={`解除 ${code} 的合作案`}>
+      <form key={linkId} action={action} className="space-y-4 p-5">
+        <h2 className="text-lg font-bold">解除 {code} 的合作案</h2>
+        <input type="hidden" name="linkId" value={linkId} />
+        <input type="hidden" name="requestId" value={requestId} />
+        <label htmlFor={`unlink-${linkId}`} className={LABEL}>理由（可不填）</label>
+        <textarea id={`unlink-${linkId}`} name="reason" maxLength={reasonMaxLength} className={INPUT} />
+        <Feedback state={state?.ok ? undefined : state} />
+        <div className="flex justify-end gap-2">
+          <button type="button" className={SECONDARY} onClick={dialog.close}>先不要</button>
+          <button type="submit" className={PRIMARY} disabled={pending}>確定解除</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
+}
 
 function optionLabel(o: LinkOption): string {
   return [o.companyName, o.department, o.ownerName].filter((s) => s.trim() !== '').join('・')
@@ -111,7 +138,6 @@ export function LinkOpportunityButton({
 
   return (
     <>
-      {/* 小字文字鈕：組別表在 1280 寬不能有橫向捲軸（AC-AD-23），一般大小的按鈕會把「合作案」欄撐寬。 */}
       <button
         type="button"
         className="press text-xs font-semibold whitespace-nowrap text-primary hover:underline"
@@ -198,10 +224,10 @@ export function LinkOpportunityButton({
           </div>
           <div>
             <label htmlFor={ids.reason} className={LABEL}>
-              理由
+              理由（可不填）
             </label>
             <p id={`${ids.reason}-hint`} className="text-xs text-muted-foreground">
-              {switching ? '換案必填' : '可留空'}
+              可留空
             </p>
             <textarea
               id={ids.reason}
