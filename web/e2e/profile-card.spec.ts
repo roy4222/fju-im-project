@@ -328,14 +328,20 @@ test('AC-C3-06（/account）：學生「我的名片」在「基本資料」之�
   await expect(card.getByRole('article', { name: e.name }).locator('img')).toHaveAttribute('width', '64')
   for (const text of [e.name, '資管三甲', e.contactEmail, '公開找隊員：已公開']) await expect(card).toContainText(text)
 
+  // 聯絡 Email 只在「基本資料」改（C3-17 ESCALATE 2）：整頁只有一個這個標籤的欄位，名片視窗只放一行說明。
+  await expect(page.getByLabel('聯絡 Email', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('region', { name: '基本資料' }).getByLabel('聯絡 Email', { exact: true })).toHaveValue(e.contactEmail)
+
   await card.getByRole('button', { name: '編輯我的名片' }).click()
   const dialog = page.getByRole('dialog', { name: '編輯我的名片' })
+  await expect(dialog).toContainText('聯絡 Email 在上面「基本資料」改')
+  await expect(dialog.getByRole('textbox', { name: '聯絡 Email' })).toHaveCount(0)
   await dialog.getByLabel('一句話自我介紹').fill('在帳號頁改的')
   await dialog.getByRole('button', { name: '儲存' }).click()
   await expect(dialog.getByRole('status')).toHaveText('名片已更新')
   await page.keyboard.press('Escape')
   await expect(card).toContainText('在帳號頁改的')
-  expect((await profileOf(e.userId)).bio).toBe('在帳號頁改的')
+  expect(await profileOf(e.userId)).toMatchObject({ bio: '在帳號頁改的', contact_email: e.contactEmail })
 
   for (const staff of [teacher, admin]) {
     await signIn(page, staff)

@@ -46,6 +46,7 @@ export function ProfileCardDialog({
   action,
   requestId,
   avatarHref,
+  emailEditable = true,
 }: {
   card: ProfileCard
   limits: ProfileCardLimits
@@ -53,6 +54,11 @@ export function ProfileCardDialog({
   requestId: string
   /** 「更換頭像」連去哪裡（頭像卡在「我的帳號」，這裡不重做上傳）。 */
   avatarHref: string
+  /**
+   * 能不能在這裡改聯絡 Email（預設可以）。「我的帳號」傳 false：同一頁的「基本資料」也改同一個 `contact_email`，
+   * 一頁只留一個輸入框；存檔沿用目前的 Email，中途被改過靠 revision 回 CONFLICT（C3-17）。
+   */
+  emailEditable?: boolean
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [state, formAction, pending] = useActionState(action, undefined)
@@ -197,15 +203,22 @@ export function ProfileCardDialog({
             ) : null}
           </fieldset>
 
-          <div>
-            <label htmlFor="profile-card-email" className={LABEL}>
-              聯絡 Email
-            </label>
-            <input id="profile-card-email" name="contactEmail" type="email" value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={cn(INPUT, 'h-11')}
-            />
-          </div>
+          {emailEditable ? (
+            <div>
+              <label htmlFor="profile-card-email" className={LABEL}>
+                聯絡 Email
+              </label>
+              <input id="profile-card-email" name="contactEmail" type="email" value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={cn(INPUT, 'h-11')}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              <input type="hidden" name="contactEmail" value={card.contactEmail} />
+              聯絡 Email 在上面「基本資料」改
+            </p>
+          )}
 
           <div>
             <label className="inline-flex items-center gap-2 text-sm font-semibold">
