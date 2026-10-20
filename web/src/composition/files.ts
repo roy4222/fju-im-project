@@ -91,7 +91,7 @@ export async function uploadFile(
 /** 下載用的 `Content-Disposition`（路由只能經 composition 拿到執行期的規則）。 */
 export { contentDispositionFor as contentDisposition } from '@/application/ops'
 
-/** 這個下載能不能讓瀏覽器快取、快取幾秒（V4：只有公開的 PNG／JPEG；路由不自己比對 MIME）。 */
+/** 這個下載能不能快取、快取幾秒（S16：訪客也拿得到的檔一律可快取，不看檔型；路由不自己判斷）。 */
 export { isCacheableDownload, PUBLIC_IMAGE_MAX_AGE_SECONDS } from '@/application/ops'
 
 /**
@@ -152,8 +152,8 @@ export function fileFailureResponse(
 }
 
 /**
- * 公開圖片（訪客也拿得到的 PNG／JPEG，判斷在 `isCacheableDownload`）讓瀏覽器短時間快取（V4）。
- * 可見性會變（下架、撤回、換圖、刪除），授權結果永不跨請求快取（契約 02 §8），所以只給瀏覽器
+ * 公開檔（訪客也拿得到的檔，不看檔型，判斷在 `isCacheableDownload`）讓瀏覽器與 Cloudflare 短時間快取（V4、S16）。
+ * 可見性會變（下架、撤回、換檔、刪除），授權結果永不跨請求快取（契約 02 §8），所以只給
  * `PUBLIC_IMAGE_MAX_AGE_SECONDS`（5 分鐘），而且 `must-revalidate`：過期後一定回來重新授權。
  * 不加 `vary: cookie`：公開回應對任何人都一樣；私有回應是 `no-store`，不會被存。
  */
@@ -177,7 +177,7 @@ function matchesETag(ifNoneMatch: string | null, etag: string): boolean {
   return ifNoneMatch.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag)
 }
 
-/** 授權通過的檔案該帶的快取標頭與 ETag（公開圖片、頭像有 ETag；其他一律 `private, no-store`）。 */
+/** 授權通過的檔案該帶的快取標頭與 ETag（公開檔、頭像有 ETag；其他一律 `private, no-store`）。 */
 export function fileCacheHeaders(file: FileDownload): { readonly headers: Record<string, string>; readonly etag: string | null } {
   const cacheable = isCacheableDownload(file)
   const avatar = file.purpose === 'avatar'

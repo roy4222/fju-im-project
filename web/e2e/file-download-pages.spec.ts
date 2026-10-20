@@ -226,17 +226,17 @@ test('沒權限與已下架：都 303 到 /403、回應逐位元相同；瀏覽�
 })
 
 /**
- * V4（第 1 批訪客，設計方案 §3.4；AC-V18～V25、V35）：公開圖片讓瀏覽器快取，私有檔與非圖片檔絕不快取。
+ * V4（第 1 批訪客，設計方案 §3.4；AC-V18～V25、V35）＋S16（⑤ 設計方案 §3、AC-16～20）：公開檔可快取，私有檔絕不快取。
  *
- * 可快取＝訪客走同一條下載政策也放行（`publicRead`）**而且** `mime_detected` 是 PNG／JPEG。資料都走真的後台畫面建
+ * 可快取＝訪客走同一條下載政策也放行（`publicRead`），不看檔型（S16 推翻 Q62「只快取 PNG／JPEG」）。資料都走真的後台畫面建
  * （海報、公告封面與附件、首頁大圖都是真的上傳），每一步都用 API 抓回應標頭核對：
- * - 草稿海報、沒獎項的已發布海報、「本屆學生」公告的 PNG 附件、公開公告的 PDF 附件：`private, no-store`、沒有 ETag、
+ * - 草稿海報、沒獎項的已發布海報、「本屆學生」公告的 PNG 附件：`private, no-store`、沒有 ETag、
  *   帶 `If-None-Match` 也照樣 200；
- * - 有獎項的海報、公開公告的 PNG 封面、首頁現任大圖：`public, max-age=…, must-revalidate`＋強 ETag，帶 ETag 回 304；
+ * - 有獎項的海報、公開公告的 PNG 封面與 PDF 附件、首頁現任大圖：`public, max-age=…, must-revalidate`＋強 ETag，帶 ETag 回 304；
  * - 下架、換圖之後帶舊 ETag：先授權再看 ETag，拿到 401／303，不是 304。
  * 304 與 HEAD 不漏檔案描述子：找出本機 app 程序（聽 BASE_URL 那個埠的程序），連打 50 次 304、20 次 HEAD 前後數它開著的檔。
  */
-test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', () => {
+test.describe('V4／S16 公開檔可快取；私有檔不快取', () => {
   const V4 = `${CODE}-V4`
   const PUBLIC_CACHE = `public, max-age=${PUBLIC_IMAGE_MAX_AGE_SECONDS}, must-revalidate`
   /** 1×1 的真 PNG（上傳收檔會看簽章，`mime_detected = image/png`）。 */
@@ -431,7 +431,7 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expect(after.length, `打之前 ${before.length} 個、之後 ${after.length} 個`).toBeLessThanOrEqual(before.length)
   })
 
-  test('AC-V21、V35：公開公告的 PNG 封面可快取；同一則的 PDF 附件不可快取；下架後封面帶舊 ETag 是 401 不是 304', async ({ page }) => {
+  test('AC-V21、V35（S16 改寫）：公開公告的 PNG 封面與 PDF 附件都可快取；下架後帶舊 ETag 是 401 不是 304', async ({ page }) => {
     publicItemId = await publishItem(page, {
       title: `${V4} 公開公告`,
       audience: 'public',
@@ -449,9 +449,20 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     expect((await storedFile(coverId)).mime_detected).toBe('image/png')
     expect((await storedFile(publicPdfId)).mime_detected).toBe('application/pdf')
 
-    // AC-V35：訪客政策放行的 PDF，訪客與本屆學生各兩次（含帶 If-None-Match）都 200 全檔、不可快取。
-    await expectPrivateDownload(null, publicPdfId)
-    await expectPrivateDownload(student, publicPdfId)
+    // AC-V35（S16 改寫，AC-16）：訪客政策放行的 PDF 可快取——訪客與本屆學生都 200＋public＋ETag，帶 ETag 回 304。
+    for (const as of [null, student]) {
+      await expectPublic(await fetchFile(as, {}, publicPdfId), publicPdfId)
+      const notModified = await fetchFile(as, { 'if-none-match': `"${(await storedFile(publicPdfId)).checksum}"` }, publicPdfId)
+      expect(notModified.status()).toBe(304)
+      expect(notModified.headers()['cache-control']).toBe(PUBLIC_CACHE)
+    }
+    // AC-20：預覽路由的快取標頭與 ETag 跟下載一致。
+    const preview = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    const previewed = await preview.get(`/api/files/${publicPdfId}/preview`)
+    expect(previewed.status()).toBe(200)
+    expect(previewed.headers()['cache-control']).toBe(PUBLIC_CACHE)
+    expect(previewed.headers()['etag']).toBe(`"${(await storedFile(publicPdfId)).checksum}"`)
+    await preview.dispose()
 
     // AC-V21：封面公開可快取；系辦下架後訪客帶舊 ETag → 401（不是 304），系辦仍拿得到但不可快取。
     await expectPublic(await fetchFile(null, {}, coverId), coverId)
@@ -461,6 +472,10 @@ test.describe('V4 公開圖片可快取；私有檔與非圖片檔不快取', ()
     await page.getByRole('dialog', { name: '下架這個項目？' }).getByRole('button', { name: '確認下架' }).click()
     await expect(page.getByTestId('item-status')).toHaveText('已下架')
     for (const headers of [{}, { 'if-none-match': etag }] as Record<string, string>[]) expectPrivate(await fetchFile(null, headers, coverId), 401)
+    // AC-17：PDF 附件同樣，下架後訪客帶舊 ETag → 401；登入學生 → 403；都不是 304。
+    const pdfEtag = `"${(await storedFile(publicPdfId)).checksum}"`
+    expectPrivate(await fetchFile(null, { 'if-none-match': pdfEtag }, publicPdfId), 401)
+    expectPrivate(await fetchFile(student, { 'if-none-match': pdfEtag }, publicPdfId), 403)
     const navigation = await fetchFile(null, { ...DOCUMENT, 'if-none-match': etag }, coverId)
     expect(navigation.status()).toBe(303)
     expect(navigation.headers()['cache-control']).toBe('private, no-store')
