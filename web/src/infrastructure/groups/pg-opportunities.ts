@@ -47,6 +47,7 @@ import type { EventPublisher } from '@/application/notifications'
 import { canonicalJson, type AuditWriter, type OperationLedger } from '@/application/ops'
 import { badRequestId, inTransaction, replayed, staleRevision, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
+import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { personName } from '@/infrastructure/db/person-name'
 import { loadSchedule } from '@/infrastructure/groups/pg-groups'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
@@ -1204,6 +1205,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
       id: string
       owner_teacher_user_id: string
       owner_name: string
+      avatar_preset: number | null
+      avatar_file_id: string | null
       company_name: string
       department: string
       content: string
@@ -1220,7 +1223,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
       withdrawn_business_at: Date | null
     }>(
       // 老師只拿到自己是案主的列（where 條件在 SQL 裡），系辦拿全部。
-      `select o.id, o.owner_teacher_user_id, ${personName('p', 'u')} as owner_name,
+      // 負責老師的頭像兩欄（C3-10）跟姓名同一句帶出：`p` 本來就 left join，查詢數不變（§2.2）。
+      `select o.id, o.owner_teacher_user_id, ${personName('p', 'u')} as owner_name, ${personAvatar('p')},
               o.company_name, o.department, o.content, o.requirements, o.notes, o.notes_visibility,
               o.address, o.contact_name, o.contact_phone, o.contact_email,
               o.status, o.revision, o.published_business_at, o.withdrawn_business_at
@@ -1238,6 +1242,8 @@ export class PgOpportunityQuery implements OpportunityQuery {
         id: r.id,
         ownerUserId: r.owner_teacher_user_id,
         ownerName: r.owner_name,
+        ownerAvatarPreset: r.avatar_preset,
+        ownerAvatarFileId: r.avatar_file_id,
         status: r.status,
         revision: r.revision,
         publishedAt: r.published_business_at,
