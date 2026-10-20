@@ -336,10 +336,10 @@ const denied: DenialCase[] = [
     return () => name === 'moveRule' ? commands.items.moveRule(admin, first.itemId, 'down', randomUUID())
       : commands.items.reorderRules(admin, s.cohortId, [second.itemId, first.itemId], randomUUID())
   } })),
-  { ...direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })), issue: '#789 F1：附件上傳漏擋', writesWhenArchived: true },
+  direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, placement: 'news', kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })),
   { name: 'FileStorage.upload/preArchiveTicket', issue: '#792 F4：封存前憑證仍可完成上傳', writesWhenArchived: true, prepare: async s => {
     const bytes = new TextEncoder().encode('%PDF-1.4\n% 封存前取得憑證的工作附件\n')
-    const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
+    const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, placement: 'news', kind: 'attachment',
       fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
     return () => commands.files.upload(adminId, ticket.ticket,
       new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length)
@@ -588,8 +588,8 @@ const maintenanceAllowed: MaintenanceCase[] = [
     basis: '規格① 設計方案 §4.5、#715 例外裁定及 #788 Review 1：封存屆榮譽附件上傳允許',
     prepare: async s => async () => {
       const bytes = new TextEncoder().encode('%PDF-1.4\n% 榮譽獎狀\n')
-      // #789 尚未加入 placement：依主腦裁定先用現行共用入口，並實際把檔案綁到榮譽。
-      const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
+      // #789：上傳開始帶榮譽位置，封存屆別照樣放行，並實際把檔案綁到榮譽。
+      const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, placement: 'honor', kind: 'attachment',
         fileName: 'award.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
       const stored = receipt(await commands.files.upload(adminId, ticket.ticket,
         new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length))
@@ -662,7 +662,7 @@ const maintenanceAllowed: MaintenanceCase[] = [
   { name: 'FileAdminCommand.deleteUnreferenced', basis: 'ops/files.ts FileAdminCommand、file-storage.ts：引用仍為 CONFLICT；主腦裁定允許維運清理', prepare: async s => {
     const bytes = new TextEncoder().encode('%PDF-1.4\n% 歷史附件\n')
     const upload = async () => {
-      const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, kind: 'attachment',
+      const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, placement: 'news', kind: 'attachment',
         fileName: 'history.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
       return receipt(await commands.files.upload(adminId, ticket.ticket,
         new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length)).fileId
@@ -875,10 +875,50 @@ describe('AC-56c：封存前成功的 requestId 封存後重播', () => {
     replay = await commands.submissions.submit(s.student.actor, s.itemId, 1, requestId)
     after = await snapshot()
   })
-  it.fails('#789 F2：重播應回 COHORT_ARCHIVED 而非原回執', () => {
+  it('#789 F2：重播應回 COHORT_ARCHIVED 而非原回執', () => {
     expect(replay).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
   })
   it('#789 F2：重播沒有增加 operation_records 或修改其他資料', () => {
+    expect(after).toEqual(before)
+  })
+})
+
+// 同一類（#789 主腦 ESCALATE 2）：存草稿與三個系辦動作，封存前成功的 requestId 封存後重播也要擋。
+type ReplayCase = { name: string; prepare: (s: Scenario) => Promise<Run> }
+const replays: ReplayCase[] = (['saveDraft', 'setAdvisorVisibility', 'reopen', 'setExempt'] as const).map(name => ({
+  name: `SubmissionCommand.${name}`,
+  prepare: async (s: Scenario): Promise<Run> => {
+    const i = await item(s)
+    if (name === 'reopen') businessNow = new Date('2026-12-01T00:00:00Z')
+    const requestId = randomUUID()
+    const run: Run = () => {
+      if (name === 'saveDraft') return commands.submissions.saveDraft(s.student.actor, i.itemId, 0, { topic: '報告' }, requestId)
+      if (name === 'setAdvisorVisibility') return commands.submissions.setAdvisorVisibility(admin, i.itemId, true, requestId)
+      if (name === 'reopen') return commands.submissions.reopen(admin, i.itemId, s.student.id, { dueAt: '2026-12-10T23:59' }, requestId)
+      return commands.submissions.setExempt(admin, { itemId: i.itemId, receiverId: s.student.id, exempt: true }, requestId)
+    }
+    receipt(await run())
+    return run
+  },
+}))
+
+describe.each(replays)('AC-56c：封存前成功的 requestId 封存後重播：$name', testCase => {
+  let replay: Result<unknown>
+  let before: Awaited<ReturnType<typeof snapshot>>
+  let after: Awaited<ReturnType<typeof snapshot>>
+  beforeAll(async () => {
+    businessNow = new Date('2026-10-01T02:00:00Z')
+    const s = await scenario()
+    const run = await testCase.prepare(s)
+    await archive(s)
+    before = await snapshot()
+    replay = await run()
+    after = await snapshot()
+  })
+  it('#789：重播回 COHORT_ARCHIVED 而非原回執', () => {
+    expect(replay).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+  })
+  it('#789：重播沒有增加 operation_records 或修改其他資料', () => {
     expect(after).toEqual(before)
   })
 })
