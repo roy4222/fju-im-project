@@ -309,33 +309,33 @@ export class PgPublicItemQuery implements PublicItemQuery {
     return viewer.kind === 'user' ? [...viewer.advisedCohortIds] : []
   }
 
-  /** 列 → 卡片：一次查齊封面與附件（附件照管理員排的順序；只算已存好的檔案）。 */
+  /**
+   * 列 → 卡片：封面與附件**同一句**查齊（附件照管理員排的順序；只算已存好的檔案）。封面曾是另一句
+   * `stored_files` 查詢，有封面的頁面每個卡片區塊就多 1 句（#260，⑤-15）。
+   */
   async #cards(db: Pick<Pool, 'query'>, rows: readonly Row[]): Promise<PublicItemCard[]> {
     if (rows.length === 0) return []
     const ids = rows.map((r) => r.id)
-    const coverIds = rows.map((r) => r.cover_file_id).filter((id): id is string => id !== null)
-    const [attachments, covers] = await Promise.all([
-      db.query<{ item_id: string; id: string; original_name: string; size_bytes: string | null }>(
-        `select a.item_id, f.id, f.original_name, f.size_bytes
-           from item_attachments a join stored_files f on f.id = a.file_id
-          where a.item_id = any($1::uuid[]) and f.status = 'stored'
-          order by a.item_id, a.sort`,
-        [ids],
-      ),
-      coverIds.length > 0
-        ? db.query<{ id: string; original_name: string; size_bytes: string | null }>(
-            `select id, original_name, size_bytes from stored_files where id = any($1::uuid[]) and status = 'stored'`,
-            [coverIds],
-          )
-        : Promise.resolve({ rows: [] as { id: string; original_name: string; size_bytes: string | null }[] }),
-    ])
+    const files = await db.query<{ item_id: string; is_cover: boolean; id: string; original_name: string; size_bytes: string | null }>(
+      `select a.item_id, false as is_cover, a.sort, f.id, f.original_name, f.size_bytes
+         from item_attachments a join stored_files f on f.id = a.file_id
+        where a.item_id = any($1::uuid[]) and f.status = 'stored'
+       union all
+       select m.id as item_id, true as is_cover, 0 as sort, f.id, f.original_name, f.size_bytes
+         from managed_items m join stored_files f on f.id = m.cover_file_id
+        where m.id = any($1::uuid[]) and f.status = 'stored'
+       order by item_id, is_cover, sort`,
+      [ids],
+    )
+    const attachments = files.rows.filter((f) => !f.is_cover)
+    const covers = files.rows.filter((f) => f.is_cover)
     const summary = (f: { id: string; original_name: string; size_bytes: string | null }): ItemFileSummary => ({
       fileId: f.id,
       name: f.original_name,
       sizeBytes: Number(f.size_bytes ?? 0),
     })
     return rows.map((r) => {
-      const cover = covers.rows.find((c) => c.id === r.cover_file_id)
+      const cover = covers.find((c) => c.item_id === r.id && c.id === r.cover_file_id)
       return {
         id: r.id,
         placement: r.placement,
@@ -344,7 +344,7 @@ export class PgPublicItemQuery implements PublicItemQuery {
         category: r.category,
         audienceKind: r.audience_kind,
         cover: cover ? summary(cover) : null,
-        attachments: attachments.rows.filter((a) => a.item_id === r.id).map(summary),
+        attachments: attachments.filter((a) => a.item_id === r.id).map(summary),
         // 發布中與已下架的一定有實際開放時間（DB 的 managed_items_published_check）。
         publishedAt: r.actual_opened_at ?? new Date(0),
         registrationDeadline: r.registration_deadline,
