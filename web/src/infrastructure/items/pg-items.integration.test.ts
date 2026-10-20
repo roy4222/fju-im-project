@@ -1471,6 +1471,40 @@ describe('前台查詢與訪客下載（票 16；SHW-01、SHW-02、SHW-06、PUB-
   })
 })
 
+describe('前台卡片：封面與附件同一句查齊（#260、⑤-15 AC-62）', () => {
+  it('有封面的卡片不多送查詢：stored_files 只查一次，封面與附件各自對到自己的項目', async () => {
+    const { cohortId } = await newCohort()
+    const coverA = await uploadPdf(adminId, cohortId, 'png')
+    const coverB = await uploadPdf(adminId, cohortId, 'png')
+    const fileA = await uploadPdf(adminId, cohortId)
+    const fileB1 = await uploadPdf(adminId, cohortId)
+    const fileB2 = await uploadPdf(adminId, cohortId)
+    const a = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public', title: '封面 A', attachmentFileIds: [fileA], coverFileId: coverA })
+    const b = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public', title: '封面 B', attachmentFileIds: [fileB1, fileB2], coverFileId: coverB })
+    const c = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public', title: '沒封面', attachmentFileIds: [] })
+    for (const item of [a, b, c]) await mustPublish(item.itemId, 1, false)
+
+    const statements: string[] = []
+    const counted = new PgPublicItemQuery(businessClock, () => ({
+      query: ((text: string, values?: unknown[]) => {
+        statements.push(text)
+        return app.query(text, values)
+      }) as Pick<Pool, 'query'>['query'],
+    }))
+    const cards = await counted.list({ kind: 'anonymous' }, 'news', { limit: 200 })
+
+    const byId = new Map(cards.map((card) => [card.id, card]))
+    expect(byId.get(a.itemId)?.cover?.fileId).toBe(coverA)
+    expect(byId.get(a.itemId)?.attachments.map((f) => f.fileId)).toEqual([fileA])
+    expect(byId.get(b.itemId)?.cover?.fileId).toBe(coverB)
+    expect(byId.get(b.itemId)?.attachments.map((f) => f.fileId)).toEqual([fileB1, fileB2])
+    expect(byId.get(c.itemId)?.cover).toBeNull()
+    expect(byId.get(c.itemId)?.attachments).toEqual([])
+    // 封面不再是另一句 `stored_files` 查詢（原本有封面就多 1 句，首頁三個區塊各多 1 句）。
+    expect(statements.filter((s) => /\bstored_files\b/.test(s))).toHaveLength(1)
+  })
+})
+
 describe('前台列表：先篩狀態、先依得獎日期排，再取筆數（#305、#307）', () => {
   const ANONYMOUS: ResolvedActor = { kind: 'anonymous' }
 
