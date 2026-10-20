@@ -110,7 +110,7 @@ try {
   }, async () => {
     await t.hover(card('DEMO-114').getByRole('button', { name: '封存：DEMO-114' }));
     await t.hover(card('DEMO-114').getByTestId('archive-blocked-reason'));
-    await t.hover(card('DEMO-113').getByText('已封存'));
+    await t.hover(card('DEMO-113').getByTestId('archived-at'));
   });
 
   await t.finish();

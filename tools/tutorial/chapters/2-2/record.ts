@@ -67,7 +67,7 @@ try {
   }, async () => {
     await t.click(banner.getByRole('link', { name: '我的後台' }));
     await page.waitForURL(/\/dashboard\/student/);
-    await t.click(banner.getByRole('button', { name: '帳號選單' }));
+    await t.click(page.getByRole('button', { name: '帳號選單' }));
     const menu = page.getByRole('menu', { name: '帳號選單' });
     await t.waitStable({ ready: menu });
     await t.hover(menu.getByRole('menuitem', { name: '登出' }));
@@ -137,7 +137,7 @@ try {
     status: { kind: 'ok', evidence: '既有保證；C2-14 登出只在後台頭像選單' },
   }, async () => {
     await t.goto('/dashboard/student', { ready: main });
-    await t.click(banner.getByRole('button', { name: '帳號選單' }));
+    await t.click(page.getByRole('button', { name: '帳號選單' }));
     const menu = page.getByRole('menu', { name: '帳號選單' });
     await t.waitStable({ ready: menu });
     await t.click(menu.getByRole('menuitem', { name: '登出' }));

@@ -70,7 +70,7 @@ try {
     await t.goto('/');
     await t.click(page.getByRole('button', { name: '編輯頁面' }));
     await t.waitStable({ ready: layer });
-    await t.hover(layer.getByRole('button', { name: '編輯首頁橫幅' }));
+    await t.hover(layer.getByRole('button', { name: '編輯「首頁橫幅」' }));
   });
 
   await t.step({
@@ -78,7 +78,7 @@ try {
     narration: '按首頁橫幅的「編輯」，上傳圖、填說明和兩行標語，按儲存就生效，訪客重新整理就看到，沒有發布步驟。',
     status: { kind: 'ok', evidence: 'story-4 第 9 步；C2-17 首頁橫幅表單' },
   }, async () => {
-    await t.click(layer.getByRole('button', { name: '編輯首頁橫幅' }));
+    await t.click(layer.getByRole('button', { name: '編輯「首頁橫幅」' }));
     await t.waitStable({ ready: editor.getByRole('textbox', { name: /^標語第一行/ }) });
     await t.upload(editor.getByLabel('選擇首頁大圖'), jpg, { via: editor.getByText('上傳圖片', { exact: true }) });
     await t.waitStable({ ready: editor.getByText('（儲存後才會換上）') });
@@ -108,7 +108,7 @@ try {
     status: { kind: 'ok', evidence: 'story-4 第 9 步；C2-17 恢復預設併進橫幅表單' },
   }, async () => {
     await t.scroll(0 - 5000);
-    await t.click(layer.getByRole('button', { name: '編輯首頁橫幅' }));
+    await t.click(layer.getByRole('button', { name: '編輯「首頁橫幅」' }));
     await t.waitStable({ ready: editor.getByRole('button', { name: '改用預設照片' }) });
     await t.click(editor.getByRole('button', { name: '改用預設照片' }));
     await editor.getByLabel(/^標語第一行/).fill('');
