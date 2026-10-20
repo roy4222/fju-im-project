@@ -3,11 +3,12 @@ import type { AccountSummary, ResolvedActor } from '@/application/accounts'
 import type { AdminAssignmentView, AdminGradingBoard, PendingReview } from '@/application/grading'
 import type { CohortGroupingOverview } from '@/application/groups'
 import type { ItemListRow } from '@/application/items'
+import type { LastReminded } from '@/application/reminders'
 import type { AdminSignoffBoard, SignoffPurpose, SignoffState } from '@/application/signoff'
 import type { ItemCompletionFacts, ItemRoster } from '@/application/submissions'
 import { SIGNOFF_PURPOSES } from '@/composition/signoff'
 import { overdueReceiverIds } from '@/composition/submissions'
-import { adminTodoCards, heroLine, INTAKE_LIMIT, loadAdminHome, NEWS_LIMIT, type AdminHome, type AdminHomePorts } from './home-data'
+import { adminTodoCards, heroLine, INTAKE_LIMIT, loadAdminHome, NEWS_LIMIT, remindButtons, type AdminHome, type AdminHomePorts } from './home-data'
 
 // 系辦首頁的資料載入（AD-02）：AC-AD-04 的 port 計數（接線），AC-AD-01／02 的待辦卡、AC-AD-03 的評分還差。
 // 測資只填頁面用得到的欄位，其餘用型別斷言帶過。
@@ -116,6 +117,8 @@ type Fixture = {
   board?: AdminGradingBoard
   signoff?: AdminSignoffBoard
   pendingReviews?: readonly PendingReview[]
+  /** 上次催繳：key 是作業 id 或屆別 id；沒給是沒催過。 */
+  reminded?: Readonly<Record<string, LastReminded>>
 }
 
 /**
@@ -145,6 +148,11 @@ function fakePorts(f: Fixture = {}) {
       roster: vi.fn(async (_actor: ResolvedActor, itemId: string) => rosters.get(itemId) ?? roster(itemId, 'individual', NOW, [])),
       completionFacts: vi.fn<AdminHomePorts['roster']['completionFacts']>(async () => facts()),
     },
+    reminders: {
+      lastReminded: vi.fn<AdminHomePorts['reminders']['lastReminded']>(async (_actor, _kind, sourceId) =>
+        ok(f.reminded?.[sourceId] ?? { at: null, nextAllowedAt: null }),
+      ),
+    },
   }
   return ports as typeof ports & AdminHomePorts
 }
@@ -170,7 +178,10 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
       expect(ports.signoff.homeCounts).toHaveBeenCalledWith(actor, 'c43')
       expect(ports.items.list).toHaveBeenCalledTimes(1)
       // 主機儲存不在首頁的 port 裡（只在開發者後台看）：型別上就沒有 ops，所以 storageTile 一定是 0 次。
-      expect(Object.keys(ports).sort()).toEqual(['accounts', 'grading', 'groups', 'items', 'roster', 'signoff'])
+      // C1-15（AC-34）：多一個催繳紀錄的 port；沒有逾期的作業不查，評分只查一次本屆。
+      expect(Object.keys(ports).sort()).toEqual(['accounts', 'grading', 'groups', 'items', 'reminders', 'roster', 'signoff'])
+      expect(ports.reminders.lastReminded).toHaveBeenCalledTimes(1)
+      expect(ports.reminders.lastReminded).toHaveBeenCalledWith(actor, 'grading', 'c43')
     })
   }
 
@@ -211,7 +222,7 @@ describe('AC-AD-04 首頁 port 呼叫數（接線）', () => {
     const ports = fakePorts()
     const home = await loadAdminHome(ports, actor, noCohort)
     expect(ports.accounts.summary).toHaveBeenCalledTimes(1)
-    for (const fn of [ports.groups.homeCounts, ports.grading.adminBoard, ports.grading.pendingReviews, ports.signoff.homeCounts, ports.items.list, ports.roster.roster, ports.roster.completionFacts]) {
+    for (const fn of [ports.groups.homeCounts, ports.grading.adminBoard, ports.grading.pendingReviews, ports.signoff.homeCounts, ports.items.list, ports.roster.roster, ports.roster.completionFacts, ports.reminders.lastReminded]) {
       expect(fn).not.toHaveBeenCalled()
     }
     expect(home.published).toBe(0)
@@ -370,5 +381,51 @@ describe('AC-A-35 待審帳號卡「最早 X 天前送出」', () => {
     const later = { ...ctx, businessNow: new Date(NOW.getTime() + 10 * DAY) }
     const home = await loadAdminHome(fakePorts({ summary: summary({ pendingApplications: 1, oldestPendingAppliedAt: at(1) }) }), actor, later)
     expect(adminTodoCards(home)[0]!.meta).toBe('1 位待審・最早 11 天前送出')
+  })
+})
+
+describe('AC-34 待辦卡「催繳」：卡片文字不變只加鈕，兩顆鈕各自冷卻', () => {
+  const HOUR = 3_600_000
+  const cooling = (agoMs: number): LastReminded => ({ at: new Date(NOW.getTime() - agoMs), nextAllowedAt: new Date(NOW.getTime() - agoMs + DAY) })
+
+  it('逾期的作業各查一次上次催繳（沒逾期的不查），評分查本屆一次', async () => {
+    const ports = fakePorts(ac01())
+    await loadAdminHome(ports, actor, ctx)
+    const calls = ports.reminders.lastReminded.mock.calls.map(([, kind, id]) => `${kind}:${id}`).sort()
+    expect(calls).toEqual(['grading:c43', 'item:個人心得', 'item:期中報告'])
+  })
+
+  it('2 份逾期（一份 1 小時前剛催過）→ 逾期鈕可按；評分沒催過 → 可按；卡片文字照舊', async () => {
+    const home = await loadAdminHome(fakePorts({ ...ac01(), reminded: { 期中報告: cooling(HOUR) } }), actor, ctx)
+    expect(remindButtons(home, NOW)).toEqual({ overdue: { blocked: null }, grading: { blocked: null } })
+    const cards = adminTodoCards(home)
+    expect(cards[1]).toMatchObject({ title: '逾期未繳 4', meta: '欠繳 3 人、1 組・發布中 3 個作業' })
+    expect(cards[2]).toMatchObject({ title: '評分還差 7 份', meta: '2 位老師未完成' })
+  })
+
+  it('逾期的作業全部冷卻中 → 逾期鈕停用，寫最早能再催的那份；評分鈕不受影響', async () => {
+    const home = await loadAdminHome(fakePorts({ ...ac01(), reminded: { 個人心得: cooling(3 * HOUR), 期中報告: cooling(HOUR) } }), actor, ctx)
+    const { overdue, grading } = remindButtons(home, NOW)
+    // 最早能再催：3 小時前催的那份，21 小時後。
+    expect(overdue?.blocked).toBe('上次催繳3 小時前，2026/10/17 07:00 後可再催')
+    expect(grading).toEqual({ blocked: null })
+  })
+
+  it('評分 24 小時內催過 → 評分鈕停用寫下次可催時間；逾期鈕不受影響', async () => {
+    const home = await loadAdminHome(fakePorts({ ...ac01(), reminded: { c43: cooling(0) } }), actor, ctx)
+    const { overdue, grading } = remindButtons(home, NOW)
+    expect(grading?.blocked).toBe('上次催繳剛剛，2026/10/17 10:00 後可再催')
+    expect(overdue).toEqual({ blocked: null })
+  })
+
+  it('冷卻過了（25 小時前）→ 可以按', async () => {
+    const home = await loadAdminHome(fakePorts({ ...ac01(), reminded: { c43: cooling(25 * HOUR) } }), actor, ctx)
+    expect(remindButtons(home, NOW).grading).toEqual({ blocked: null })
+  })
+
+  it('沒有逾期、評分送齊 → 兩張卡都不放鈕；屆別封存也不放', async () => {
+    expect(remindButtons(await loadAdminHome(fakePorts(), actor, ctx), NOW)).toEqual({ overdue: null, grading: null })
+    const archived = { ...ctx, cohort: { id: 'c43', status: 'archived' } as never }
+    expect(remindButtons(await loadAdminHome(fakePorts(ac01()), actor, archived), NOW)).toEqual({ overdue: null, grading: null })
   })
 })
