@@ -448,8 +448,9 @@ function PanelTitle({
     <div
       className={cn(
         'fju-panel-title w-full max-w-[520px] px-6 py-5 md:px-10 md:py-6',
-        // 出血只在 xl（≥1280）：版心 1152 兩側各有 ≥64 px，外推 40 px 仍在 main 內；更窄時出血會撐出橫向捲軸（走查 11、12）。
-        side === 'left' ? 'rounded-tr-[40px] xl:-ml-10' : 'self-end rounded-tl-[40px] xl:-mr-10',
+        // 左側出血只在 xl（≥1280）：版心 1152 兩側各有 ≥64 px，外推 40 px 仍在 main 內；更窄時會撐出橫向捲軸（走查 11、12）。
+        // 右側不出血：「榮譽與競賽」在鋪滿全寬的格線裡，右欄本來就貼齊畫面右緣，再外推一定超出。
+        side === 'left' ? 'rounded-tr-[40px] xl:-ml-10' : 'self-end rounded-tl-[40px]',
       )}
     >
       <h2 id={id} className="type-section">

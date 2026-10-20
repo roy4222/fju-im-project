@@ -103,19 +103,23 @@ test('AC-19：系辦（fju_office=1）在前台編輯模式的首頁也有像素
   await expect(page.getByRole('dialog', { name: '編輯首頁橫幅' })).toBeVisible()
 })
 
-test.describe('AC-20：1024 寬', () => {
-  test.use({ viewport: { width: 1024, height: 800 } })
+// 1024：PanelTitle 不在中寬出血；1280、1440：xl 才出血的左側標題板仍在版心內，右側（鋪滿全寬的格線裡）不外推。
+for (const width of [1024, 1280, 1440]) {
+  test.describe(`AC-20：${width} 寬`, () => {
+    test.use({ viewport: { width, height: 800 } })
 
-  test('關掉 overflow 遮罩後頁面寬度不超過視窗（區塊標題不再出血 40 px）', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.locator('#home-news')).toBeVisible()
-    // 正式站 CSP 擋行內 <style>，用 CSSOM 把 html／body／main 的橫向遮罩關掉，量真實寬度。
-    const size = await page.evaluate(() => {
-      for (const el of [document.documentElement, document.body, ...document.querySelectorAll('main')]) {
-        ;(el as HTMLElement).style.setProperty('overflow-x', 'visible', 'important')
-      }
-      return { scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }
+    test('關掉 overflow 遮罩後頁面寬度不超過視窗（區塊標題不出血）', async ({ page }) => {
+      await page.goto('/')
+      await expect(page.locator('#home-news')).toBeVisible()
+      await expect(page.locator('#home-honors')).toBeVisible()
+      // 正式站 CSP 擋行內 <style>，用 CSSOM 把 html／body／main 的橫向遮罩關掉，量真實寬度。
+      const size = await page.evaluate(() => {
+        for (const el of [document.documentElement, document.body, ...document.querySelectorAll('main')]) {
+          ;(el as HTMLElement).style.setProperty('overflow-x', 'visible', 'important')
+        }
+        return { scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }
+      })
+      expect(size.scrollWidth).toBeLessThanOrEqual(size.clientWidth + 1)
     })
-    expect(size.scrollWidth).toBeLessThanOrEqual(size.clientWidth + 1)
   })
-})
+}
