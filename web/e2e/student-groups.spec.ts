@@ -520,8 +520,8 @@ test('AC-C3-12／AC-C3-26（學生側）：產學合作必選合作案（只列�
   await status.getByRole('radio', { name: '產學合作' }).check()
   const picker = status.getByLabel('合作案', { exact: true })
   await expect(picker).toBeVisible()
-  // 下拉只有已發布的甲與丙（乙是草稿）；還有一個「請選合作案」的空選項。
-  await expect(picker.getByRole('option')).toHaveCount(3)
+  // 下拉只列已發布的案（這裡的甲與丙；別的 spec 建的已發布案也會在），乙是草稿不列；第一個是「請選合作案」的空選項。
+  await expect(picker.getByRole('option').first()).toHaveText('請選合作案')
   await expect(picker).toContainText(opportunities.甲.company)
   await expect(picker).toContainText(opportunities.丙.company)
   await expect(picker).not.toContainText(opportunities.乙.company)
@@ -597,7 +597,9 @@ test('AC-C3-12／AC-C3-26（學生側）：產學合作必選合作案（只列�
   await page.reload()
   await expect(row).toContainText('還沒有合作案')
   const repick = row.getByLabel('選合作案')
-  await expect(repick.getByRole('option')).toHaveCount(3)
+  await expect(repick.getByRole('option').first()).toHaveText('請選合作案')
+  await expect(repick).toContainText(opportunities.甲.company)
+  await expect(repick).toContainText(opportunities.丙.company)
   await expect(repick).not.toContainText(opportunities.乙.company)
   await repick.selectOption(opportunities.丙.id)
   await row.getByRole('button', { name: '送出' }).click()
