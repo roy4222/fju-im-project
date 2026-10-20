@@ -3,7 +3,6 @@ import './gantt.css'
 import dynamic from 'next/dynamic'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { mediaQueryStore } from '@/app/_ui/fx/media-query'
-import { cn } from '@/shared/cn'
 import {
   DAY_PX,
   DRAG_THRESHOLD_PX,
@@ -64,6 +63,14 @@ const DeleteConfirmDialog = dynamic(() => import('./gantt-dialogs').then((m) => 
 
 /** 手機或觸控：退回「點一下編輯」，橫條不可拖、沒有把手（§9.3）。 */
 const COARSE_QUERY = '(pointer: coarse), (max-width: 767px)'
+/**
+ * 拼 class（只濾掉 false／空值）。不用 `shared/cn`：這支是延遲 chunk，靜態碰到 `cn`（clsx＋tailwind-merge）
+ * Turbopack 就把它從每頁都載的共用 chunk 拆出來，全站每條路由變大（C3-08 實測 +0.3 KB）。這裡的 class 不會互相覆蓋，不需要 merge。
+ */
+function classes(...names: (string | false | null | undefined)[]): string {
+  return names.filter(Boolean).join(' ')
+}
+
 const coarseStore = mediaQueryStore(COARSE_QUERY, () => (typeof window === 'undefined' ? undefined : window))
 
 /** 把 CSS 變數寫進元素（CSSOM，不產生 `style=` 屬性）。 */
@@ -624,7 +631,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                   data-kind={h.key === 'yearEnd' ? 'year-end' : 'stage'}
                   data-seq={h.key === 'yearEnd' ? undefined : h.key}
                   aria-label={h.label}
-                  className={cn('gantt-handle', preview?.kind === 'stage' && preview.key === h.key && 'is-dragging')}
+                  className={classes('gantt-handle', preview?.kind === 'stage' && preview.key === h.key && 'is-dragging')}
                   ref={cssVars({ '--x': px(x(h.at)) })}
                   onPointerDown={(e) => onHandlePointerDown(e, h.key)}
                   {...pressHandlers}
@@ -654,7 +661,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                   <span className="gantt-label-name">{row.name}</span>
                 </div>
                 <div
-                  className={cn('gantt-track gantt-lane-track min-h-11', editable && 'is-creatable')}
+                  className={classes('gantt-track gantt-lane-track min-h-11', editable && 'is-creatable')}
                   ref={cssVars({ '--lanes': layout.laneCounts[rowIndex] ?? 1 })}
                   onClick={editable ? onTrackClick : undefined}
                 >
@@ -683,7 +690,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                           data-testid="gantt-bar"
                           aria-label={activityAriaLabel(a)}
                           title={a.title}
-                          className={cn('gantt-bar', narrow(a) && 'is-narrow')}
+                          className={classes('gantt-bar', narrow(a) && 'is-narrow')}
                           ref={vars}
                         >
                           {text}
@@ -698,7 +705,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                         data-kind={`activity-${edge}`}
                         data-id={a.id}
                         aria-label={activityEdgeAriaLabel(a, edge)}
-                        className={cn('gantt-bar-edge', edge === 'start' ? 'is-start' : 'is-end')}
+                        className={classes('gantt-bar-edge', edge === 'start' ? 'is-start' : 'is-end')}
                         ref={cssVars(barVars)}
                         onPointerDown={(e) => onBarPointerDown(e, base, edge)}
                         {...pressHandlers}
@@ -715,7 +722,7 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
                         aria-label={activityAriaLabel(a)}
                         aria-disabled={coarse || undefined}
                         title={a.title}
-                        className={cn('gantt-bar', narrow(a) && 'is-narrow', draggable && 'is-draggable', dragging && 'is-dragging')}
+                        className={classes('gantt-bar', narrow(a) && 'is-narrow', draggable && 'is-draggable', dragging && 'is-dragging')}
                         ref={vars}
                         onPointerDown={(e) => onBarPointerDown(e, base)}
                         {...pressHandlers}

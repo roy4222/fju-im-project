@@ -14,7 +14,6 @@ import {
   type StageEditorProps,
   type TimelineActionState,
 } from './timeline-forms'
-import GanttChart from '@/app/dashboard/_timeline/gantt/gantt'
 import type { ActionResult, GanttEditor, GanttProps } from '@/app/dashboard/_timeline/gantt/gantt-model'
 
 /**
@@ -28,9 +27,7 @@ import type { ActionResult, GanttEditor, GanttProps } from '@/app/dashboard/_tim
  * - `moveActivity`、`remove` 直通 action；成功後 action 自己 `refresh()`，甘特等新資料進來再換掉樂觀位置。
  */
 
-// 甘特本體跟這頁一起下載（靜態 import），但 `ssr:false` 只在瀏覽器畫：`gantt.tsx` 用了共用的 `shared/cn`，
-// 放進「點開才下載」的延遲 chunk 會讓 Turbopack 把 `cn` 從每頁都載的共用 chunk 拆出來，全站每條路由 +0.3 KB（C3-08 實測）。
-const Gantt = dynamic(() => Promise.resolve(GanttChart), {
+const Gantt = dynamic(() => import('@/app/dashboard/_timeline/gantt/gantt'), {
   ssr: false,
   // 跟甘特差不多高（工具列＋月份、階段、四段、學生截止各一列），載入時版面不跳。
   loading: () => <div data-testid="gantt-skeleton" aria-hidden className="dash-card h-[23rem] animate-pulse bg-muted/40" />,
