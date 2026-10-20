@@ -108,8 +108,9 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(page.getByRole('link', { name: /模擬時鐘/ })).toHaveCount(0)
   await expect(page.getByRole('main')).not.toContainText('調整模擬時鐘')
 
-  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: `編輯 ${CODE} 年度測試（${CODE}） 的階段與日期` })
+  // C3-08：還沒設階段時才有「設定階段與日期」（四段一起填）；設好之後點甘特色塊一段一段改。
+  await page.getByRole('button', { name: '設定階段與日期', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: `設定 ${CODE} 年度測試（${CODE}） 的階段與日期` })
   const stages = [
     ['成組期', '2026-09-15'],
     ['期中', '2026-11-01'],
@@ -136,20 +137,23 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(list).toContainText('2026-11-01 – 2027-01-09')
   await expect(list).toContainText('2027-03-01 – 2027-06-30')
 
-  // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變。
-  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  await dialog.getByLabel('第 3 階段開始日').fill('2026-10-01')
-  await dialog.getByRole('button', { name: '儲存' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('第 3 階段的開始日')
-  await expect(dialog.getByRole('alert')).toContainText('要晚於第 2 階段')
-  await dialog.getByRole('button', { name: '先不改' }).click()
+  // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變（C3-08：點甘特上的第 3 段色塊開「編輯第 3 階段」）。
+  await expect(page.getByRole('button', { name: '設定階段與日期', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: /^第 3 階段「期末」\d/ }).click()
+  const stage3 = page.getByRole('dialog', { name: '編輯第 3 階段' })
+  await stage3.getByLabel('第 3 階段開始日').fill('2026-10-01')
+  await stage3.getByRole('button', { name: '儲存' }).click()
+  await expect(stage3.getByRole('alert')).toContainText('第 3 階段的開始日')
+  await expect(stage3.getByRole('alert')).toContainText('要晚於第 2 階段')
+  await stage3.getByRole('button', { name: '先不改' }).click()
 
   await page.reload()
   await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027-01-10 – 2027-02-28')
-  // 說明存進去了：重新打開對話框還在。
-  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  await expect(dialog.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
-  await dialog.getByRole('button', { name: '先不改' }).click()
+  // 說明存進去了：點第 1 段色塊打開還在。
+  await page.getByRole('button', { name: /^第 1 階段「成組期」\d/ }).click()
+  const stage1 = page.getByRole('dialog', { name: '編輯第 1 階段' })
+  await expect(stage1.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
+  await stage1.getByRole('button', { name: '先不改' }).click()
 })
 
 test('活動：新增（單日、跨日）、編輯、直接刪除；沒有「取消活動」（C3-06：AC-C3-32、AC-C3-37、AC-C3-48(a)）', async ({ page }) => {
