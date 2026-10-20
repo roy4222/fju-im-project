@@ -230,3 +230,18 @@ export type {
   StudentGroupView,
   UngroupedStudent,
 } from '@/application/groups/ports'
+export type {
+  UnassignedJoinableGroup,
+  UnassignedProposal,
+  UnassignedQuery,
+  UnassignedRoster,
+  UnassignedStatus,
+  UnassignedStudent,
+} from '@/application/groups/unassigned'
+export {
+  describeUnassignedStatus,
+  describeUnassignedVoid,
+  skillChips,
+  summarizeUnassigned,
+  unassignedStatus,
+} from '@/application/groups/unassigned'

@@ -1,0 +1,6 @@
+{
+  "ticket": "C3-15",
+  "set": {
+    "/dashboard/admin/groups/unassigned": { "as": "admin", "baseline": 5, "max": 5, "identity": 0 }
+  }
+}
