@@ -966,6 +966,59 @@ describe('分組設定（管理員）', () => {
 })
 
 describe('管理員分組總覽', () => {
+  it('C3-12 正式繳交旗標同批載入：草稿、個人繳交不算，組數增加不增加 SQL', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b, c, d] = await students(cohortId, 4)
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+    const sqls: string[] = []
+    const reader = { query: (text: string, values?: unknown[]) => { sqls.push(text); return app.query(text, values) } } as Pick<Pool, 'query'>
+    const counted = new PgGroupQuery(() => reader)
+    const first = (await counted.overview(cohortId, { history: false })).groups[0]!
+    const oneGroupCount = sqls.length
+    await confirmAll(await mustPropose(c!, [d!]), [c!, d!])
+    const second = (await query.overview(cohortId, { history: false })).groups[1]!
+    const itemId = randomUUID()
+    const schemaId = randomUUID()
+    await owner.sql(`insert into managed_items (id, cohort_id, placement, audience_kind, receiver_unit, title, created_by_kind)
+      values ($1, $2, 'submission', 'cohort_students', 'group', '正式與草稿', 'system')`, [itemId, cohortId])
+    await owner.sql(`insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+      values ($1, $2, 1, '{"fields":[]}'::jsonb, $3)`, [schemaId, itemId, adminId])
+    await owner.sql(`insert into submission_drafts (id, item_id, receiver_kind, receiver_id, schema_version_id, created_by_kind)
+      values (gen_random_uuid(), $1, 'group', $2, $3, 'system')`, [itemId, first.id, schemaId])
+    // 個人繳交也不能讓他所在的組被當成已有組別繳交。
+    for (const [kind, receiver] of [['user', a!.id], ['group', second.id]]) {
+      await owner.sql(`insert into submission_versions
+        (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+         received_real_at, received_business_at, request_id, deadline_version_at_submit, membership_snapshot)
+        values (gen_random_uuid(), $1, $2, $3, 1, $4, '{}'::jsonb, $5, now(), now(), gen_random_uuid(), 1, $6::jsonb)`,
+      [itemId, kind, receiver, schemaId, kind === 'group' ? c!.id : a!.id, kind === 'group' ? JSON.stringify([c!.id, d!.id]) : null])
+    }
+    sqls.length = 0
+    const cards = (await counted.overview(cohortId, { history: false })).groups
+    expect(cards.map((g) => g.hasFormalSubmission)).toEqual([false, true])
+    expect(sqls).toHaveLength(oneGroupCount)
+    expect(await query.findGroup(second.id)).toMatchObject({ hasFormalSubmission: true })
+    expect(await groups.dissolveGroup(staffActor(adminId, 'admin'), {
+      groupId: first.id, revision: first.revision, reason: '',
+    }, randomUUID())).toMatchObject({ ok: true })
+  })
+
+  it('C3-12 單組查詢沿用卡片資料；不存在回 null，已刪除仍可查到狀態', async () => {
+    const cohortId = await newCohort({ min: 2, max: 5 })
+    const [a, b] = await students(cohortId, 2)
+    await confirmAll(await mustPropose(a!, [b!]), [a!, b!])
+    const card = (await query.overview(cohortId, { history: false })).groups[0]!
+    expect(await query.findGroup(card.id)).toEqual({ ...card, status: 'active' })
+    expect(await query.findGroup(randomUUID())).toBeNull()
+    expect(await query.findGroup('not-a-uuid')).toBeNull()
+    expect(await groups.dissolveGroup(staffActor(adminId, 'admin'), {
+      groupId: card.id, revision: card.revision, reason: '',
+    }, randomUUID())).toMatchObject({ ok: true })
+    expect(await query.findGroup(card.id)).toMatchObject({
+      id: card.id, cohortId, status: 'dissolved', members: [], hasFormalSubmission: false,
+    })
+  })
+
   it('列出組別、進行中提案（含到期時間）、終止紀錄（含作廢理由）與未分組學生', async () => {
     const cohortId = await newCohort({ min: 2, max: 5 })
     const [a, b, c, d, e] = await students(cohortId, 5)

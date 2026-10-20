@@ -1,6 +1,6 @@
-import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Page, type Request } from '@playwright/test'
 import { Pool } from 'pg'
-import { createTestSession, sharedTestSession, toPlaywrightCookie } from './session'
+import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
  * AD-06（設計方案 §3.3.1、Q73）：系辦在「全部組別」把產學組連到合作案。
@@ -35,6 +35,7 @@ let teacherLee: string
 let teacherWang: string
 const groupIds = new Map<string, string>()
 const opportunityIds = new Map<string, string>()
+const teacherSessions = new Map<string, TestSession>()
 
 function ymd(date: Date): string {
   return new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 10)
@@ -44,6 +45,7 @@ async function teacher(name: string): Promise<string> {
   const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
   try {
     const session = await createTestSession(context, 'teacher')
+    teacherSessions.set(session.userId, session)
     await pool.query(`update user_profiles set display_name = $2, name_normalized = $2 where user_id = $1`, [session.userId, name])
     return session.userId
   } finally {
@@ -122,6 +124,7 @@ async function openGroups(page: Page, cohort: string) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
   await page.goto(`/dashboard/admin/groups?cohort=${cohort}`)
   await expect(page.getByRole('heading', { name: '分組', exact: true })).toBeVisible()
+  await page.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
   return page.getByRole('region', { name: '全部組別' })
 }
 
@@ -147,7 +150,7 @@ test('AC-AD-11 首次連結：下拉只有已發布的案、理由可留空；�
   await groups.getByRole('button', { name: '連結合作案 G03' }).click()
   const dialog = page.getByRole('dialog', { name: '把 G03 連到合作案' })
   await expect(dialog.getByRole('heading', { name: '把 G03 連到合作案' })).toBeVisible()
-  await expect(dialog.getByText('可留空')).toBeVisible()
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
 
   // 本次種了四筆（甲丙已發布、乙草稿、丁下架）：搜尋戳記只剩甲、丙。
   await narrowTo(dialog, TAG, 2)
@@ -161,6 +164,7 @@ test('AC-AD-11 首次連結：下拉只有已發布的案、理由可留空；�
 
   await page.reload()
   const row = page.getByRole('region', { name: '全部組別' })
+  await row.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
   await expect(row.getByRole('link', { name: `${甲}・研發部` })).toBeVisible()
   await expect(row.getByRole('button', { name: '改連結 G03' })).toBeVisible()
 
@@ -175,7 +179,7 @@ test('AC-AD-11 換案：填了理由換成，稽核 opportunity.switch 帶理由
   await groups.getByRole('button', { name: '改連結 G03' }).click()
   const dialog = page.getByRole('dialog', { name: '把 G03 改連到別的合作案' })
   await expect(dialog).toContainText(`目前連結：${甲}・研發部`)
-  await expect(dialog.getByText('換案必填')).toBeVisible()
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
 
   await narrowTo(dialog, TAG, 2)
   await dialog.getByLabel('合作案').selectOption({ label: `${丙}・資訊部・王老師` })
@@ -250,10 +254,182 @@ test('AC-AD-12 一般組 G01：列上與詳情都沒有連結入口', async ({ p
   const groups = await openGroups(page, cohortId)
   await expect(groups.getByRole('button', { name: '連結合作案 G03' })).toHaveCount(0) // G03 已連結，入口是「改連結」
   await expect(groups.getByRole('button', { name: /連結合作案 G01|改連結 G01/ })).toHaveCount(0)
-  await groups.getByRole('button', { name: 'G01 詳情' }).click()
-  const detail = page.getByRole('dialog', { name: 'G01 詳情' })
+  await groups.getByRole('article', { name: 'G01', exact: true }).getByRole('link', { name: '進入小組' }).click()
+  const detail = page.getByRole('main')
   await expect(detail).toBeVisible()
-  await expect(detail).not.toContainText('連結合作案')
+  await expect(detail.getByRole('region', { name: '合作案', exact: true })).toHaveCount(0)
+  await expect(detail.getByRole('button', { name: /連結合作案|改連結/ })).toHaveCount(0)
+})
+
+test('C3-12：詳情解除合作案理由留空，回執留在頁面，重整後連結已解除', async ({ page }) => {
+  const groups = await openGroups(page, cohortId)
+  await groups.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
+  await groups.getByRole('article', { name: 'G03', exact: true }).getByRole('link', { name: '進入小組' }).click()
+  await page.getByRole('button', { name: '解除合作案', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '解除 G03 的合作案' })
+  await expect(dialog.getByLabel('理由（可不填）')).toHaveValue('')
+  await dialog.getByRole('button', { name: '確定解除' }).click()
+  await expect(page.getByRole('status')).toContainText(`已解除 G03 與「${甲}・研發部」的連結`)
+  await expect(page.getByRole('region', { name: '合作案', exact: true })).toContainText('尚未連結合作案')
+  await page.reload()
+  await expect(page.getByRole('button', { name: '解除合作案', exact: true })).toHaveCount(0)
+  expect((await audits('opportunity.unlink', groupIds.get('G03')!)).map((a) => a.reason)).toEqual([''])
+})
+
+/** 擷取真實表單的 action POST，攔下原請求，再以不同身分直接重送。 */
+async function captureAction(page: Page, submit: () => Promise<void>): Promise<Request> {
+  await page.route('**/dashboard/admin/groups**', async (route) => {
+    if (route.request().method() === 'POST' && route.request().headers()['next-action']) await route.abort()
+    else await route.continue()
+  })
+  const requested = page.waitForRequest((req) => req.method() === 'POST' && Boolean(req.headers()['next-action']))
+  await submit()
+  const request = await requested
+  await page.unroute('**/dashboard/admin/groups**')
+  return request
+}
+
+async function replayAction(request: Request, session: TestSession) {
+  const client = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  try {
+    const response = await client.post(request.url(), {
+      headers: {
+        cookie: session.cookie,
+        origin: new URL(BASE_URL).origin,
+        'next-action': request.headers()['next-action']!,
+        'content-type': request.headers()['content-type']!,
+      },
+      data: request.postDataBuffer()!,
+      maxRedirects: 0,
+    })
+    return { status: response.status(), body: await response.text() }
+  } finally {
+    await client.dispose()
+  }
+}
+
+async function groupFootprint(id: string) {
+  const result = await pool.query(
+    `select to_jsonb(g) as group_row,
+      (select jsonb_agg(l order by l.id) from opportunity_links l where l.group_id=g.id) as links,
+      (select count(*)::int from audit_events a where a.target_id=g.id) as audits,
+      (select count(*)::int from domain_events e where e.source_id=g.id) as events,
+      (select count(*)::int from operation_records r where r.cohort_id=g.cohort_id) as operations
+     from groups g where g.id=$1`, [id],
+  )
+  return result.rows[0]
+}
+
+test('R1：系辦解除 action 直接 POST，學生、必須改密系辦及案主老師皆拒絕且資料不變，正常系辦成功', async ({ page }) => {
+  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  const student = await createTestSession(context, 'student')
+  await context.dispose()
+  const passwordContext = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  const mustChange = await createTestSession(passwordContext, 'admin')
+  await passwordContext.dispose()
+  await pool.query('update users set must_change_password=true where id=$1', [mustChange.userId])
+  const ownCohort = await insertCohort(`${CODE}-R1-UNLINK`)
+  const id = await insertGroup(ownCohort, 'G03', 'industry')
+  await pool.query(`insert into opportunity_links (id, group_id, opportunity_id, state, valid_from, linked_by_user_id)
+    values (gen_random_uuid(), $1, $2, 'active', now(), $3)`, [id, opportunityIds.get(甲), adminId])
+  const admin = await sharedTestSession(page.request, 'admin')
+  await page.context().addCookies([toPlaywrightCookie(admin.cookie, BASE_URL)])
+  await page.goto(`/dashboard/admin/groups/${id}`)
+  await page.getByRole('button', { name: '解除合作案', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '解除 G03 的合作案' })
+  const request = await captureAction(page, () => dialog.getByRole('button', { name: '確定解除' }).click())
+  const before = await groupFootprint(id)
+  for (const [name, session] of [['學生', student], ['必須改密系辦', mustChange], ['案主老師', teacherSessions.get(teacherLee)!]] as const) {
+    const response = await replayAction(request, session)
+    expect(await groupFootprint(id), name).toEqual(before)
+    expect(response.body, name).toContain('"ok":false')
+  }
+  const accepted = await replayAction(request, admin)
+  expect(accepted.status).toBe(200)
+  expect(accepted.body).toContain('"ok":true')
+  expect((await pool.query('select valid_to from opportunity_links where group_id=$1', [id])).rows[0].valid_to).not.toBeNull()
+  expect(await audits('opportunity.unlink', id)).toHaveLength(1)
+})
+
+test('R1：學生組長不能直接 POST 系辦改類型 action，資料不變；正常系辦成功', async ({ page }) => {
+  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  const leader = await createTestSession(context, 'student')
+  await context.dispose()
+  const ownCohort = await insertCohort(`${CODE}-R1-TYPE`)
+  for (const [i, days] of [-10, 30, 90, 150].entries()) {
+    await pool.query(`insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+      values (gen_random_uuid(), $1, $2, $3, $4, 'system')`,
+    [ownCohort, i + 1, ['成組期', '期中', '期末', '成果'][i], ymd(new Date(Date.now() + days * 86_400_000))])
+  }
+  const id = await insertGroup(ownCohort, 'G01', 'general')
+  await pool.query('update user_profiles set cohort_id=$2 where user_id=$1', [leader.userId, ownCohort])
+  await pool.query(`insert into group_memberships (id, group_id, cohort_id, user_id, valid_from, added_by_kind, added_by_user_id)
+    values (gen_random_uuid(), $1, $2, $3, now(), 'user', $3)`, [id, ownCohort, leader.userId])
+  await pool.query(`insert into group_leaders (id, group_id, user_id, valid_from, changed_by_user_id)
+    values (gen_random_uuid(), $1, $2, now(), $2)`, [id, leader.userId])
+  const admin = await sharedTestSession(page.request, 'admin')
+  await page.context().addCookies([toPlaywrightCookie(admin.cookie, BASE_URL)])
+  await page.goto(`/dashboard/admin/groups?cohort=${ownCohort}`)
+  const card = page.getByRole('article', { name: 'G01', exact: true })
+  await card.locator('summary').click()
+  await card.getByRole('button', { name: '改組別類型：G01' }).click()
+  const request = await captureAction(page, () => page.getByRole('button', { name: '確認改成產學合作' }).click())
+  const before = await groupFootprint(id)
+  const denied = await replayAction(request, leader)
+  expect(await groupFootprint(id)).toEqual(before)
+  expect(denied.body).toContain('"ok":false')
+  const accepted = await replayAction(request, admin)
+  expect(accepted.status).toBe(200)
+  expect(accepted.body).toContain('"ok":true')
+  expect((await pool.query('select group_type from groups where id=$1', [id])).rows[0].group_type).toBe('industry')
+  expect(await audits('group.type.change', id)).toHaveLength(1)
+})
+
+test('R1：觸控詳情與巢狀對話框按鈕至少 44×44，指導老師顯示既有頭像', async ({ browser }) => {
+  const ownCohort = await insertCohort(`${CODE}-R1-TOUCH`)
+  const id = await insertGroup(ownCohort, 'G03', 'industry')
+  await pool.query(`insert into opportunity_links (id, group_id, opportunity_id, state, valid_from, linked_by_user_id)
+    values (gen_random_uuid(), $1, $2, 'active', now(), $3)`, [id, opportunityIds.get(甲), adminId])
+  await pool.query(`insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+    values (gen_random_uuid(), $1, $2, 'admin', now(), $3, '')`, [id, teacherLee, adminId])
+  await pool.query('update user_profiles set avatar_preset=23 where user_id=$1', [teacherLee])
+  const context = await browser.newContext({ baseURL: BASE_URL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
+  try {
+    const admin = await sharedTestSession(context.request, 'admin')
+    await context.addCookies([toPlaywrightCookie(admin.cookie, BASE_URL)])
+    const page = await context.newPage()
+    await page.goto(`/dashboard/admin/groups/${id}`)
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    const advisor = page.getByRole('region', { name: '指導老師', exact: true })
+    const opportunity = page.getByRole('region', { name: '合作案', exact: true })
+    const size = async (button: ReturnType<Page['getByRole']>) => {
+      const box = await button.boundingBox()
+      const label = await button.getAttribute('aria-label') ?? await button.innerText()
+      expect(box, label).not.toBeNull()
+      console.log(`R1 touch ${label}: ${box!.width}×${box!.height}`)
+      expect.soft(box!.width, `${label} width`).toBeGreaterThanOrEqual(44)
+      expect.soft(box!.height, `${label} height`).toBeGreaterThanOrEqual(44)
+    }
+    await size(advisor.getByRole('button', { name: '重派指導老師：G03' }))
+    await size(advisor.getByRole('button', { name: '解除指導老師：G03' }))
+    await size(opportunity.getByRole('button', { name: '改連結 G03' }))
+    for (const [trigger, title] of [
+      ['重派指導老師：G03', '重派 G03 的指導老師'],
+      ['解除指導老師：G03', '解除 G03 的指導老師？'],
+      ['改連結 G03', '把 G03 改連到別的合作案'],
+      ['解除合作案', '解除 G03 的合作案'],
+    ]) {
+      await page.getByRole('button', { name: trigger, exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: title, exact: true })
+      await expect(dialog).toBeVisible()
+      for (const button of await dialog.getByRole('button').all()) await size(button)
+      await dialog.getByRole('button', { name: /^(先不要|取消)$/ }).click()
+    }
+    await expect.soft(advisor.locator('img')).toHaveCount(1)
+    await expect.soft(advisor.locator('img')).toHaveAttribute('src', '/avatars/023.webp')
+  } finally {
+    await context.close()
+  }
 })
 
 test.describe('AC-AD-37 合作案超過 50 筆', () => {
@@ -312,6 +488,7 @@ test.describe('AC-AD-37 合作案超過 50 筆', () => {
     await expect(dialog).toBeHidden()
     await page.reload()
     const row = page.getByRole('region', { name: '全部組別' })
+  await row.getByRole('article', { name: 'G03', exact: true }).locator('summary').click()
     await expect(row.getByRole('link', { name: `${name(51)}・${DEPT}` })).toBeVisible()
     await expect(row.getByRole('button', { name: '改連結 G03' })).toBeVisible()
     expect(await audits('opportunity.link', g03)).toEqual([{ reason: null }])

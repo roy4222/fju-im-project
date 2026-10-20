@@ -268,11 +268,13 @@ export type GroupSummary = {
   readonly establishedBusinessAt: Date
   /** 樂觀鎖版本：管理員調整組員、換組長時帶回來。 */
   readonly revision: number
-  readonly members: readonly GroupMember[]
+  readonly members: readonly (GroupMember & { readonly departmentClass?: string | null })[]
+  /** 系辦總覽提供正式繳交狀態；學生與老師查詢不載入這個行政欄位。 */
+  readonly hasFormalSubmission?: boolean
   /** 目前的主指導（票 19）；還沒指派是 null。 */
   readonly advisor: AdvisorInfo | null
   /** 目前連結的合作案（票 20；只帶公開欄位的名稱與狀態）；沒有連結是 null。 */
-  readonly opportunity: GroupOpportunityLink | null
+  readonly opportunity: (GroupOpportunityLink & { readonly state?: LinkState }) | null
   readonly history: readonly GroupHistoryEntry[]
 }
 
@@ -397,6 +399,8 @@ export type DissolvedGroupSummary = {
 }
 
 export interface GroupQuery {
+  /** 系辦單組詳情（呼叫端守門），含已刪除組；不存在或沒有屆別回 null。 */
+  findGroup(groupId: string): Promise<(GroupSummary & { readonly status: 'active' | 'dissolved' }) | null>
   /** 學生本人的組別、進行中提案、歷史與找組員開關。沒有屆別的學生回 null。 */
   studentView(userId: string, cohortId: string, opts?: { readonly history?: boolean }): Promise<StudentGroupView>
   /**

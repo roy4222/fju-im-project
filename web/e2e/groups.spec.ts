@@ -197,18 +197,16 @@ test('送出五人的邀請：五人都被占住、各有邀請；頁面顯示�
 
 test('系辦終止：填理由後終止並釋放，學生的紀錄只寫「系辦終止」', async ({ page }) => {
   await asAdmin(page)
-  await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
-  const open = page.getByRole('region', { name: '組隊中（等全員確認）' })
+  await page.goto(`/dashboard/admin/groups/unassigned?cohort=${cohortId}`)
+  const open = page.getByRole('region', { name: '未分組學生' })
   await expect(open).toContainText(students[0]!.name)
 
-  await open.getByRole('button', { name: `作廢：${students[0]!.name}的提案` }).click()
-  const dialog = page.getByRole('dialog', { name: `作廢${students[0]!.name}的提案？` })
-  await dialog.getByLabel('理由（必填）').fill('名單有誤，請重新發起（系辦內部）')
-  await dialog.getByRole('button', { name: '確定作廢' }).click()
-  const closed = page.getByRole('region', { name: '最近終止的提案' })
-  await expect(closed).toContainText('系辦終止')
-  await expect(closed).toContainText('名單有誤，請重新發起（系辦內部）')
-  await expect(open).toContainText('沒有組隊中的提案')
+  await open.getByRole('button', { name: `終止建立：${students[0]!.name}` }).first().click()
+  const dialog = page.getByRole('dialog', { name: `終止 ${students[0]!.name} 建立中的組別？` })
+  await dialog.getByLabel('理由（可不填）').fill('名單有誤，請重新發起（系辦內部）')
+  await dialog.getByRole('button', { name: '確定終止' }).click()
+  await expect(page.getByRole('status').filter({ hasText: '已終止' })).toContainText(`已終止 ${students[0]!.name} 建立中的組別`)
+  await expect(open).not.toContainText('建立中（發起人')
 
   expect((await pool.query('select count(*)::int as n from proposal_occupancy o join group_proposals p on p.id = o.proposal_id where p.cohort_id = $1', [cohortId])).rows[0].n).toBe(0)
 
@@ -283,7 +281,7 @@ test('管理員：分組總覽列出這一組與組長；改每組人數後摘�
   await page.goto(`/dashboard/admin/groups?cohort=${cohortId}`)
   const groups = page.getByRole('region', { name: '全部組別' })
   await expect(groups).toContainText('G01')
-  await expect(groups).toContainText(`${students[0]!.name}（組長）`)
+  await expect(groups.getByRole('listitem').filter({ has: page.getByRole('link', { name: new RegExp(students[0]!.name) }) }).last()).toContainText('組長')
   await expect(groups).toContainText('5 人')
   await expect(page.getByTestId('grouping-settings')).toContainText('每組 5 人')
   // Q40：系辦分組頁說明分組期在做什麼。

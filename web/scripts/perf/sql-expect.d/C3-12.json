@@ -1,0 +1,6 @@
+{
+  "ticket": "C3-12",
+  "set": {
+    "/dashboard/admin/groups/[groupId]": { "as": "admin", "baseline": 18, "max": 18, "identity": 0 }
+  }
+}

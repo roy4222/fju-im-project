@@ -1,0 +1,34 @@
+/* ==========================================================================
+   彩蛋 Flying Button（flying-button.tsx，規格④ 設計方案 §10）：跟著 chunk 一起延遲載入。
+   舞台 fixed 疊在視窗上方 460 px、不擋點擊；分身從 logo 原位（--fb-x／--fb-y，CSSOM 寫入）
+   先蹲一下、噴火起飛衝出視窗，再落回原位。噴焰 canvas 接在分身正下方。
+   ========================================================================== */
+@layer components {
+  .flying-button {
+    position: fixed;
+    inset: 0 0 auto;
+    height: 460px;
+    z-index: 70;
+    pointer-events: none;
+  }
+  .flying-button-rocket {
+    position: absolute;
+    left: var(--fb-x);
+    top: var(--fb-y);
+    width: var(--fb-w);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    animation: flying-button-launch 2.6s cubic-bezier(0.45, 0, 0.3, 1) both;
+  }
+  .flying-button-rocket > img { display: block; width: 100%; height: auto; }
+  .flying-button-rocket > canvas { width: 48px; height: 80px; margin-top: -4px; }
+  @keyframes flying-button-launch {
+    0% { transform: translateY(0); }
+    12% { transform: translateY(14px) rotate(-3deg); }
+    45% { transform: translateY(-460px) rotate(4deg); }
+    55% { transform: translateY(-460px); }
+    88% { transform: translateY(6px); }
+    100% { transform: translateY(0); }
+  }
+}

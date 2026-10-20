@@ -1,15 +1,31 @@
 'use client'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useActionState, useEffect, useRef, useState, type DragEvent } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { IconChevronDown, IconGripVertical, IconPencilPlus } from '@tabler/icons-react'
-import { deleteEntryAction, saveHomeOrderAction } from './actions'
-import { ShowcaseEditDialog, type ShowcaseDialogTarget } from './showcase-edit-dialog'
+import { deleteEntryAction, requestPosterUploadAction, saveEntryAction, saveHomeOrderAction, withdrawAction } from './actions'
+import type { ShowcaseDialogTarget } from './showcase-edit-dialog'
 import { ItemFormDialog } from '@/app/dashboard/admin/affairs/_form/item-form-dialog'
 import { frontEditContextAction } from '@/app/dashboard/admin/affairs/front-edit-context-action'
 import type { EditorVocabulary } from '@/app/dashboard/admin/affairs/item-form-model'
-import { DIALOG, Feedback, PRIMARY, SECONDARY } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { homeOrderPatch, type ShowcaseEntryView } from '@/app/dashboard/admin/showcase/showcase-view'
 import { cn } from '@/shared/cn'
+
+// 只在新增／編輯時下載視窗。Server Function 與共用樣式由首載外殼傳入，
+// 避免延遲 chunk 靜態引用 actions／Button／look 後重切全站共用 chunk。
+const ShowcaseEditDialog = dynamic(() => import('./showcase-edit-dialog').then((m) => m.ShowcaseEditDialog), {
+  ssr: false,
+  loading: () => <span role="status" className="text-sm text-muted-foreground">表單載入中…</span>,
+})
+const ShowcaseDeleteDialog = dynamic(() => import('./showcase-delete-dialog').then((m) => m.ShowcaseDeleteDialog), {
+  ssr: false,
+  loading: () => <span role="status" className="text-sm text-muted-foreground">表單載入中…</span>,
+})
+const EDIT_DIALOG_DEPS = {
+  actions: { requestPosterUploadAction, saveEntryAction, withdrawAction },
+  styles: { DIALOG, INPUT, LABEL, PRIMARY, SECONDARY },
+}
 
 /**
  * 公告與作業 › 成果展示會動的部分（C 階段規格① §4.5；C1-09 把原本攤開的四塊表單重組成清單＋一個視窗）：
@@ -18,7 +34,7 @@ import { cn } from '@/shared/cn'
  *   `ItemFormDialog placement='honor'`（帶榮譽榜區選的屆別，封存屆別也可以）。
  * - `EntryRowActions`：作品列的「編輯」（開視窗）、「刪除」（公開中停用、按鈕寫原因；能刪時一句確認）。
  * - `HomeOrderPanel`：首頁輪播順序，原生拖曳或上移／下移，按一次「儲存首頁順序」。
- * - 成功後右下角一句提示（整頁共用一個，掛在「新增」旁；列被刪掉也還看得到）；資料由 Server Action 的 `refresh()` 重新整理。
+ * - 成功後右下角一句提示（整頁共用一個；列被刪掉也還看得到）；資料由 Server Action 的 `refresh()` 重新整理。
  */
 
 /** `field`：失敗時是哪一欄（目前只有存草稿的 `videoUrl` 會帶），訊息改顯示在那一欄下面。 */
@@ -30,70 +46,121 @@ const MENU = 'absolute right-0 z-30 mt-1 w-72 rounded-lg border border-border bg
 const MENU_ITEM =
   'flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left font-semibold hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11'
 
-/** 右下角一句話提示（6 秒後消失）。 */
-function useToast(): [string | null, (text: string) => void] {
-  const [toast, setToast] = useState<string | null>(null)
-  useEffect(() => {
-    if (!toast) return
-    const timer = window.setTimeout(() => setToast(null), 6000)
-    return () => window.clearTimeout(timer)
-  }, [toast])
-  return [toast, setToast]
-}
-
-function Toast({ text }: { text: string | null }) {
-  if (!text) return null
-  return (
-    <p
-      role="status"
-      data-testid="showcase-toast"
-      className="fixed right-4 bottom-4 z-50 max-w-[min(36rem,calc(100vw-2rem))] rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-ink-foreground shadow-lg"
-    >
-      {text}
-    </p>
-  )
-}
-
-/** 整頁共用的提示：列上的動作呼叫 `showToast`，`ToastHost`（掛在「新增」旁，頁面只有一個）顯示。 */
-const toastListeners = new Set<(text: string) => void>()
-
-function showToast(text: string) {
-  for (const listener of toastListeners) listener(text)
-}
-
-function ToastHost() {
-  const [toast, setToast] = useToast()
-  useEffect(() => {
-    toastListeners.add(setToast)
-    return () => {
-      toastListeners.delete(setToast)
-    }
-  }, [setToast])
-  return <Toast text={toast} />
-}
-
 /** 視窗共用的設定（伺服器帶進來的句子與上限）。 */
 export type ShowcaseDialogConfig = { videoUrlMessage: string; awardLabelMax: number }
 
-type Honor = { cohortId: string; options: EditorVocabulary }
+type DialogTarget =
+  | ShowcaseDialogTarget
+  | { mode: 'delete'; entry: ShowcaseEntryView }
+  | { mode: 'honor'; cohortId: string; options: EditorVocabulary }
+
+type DialogRequest = Exclude<DialogTarget, { mode: 'honor' }> | { mode: 'honor'; cohortId: string }
+const DialogContext = createContext<((request: DialogRequest) => Promise<void>) | null>(null)
+
+/** 全頁只有一個視窗目標；chunk 晚到時，已被取代的目標不會再掛載開窗。 */
+export function ShowcaseDialogs({ config, children }: { config: ShowcaseDialogConfig; children: ReactNode }) {
+  const router = useRouter()
+  const [toast, showToast] = useState<string | null>(null)
+  const [target, setCurrent] = useState<(DialogTarget & { key: number }) | null>(null)
+  const sequence = useRef(0)
+  const pending = useRef(false)
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => showToast(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+  const onPending = (value: boolean) => {
+    pending.current = value
+    if (value) sequence.current++
+  }
+  const close = () => {
+    if (pending.current) return
+    sequence.current++
+    setCurrent(null)
+  }
+  const done = (message: string) => {
+    setCurrent((now) => now === target ? null : now)
+    showToast(message)
+  }
+
+  async function showDialog(request: DialogRequest) {
+    // 送出中忽略新請求。共用榮譽表單開啟期間一律不替換，保留它自己的儲存與錯誤狀態。
+    if (pending.current || target?.mode === 'honor') return
+    const id = ++sequence.current
+    let next: DialogTarget
+    if (request.mode === 'honor') {
+      try {
+        const context = await frontEditContextAction({ cohortId: request.cohortId })
+        if (id !== sequence.current) return
+        if (!context.ok) { showToast(context.message); return }
+        next = { mode: 'honor', cohortId: context.cohortId, options: context.options }
+      } catch {
+        if (id === sequence.current) showToast('表單資料載入失敗，請再按一次。')
+        return
+      }
+    } else {
+      next = request
+    }
+    setCurrent({ ...next, key: id })
+  }
+
+  return (
+    <DialogContext.Provider value={showDialog}>
+      {children}
+      {target && (target.mode === 'delete' ? (
+        <ShowcaseDeleteDialog
+          key={target.key}
+          entry={target.entry}
+          deleteEntry={deleteEntryAction}
+          dialogClass={DIALOG}
+          cancelClass={SECONDARY}
+          onCancel={close}
+          onDeleted={done}
+          onPending={onPending}
+        />
+      ) : target.mode === 'honor' ? (
+        <ItemFormDialog
+          key={target.key}
+          open
+          title="新增榮譽"
+          placement="honor"
+          cohortId={target.cohortId}
+          options={target.options}
+          onCancel={close}
+          onDone={(result) => {
+            done(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
+            router.refresh()
+          }}
+        />
+      ) : (
+        <ShowcaseEditDialog key={target.key} target={target} {...config} {...EDIT_DIALOG_DEPS} onCancel={close} onSaved={done} onPending={onPending} />
+      ))}
+      {toast ? (
+        <p
+          role="status"
+          data-testid="showcase-toast"
+          className="fixed right-4 bottom-4 z-50 max-w-[min(36rem,calc(100vw-2rem))] rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-ink-foreground shadow-lg"
+        >
+          {toast}
+        </p>
+      ) : null}
+    </DialogContext.Provider>
+  )
+}
 
 export function ShowcaseNewMenu({
-  config,
   create,
   backfillCohorts,
   honorCohort,
 }: {
-  config: ShowcaseDialogConfig
   /** 「作品」：建草稿的屆別與還沒有作品的組；沒有進行中的屆別是 null（選項停用並寫原因）。 */
   create: { cohortLabel: string; groups: readonly { readonly id: string; readonly code: string }[] } | null
   backfillCohorts: readonly { readonly id: string; readonly label: string }[]
   /** 榮譽榜區目前選的屆別。 */
   honorCohort: { id: string; label: string } | null
 }) {
-  const router = useRouter()
+  const showDialog = useContext(DialogContext)!
   const [open, setOpen] = useState(false)
-  const [target, setTarget] = useState<ShowcaseDialogTarget | null>(null)
-  const [honor, setHonor] = useState<Honor | null>(null)
   const [loading, setLoading] = useState(false)
   const box = useRef<HTMLDivElement>(null)
 
@@ -113,19 +180,11 @@ export function ShowcaseNewMenu({
     }
   }, [open])
 
-  async function openHonor() {
+  function openHonor() {
     if (!honorCohort) return
     setOpen(false)
     setLoading(true)
-    try {
-      const context = await frontEditContextAction({ cohortId: honorCohort.id })
-      if (context.ok) setHonor({ cohortId: context.cohortId, options: context.options })
-      else showToast(context.message)
-    } catch {
-      showToast('表單資料載入失敗，請再按一次。')
-    } finally {
-      setLoading(false)
-    }
+    void showDialog({ mode: 'honor', cohortId: honorCohort.id }).finally(() => setLoading(false))
   }
 
   const createReason = !create
@@ -156,7 +215,7 @@ export function ShowcaseNewMenu({
             disabled={createReason !== null}
             onClick={() => {
               setOpen(false)
-              if (create) setTarget({ mode: 'create', cohortLabel: create.cohortLabel, groups: create.groups })
+              if (create) showDialog({ mode: 'create', cohortLabel: create.cohortLabel, groups: create.groups })
             }}
           >
             <span>作品</span>
@@ -168,7 +227,7 @@ export function ShowcaseNewMenu({
             className={MENU_ITEM}
             onClick={() => {
               setOpen(false)
-              setTarget({ mode: 'backfill', cohorts: backfillCohorts })
+              showDialog({ mode: 'backfill', cohorts: backfillCohorts })
             }}
           >
             <span>補登歷屆作品</span>
@@ -182,119 +241,34 @@ export function ShowcaseNewMenu({
           </button>
         </div>
       ) : null}
-      {target ? (
-        <ShowcaseEditDialog
-          target={target}
-          {...config}
-          onCancel={() => setTarget(null)}
-          onSaved={(message) => {
-            setTarget(null)
-            showToast(message)
-          }}
-        />
-      ) : null}
-      {honor ? (
-        <ItemFormDialog
-          open
-          title="新增榮譽"
-          placement="honor"
-          cohortId={honor.cohortId}
-          options={honor.options}
-          onCancel={() => setHonor(null)}
-          onDone={(result) => {
-            setHonor(null)
-            showToast(result.message ?? (result.status === 'published' ? '已發布' : '已儲存'))
-            router.refresh()
-          }}
-        />
-      ) : null}
-      <ToastHost />
     </div>
   )
 }
 
 /** 作品列的「編輯」「刪除」。 */
-export function EntryRowActions({ entry, config }: { entry: ShowcaseEntryView; config: ShowcaseDialogConfig }) {
-  const [editing, setEditing] = useState(false)
+export function EntryRowActions({ entry }: { entry: ShowcaseEntryView }) {
+  const showDialog = useContext(DialogContext)!
   const name = entry.title || '（未填題目）'
   return (
     <span className="flex flex-wrap items-center gap-1.5 md:justify-end">
-      <button type="button" className={ROW_BTN} aria-label={`編輯：${name}`} onClick={() => setEditing(true)}>
+      <button type="button" className={ROW_BTN} aria-label={`編輯：${name}`} onClick={() => showDialog({ mode: 'edit', entry })}>
         編輯
       </button>
-      <DeleteEntryButton entry={entry} onDeleted={showToast} />
-      {editing ? (
-        <ShowcaseEditDialog
-          target={{ mode: 'edit', entry }}
-          {...config}
-          onCancel={() => setEditing(false)}
-          onSaved={(message) => {
-            setEditing(false)
-            showToast(message)
-          }}
-        />
-      ) : null}
+      {entry.deleteBlocked ? (
+        <button type="button" className={cn(ROW_BTN, 'whitespace-normal')} disabled data-testid="delete-blocked">
+          {entry.deleteBlocked}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className={cn(ROW_BTN, 'text-destructive hover:bg-destructive-subtle')}
+          aria-label={`刪除：${name}`}
+          onClick={() => showDialog({ mode: 'delete', entry })}
+        >
+          刪除
+        </button>
+      )}
     </span>
-  )
-}
-
-/** 刪除：公開中停用、按鈕本身寫原因；能刪時一句確認（不能恢復）。 */
-function DeleteEntryButton({ entry, onDeleted }: { entry: ShowcaseEntryView; onDeleted: (text: string) => void }) {
-  const [state, action, pending] = useActionState(deleteEntryAction, undefined)
-  const dialog = useRef<HTMLDialogElement>(null)
-  const [requestId, setRequestId] = useState('')
-  const name = entry.title || '（未填題目）'
-
-  useEffect(() => {
-    if (!state?.ok) return
-    dialog.current?.close()
-    onDeleted(state.message)
-  }, [state, onDeleted])
-
-  if (entry.deleteBlocked) {
-    return (
-      <button type="button" className={cn(ROW_BTN, 'whitespace-normal')} disabled data-testid="delete-blocked">
-        {entry.deleteBlocked}
-      </button>
-    )
-  }
-  return (
-    <>
-      <button
-        type="button"
-        className={cn(ROW_BTN, 'text-destructive hover:bg-destructive-subtle')}
-        aria-label={`刪除：${name}`}
-        onClick={() => {
-          setRequestId(crypto.randomUUID())
-          dialog.current?.showModal()
-        }}
-      >
-        刪除
-      </button>
-      <dialog ref={dialog} aria-label="刪除作品" className={cn(DIALOG, 'w-[min(28rem,calc(100vw-2rem))]')}>
-        <form action={action} className="flex flex-col gap-4 px-6 py-5">
-          <input type="hidden" name="requestId" value={requestId} />
-          <input type="hidden" name="entryId" value={entry.entryId} />
-          <input type="hidden" name="revision" value={entry.entryRevision} />
-          <p className="text-base font-bold break-words">
-            確定刪除 {entry.groupLabel}「{name}」？草稿與發布過的版本一起刪掉，前台與作品網址都不再出現，不能恢復。
-          </p>
-          <Feedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2">
-            <button type="button" className={SECONDARY} onClick={() => dialog.current?.close()}>
-              取消
-            </button>
-            <button
-              type="submit"
-              className="press inline-flex h-10 items-center rounded-lg bg-destructive px-4 text-sm font-semibold text-white disabled:opacity-60"
-              disabled={pending}
-            >
-              {pending ? '刪除中…' : '刪除這件作品'}
-            </button>
-          </div>
-        </form>
-      </dialog>
-    </>
   )
 }
 
