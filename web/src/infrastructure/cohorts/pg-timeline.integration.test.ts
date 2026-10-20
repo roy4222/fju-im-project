@@ -740,11 +740,12 @@ describe('階段變動通知 timeline.stage_changed（C3-13）', () => {
     return cohort
   }
 
+  /** 這一屆 `scheduled()` 之後的階段事件（第一次設定四段也算日期變動、會發一則空收件人的，跳過那一則）。 */
   async function stageEvents(cohortId: string) {
     return (
       await owner.sql(
         `select id, source_type, source_id, recipients, recipient_basis, payload from domain_events
-          where type = 'timeline.stage_changed' and cohort_id = $1`,
+          where type = 'timeline.stage_changed' and cohort_id = $1 order by occurred_real_at, id offset 1`,
         [cohortId],
       )
     ).rows
@@ -797,20 +798,42 @@ describe('階段變動通知 timeline.stage_changed（C3-13）', () => {
     })
   })
 
-  it('沒作業的組沒有：屆別有組但沒有整組作業 → 不發事件', async () => {
-    const cohort = await scheduled()
-    await group(cohort.id, 'G01')
-    const result = await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, await revisionOf(cohort.id), randomUUID())
-    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [1, 2] } })
-    expect(await stageEvents(cohort.id)).toEqual([])
+  it('空收件人也發（§9.2：changedStages 非空就發）：第一次設定、沒有任何作業 → 事件一則 recipients=[]、待投影一列，worker 跑完沒有通知', async () => {
+    const cohort = await newCohort('SC')
+    const saved = await timeline.saveSchedule(actor(adminId), cohort.id, AC38, cohort.revision, randomUUID())
+    expect(saved).toMatchObject({ ok: true, receipt: { changedStages: [1, 2, 3, 4] } })
+    const events = (
+      await owner.sql(`select id, recipients, payload from domain_events where type = 'timeline.stage_changed' and cohort_id = $1`, [cohort.id])
+    ).rows
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ recipients: [], payload: { changedStages: [1, 2, 3, 4] } })
+    expect((await owner.sql('select consumer from event_projections where event_id = $1', [events[0]!.id])).rows).toEqual([{ consumer: 'notifications' }])
+    await projector().runOnce()
+    expect(await count('select count(*) as n from notifications where event_id = $1', [events[0]!.id])).toBe(0)
   })
 
-  it('個人作業不發：只有 receiver_unit=individual 的作業（名單含組員）→ 不發事件', async () => {
+  it('沒作業的組沒有：屆別有組但沒有整組作業 → 事件照發但 recipients=[]，組員沒有通知', async () => {
+    const cohort = await scheduled()
+    const g01 = await group(cohort.id, 'G01')
+    const result = await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, await revisionOf(cohort.id), randomUUID())
+    expect(result).toMatchObject({ ok: true, receipt: { changedStages: [1, 2] } })
+    const events = await stageEvents(cohort.id)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ recipients: [], recipient_basis: { groupIds: [], itemIds: [] } })
+    await projector().runOnce()
+    expect(await notified(g01.members)).toEqual(Object.fromEntries(g01.members.map((m) => [m, 0])))
+  })
+
+  it('個人作業不發：只有 receiver_unit=individual 的作業（名單含組員）→ recipients=[]，組員沒有通知', async () => {
     const cohort = await scheduled()
     const g01 = await group(cohort.id, 'G01')
     await item(cohort.id, 'individual', '2026-12-01T23:59:00+08:00', g01.members)
     await timeline.saveSchedule(actor(adminId), cohort.id, DRAGGED, await revisionOf(cohort.id), randomUUID())
-    expect(await stageEvents(cohort.id)).toEqual([])
+    const events = await stageEvents(cohort.id)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ recipients: [], recipient_basis: { groupIds: [], itemIds: [] } })
+    await projector().runOnce()
+    expect(await notified(g01.members)).toEqual(Object.fromEntries(g01.members.map((m) => [m, 0])))
   })
 
   it('AC-C3-47 只指定 G03 的作業不發給 G01：個人作業、別組的整組作業都不算；免填、已移出的組不算；段外的截止不算', async () => {

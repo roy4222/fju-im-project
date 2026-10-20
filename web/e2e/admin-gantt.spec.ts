@@ -761,3 +761,95 @@ test('AC-C3-47 個人作業、別組的整組作業都不算：拖第 3／4 段�
   for (const p of people.G02!) expect(await noteCount(p.id)).toBe(0)
   expect(groupItemId).toBeTruthy()
 })
+
+// ── C3-13 Review FIX：延遲／斷線時的確認流程（server action 是帶 `next-action` 標頭的 POST） ──────────
+
+/**
+ * 攔截這一頁的 server action。`plan(n)` 回第 n 個（0 起）action 請求要怎麼處理：延遲幾毫秒後照送、或直接斷線。
+ * 拖階段放開的第 1 個 action 是預覽、按「確定」後的下一個是儲存。
+ */
+async function routeActions(page: Page, plan: (n: number) => { delay?: number; abort?: boolean } | undefined) {
+  let n = 0
+  await page.route('**/dashboard/admin/timeline**', async (route) => {
+    const request = route.request()
+    if (request.method() !== 'POST' || !request.headers()['next-action']) return route.continue()
+    const step = plan(n++) ?? {}
+    if (step.delay) await new Promise((r) => setTimeout(r, step.delay))
+    if (step.abort) return route.abort('failed')
+    return route.continue()
+  })
+}
+
+const stageRow = async (seq: number) =>
+  (await pool.query<{ start: string }>(`select to_char(start_date, 'YYYY-MM-DD') as start from cohort_stages where cohort_id = $1 and seq = $2`, [cohortId, seq]))
+    .rows[0]!.start
+const cohortRevision = async () => (await pool.query<{ revision: number }>('select revision from cohorts where id = $1', [cohortId])).rows[0]!.revision
+const NO_RESPONSE = '沒有收到伺服器回應，請重新整理頁面看看。'
+
+test('FIX-1 預覽還沒回來時又拖一次：第二次不接；確認框取消 → 回到最初的位置，資料不變', async ({ page }) => {
+  await signIn(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  // 兩次放開的預覽都慢（Review 的重現：11/19 → 11/12 → 11/5 再取消）。
+  await routeActions(page, (n) => (n <= 1 ? { delay: 2_000 } : undefined))
+  await openGantt(page)
+  const origin = await stageRow(3)
+  const revision = await cohortRevision()
+  const handle = stageHandle(page, 3)
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
+
+  await drag(page, handle, -7 * DAY_PX) // 預覽延遲中
+  await drag(page, handle, -7 * DAY_PX) // 再拖一次
+  await expect(confirmBox(page)).toBeVisible()
+  await confirmBox(page).getByRole('button', { name: '取消' }).click()
+  await expect(confirmBox(page)).toHaveCount(0)
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
+  expect(await stageRow(3)).toBe(origin)
+  expect(await cohortRevision()).toBe(revision)
+})
+
+test('FIX-2 按「確定」後儲存還在跑：「取消」停用、Esc 關不掉；存完才關', async ({ page }) => {
+  await signIn(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await routeActions(page, (n) => (n === 1 ? { delay: 2_000 } : undefined))
+  await openGantt(page)
+  const origin = await stageRow(3)
+  const revision = await cohortRevision()
+  await drag(page, stageHandle(page, 3), -7 * DAY_PX)
+  await expect(confirmBox(page)).toBeVisible()
+  await confirmBox(page).getByRole('button', { name: '確定' }).click()
+  await expect(confirmBox(page).getByRole('button', { name: '儲存中…' })).toBeDisabled()
+  await expect(confirmBox(page).getByRole('button', { name: '取消' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(confirmBox(page)).toBeVisible()
+  await expect(confirmBox(page)).toHaveCount(0, { timeout: 10_000 })
+  await expect(page.getByTestId('gantt').getByRole('status').filter({ hasText: '的階段與日期' })).toBeVisible()
+  expect(await stageRow(3)).toBe(addDays(origin, -7))
+  expect(await cohortRevision()).toBe(revision + 1)
+})
+
+test('FIX-3 斷線：預覽或儲存的請求失敗 → 回彈、錯誤句、不卡在「儲存中…」，資料不變', async ({ page }) => {
+  await signIn(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await routeActions(page, (n) => (n === 0 || n === 2 ? { abort: true } : undefined))
+  await openGantt(page)
+  const origin = await stageRow(3)
+  const revision = await cohortRevision()
+  const handle = stageHandle(page, 3)
+  const alert = page.getByTestId('gantt').getByRole('alert')
+
+  // 預覽斷線：不開確認框，回彈＋錯誤句。
+  await drag(page, handle, -7 * DAY_PX)
+  await expect(alert).toHaveText(NO_RESPONSE)
+  await expect(confirmBox(page)).toHaveCount(0)
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
+
+  // 預覽成功、儲存斷線：關框、回彈＋錯誤句。
+  await drag(page, handle, -7 * DAY_PX)
+  await expect(confirmBox(page)).toBeVisible()
+  await confirmBox(page).getByRole('button', { name: '確定' }).click()
+  await expect(confirmBox(page)).toHaveCount(0)
+  await expect(alert).toHaveText(NO_RESPONSE)
+  await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
+  expect(await stageRow(3)).toBe(origin)
+  expect(await cohortRevision()).toBe(revision)
+})
