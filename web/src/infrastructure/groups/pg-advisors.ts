@@ -205,7 +205,44 @@ export class PgAdvisorCommand implements AdvisorCommand {
       }
 
       const current = await currentAdvisor(tx, group.id)
-      if (current) return alreadyAdvised(group.code, current.teacher_name, current.teacher_user_id === teacherId)
+      if (current) {
+        if (link.state !== 'pending') return alreadyAdvised(group.code, current.teacher_name, current.teacher_user_id === teacherId)
+        // CL-3（Roy 10/21）：系辦已指派指導老師、連結還在等確認 → 負責老師確認的是「合作案」：連結改 active，指導老師不變。
+        await tx.query(`update opportunity_links set state = 'active' where id = $1 and valid_to is null`, [link.id])
+        const bumped = await tx.query<{ revision: number }>(
+          `update groups set revision = revision + 1, updated_at = $2, updated_by_user_id = $3 where id = $1 returning revision`,
+          [group.id, realAt, teacherId],
+        )
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: teacherId,
+          role: 'teacher',
+          action: 'opportunity.confirm',
+          targetType: 'group',
+          targetId: group.id,
+          scope: 'cohort',
+          cohortId: group.cohort_id,
+          reason: null,
+          realAt,
+          businessAt: businessNow,
+          payload: {
+            linkId: link.id,
+            opportunityId: link.opportunity_id,
+            advisorUserId: current.teacher_user_id,
+            revision: bumped.rows[0]!.revision,
+          },
+        })
+        const confirmed: AdvisorChangeReceipt = {
+          groupId: group.id,
+          groupCode: group.code,
+          change: 'link_confirmed',
+          teacherName: current.teacher_name,
+          previousTeacherName: null,
+        }
+        const full = { ...confirmed, requestId, serverTime: realAt.toISOString() }
+        await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { groupId: group.id } })
+        return { ok: true as const, receipt: full }
+      }
 
       await reachFaultPoint('advisor.claim.before-insert')
       const name = await userName(tx, teacherId)
@@ -566,6 +603,16 @@ export class PgAdvisorCommand implements AdvisorCommand {
         [assignmentId, group.id, teacher.userId, change.source, businessAt, actorUserId, reason, previous?.id ?? null, realAt],
       )
     }
+    // CL-3（Roy 10/21）：系辦指派（逐組、重派、批次）的正好是這組 pending 合作案的負責老師 → 連結一併確認（active）；
+    // 指派別的老師就保留 pending，負責老師之後仍可確認或婉拒。認領自己會改連結，不走這裡。
+    let confirmedLinkId: string | null = null
+    if (teacher && change.kind !== 'claimed') {
+      const link = await currentLink(tx, group.id)
+      if (link?.state === 'pending' && link.owner_teacher_user_id === teacher.userId) {
+        await tx.query(`update opportunity_links set state = 'active' where id = $1 and valid_to is null`, [link.id])
+        confirmedLinkId = link.id
+      }
+    }
     const bumped = await tx.query<{ revision: number }>(
       `update groups set revision = revision + 1, updated_at = $2, updated_by_user_id = $3 where id = $1 returning revision`,
       [group.id, realAt, actorUserId],
@@ -661,6 +708,7 @@ export class PgAdvisorCommand implements AdvisorCommand {
         previousTeacherUserId: previous?.teacher_user_id ?? null,
         revision,
         supersededSignoffVersionIds: supersededSignoff,
+        ...(confirmedLinkId ? { confirmedLinkId } : {}),
         ...change.auditExtra,
       },
     })

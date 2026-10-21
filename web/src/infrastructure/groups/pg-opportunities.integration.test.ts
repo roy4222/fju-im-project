@@ -490,13 +490,24 @@ describe('產學組的確認流程（C3-09；規格③ §7.2、AC-C3-25～27、2
     ])
     expect((await events('opportunity.link_requested', g1.id)).map((e) => e.recipients)).toEqual([[t1], [t1]])
 
-    // 已經有指導老師的組不能婉拒（要拆連結走解除）。
+    // CL-3（Roy 10/21）：系辦已指派別的老師、連結還在等確認（pending）→ 負責老師仍可婉拒；連結結束、指導老師不變。
     await command.request(actor(g2.leader.id, ['student']), { groupId: g2.id, revision: await revisionOf(g2.id), opportunityId: c1 }, randomUUID())
     await setAdvisor(g2.id, t2)
     const advised = await command.decline(actor(t1, ['teacher']), { groupId: g2.id, reason: '' }, randomUUID())
-    expect(advised.ok ? 'ok' : advised.code).toBe('VALIDATION_FAILED')
-    expect(advised.ok ? '' : advised.message).toContain('已經有指導老師')
-    expect((await linkRow(g2.id))[0]!.valid_to).toBeNull()
+    expect(advised).toMatchObject({ ok: true, receipt: { change: 'declined' } })
+    expect((await linkRow(g2.id))[0]!.valid_to).not.toBeNull()
+    expect((await owner.sql('select teacher_user_id from advisor_assignments where group_id = $1 and valid_to is null', [g2.id])).rows).toEqual([
+      { teacher_user_id: t2 },
+    ])
+
+    // 已確認（active）的連結、已經有指導老師：仍不能婉拒（要拆連結走解除）。
+    const g3 = await newGroup(cohort.id, 'G03', 'industry')
+    await command.link(actor(t1, ['teacher']), { groupId: g3.id, revision: await revisionOf(g3.id), opportunityId: c1, reason: '' }, randomUUID())
+    await setAdvisor(g3.id, t2)
+    const activeAdvised = await command.decline(actor(t1, ['teacher']), { groupId: g3.id, reason: '' }, randomUUID())
+    expect(activeAdvised.ok ? 'ok' : activeAdvised.code).toBe('VALIDATION_FAILED')
+    expect(activeAdvised.ok ? '' : activeAdvised.message).toContain('已經有指導老師')
+    expect((await linkRow(g3.id))[0]!.valid_to).toBeNull()
   })
 
   it('同一個請求編號重送 request／decline：回同一張回執、不重複寫', async () => {
@@ -559,6 +570,19 @@ describe('產學組的確認流程（C3-09；規格③ §7.2、AC-C3-25～27、2
     expect((await query.teacherIndustryBoard(actor(g1.leader.id, ['student']))).cases).toEqual([])
     expect((await query.teacherIndustryBoard(anonymous)).cases).toEqual([])
     expect((await query.teacherIndustryBoard(adminActor())).cases).toEqual([])
+  })
+
+  it('CL-3：連結還在等確認（pending）、系辦已指派別的老師 → 仍列在負責老師的「待確認要帶的組」，卡片帶目前的指導老師', async () => {
+    const me = await newTeacher('負責老師庚')
+    const other = await newTeacher('別的老師辛')
+    const cohort = await newCohort()
+    const g1 = await newGroup(cohort.id, 'G01', 'industry')
+    const c1 = await createOpportunity(me, { overrides: { companyName: '庚公司' } })
+    await command.request(actor(g1.leader.id, ['student']), { groupId: g1.id, revision: await revisionOf(g1.id), opportunityId: c1 }, randomUUID())
+    await setAdvisor(g1.id, other)
+    const [mine] = (await query.teacherIndustryBoard(actor(me, ['teacher']))).cases
+    expect(mine!.pending.map((g) => [g.groupCode, g.linkState, g.advisor?.teacherUserId])).toEqual([['G01', 'pending', other]])
+    expect(mine!.advised).toEqual([])
   })
 })
 

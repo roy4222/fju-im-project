@@ -160,7 +160,8 @@ export default async function AdminHomePage() {
               action={{ href: `${BASE}/groups`, label: '總覽' }}
               className="h-full"
             >
-              <div className="flex items-center gap-5 px-5 pt-1 pb-5">
+              {/* 1024～1279 寬這一欄只剩約 220px：圓環與圖例改上下排，圖例才不會被擠成一字一行（CL-3 #819）。 */}
+              <div className="flex items-center gap-5 px-5 pt-1 pb-5 lg:flex-col xl:flex-row">
                 <Donut
                   label={`一般專題 ${groups.total - groups.industry} 組、產學合作 ${groups.industry} 組`}
                   segments={[
@@ -174,7 +175,7 @@ export default async function AdminHomePage() {
                     </span>
                   }
                 />
-                <ul className="flex flex-1 flex-col gap-2 text-sm">
+                <ul className="flex flex-1 flex-col gap-2 text-sm lg:self-stretch xl:self-auto">
                   <LegendRow color="var(--ink)" label="一般專題" value={groups.total - groups.industry} />
                   <LegendRow color="var(--primary)" label="產學合作" value={groups.industry} />
                   <li className="flex items-center justify-between border-t border-border/70 pt-2">

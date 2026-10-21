@@ -947,7 +947,9 @@ export class PgOpportunityCommand implements OpportunityCommand {
           where a.group_id = $1 and a.valid_to is null`,
         [group.id],
       )
-      if (advisor.rows[0]) {
+      // CL-3（Roy 10/21）：連結還在等確認（pending）時，系辦先指派了別的老師也照樣可以婉拒（只結束連結，指導老師不變）；
+      // 已確認（active）的連結有指導老師就不能婉拒。
+      if (advisor.rows[0] && row.state !== 'pending') {
         return err('VALIDATION_FAILED', `${group.code} 已經有指導老師（${advisor.rows[0].name}），不能婉拒；要拆掉連結請用「解除」。`)
       }
 
@@ -1654,13 +1656,14 @@ export class PgOpportunityQuery implements OpportunityQuery {
       cardsByOpportunity.set(g.opportunity_id, list)
     }
     // 分兩段：沒有指導老師的是「待確認要帶的組」（pending 或 TE-B3／系辦直接連的 active 都算）；指導老師是本人的是
-    // 「已帶的組」；指導老師是別人的兩段都不列（連結仍在那一列的連結欄）。
+    // 「已帶的組」；指導老師是別人的兩段都不列（連結仍在那一列的連結欄）——除了連結還在等確認（pending）的：系辦先指派了
+    // 別的老師，負責老師仍要確認或婉拒這個合作案（CL-3，Roy 10/21），列在「待確認」、卡片帶目前的指導老師。
     return {
       cases: items.map((opportunity) => {
         const cards = cardsByOpportunity.get(opportunity.id) ?? []
         return {
           opportunity,
-          pending: cards.filter((c) => c.advisor === null),
+          pending: cards.filter((c) => c.advisor === null || (c.linkState === 'pending' && c.advisor.teacherUserId !== actor.userId)),
           advised: cards.filter((c) => c.advisor?.teacherUserId === actor.userId),
         }
       }),

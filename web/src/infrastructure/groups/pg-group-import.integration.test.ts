@@ -331,6 +331,25 @@ describe('匯入分組', () => {
     expect(Number((await owner.sql('select count(*) as n from proposal_occupancy where user_id = $1', [e!.id])).rows[0]!.n)).toBe(1)
   })
 
+  it('CL-3：同一個請求編號換一份檔案（或換屆別）重送 → REQUEST_MISMATCH，什麼都不寫（不回舊結果、不建組）', async () => {
+    const cohortId = await newCohort()
+    const [a, b] = await students(cohortId, 2)
+    const first = await upload(`學號,組別代碼\n${a!.studentNo},G05`)
+    const requestId = randomUUID()
+    const done = await importer.execute(adminActor(), { fileId: first, cohortId }, requestId)
+    expect(done.ok).toBe(true)
+    const groupsBefore = Number((await owner.sql('select count(*) as n from groups where cohort_id = $1', [cohortId])).rows[0]!.n)
+
+    const second = await upload(`學號,組別代碼\n${b!.studentNo},G06`)
+    const mismatched = await importer.execute(adminActor(), { fileId: second, cohortId }, requestId)
+    expect(mismatched).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
+    expect(await groupByCode(cohortId, 'G06')).toBeUndefined()
+    expect(Number((await owner.sql('select count(*) as n from groups where cohort_id = $1', [cohortId])).rows[0]!.n)).toBe(groupsBefore)
+
+    const otherCohort = await newCohort()
+    expect(await importer.execute(adminActor(), { fileId: first, cohortId: otherCohort }, requestId)).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
+  })
+
   it('一列失敗不影響別列：預覽之後有人先把學生放進別組，那一列寫原因、同組其他人照建', async () => {
     const cohortId = await newCohort()
     const [a, b, c] = await students(cohortId, 3)
