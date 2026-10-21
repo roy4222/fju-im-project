@@ -826,6 +826,8 @@ test('FIX-1 預覽還沒回來時又拖一次：第二次不接；確認框取�
   await confirmBox(page).getByRole('button', { name: '取消' }).click()
   await expect(confirmBox(page)).toHaveCount(0)
   await expect(handle).toHaveAttribute('aria-label', new RegExp(` ${md(origin)}（`))
+  // CL-3（#819）：取消之後，第二次拖拉留下的提示不能還掛著。
+  await expect(page.getByTestId('gantt').getByRole('alert')).toHaveCount(0)
   expect(await stageRow(3)).toBe(origin)
   expect(await cohortRevision()).toBe(revision)
 })
