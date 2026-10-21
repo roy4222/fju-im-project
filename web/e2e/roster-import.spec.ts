@@ -163,3 +163,46 @@ test('學生打不開帳號管理頁，也就碰不到匯入', async ({ page }) 
   await page.goto('/dashboard/admin/accounts')
   await expect(page).toHaveURL(/\/403$/)
 })
+
+test('沒有開放註冊的屆別：不預選、顯示提示、選了屆別才能匯入', async ({ page }) => {
+  if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能設定屆別狀態')
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  // 自己種出確定的狀態：全部屆別都關閉註冊，並讓種的那一屆當預設工作屆別；測完還原。
+  const before = (await pool.query<{ id: string; is_registration_open: boolean; is_default_working: boolean }>(
+    'select id, is_registration_open, is_default_working from cohorts',
+  )).rows
+  try {
+    await pool.query('update cohorts set is_registration_open = false, is_default_working = false')
+    await pool.query('update cohorts set is_default_working = true where code = $1', [cohortCode])
+
+    await signInAs(page, 'admin')
+    await openImportDialog(page)
+    await page.getByLabel('選擇名單 CSV 檔').setInputFiles({
+      name: 'no-cohort.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('student_no,name\n411599001,王小明\n411599002,林小華\n', 'utf8'),
+    })
+
+    await expect(page.getByRole('heading', { name: '預覽・no-cohort.csv' })).toBeVisible()
+    const select = page.getByLabel('匯入到哪一屆')
+    await expect(select).toHaveValue('')
+    await expect(page.getByTestId('roster-no-open-cohort')).toContainText('目前沒有開放註冊的屆別')
+    await expect(page.getByRole('button', { name: '匯入 2 筆' })).toBeDisabled()
+
+    await select.selectOption({ label: `${cohortName}（${cohortCode}）` })
+    await expect(select.locator('option:checked')).toContainText(cohortName)
+    await expect(page.getByRole('button', { name: '匯入 2 筆' })).toBeEnabled()
+    await expect(page.getByTestId('roster-no-open-cohort')).toBeVisible()
+  } finally {
+    for (const r of before) {
+      await pool.query('update cohorts set is_registration_open = false, is_default_working = false where id = $1', [r.id])
+    }
+    for (const r of before.filter((c) => c.is_default_working)) {
+      await pool.query('update cohorts set is_default_working = true where id = $1', [r.id])
+    }
+    for (const r of before.filter((c) => c.is_registration_open)) {
+      await pool.query('update cohorts set is_registration_open = true where id = $1', [r.id])
+    }
+    await pool.end()
+  }
+})
