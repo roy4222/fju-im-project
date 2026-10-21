@@ -23,7 +23,8 @@ const BLOCKED = new Map([
   ['app/_ui/dashboard/look.ts', '`@/app/_ui/dashboard/look`'],
 ])
 
-type Parsed = { file: string; text: string; dynamic: string[]; statics: string[] }
+type Dynamic = { spec: string; line: number }
+type Parsed = { file: string; text: string; dynamic: Dynamic[]; opaque: Dynamic[]; statics: string[] }
 
 class Sources {
   #cache = new Map<string, Parsed>()
@@ -56,11 +57,16 @@ class Sources {
     if (hit) return hit
     const text = this.text(file)
     const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
-    const dynamic: string[] = []
+    const dynamic: Dynamic[] = []
+    const opaque: Dynamic[] = []
     const statics: string[] = []
+    const lineOf = (n: ts.Node) => sf.getLineAndCharacterOfPosition(n.getStart()).line + 1
     const visit = (n: ts.Node) => {
-      if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
-        dynamic.push(n.arguments[0].text)
+      if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const arg = n.arguments[0]
+        // 參數不是字面字串（例如帶變數的 template）就看不出載的是哪支，記下來讓測試紅，不默默略過。
+        if (arg && ts.isStringLiteralLike(arg)) dynamic.push({ spec: arg.text, line: lineOf(n) })
+        else opaque.push({ spec: arg ? arg.getText(sf) : '(沒有參數)', line: lineOf(n) })
       }
       ts.forEachChild(n, visit)
     }
@@ -76,7 +82,7 @@ class Sources {
         statics.push(s.moduleSpecifier.text)
       }
     }
-    const parsed = { file, text, dynamic, statics }
+    const parsed = { file, text, dynamic, opaque, statics }
     this.#cache.set(file, parsed)
     return parsed
   }
@@ -97,16 +103,29 @@ class Sources {
   }
 }
 
-/** 所有延遲載入的入口（動態 import 的目標）→ 是誰載入它的。 */
+/** 所有延遲載入的入口（動態 import 的目標）→ 是誰載入它的。外部套件（例如 `sharp`）不算。 */
 function lazyEntries(sources: Sources) {
   const entries = new Map<string, string>()
   for (const f of sources.files) {
-    for (const spec of sources.parse(f).dynamic) {
+    for (const { spec } of sources.parse(f).dynamic) {
       const target = sources.resolve(f, spec)
       if (target && !entries.has(target)) entries.set(target, f)
     }
   }
   return entries
+}
+
+/** 看不懂的動態 import：參數不是字面字串，或 `@/`／相對路徑卻解析不到檔案。這兩種都會讓入口漏掉檢查。 */
+function unreadable(sources: Sources) {
+  const out: string[] = []
+  for (const f of sources.files) {
+    const parsed = sources.parse(f)
+    for (const d of parsed.opaque) out.push(`${f}:${d.line} import(${d.spec}) 參數不是字面字串`)
+    for (const d of parsed.dynamic) {
+      if ((d.spec.startsWith('@/') || d.spec.startsWith('.')) && !sources.resolve(f, d.spec)) out.push(`${f}:${d.line} import('${d.spec}') 解析不到檔案`)
+    }
+  }
+  return out
 }
 
 /** 入口 → 違規的引用鏈（入口 > 中間模組 > 黑名單）。 */
@@ -155,6 +174,14 @@ describe('CL-7：延遲 chunk 不准靜態 import 共用模組', () => {
     }
   })
 
+  it('黑名單的三個檔都還在（改名時要跟著改這裡，不然等於沒檢查）', () => {
+    for (const file of BLOCKED.keys()) expect(sources.exists(file), `黑名單 ${file} 不存在`).toBe(true)
+  })
+
+  it('每個動態 import 都看得懂：參數是字面字串、站內路徑解析得到檔案', () => {
+    expect(unreadable(sources)).toEqual([])
+  })
+
   it('目前每個延遲入口的整條靜態引用鏈都沒有碰黑名單', () => {
     expect(violations(sources)).toEqual({})
   })
@@ -188,6 +215,16 @@ describe('CL-7：違規就紅（變造）', () => {
     expect(Object.keys(violations(mutate(dialogs, "import { zzAction } from './zz-ops'\n", extra)))).toEqual([dialogs])
     expect(violations(mutate(dialogs, "import type { zzAction } from './zz-ops'\n", extra))).toEqual({})
     expect(violations(mutate(dialogs, "import { type zzAction } from './zz-ops'\n", extra))).toEqual({})
+  })
+
+  it('看不懂的動態 import 會紅並指出檔案與行號：帶變數的 template、解析不到的路徑', () => {
+    const lazy = { 'app/_ui/zz-lazy.tsx': "import { buttonVariants } from '@/app/_ui/ui/button'\nexport const x = buttonVariants\n" }
+    expect(unreadable(new Sources({ ...lazy, 'app/_ui/zz-loader.ts': 'export const load = (n: string) => import(`@/app/_ui/zz-${n}`)\n' }))).toEqual([
+      'app/_ui/zz-loader.ts:1 import(`@/app/_ui/zz-${n}`) 參數不是字面字串',
+    ])
+    expect(unreadable(new Sources({ ...lazy, 'app/_ui/zz-loader.ts': "\nexport const load = () => import('@/app/_ui/zz-lazy.js')\n" }))).toEqual([
+      "app/_ui/zz-loader.ts:2 import('@/app/_ui/zz-lazy.js') 解析不到檔案",
+    ])
   })
 
   it('新的延遲入口自動納入（不用另外登記）', () => {
