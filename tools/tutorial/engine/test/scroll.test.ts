@@ -112,3 +112,119 @@ test('t.click 點比畫面寬的表格最右邊、容器下半的操作鈕：先
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// #412：系辦帳號表那種「黏頂列＋黏住的表頭」，自動捲動要扣掉它們，不然列被捲到表頭底下、點擊落在表頭上。
+const stickyRows = (id: string, n: number) =>
+  Array.from({ length: n }, (_, i) => `<tr style="height:50px"><td style="width:600px">第 ${i + 1} 列</td><td><button id=${id}${i + 1} style="width:120px;height:36px" onclick="this.textContent='已點'">恢復</button></td></tr>`).join('');
+const STICKY_PAGE = `<body style="margin:0;font-size:18px">
+<header style="position:sticky;top:0;height:56px;background:#333;color:#fff;z-index:50">黏頂列</header>
+<div id=wrap style="width:900px;height:300px;overflow:auto">
+  <table style="width:100%;border-collapse:collapse">
+    <thead class=hd style="position:sticky;top:0;background:#ccc;z-index:10"><tr style="height:60px"><th>名稱</th><th>操作</th></tr></thead>
+    <tbody>${stickyRows('c', 12)}</tbody>
+  </table>
+</div>
+<div style="height:300px"></div>
+<table id=tbl style="width:800px;border-collapse:collapse">
+  <thead class=hd style="position:sticky;top:56px;background:#ccc;z-index:10"><tr style="height:40px"><th>名稱</th><th>操作</th></tr></thead>
+  <tbody>${stickyRows('w', 12)}</tbody>
+</table>
+<div style="height:1200px"></div>
+<script>window.headClicks = 0; document.querySelectorAll('.hd').forEach((h) => h.addEventListener('click', () => window.headClicks++));</script>
+</body>`;
+
+test('t.click 扣掉黏住的表頭與黏頂列（#412）：整頁表格最後一列被黏住的表頭蓋住、容器捲到底後點第一列，捲完都點得到按鈕、不會點到表頭', { timeout: 90_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-scroll-sticky-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await page.setContent(STICKY_PAGE);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter: '測試｜黏住的表頭', tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
+    try {
+      const covered = async (id: string) =>
+        page.locator(`#${id}`).evaluate((el) => {
+          const b = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          return !(hit && (hit === el || el.contains(hit)));
+        });
+      // 容器捲到底：第一列在容器上方看不到，以前捲到「容器頂端＋24」，按鈕中心在 60 px 高的表頭底下
+      await page.locator('#wrap').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      // 整頁：最後一列剛好在黏頂列下面，被黏在 56 px 的表頭蓋住（中心在網址列安全區以下，以前不捲）
+      const lastTop = await page.locator('#w12').evaluate((el) => el.closest('tr')!.getBoundingClientRect().top + scrollY);
+      await page.evaluate((y) => scrollTo(0, y - 60), lastTop);
+      assert.ok(await covered('w12'), '前提：最後一列一開始被黏住的表頭蓋住');
+      await t.step({ caption: '點整頁最後一列與容器第一列' }, async () => {
+        await t.click(page.locator('#w12'), false);
+        assert.ok(!(await covered('w12')), '最後一列捲完沒被蓋住');
+        await t.click(page.locator('#c1'), false);
+        assert.ok(!(await covered('c1')), '容器第一列捲完沒被蓋住');
+      });
+      assert.equal(await page.locator('#c1').textContent(), '已點', '容器第一列的按鈕被點到');
+      assert.equal(await page.locator('#w12').textContent(), '已點', '最後一列的按鈕被點到');
+      assert.equal(await page.evaluate(() => (window as unknown as { headClicks: number }).headClicks), 0, '沒有點到表頭');
+      const { events } = await t.finish();
+      const ev = JSON.parse(readFileSync(events, 'utf8')) as ChapterEvents;
+      assert.equal(ev.events.filter((e) => e.type === 'click').length, 2);
+      assert.ok(ev.events.filter((e) => e.type === 'scroll').length >= 2, '兩次都有自動捲動');
+    } finally {
+      await t.dispose();
+    }
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// #807 Review：比「沒被蓋住的可見區」還高的元素，捲完中心一定要在可見區裡（點擊打在中心）。
+async function clickTall(html: string, before: (page: import('playwright').Page) => Promise<void>, chapter: string) {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-scroll-tall-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await page.setContent(html);
+    await before(page);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter, tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
+    try {
+      await t.step({ caption: '點很高的元素' }, async () => {
+        await t.click(page.locator('#tall'), false);
+      });
+      assert.equal(await page.locator('#tall').textContent(), '已點', '很高的元素被點到');
+      await t.finish();
+    } finally {
+      await t.dispose();
+    }
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('黏頂列＋比畫面還高的元素（整頁）：捲完中心在沒被蓋住的範圍裡，點得到', { timeout: 90_000 }, async () => {
+  await clickTall(
+    `<body style="margin:0;font-size:18px">
+<header style="position:sticky;top:0;height:56px;background:#333;color:#fff;z-index:50">黏頂列</header>
+<div style="height:900px"></div>
+<button id=tall style="display:block;width:400px;height:1300px" onclick="this.textContent='已點'">很高</button>
+<div style="height:1500px"></div>
+</body>`,
+    async () => {},
+    '測試｜整頁很高的元素',
+  );
+});
+
+test('容器裡黏住的表頭＋比容器可見區還高的元素：捲完中心在容器可見區裡，點得到', { timeout: 90_000 }, async () => {
+  const filler = Array.from({ length: 6 }, (_, i) => `<tr style="height:50px"><td>第 ${i + 3} 列</td></tr>`).join('');
+  await clickTall(
+    `<body style="margin:0;font-size:18px">
+<div id=wrap style="width:600px;height:300px;overflow:auto">
+  <table style="width:100%;border-collapse:collapse">
+    <thead style="position:sticky;top:0;background:#ccc;z-index:10"><tr style="height:60px"><th>名稱</th></tr></thead>
+    <tbody><tr style="height:50px"><td>第 1 列</td></tr><tr><td style="padding:0"><button id=tall style="display:block;width:300px;height:500px" onclick="this.textContent='已點'">很高</button></td></tr>${filler}</tbody>
+  </table>
+</div>
+<div style="height:1200px"></div>
+</body>`,
+    (page) => page.locator('#wrap').evaluate((el) => el.scrollTo(0, el.scrollHeight)),
+    '測試｜容器很高的元素',
+  );
+});

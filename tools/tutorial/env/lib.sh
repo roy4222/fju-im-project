@@ -13,7 +13,7 @@
 #   建置與換版本只在 0～4 全部沒在跑時做（持鎖後查），錄影期間不會有人改寫共用的 .next。
 #   用的 commit 寫在 ~/work/tutorial-out/env-commit.txt。
 #
-# 秘密（BETTER_AUTH_SECRET、帳號密碼）只放 $SECRETS_DIR，不進 repo。
+# 秘密（BETTER_AUTH_SECRET、帳號密碼）只放 ${SECRETS_DIR}，不進 repo。
 # 會刪庫、清目錄、送訊號，所以每個入口一開始先跑 safety_check（safety.mjs），目標不對就在任何副作用之前停下：
 #   - 資料庫名只能是 fju_tutorial／fju_tutorial_1～4 中這個實例的那一個、只連 127.0.0.1:55432
 #   - FILES_ROOT 正規化後只能是 ~/work/tutorial-files/<n> 或它底下；work、tutorial-files、<n> 這三層本身不能是符號連結
@@ -83,7 +83,7 @@ safety_check() {
   assert_files_dir
 }
 
-# FILES_DIR（safety.mjs 正規化後的值）在 shell 這邊再比對一次：只能是 $HOME（realpath）/work/tutorial-files/<n> 或它底下。
+# FILES_DIR（safety.mjs 正規化後的值）在 shell 這邊再比對一次：只能是 ${HOME}（realpath）/work/tutorial-files/<n> 或它底下。
 # safety_check 跑一次；reset.sh 在 rm -rf 之前再跑一次。
 assert_files_dir() {
   local root
@@ -388,7 +388,7 @@ build_group_done() {
 }
 
 # ── 多實例共用鎖 ─────────────────────────────────────────────────────────────
-# mkdir 原子建立 $LOCK_DIR；owner 檔第一行「pid 在做什麼」、建置中多一行「build-pgid <PGID>」，只拿來寫錯誤訊息。
+# mkdir 原子建立 ${LOCK_DIR}；owner 檔第一行「pid 在做什麼」、建置中多一行「build-pgid <PGID>」，只拿來寫錯誤訊息。
 # 拿不到就等，等到 TUTORIAL_LOCK_TIMEOUT 秒（預設 900，建置要幾分鐘）就零副作用退出，訊息寫鎖在哪、持有者 pid 還在不在、
 # 建置的 PGID 要怎麼確認，請人確認沒有 up.sh／reset.sh 在跑之後手動刪掉鎖目錄。刻意不自動收回殘留鎖：不要為了罕見的殘留去冒兩個人同時拿到鎖的險。
 

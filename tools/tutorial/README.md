@@ -103,7 +103,7 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 
 | 動作 | 行為 |
 |---|---|
-| `t.click(locator)` | 目標沒有完整在畫面裡（含被橫向／直向捲動容器切到，例如比畫面寬的表格最右邊的操作欄）就先平滑捲動（每一層容器與整頁、兩個方向都處理），捲完照新位置算游標；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。**真的換頁**（整頁載入、或 SPA 換到別的路徑）時，從點擊那一刻起暫停計時、等新頁穩定再繼續，波紋與載好的新頁同一格出現；只改查詢字串的不算換頁，畫面過程照錄、只等這一下的請求做完。點的是別頁的連結卻一直沒換頁，那段等待也不進影片。`t.click(loc, false)` 完全不等。 |
+| `t.click(locator)` | 目標沒有完整在畫面裡（含被橫向／直向捲動容器切到，例如比畫面寬的表格最右邊的操作欄）就先平滑捲動（每一層容器與整頁、兩個方向都處理），捲完照新位置算游標。「畫面裡」扣掉蓋在邊上的 sticky／fixed 元素：黏頂列、黏住的表頭、固定的首欄或操作欄（目標自己在裡面的不算，`pointer-events: none` 的不算），被它們蓋住也會捲出來；捲動中才黏住的表頭還蓋著就再補捲一段。游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。**真的換頁**（整頁載入、或 SPA 換到別的路徑）時，從點擊那一刻起暫停計時、等新頁穩定再繼續，波紋與載好的新頁同一格出現；只改查詢字串的不算換頁，畫面過程照錄、只等這一下的請求做完。點的是別頁的連結卻一直沒換頁，那段等待也不進影片。`t.click(loc, false)` 完全不等。 |
 | `t.type(locator, text, { secret })` | 先點進欄位，再逐字輸入（每字 60～130 ms，固定種子，每次一樣）。`secret: true` 時 events.json 只記遮罩。 |
 | `t.select(locator, value)` | 原生下拉：游標移過去＋波紋，直接選值（原生彈出層錄不到）。自訂下拉請用兩次 `t.click`。 |
 | `t.upload(locator, file, { via })` | file input 多半隱藏，`via` 指定游標要點的按鈕。 |
@@ -183,11 +183,14 @@ node engine/cli.ts assemble --out ~/work/tutorial-out/dub-Charon/final --feature
 
 ```sh
 pnpm -C tools/tutorial test        # 需要 macOS 有畫面的工作階段（會開 Chromium 視窗）與 ffmpeg
-pnpm -C tools/tutorial typecheck
+pnpm -C tools/tutorial typecheck   # tsc -p tsconfig.json：引擎（engine/**）＋所有劇本（chapters/**）一起 strict，Linux 也能跑
 ```
+
+- `typecheck` 用根目錄的 `tsconfig.json`（沿用 `engine/tsconfig.json` 的編譯選項，`include` 多了 `chapters/**`）：劇本寫錯型別（傳錯參數、拼錯選項、用了可能是 `undefined` 的值）在這裡就紅，不必等到錄影時才當掉。`engine/tsconfig.json` 只含引擎，留給編輯器用，不要拿它當檢查。
 
 - **不開瀏覽器**（只要 ffmpeg）：`assemble`、`checks`、`cursor`、`dub`、`runs`、`subtitles`、`tts`——`cd tools/tutorial && node --test --test-concurrency=1 engine/test/{assemble,checks,cursor,dub,runs,subtitles,tts}.test.ts`。重配音與組裝的程式（`dub.ts`、`assemble.ts`、`meta.ts`）不載入 Playwright。
 - **要 Chromium**：`recorder`、`render`（實際 render 一章，標題卡與疊加層是 Chromium 畫的）、`scroll`、`waits`。沒裝 Chromium 的環境這四個會失敗，不屬於上一組。
+- **只要 Chromium、不錄影**（無頭，Linux 也能跑）：`sticky-insets`——`cd tools/tutorial && node --test engine/test/sticky-insets.test.ts`。
 
 - `cursor.test.ts`：每段 600～900 ms、逐格速度不超過上限、緩動起訖。
 - `recorder.test.ts`：
@@ -200,7 +203,8 @@ pnpm -C tools/tutorial typecheck
   - 真的錄到未載入圖（`click(loc, false)` 不等穩定）：`quality.ok=false`、`unloadedImages` 指出哪幾秒哪張圖。
   - 截圖空檔：網頁自己卡 250 ms 只標記；錄影程序卡 300 ms（截圖跟不上）中止並報錯。
 - `waits.test.ts`：換頁回溯暫停後動作拋錯，暫停一定收尾（假分頁、不開瀏覽器）；換頁前還在飛的請求（真的 HTTP 伺服器永遠不回）不會讓之後的 `waitStable` 等到逾時；逾時原因寫實際卡住的那一項（「網路一直沒停」列出網址、「畫面一直在變」附變動範圍）；步驟裡逾時的 `waitStable`、點了別頁連結卻沒換頁的等待都不佔影片時間；`press` 記進 events.json 且鍵真的送到頁面；表單裡按 Enter 送出換到慢圖頁，從按下那一格起就是載好的新頁、press 與 url 同一時刻；同路徑只改查詢字串（`replaceState`／`pushState`）不算換頁——逐格看到「載入中」的過程、沒有回溯暫停；同網址整頁重載仍算換頁、沒有灰圖。
-- `scroll.test.ts`：已經看得到的元素 `t.scroll(locator)` 仍對到上方三分之一（容器內與整頁）；比畫面寬、比容器高的表格，操作鈕在容器右下角看不到的地方：`t.click` 先把容器橫向＋直向捲過去、點擊座標等於捲完後的元素中心 × 1.5、按鈕真的被點到；`t.scroll({ x, within })`、`t.scroll(300)`、`t.scroll(locator)` 各自的位移與平滑時長。
+- `scroll.test.ts`：已經看得到的元素 `t.scroll(locator)` 仍對到上方三分之一（容器內與整頁）；比畫面寬、比容器高的表格，操作鈕在容器右下角看不到的地方：`t.click` 先把容器橫向＋直向捲過去、點擊座標等於捲完後的元素中心 × 1.5、按鈕真的被點到；`t.scroll({ x, within })`、`t.scroll(300)`、`t.scroll(locator)` 各自的位移與平滑時長；黏頂列＋黏住的表頭（#412）：整頁表格最後一列一開始被黏在黏頂列下面的表頭蓋住、容器捲到底後點第一列，`t.click` 捲完兩顆按鈕都沒被蓋住、真的被點到、表頭一次都沒被點到；比沒被蓋住的可見區還高的元素（整頁有黏頂列、容器有黏住的表頭）捲完中心仍在可見區裡、點得到。
+- `sticky-insets.test.ts`：`t.click` 捲動時「可見區四邊被蓋掉多少」：容器裡黏住的表頭（上）與同一列黏住的首欄（左）、整頁的黏頂列加上黏在它下面的表頭（疊起來算）；沒黏住、在畫面中間的表頭，`pointer-events: none` 的固定提示，目標自己所在的黏住元素都不算。
 - `runs.test.ts`：run 目錄原子建立與撞名拒絕；名額預設 1 路、第 2 路排隊印「等待錄影名額」、`TUTORIAL_RECORD_SLOTS=2` 可開第 2 路；指定 2 路時第 3 路排隊；鎖檔常駐、不自己回收。跨程序（`test/slot-holder.ts` 當獨立程序）：5 個程序同一毫秒搶 2 個名額、任何時刻持有者 ≤ 2（目錄裡留著舊鎖檔也一樣）；持有者被 `kill -9` 後名額自動釋放給排隊的。
 - `render.test.ts`：狀態白話規則（「✅ 正常」「🟡 等你決定：」、say 本身超過 22 字才截斷、前綴不佔額度、evidence／note 不上畫面）、假網址列不顯示 UUID 查詢參數、按鍵鍵帽字與片段切法；合成一章實際 render，檢查格式（H.264 1920×1080 30fps＋AAC）、標題卡、網址列、底部字幕帶（深色、字幕在帶子裡）、頁面區 80～960 沒被蓋到、游標位置、波紋圓心與配音音量。
 - `tts.test.ts`（假 HTTP，不打真 API）：請求格式、pcm→wav 標頭與長度、同文字同聲音走快取（重跑也是）、換聲音或模型才重打、429 照 `Retry-After` 退避再重試、502／520 與連線失敗、收到標頭後讀內容斷線都重試、一直 429 到次數上限放棄、402 不重試（`TtsQuotaError`）、HTTP 錯誤內容或連線錯誤帶著金鑰時訊息被遮掉、失敗不留快取檔。
