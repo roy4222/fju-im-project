@@ -6,7 +6,9 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole
  * CL-7（第 1 條，fju/default-value-needs-key）：網址參數帶進來的搜尋框，站內換頁把 `q` 拿掉後不留舊字。
  *
  * 搜尋框是不受控欄位（`defaultValue={q}`）。站內 `<Link>` 換到同一頁、只是查詢字串不同時，React 沿用舊的 DOM：
- * 沒有 `key={q}` 的話網址已經沒有 q、清單也是全部，框裡卻還留著上一次的字。
+ * 使用者在框裡打過字（瀏覽器標成「改過」）之後，沒有 `key={q}` 的話網址已經沒有 q、清單也是全部，框裡卻還留著字；
+ * 下拉選單（產學排序）連打字都不用，換頁後就停在舊的選項。
+ * 拿掉這幾處 `key` 實跑：文字框 6 支、排序 1 支都會紅（PR 說明附輸出）。
  *
  * 每支都先在頁面上做記號，換頁後確認記號還在（真的是站內換頁、不是整頁重載——整頁重載本來就會清掉）。
  */
@@ -21,6 +23,8 @@ async function signIn(page: Page, role: TestRole) {
 async function expectClearedAfterClientNav(page: Page, url: string, box: () => Locator, navigate: () => Promise<void>) {
   await page.goto(`${url}${url.includes('?') ? '&' : '?'}q=${encodeURIComponent(OLD)}`)
   await expect(box()).toHaveValue(OLD)
+  // 使用者又打了新的字、還沒送出就點了別的篩選。
+  await box().fill(`${OLD}再改`)
   await page.evaluate(() => { (window as unknown as { __cl7: number }).__cl7 = 1 })
   await navigate()
   await expect.poll(() => new URL(page.url()).searchParams.get('q'), { timeout: 10_000, message: '換頁後網址還帶著 q' }).toBeNull()
