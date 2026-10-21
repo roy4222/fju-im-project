@@ -5,6 +5,7 @@ import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useDialog } from '.
 import { IconUsersMinus } from '@tabler/icons-react'
 import { BTN_ROW_GHOST } from '@/app/_ui/dashboard/look'
 import { cn } from '@/shared/cn'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 系辦從卡片「更多」或小組詳情刪除組別（C3-12）。
@@ -82,12 +83,13 @@ export function DissolveGroupButton({
                 <textarea
                   id={fieldId}
                   rows={3}
-                  maxLength={reasonMaxLength}
+                  aria-describedby={charCountId(fieldId)}
                   placeholder="例：全組僅剩一人，無法繼續"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   className={INPUT}
                 />
+                <CharCount forId={fieldId} max={reasonMaxLength} value={reason} />
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" className={SECONDARY} onClick={close}>

@@ -4,6 +4,7 @@ import { saveGroupingSettingsAction, voidProposalAction } from './actions'
 import { ALERT, DIALOG as LOOK_DIALOG, DIALOG_TITLE, INPUT as LOOK_INPUT, NOTE } from '@/app/_ui/dashboard/look'
 import { buttonVariants } from '@/app/_ui/ui/button'
 import { IconSettings } from '@tabler/icons-react'
+import { blockOverLimit, CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 分組總覽會動的部分（票 13）：分組設定對話框、作廢提案對話框。回饋一律是伺服器回的句子。
@@ -138,6 +139,7 @@ export function VoidProposalButton({
   reasonMaxLength: number
 }) {
   const [state, formAction, pending] = useActionState(voidProposalAction, undefined)
+  const [tooLong, setTooLong] = useState<string | null>(null)
   const dialog = useDialog()
   useCloseOnSuccess(state, dialog.close)
 
@@ -148,7 +150,11 @@ export function VoidProposalButton({
       </button>
       <Feedback state={state?.ok ? state : undefined} />
       <dialog ref={dialog.ref} aria-label={`作廢${label}？`} className={DIALOG}>
-        <form action={formAction} className="space-y-4 p-5">
+        <form
+          action={formAction}
+          onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, `終止建立的理由最多 ${reasonMaxLength} 個字。`))}
+          className="space-y-4 p-5"
+        >
           <h2 className={DIALOG_TITLE}>作廢{label}？</h2>
           <p className="text-sm text-muted-foreground">
             作廢後這次組隊不會成立，大家都可以重新組隊。理由只留在系辦紀錄，學生的通知只會說「系辦終止」。
@@ -163,11 +169,12 @@ export function VoidProposalButton({
               id={`void-reason-${proposalId}`}
               name="reason"
               rows={3}
-              maxLength={reasonMaxLength}
+              aria-describedby={charCountId(`void-reason-${proposalId}`)}
               className={INPUT}
             />
+            <CharCount forId={`void-reason-${proposalId}`} max={reasonMaxLength} />
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
+          <Feedback state={tooLong ? { ok: false, message: tooLong } : state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不要
