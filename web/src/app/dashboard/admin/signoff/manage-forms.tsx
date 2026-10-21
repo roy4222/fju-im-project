@@ -4,6 +4,7 @@ import { createPackageAction, remindAction, restartAction, voidAction } from './
 import type { SignoffActionState } from './signoff-forms'
 import { DIALOG, Feedback, INPUT, LABEL, SECONDARY, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { buttonVariants } from '@/app/_ui/ui/button'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 系辦在版本頁與同意書看板上的管理動作（票 26；C1-11 起看板也用）。
@@ -110,7 +111,8 @@ export function RestartButton({
             <label htmlFor={`restart-reason-${versionId}`} className={LABEL}>
               理由（選填）
             </label>
-            <textarea id={`restart-reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`restart-reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`restart-reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`restart-reason-${versionId}`} max={reasonMaxLength} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">
@@ -158,7 +160,8 @@ export function VoidButton({
             <label htmlFor={`void-reason-${versionId}`} className={LABEL}>
               理由（選填）
             </label>
-            <textarea id={`void-reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`void-reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`void-reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`void-reason-${versionId}`} max={reasonMaxLength} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">

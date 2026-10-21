@@ -11,6 +11,7 @@ import { ActivityFormBody, EMPTY_ACTIVITY, type ActivityDraft, type ActivityLimi
 import { BTN_OUTLINE, BTN_PRIMARY, DIALOG, INPUT as KIT_INPUT, TEXTAREA as KIT_TEXTAREA } from '@/app/_ui/dashboard-kit'
 import { buttonVariants } from '@/app/_ui/ui/button'
 import { cn } from '@/shared/cn'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 時間軸頁會動的部分（票 11）：階段、新增活動、編輯活動、刪除活動。
@@ -158,12 +159,13 @@ function StageFields({
           name={`stage${seq}.name`}
           value={stage.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          maxLength={nameMaxLength}
+          aria-describedby={charCountId(`${idPrefix}${seq}-name`)}
           required
           autoComplete="off"
           placeholder="例：系統驗收"
           className={INPUT}
         />
+        <CharCount forId={`${idPrefix}${seq}-name`} max={nameMaxLength} value={stage.name} />
         {seq === 1 ? <p className="mt-1 text-xs text-muted-foreground">{GROUPING_PERIOD_HINT}</p> : null}
       </div>
       <div>
@@ -191,10 +193,11 @@ function StageFields({
           rows={2}
           value={stage.description}
           onChange={(e) => onChange({ description: e.target.value })}
-          maxLength={descriptionMaxLength}
+          aria-describedby={charCountId(`${idPrefix}${seq}-description`)}
           placeholder="這階段要做什麼，學生會在卡片上看到。"
           className={TEXTAREA}
         />
+        <CharCount forId={`${idPrefix}${seq}-description`} max={descriptionMaxLength} value={stage.description} />
       </div>
     </div>
   )

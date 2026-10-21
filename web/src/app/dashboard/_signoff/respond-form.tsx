@@ -3,6 +3,7 @@ import { useActionState, useState } from 'react'
 import { IconCheck, IconX } from '@tabler/icons-react'
 import { respondAction } from './actions'
 import { Feedback, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 
 // 外觀照原型 `signoff-actions.tsx` 的 ApproveActions（票 38；原型學生與老師用同一個）：
 // 橘色實心「我已閱讀並同意」＋白底細框「不同意」，對話框大圓角、按鈕 44px 高。
@@ -110,7 +111,8 @@ export function RespondForm({
             <label htmlFor={`reason-${versionId}`} className={LABEL}>
               理由（選填）
             </label>
-            <textarea id={`reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`reason-${versionId}`} max={reasonMaxLength} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 pt-1">
