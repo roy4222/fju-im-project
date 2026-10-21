@@ -33,7 +33,9 @@ export default async function TeacherSetupPage() {
             title="老師資料"
             description={`登入 Email：${profile.loginEmail}（登入用，不能自己改）。填完就進老師首頁，之後可以在「我的帳號」改聯絡資料。`}
           >
-            <ActionForm action={completeTeacherSetupAction} submitLabel="儲存並進入老師首頁">
+            <ActionForm
+              key={`${profile.displayName}-${profile.contactEmail}-${profile.phone}`}
+              action={completeTeacherSetupAction} submitLabel="儲存並進入老師首頁">
               <Field label="姓名" name="displayName" autoComplete="name" defaultValue={profile.displayName} />
               <Field
                 label="聯絡 Email"

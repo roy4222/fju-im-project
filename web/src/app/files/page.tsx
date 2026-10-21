@@ -76,7 +76,7 @@ export default async function FilesPage({
             </nav>
           </aside>
           <div className="flex min-w-0 flex-col gap-8" {...feSection(fe, { label: '檔案下載', add: 'resource' })}>
-            <SearchField action="/files" id="files-q" label="搜尋資源" placeholder="搜尋資源標題" defaultValue={q} keep={{ category }} inputClassName="sm:w-96" />
+            <SearchField key={q} action="/files" id="files-q" label="搜尋資源" placeholder="搜尋資源標題" defaultValue={q} keep={{ category }} inputClassName="sm:w-96" />
             {resources.length === 0 ? (
               <ListEmpty
                 icon={q || category ? undefined : <IconFolderOpen className="size-9" aria-hidden />}

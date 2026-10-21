@@ -166,6 +166,19 @@ export default tseslint.config(
     rules: { 'fju/server-only-header': 'error' },
   },
   {
+    // CL-7：不受控欄位的兩個坑——資料變了不重掛（要 key）、超過字數被伺服器擋下時表單重設（要擋送出）。
+    files: ['src/app/**/*.tsx', 'lint-fixtures/src/app/**/*.tsx'],
+    rules: {
+      'fju/default-value-needs-key': 'error',
+      'fju/char-count-blocks-submit': 'error',
+    },
+  },
+  {
+    // CL-7（⑤-12）：it.fails 一支只驗一件事。
+    files: ['**/*.test.ts', '**/*.integration.test.ts', 'lint-fixtures/**/*.test.ts'],
+    rules: { 'fju/it-fails-single-expect': 'error' },
+  },
+  {
     files: ['src/app/**/*.{ts,tsx}'],
     plugins: { '@next/next': nextPlugin },
     rules: {

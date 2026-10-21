@@ -163,6 +163,7 @@ export default async function AdminAccountsPage({
                 toolbar={
                   <>
                 <SearchForm
+                  key={filter.q}
                   action={BASE}
                   label="篩選帳號"
                   placeholder="搜尋姓名、學號或 Email"

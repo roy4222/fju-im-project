@@ -36,6 +36,10 @@ const MUST_FAIL = [
   ['lint-fixtures/src/application/demo/invalid-imports-auth-instance.ts', 'no-restricted-imports'],
   // Server Action 讀快取住的身分要被擋（SH-P1，設計方案 §3.10）
   ['lint-fixtures/src/app/demo/invalid-cached-actor/actions.ts', 'fju/no-cached-actor-in-actions'],
+  // CL-7 規則化：不受控欄位沒 key、不受控字數沒擋送出、it.fails 兩個 expect（含別名）
+  ['lint-fixtures/src/app/demo/invalid-default-value-no-key.tsx', 'fju/default-value-needs-key'],
+  ['lint-fixtures/src/app/demo/invalid-char-count-no-block.tsx', 'fju/char-count-blocks-submit'],
+  ['lint-fixtures/test/invalid-it-fails-two-expects.test.ts', 'fju/it-fails-single-expect'],
 ]
 
 /** 合法例：一個錯都不該有。 */
@@ -50,6 +54,10 @@ const MUST_PASS = [
   'lint-fixtures/src/infrastructure/valid-uses-module-entry.ts',
   // 經包裝器呼叫管理員能力是唯一允許的寫法，不可以被誤擋（S01-03）
   'lint-fixtures/src/infrastructure/valid-uses-auth-wrapper.ts',
+  // CL-7：帶 key、字面值、轉傳 prop、.map 外層 key；blockOverLimit 擋送出、受控傳 value；it.fails 一支一個 expect
+  'lint-fixtures/src/app/demo/valid-default-value-key.tsx',
+  'lint-fixtures/src/app/demo/valid-char-count-blocked.tsx',
+  'lint-fixtures/test/valid-it-fails-single-expect.test.ts',
 ]
 
 const eslint = new ESLint({ cwd: webRoot })

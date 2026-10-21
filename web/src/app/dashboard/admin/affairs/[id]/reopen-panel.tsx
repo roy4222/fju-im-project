@@ -61,7 +61,7 @@ export function ReopenPanel({ itemId, receiverId, group, defaultDueAt, requestId
       <input type="hidden" name="requestId" value={requestId} />
       <label className={FIELD_LABEL}>
         補交期限（臺灣時間，含這一分鐘）
-        <input type="datetime-local" name="dueAt" required defaultValue={defaultDueAt} className={INPUT} />
+        <input type="datetime-local" key={defaultDueAt} name="dueAt" required defaultValue={defaultDueAt} className={INPUT} />
       </label>
       <label className={FIELD_LABEL}>
         理由（選填；學生會看到，200 字內）
@@ -130,7 +130,7 @@ export function ReopenDialog({
           <input type="hidden" name="requestId" value={requestId} />
           <label className={FIELD_LABEL}>
             補交期限（臺灣時間，含這一分鐘）
-            <input type="datetime-local" name="dueAt" required defaultValue={defaultDueAt} className={INPUT} />
+            <input type="datetime-local" key={defaultDueAt} name="dueAt" required defaultValue={defaultDueAt} className={INPUT} />
           </label>
           <label className={FIELD_LABEL}>
             理由（選填；學生會看到，200 字內）

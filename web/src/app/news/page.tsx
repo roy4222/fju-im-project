@@ -52,7 +52,7 @@ export default async function NewsPage({
               </PillLink>
             ))}
           </nav>
-          <SearchField action="/news" id="news-q" label="搜尋公告" placeholder="搜尋公告" defaultValue={q} keep={{ category }} />
+          <SearchField key={q} action="/news" id="news-q" label="搜尋公告" placeholder="搜尋公告" defaultValue={q} keep={{ category }} />
         </div>
 
         {cards.length === 0 ? (
