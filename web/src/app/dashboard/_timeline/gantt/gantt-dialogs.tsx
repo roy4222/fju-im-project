@@ -33,6 +33,7 @@ function NativeDialog({
   description,
   onClose,
   wide = false,
+  preventClose = false,
   children,
 }: {
   open: boolean
@@ -40,6 +41,8 @@ function NativeDialog({
   description?: string
   onClose: () => void
   wide?: boolean
+  /** 處理中不讓 Esc 關掉（攔原生 `cancel` 事件）。 */
+  preventClose?: boolean
   children: ReactNode
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -54,6 +57,9 @@ function NativeDialog({
       ref={ref}
       aria-label={title}
       onClose={onClose}
+      onCancel={(e) => {
+        if (preventClose) e.preventDefault()
+      }}
       className={`${DIALOG} ${wide ? 'w-[min(48rem,calc(100vw-2rem))]' : 'w-[min(36rem,calc(100vw-2rem))]'}`}
     >
       {open ? (
@@ -161,31 +167,33 @@ export function DeleteConfirmDialog({
 }
 
 /**
- * 階段分界／年度結束日的確認框（§9.2）。句子用 `gantt-model.ts` 的 `stageChangeMessage`。
- * 「確定」才儲存；「取消」或 Esc 由 adapter 讓 `saveSchedule` resolve `{ ok:false, cancelled:true }`（gantt 只回彈）。
+ * 階段分界／年度結束日的確認框（§9.2）。`summary` 是伺服器預覽算好的句子（application `stageChangeSummary`，
+ * 含「有 N 個整組作業…」；C3-13）。「確定」才儲存，儲存中「取消」停用、Esc 擋下；「取消」或 Esc 由 adapter 讓 `saveSchedule` resolve
+ * `{ ok:false, cancelled:true }`（gantt 只回彈）。
  */
 export function StageConfirmDialog({
   open,
-  message,
+  summary,
   busy = false,
   error = null,
   onConfirm,
   onCancel,
 }: {
   open: boolean
-  message: string
+  summary: string
   busy?: boolean
   error?: string | null
   onConfirm: () => void
   onCancel: () => void
 }) {
   return (
-    <NativeDialog open={open} title="調整階段日期" onClose={onCancel}>
+    <NativeDialog open={open} title="調整階段日期" onClose={onCancel} preventClose={busy}>
       <div className="space-y-4">
-        <p className="text-sm">{message}</p>
+        <p className="text-sm">{summary}</p>
         <Alert message={error} />
         <div className="flex justify-end gap-2">
-          <button type="button" className={BTN_OUTLINE} onClick={onCancel}>
+          {/* 儲存中不能取消：請求已送出，取消也擋不住寫入（Review FIX）。 */}
+          <button type="button" className={BTN_OUTLINE} disabled={busy} onClick={onCancel}>
             取消
           </button>
           <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={onConfirm}>

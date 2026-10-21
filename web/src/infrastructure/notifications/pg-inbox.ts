@@ -112,6 +112,8 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   item: resolveItem,
   // 合作案（票 20）：換案、解除的通知點進合作案頁；那一頁自己依登入身分與合作案狀態決定看得到什麼。
   industry_opportunity: (ref) => ({ state: 'ok', href: `/industry/${ref.id}` }),
+  // 專題時程（C3-13；來源＝屆別）：階段日期改了，點進前台 `/timeline` 看新的階段寬度（那一頁自己依登入身分查）。
+  timeline: () => ({ state: 'ok', href: '/timeline' }),
   // 評分指派（票 23 指派、票 24 退回、票 43 移出）：那一組還在本人評分清單上 → 點進評分清單；
   // 已不在清單（被移出、改派走了）→ 不給連結，只留標題上的本人異動說明（產品 08「舊通知與失權」）。
   grading_assignment: (ref, context) =>
