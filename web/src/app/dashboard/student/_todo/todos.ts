@@ -102,7 +102,8 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
     id: version.versionId,
     title: PURPOSE_LABEL[version.purpose],
     due: null,
-    href: `${BASE}/signoff?version=${version.versionId}`,
+    // 連到同意書作業的版本直接進作業的「狀態」分頁（CL-2）；舊 API 建的包沒有作業，照舊進同意書頁。
+    href: version.itemId ? `${BASE}/affairs/${version.itemId}?tab=status` : `${BASE}/signoff?version=${version.versionId}`,
     unit: null,
     late: false,
   }
