@@ -221,6 +221,22 @@ describe('consentTodo：同意書（Q123）', () => {
     expect(todos.map((t) => t.id)).toEqual(['v2'])
     expect(studentOpenCount(todos)).toBe(1)
   })
+
+  // CL-16：連到作業的同意書，作業列本身就在清單裡（狀態在作業的「狀態」分頁），不再多一張同意書卡。
+  it('同意書連到清單裡的作業：只留作業列，不重複列同意書卡', () => {
+    const todos = buildTodos(
+      [item({ itemId: 'ci', kind: 'consent_form' })],
+      NOW,
+      view(consent({ versionId: 'v2', canRespond: true, itemId: 'ci' })),
+    )
+    expect(todos.map((t) => `${t.kind}:${t.id}`)).toEqual(['item:ci'])
+    expect(studentOpenCount(todos)).toBe(1)
+  })
+
+  it('沒連作業的同意書（舊 API 建的包）照舊列卡片', () => {
+    const todos = buildTodos([item({ itemId: 'a' })], NOW, view(consent({ versionId: 'v2', canRespond: true, itemId: null })))
+    expect(todos.map((t) => `${t.kind}:${t.id}`)).toEqual(['item:a', 'consent:v2'])
+  })
 })
 
 describe('buildTodos 排序', () => {

@@ -231,6 +231,22 @@ test('AC-22：學生「交作業」→ 說明｜狀態 → 全組狀態表 → �
   await expect(page.getByTestId('signoff-content')).toContainText(BODY)
 })
 
+test('CL-16：連到作業的同意書在交作業清單與首頁待辦只出現作業列，不再多一張同意書卡', async ({ page }, testInfo) => {
+  const v = await currentVersion('G01')
+  await signIn(page, g1[1]!)
+  await page.goto('/dashboard/student/affairs')
+  await expect(page.getByTestId(`affair-${itemId}`)).toContainText('同意書')
+  await expect(page.getByTestId(`consent-${v.id}`)).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('cl-16-student-affairs.png'), fullPage: true })
+  await page.goto('/dashboard/student/affairs?tab=done')
+  await expect(page.getByTestId(`consent-${v.id}`)).toHaveCount(0)
+
+  await page.goto('/dashboard/student')
+  await expect(page.getByTestId(`todo-${itemId}`)).toBeVisible()
+  await expect(page.getByTestId(`todo-${v.id}`)).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('cl-16-student-home.png'), fullPage: true })
+})
+
 test('看板「提醒未同意者」：收件人是還沒表態的組員（從舊版本頁搬過來，舊包唯讀）', async ({ page }) => {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/affairs/${itemId}`)
