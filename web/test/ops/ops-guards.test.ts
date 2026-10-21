@@ -474,19 +474,20 @@ describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', 
 })
 
 describe('中文語系：$VAR 後面緊貼中文字', () => {
-  const scripts = [
-    ...fs.readdirSync(path.join(repoRoot, 'ops')).filter((f) => f.endsWith('.sh')),
-    ...fs.readdirSync(path.join(repoRoot, 'ops/lib')).filter((f) => f.endsWith('.sh')).map((f) => `lib/${f}`),
-  ]
+  // repo 根目錄起算的相對路徑；教學影片工具的 env 腳本也在 zh_TW 終端機跑，一起掃（#410）。
+  const shellsIn = (d: string) =>
+    fs.readdirSync(path.join(repoRoot, d)).filter((f) => f.endsWith('.sh')).map((f) => `${d}/${f}`)
+  const scripts = [...shellsIn('ops'), ...shellsIn('ops/lib'), ...shellsIn('tools/tutorial/env')]
 
-  it('ops/*.sh、ops/lib/*.sh 沒有任何 `$變數` 緊接非 ASCII 字元（要寫成 ${變數}）', () => {
+  it('ops/*.sh、ops/lib/*.sh、tools/tutorial/env/*.sh 沒有任何 `$變數` 緊接非 ASCII 字元（要寫成 ${變數}）', () => {
+    expect(scripts).toContain('tools/tutorial/env/lib.sh')
     const hits: string[] = []
     for (const f of scripts) {
-      fs.readFileSync(ops(f), 'utf8')
+      fs.readFileSync(path.join(repoRoot, f), 'utf8')
         .split('\n')
         .forEach((line, i) => {
           for (const m of line.matchAll(/\$[A-Za-z_][A-Za-z0-9_]*(?=[\u0080-\u{10FFFF}])/gu)) {
-            hits.push(`ops/${f}:${i + 1}: ${m[0]}`)
+            hits.push(`${f}:${i + 1}: ${m[0]}`)
           }
         })
     }
