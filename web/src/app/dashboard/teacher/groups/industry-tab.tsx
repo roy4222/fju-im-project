@@ -166,5 +166,6 @@ function toCard(g: Card): PendingGroupCard {
     linkState: g.linkState,
     leaderName: g.members.find((m) => m.isLeader)?.name ?? null,
     members: g.members.map((m) => ({ userId: m.userId, name: m.name, isLeader: m.isLeader, avatarPreset: m.avatarPreset, avatarFileId: m.avatarFileId })),
+    advisorName: g.advisor?.teacherName ?? null,
   }
 }

@@ -242,7 +242,7 @@ test('負責老師確認指導（AC-C3-25）：待確認要帶的組有 G01（�
   await expect(page.getByRole('region', { name: '全部組別' }).getByRole('row').filter({ hasText: 'G01' })).toContainText(`${NAME_A}（你）`)
 })
 
-test('確認時系辦剛指派了別人（AC-C3-27）：alert「已有其他老師擔任」並點名；不是負責老師的乙老師產學組分頁沒有合作案、看不到 G04', async ({ page }) => {
+test('確認時系辦剛指派了別人（AC-C3-27；CL-3 Roy 10/21 改）：只確認合作案、指導老師仍是乙老師；不是負責老師的乙老師產學組分頁沒有合作案、看不到 G04', async ({ page }) => {
   await openIndustryTab(page, teacherB)
   await expect(page.getByRole('main')).toContainText('你還沒有合作案。學生選了你的合作案成組後，會出現在這裡等你確認。')
   await expect(page.getByRole('button', { name: '新增合作案' })).toBeVisible()
@@ -259,10 +259,12 @@ test('確認時系辦剛指派了別人（AC-C3-27）：alert「已有其他老�
     [groupIds.get('G04'), teacherB.userId, adminId],
   )
   await dialog.getByRole('button', { name: '確認指導' }).click()
-  await expect(dialog).toContainText('已有其他老師擔任')
-  await expect(dialog.getByRole('alert')).toContainText(`剛由 ${NAME_B} 老師擔任指導老師`)
+  // CL-3（Roy 10/21）：連結還在等確認、系辦先指派了別人 → 這次只確認合作案，指導老師仍是乙老師。
+  await expect(dialog.getByRole('heading', { name: 'G04 的合作案已確認' })).toBeVisible()
+  await expect(dialog).not.toContainText('你已是指導老師')
+  await expect(dialog.getByRole('status')).toContainText(`指導老師維持 ${NAME_B} 老師`)
   expect(await activeAdvisor('G04')).toEqual([teacherB.userId])
-  expect(await linksOf('G04')).toEqual([{ state: 'pending', ended: false, end_reason: null }])
+  expect(await linksOf('G04')).toEqual([{ state: 'active', ended: false, end_reason: null }])
 })
 
 test('負責老師婉拒（AC-C3-26）：理由留空；G08 從待確認消失；連結結束、end_reason 空；全組收到「請重新選合作案」', async ({ page }) => {

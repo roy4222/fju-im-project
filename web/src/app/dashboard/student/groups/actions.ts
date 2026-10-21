@@ -11,6 +11,7 @@ import {
   getOpportunityCommand,
   studentCohortOf,
 } from '@/composition/groups'
+import { sharedRateLimiter } from '@/shared/rate-limit'
 
 /**
  * 「我的組」頁的動作（票 13；契約 02 §7；C3-11 規格③ §5.2、§7.3）：公開找隊員開關、建立組別（送出邀請）、確認、拒絕、
@@ -51,6 +52,7 @@ export async function proposeAction(_state: GroupActionState, formData: FormData
 }
 
 const LOOKUP_MISS = '找不到這個學號，或他已經有組別'
+const LOOKUP_RATE = { max: 30, windowMs: 60 * 1000 }
 
 /**
  * 即時查學號（C3-11；規格③ §5.2）：只回同屆、還沒有組別的學生的姓名與頭像；誰能查、查什麼都在 `GroupQuery.lookupStudent`。
@@ -59,7 +61,9 @@ const LOOKUP_MISS = '找不到這個學號，或他已經有組別'
 export async function lookupStudentAction(studentNo: string): Promise<StudentLookupState> {
   const actor = await currentActor()
   const cohortId = studentCohortOf(actor)
-  if (!cohortId) return { found: false, message: LOOKUP_MISS }
+  if (!cohortId || actor.kind !== 'authenticated') return { found: false, message: LOOKUP_MISS }
+  // CL-3（#819）：每人每分鐘 30 次（組表單一次最多填幾格，正常用不到）；超過先擋，不進查詢，免得被拿來掃同屆名單。
+  if (!sharedRateLimiter('student-lookup', LOOKUP_RATE).hit(actor.userId).allowed) return { found: false, message: '查得太頻繁，請稍後再試。' }
   const found = await getGroupQuery().lookupStudent(actor, cohortId, String(studentNo ?? ''))
   if (!found) return { found: false, message: LOOKUP_MISS }
   return {

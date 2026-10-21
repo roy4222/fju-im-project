@@ -472,6 +472,14 @@ describe('站內同意書不走一般繳交；老師的「等你同意」（C �
         consent: { state: 'teacher_pending', groupId, packageId, versionId },
       }),
     ])
+    // 名單上的作業與等你同意一句查完（CL-1）：學生、老師都只發一句。
+    let statements = 0
+    const counting = new PgSubmissionQuery(
+      () => ({ query: ((...args: Parameters<Pool['query']>) => ((statements += 1), app.query(...args))) as Pool['query'] }) as Pool,
+      lateFlags,
+    )
+    expect((await counting.myItems(teacherId)).filter((r) => r.itemId === itemId)).toHaveLength(1)
+    expect(statements).toBe(1)
     // 別的老師（快照主指導不是他）不列；同意完（complete）就不再列。
     seq += 1
     const other = await owner.sql(
