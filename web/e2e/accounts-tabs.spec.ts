@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie } from './session'
 
@@ -16,6 +16,17 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie } from './sess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 
 test.describe.configure({ mode: 'serial' })
@@ -95,7 +106,7 @@ test.beforeAll(async ({ playwright }) => {
 })
 
 async function adminPage(browser: Browser): Promise<Page> {
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
