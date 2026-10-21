@@ -29,7 +29,7 @@
 
 ```bash
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 ```
 
 預期：最後一行是 `total size is …`，沒有 error。（`fju-vm` 是 `ops/ssh-config.example` 那個 SSH 別名。）
@@ -54,7 +54,7 @@ sudo bash /tmp/fju-app/ops/vm-setup.sh
 ### 4. 🖥️ 把 app 檔放到正式位置，再跑一次設定
 
 ```bash
-sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -606,14 +606,14 @@ ops/fault-drill-local.sh poison --keep   # 只跑一個、留著看畫面（http
 
 自動部署只換**映像**，不會更新 VM 上的腳本與 compose 檔。這些檔有改時重做第 1、4 步：
 
-（送檔清單含 `docker-compose.status.yml`、VM 那行帶 `--filter='P /ops/status/cloudflared.yml'`：開發者後台裝好之後，少列那個檔或少帶 filter，`--delete` 會把後台的 compose 或安裝時產生的 `ops/status/cloudflared.yml` 刪掉，`fju-status-update` 就起不來。VM 還沒做下面「兩站網路拆分上線步驟」時，換 compose 前先照它的 B1 暫停自動部署。）
+（VM 上還有開發者後台時，先做下面「拆除開發者後台」再送檔。VM 還沒做下面「兩站網路拆分上線步驟」時，換 compose 前先照它的 B1 暫停自動部署。）
 
 ```bash
 # 💻 Mac
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 # 🖥️ VM
-sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -773,7 +773,7 @@ sudo rm -f /usr/local/sbin/fju-test-reset-gate /usr/local/sbin/fju-test-reset
 ```bash
 git switch main && git pull
 grep -c 'fju-edge-test' docker-compose.edge.yml   # 確認是拆分後的版本
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 ssh fju-vm
 ```
 
@@ -818,7 +818,7 @@ if [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then echo "✓ 測試站目前的版本：$SHA�
 
 ```bash
 cd /srv/fju/app
-sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -982,6 +982,137 @@ docker stop fju-n1-probe
 正式站部署之後再補驗一次：`docker exec fju-test-app getent hosts fju-prod-app` 沒有輸出、exit 不是 0；
 `docker network inspect fju-edge-prod --format '{{range .Containers}}{{.Name}} {{end}}'` 只有 `fju-edge-caddy fju-prod-app`。
 
+### 拆除開發者後台（⑤-07，做一次）
+
+先講結論：開發者後台（fju-status）10/18 定案不做了，repo 裡的程式、compose、安裝腳本與 systemd 單元都已刪掉（⑤-07）。
+VM 與 Cloudflare 上裝過的東西要照下面一次拆乾淨；**要在合併後第一次照「repo 的 ops／compose 檔改了之後」送檔之前做**——
+新的送檔清單沒有後台的 compose 與 `ops/status/`，`--delete` 會把它們從 `/srv/fju/app` 刪掉。順序反了也沒關係，
+下面第 3 步用專案名稱停容器，不需要 compose 檔。每步都能重貼；沒裝過的項目會印「沒有」或空白，照樣往下做。
+主網站（測試站、正式站）不受影響，全程不用暫停自動部署。
+
+**1. 🖥️ VM：停掉兩個 timer**
+
+```bash
+sudo systemctl disable --now fju-status-update.timer fju-status-envcheck.timer
+sudo systemctl stop fju-status-update.service fju-status-envcheck.service
+```
+
+怎麼確認做完：`systemctl list-timers --all | grep -c fju-status` 印 `0`。（從沒裝過時前兩行會印 `not loaded`，正常。）
+
+**2. 🖥️ VM：刪掉 systemd 單元檔**
+
+```bash
+sudo rm -f /etc/systemd/system/fju-status-update.service /etc/systemd/system/fju-status-update.timer \
+  /etc/systemd/system/fju-status-envcheck.service /etc/systemd/system/fju-status-envcheck.timer
+sudo systemctl daemon-reload
+sudo systemctl reset-failed 'fju-status*' 2>/dev/null || true
+```
+
+怎麼確認做完：`systemctl list-unit-files 'fju-status*' | tail -1` 印 `0 unit files listed.`。
+
+**3. 🖥️ VM：停掉並刪除後台的容器、網路、volume**
+
+```bash
+sudo docker compose -p fju-status down --volumes --remove-orphans
+sudo docker ps -aq --filter label=com.docker.compose.project=fju-status | xargs -r sudo docker rm -f
+sudo docker volume ls -q --filter label=com.docker.compose.project=fju-status | xargs -r sudo docker volume rm
+sudo docker volume rm beszel_socket beszel_agent_data 2>/dev/null || true
+sudo docker network rm fju-status fju-status-docker 2>/dev/null || true
+sudo docker rm -f fju-status-verify-origin fju-status-verify-cloudflared 2>/dev/null; sudo docker network rm fju-status-verify 2>/dev/null || true
+```
+
+怎麼確認做完（三行都印 `0`）：
+
+```bash
+sudo docker ps -a --format '{{.Names}}' | grep -c -E 'fju-status|beszel|gatus|dozzle|pghero|cloudflared'
+sudo docker volume ls -q | grep -c -E 'fju-status|beszel|gatus'
+sudo docker network ls --format '{{.Name}}' | grep -c '^fju-status'
+```
+
+另外 `sudo docker ps --format '{{.Names}}'` 要還看得到 `fju-test-app`、`fju-prod-app`、`fju-edge-caddy`（主網站沒被動到）。
+
+**4. 🖥️ VM：刪掉後台用過的映像**
+
+```bash
+sudo docker image ls --format '{{.Repository}}:{{.Tag}}' \
+  | grep -E '^(ghcr\.io/roy4222/fju-status|twinproduction/gatus|henrygd/beszel|henrygd/beszel-agent|amir20/dozzle|ankane/pghero|cloudflare/cloudflared):' \
+  | xargs -r sudo docker image rm
+```
+
+怎麼確認做完：`sudo docker image ls --format '{{.Repository}}' | grep -c -E 'fju-status|gatus|beszel|dozzle|pghero|cloudflared'` 印 `0`。
+
+**5. 🖥️ VM：刪掉測試站資料庫裡的監控帳號 `fju_monitor`**（PgHero 用的唯讀角色；只建在測試站）
+
+```bash
+sudo docker exec -i fju-test-postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fju_monitor') THEN
+    DROP OWNED BY fju_monitor;
+    DROP ROLE fju_monitor;
+  END IF;
+END
+$$;
+SQL
+```
+
+怎麼確認做完：
+
+```bash
+sudo docker exec fju-test-postgres sh -c 'psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FROM pg_roles WHERE rolname = '"'"'fju_monitor'"'"'"'
+```
+
+印 `0`。
+
+**6. 🖥️ VM：sshd 拿掉 `fjustatus`、刪帳號與資料目錄**
+
+改 sshd 前**先另開一個終端機保持登入**，改完用新連線確認還進得來，再關舊的（改錯會把人鎖在外面）。
+
+```bash
+sudo cp -p /etc/ssh/sshd_config.d/10-fju.conf /etc/ssh/sshd_config.d/10-fju.conf.bak-c5-07
+sudo sed -i -E '/^AllowUsers /s/[[:space:]]+fjustatus([[:space:]]|$)/\1/' /etc/ssh/sshd_config.d/10-fju.conf
+sudo sshd -t && sudo systemctl reload ssh
+grep '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf
+```
+
+預期：`sshd -t` 沒有輸出；最後一行是 `AllowUsers gtuser fjubackup fjureset`（順序可能不同，但沒有 `fjustatus`）。
+`sshd -t` 有錯時**不要 reload**，先還原：`sudo cp -p /etc/ssh/sshd_config.d/10-fju.conf.bak-c5-07 /etc/ssh/sshd_config.d/10-fju.conf`。
+用 💻 Mac 另開新連線 `ssh fju-vm` 還進得來，再刪備份與帳號：
+
+```bash
+sudo rm -f /etc/ssh/sshd_config.d/10-fju.conf.bak-c5-07
+id fjustatus >/dev/null 2>&1 && sudo userdel -r fjustatus
+sudo rm -rf /srv/fju/status
+```
+
+怎麼確認做完：`sudo sshd -T | grep -i '^allowusers'` 沒有 `fjustatus`；`id fjustatus` 印 `no such user`；`ls /srv/fju` 沒有 `status`。
+（`/srv/fju/status` 裡有後台自己的隧道憑證與密碼檔，後台拆掉後都沒用了，直接刪。）
+
+**7. 🌐 Cloudflare 網頁：刪 Access 應用、隧道與 DNS**
+
+- Zero Trust → Access → Applications：刪名稱 `fju-status` 的應用（含四個網址那一個）。
+- Zero Trust → Networks → Tunnels：刪隧道 `fju-status`；若看到 `fju-status-verify` 開頭的暫時隧道也一起刪。
+- `roy422.dev` → DNS → Records：刪 `fju-status`、`fju-status-vm`、`fju-status-logs`、`fju-status-db` 四筆，與任何 `fju-status-verify` 開頭的記錄。
+
+怎麼確認做完：💻 Mac 上 `dig +short fju-status.roy422.dev fju-status-vm.roy422.dev fju-status-logs.roy422.dev fju-status-db.roy422.dev` 沒有任何輸出
+（DNS 快取最多約 30 分鐘才消，有輸出就過一陣子再查）；Access 與 Tunnels 兩頁搜尋 `fju-status` 都沒有結果。
+
+**8. 💻 Mac mini／MacBook：拿掉推送設定與金鑰**
+
+`~/.ssh/config` 刪掉 `Host fju-status-publish` 整段（`ops/ssh-config.example` 已經沒有這段），再刪金鑰：
+
+```bash
+rm -f ~/.ssh/fju_status_publish ~/.ssh/fju_status_publish.pub
+```
+
+怎麼確認做完：`grep -c fju-status-publish ~/.ssh/config` 印 `0`；`ls ~/.ssh | grep -c fju_status` 印 `0`。
+
+**9.（可選）🌐 GitHub：刪 GHCR 上的 `fju-status` 映像**
+
+GitHub → 個人頁 → Packages → `fju-status` → Package settings → Delete this package。不刪也不影響任何東西（已經沒有東西會拉它）。
+
+做完回報：第 1～8 步的「怎麼確認做完」輸出各貼一行。
+
 ---
 
 ## Cloudflare（橘雲代理）
@@ -1012,7 +1143,7 @@ docker stop fju-n1-probe
    - 要解除：`sudo ops/cloudflare-origin-lock.sh --release`（拿掉 jump 與自建鏈、停用並刪掉單元）。
 8. 驗證：登入錯 5 次，確認被鎖的是自己、不是全站；`/api/health` 經 Cloudflare 仍 200 且 `cache-control: no-store`。切橘雲後開首頁、登入頁、後台首頁，瀏覽器 console 不該有 CSP 違規。
 9. 上傳上限（**要在切橘雲之前做**）：Cloudflare Free 方案每個請求 body 上限 100 MB，app 的 `FILE_MAX_BYTES` 預設 100 MiB 略大，超過會先被 Cloudflare 回 413，看不到 app 的友善訊息。到 Doppler → 專案 `fju-im-capstone` → config `stg` → 鍵 `FILE_MAX_BYTES` 改成 `99614720`（95 MiB）→ Save；`prd` 同樣；然後兩站各重跑一次 `deploy.sh`（值每次部署重新取）。上傳頁的上限文字由程式算，會自動顯示 95 MB。
-10. 舊的 fju-status 的 Cloudflare Access 應用與 DNS 記錄一併刪。
+10. 舊的開發者後台的 Cloudflare Access 應用、隧道與 DNS 記錄一併刪（見上面「拆除開發者後台」第 7 步）。
 
 ---
 
