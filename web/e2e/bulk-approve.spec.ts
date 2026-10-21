@@ -79,7 +79,7 @@ async function latestOtp(email: string): Promise<string> {
 }
 
 async function register(browser: Browser, s: { name: string; studentNo: string; email: string }) {
-  const context = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
+  const context = track(await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': uniqueIp() } }))
   const page = await context.newPage()
   await page.goto('/register')
   await page.getByLabel('Email', { exact: true }).fill(s.email)
@@ -202,7 +202,7 @@ test('AC-24：勾 3 位一起核准，學號已被使用的那位自動略過並
   await expect(admin.getByTestId('audit-entry').filter({ hasText: '核准註冊' }).filter({ hasText: S3.name })).toHaveCount(1)
 
   // 核准的人可以登入、進學生首頁。
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   await page.goto('/login')
   await page.getByLabel('Email').fill(S1.email)

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 
@@ -13,6 +13,16 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU；測試中途失敗也會關）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
 const stamp = Date.now().toString(36).toUpperCase()
 const CODE = `E2E-AU-${stamp}`
 
@@ -112,7 +122,7 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   }
 
   // 學生用自己的來源 IP 註冊（跟 registration.spec 一樣，避免跟別的檔搶同一個註冊限速桶）。
-  const studentContext = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': `10.250.${Number(prefix) % 250}.7` } })
+  const studentContext = track(await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': `10.250.${Number(prefix) % 250}.7` } }))
   const reg = await studentContext.newPage()
   await reg.goto('/register')
   await reg.getByLabel('Email', { exact: true }).fill(student.email)
@@ -131,7 +141,7 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   await expect(reg).toHaveURL(/\/register\/pending$/)
   await studentContext.close()
 
-  const adminContext = await browser.newContext()
+  const adminContext = track(await browser.newContext())
   const page = await adminContext.newPage()
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/accounts/pending')

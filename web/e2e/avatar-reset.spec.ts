@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -10,6 +10,16 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU；測試中途失敗也會關）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const SHOTS = process.env.AVATAR_RESET_SHOTS
 
@@ -46,7 +56,7 @@ test.afterAll(async () => {
 })
 
 test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理由先擋、重設後頭像回預設並留稽核理由', async ({ browser }) => {
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
@@ -116,7 +126,7 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
 test('AC-AD-B9：已去識別化的列沒有「更多」，也就沒有「重設頭像」', async ({ browser }) => {
   // 已去識別化：直接改資料（流程本身由 deidentify.spec 測）。
   await pool.query(`update users set deidentified_at = now(), status = 'disabled' where id = $1`, [target.userId])
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])

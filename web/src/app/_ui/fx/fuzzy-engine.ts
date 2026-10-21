@@ -101,10 +101,10 @@ function mountFuzzy(
   layout()
   draw()
   const loop = startFrameLoop(root, draw, { fps })
+  // layout() 會重設 canvas 尺寸（就算一樣大也會清空畫布），所以一律重畫，不然要空白到下一幀。
   const ro = new ResizeObserver(() => {
-    const before = `${w}x${h}`
     layout()
-    if (`${w}x${h}` !== before) draw()
+    draw()
   })
   ro.observe(root)
   return () => {

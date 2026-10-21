@@ -59,12 +59,10 @@ async function delayRsc(page: Page, pathname: string, ms: number, match: (url: U
  * 等這份文件 hydrate 完、主執行緒閒下來再操作。`goto`／`reload` 只等到 load，慢機器上這時 React 常還沒接手：
  * 骨架的點擊／popstate 監聽還沒掛（點了或返回都不出骨架）、Link 還是一般連結（整頁換頁）、
  * 塞進 `main` 的測試連結會被 hydration 洗掉、hydration 佔著主執行緒讓 150 ms 計時器晚觸發。
- * 先等骨架節點被 React 接手（`__reactFiber$`），再等一次 `requestIdleCallback`（排在 hydration 與 effect 之後）。
+ * 先等骨架節點標上 `data-ready`（點擊與返回的監聽掛好了），再等一次 `requestIdleCallback`（排在 hydration 與 effect 之後）。
  */
 async function hydrated(page: Page) {
-  await expect
-    .poll(() => skeleton(page).evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactFiber$'))))
-    .toBe(true)
+  await expect(skeleton(page), '換頁骨架的監聽沒有掛好（.nav-skeleton 沒有 data-ready）').toHaveAttribute('data-ready', '', { timeout: 15_000 })
   await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve(), { timeout: 2000 })))
 }
 

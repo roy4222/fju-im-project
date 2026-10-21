@@ -80,8 +80,15 @@ test('AC-39 訪客開不存在的網址：404、深藍 main、三段三色漸層
     await expect(canvas).toHaveAttribute('aria-hidden', 'true')
   }
 
-  const { left, mid, right } = await codeCanvasColors(page)
-  for (const band of [left, mid, right]) expect(band.n).toBeGreaterThan(0)
+  // 畫布可能剛好在清空與下一幀之間（重量大小時）：等三段都量得到像素再比顏色。
+  let colors = await codeCanvasColors(page)
+  await expect
+    .poll(async () => {
+      colors = await codeCanvasColors(page)
+      return Math.min(colors.left.n, colors.mid.n, colors.right.n)
+    }, { message: '「404」的 canvas 一直量不到有畫的像素' })
+    .toBeGreaterThan(0)
+  const { left, mid, right } = colors
   // 偏橘：紅多、綠中、藍很少；偏黃：紅綠都高、藍低；偏藍：藍比紅多。
   expect(left.r).toBeGreaterThan(200)
   expect(left.g).toBeLessThan(160)

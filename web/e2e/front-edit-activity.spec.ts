@@ -15,6 +15,8 @@ import { createTestSession, type TestSession } from './session'
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const PASSWORD = 'E2e-Password-Correct-9'
+/** 前台編輯開關的 sessionStorage 鍵（`front-edit.tsx`）。 */
+const EDIT_STORAGE_KEY = 'fju-front-edit'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -87,16 +89,25 @@ async function signIn(page: Page) {
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 })
 }
 
-/** 前台開編輯模式；`cohort` 有給就先在「近期活動」區塊補 `data-fe-cohort`（編輯層打開時才掃標記）。 */
+/**
+ * 前台開編輯模式；`cohort` 有給就先在「近期活動」區塊補 `data-fe-cohort`（編輯層打開時才掃標記）。
+ *
+ * 編輯模式會跨頁記住（sessionStorage），而且 server render 一律是「編輯頁面」、hydrate 後才讀出「已開著」改成「完成編輯」：
+ * 只看一眼按鈕名稱會在 hydrate 前後看錯。所以換頁前先清掉記錄（同一個分頁、同源才清得到；一定從關的開始），再點到 `aria-pressed=true` 為止
+ * （hydrate 前的點擊沒有作用，重點一次）。
+ */
 async function openEditMode(page: Page, cohort?: string) {
+  if (page.url().startsWith(BASE_URL)) await page.evaluate((key) => window.sessionStorage.removeItem(key), EDIT_STORAGE_KEY)
   await page.goto('/')
   if (cohort) {
     await page.locator('section[aria-labelledby="home-activities"]').evaluate((el, id) => el.setAttribute('data-fe-cohort', id), cohort)
   }
-  // 編輯模式會跨頁記住（sessionStorage）：已經開著就先關掉再開，讓編輯層重新掃標記。
-  const done = page.getByRole('button', { name: '完成編輯' })
-  if (await done.isVisible()) await done.click()
-  await page.getByRole('button', { name: '編輯頁面' }).click()
+  const toggle = page.locator('button.fe-toggle')
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 2_000 })
+  }, '「編輯頁面」按了沒有打開編輯模式').toPass({ timeout: 30_000 })
+  await expect(toggle).toHaveText('完成編輯')
   const layer = page.getByTestId('front-edit-layer')
   await expect(layer).toBeAttached()
   return layer
