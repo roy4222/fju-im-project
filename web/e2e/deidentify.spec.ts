@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -10,6 +10,16 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU；測試中途失敗也會關）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
 const ownerUrl = process.env.DATABASE_URL_OWNER
 /** e2e/session.ts 造的帳號都用這個密碼。 */
 const PASSWORD = 'E2e-Password-Correct-9'
@@ -55,13 +65,13 @@ test.beforeAll(async ({ playwright }) => {
 
 test('系辦完成一次去識別化：預覽、理由、照打 Email、回執只有代稱；本人被登出且不能再登入', async ({ browser }) => {
   // 本人的「舊分頁」：已經登入、開著學生首頁。
-  const studentContext = await browser.newContext()
+  const studentContext = track(await browser.newContext())
   await studentContext.addCookies([toPlaywrightCookie(target.cookie, BASE_URL)])
   const studentPage = await studentContext.newPage()
   await studentPage.goto('/dashboard/student')
   await expect(studentPage).toHaveURL(/\/dashboard\/student$/)
 
-  const adminContext = await browser.newContext()
+  const adminContext = track(await browser.newContext())
   const page = await adminContext.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await adminContext.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
@@ -114,7 +124,8 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await studentPage.getByLabel('Email').fill(target.email)
   await studentPage.getByLabel('密碼', { exact: true }).fill(PASSWORD)
   await studentPage.getByRole('button', { name: '登入', exact: true }).click()
-  await expect(studentPage.getByRole('alert')).toBeVisible()
+  // 只找 main 裡的：Next 的換頁播報（`#__next-route-announcer__`，在 main 外）也是 role=alert，hydrate 後才掛上。
+  await expect(studentPage.getByRole('main').getByRole('alert')).toBeVisible()
   await expect(studentPage).toHaveURL(/\/login/)
 
   await studentContext.close()

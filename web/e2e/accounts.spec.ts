@@ -153,7 +153,7 @@ test('做完的樣子 1：三個磚、搜尋、篩選、排序', async ({ browse
 test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復後可以再登入', async ({ browser }) => {
   const target = students[0]!
   // 學生的「舊分頁」：已經登入、開著學生首頁。
-  const studentContext = await browser.newContext()
+  const studentContext = track(await browser.newContext())
   await studentContext.addCookies([toPlaywrightCookie(target.cookie, BASE_URL)])
   const studentPage = await studentContext.newPage()
   await studentPage.goto('/dashboard/student')
@@ -178,7 +178,8 @@ test('做完的樣子 2：停用後舊分頁下一個動作就被登出；恢復
   await studentPage.getByLabel('Email').fill(target.email)
   await studentPage.getByLabel('密碼', { exact: true }).fill(PASSWORD)
   await studentPage.getByRole('button', { name: '登入', exact: true }).click()
-  await expect(studentPage.getByRole('alert')).toBeVisible()
+  // 只找 main 裡的：Next 的換頁播報（`#__next-route-announcer__`，在 main 外）也是 role=alert，hydrate 後才掛上。
+  await expect(studentPage.getByRole('main').getByRole('alert')).toBeVisible()
   await expect(studentPage).toHaveURL(/\/login/)
 
   // 恢復 → 可以再登入。
@@ -246,7 +247,7 @@ test('匯出每次重新授權：未登入 401、學生 403', async ({ playwrigh
   expect(anonResponse.status()).toBe(401)
   await anon.dispose()
 
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const studentSession = await sharedTestSession(page.request, 'student')
   const response = await page.request.post('/api/admin/accounts/export', {

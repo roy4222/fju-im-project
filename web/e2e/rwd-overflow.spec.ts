@@ -106,13 +106,13 @@ async function signIn(page: Page, role: TestRole | null) {
 }
 
 /**
- * 等這份文件 hydrate 完、主執行緒閒下來（同 nav-skeleton.spec）：`body` 由根 layout 渲染，被 React 接手後才有
- * `__reactFiber$`；再等兩次 `requestIdleCallback`（上限 2 秒：CI 機器忙時不會一直等不到閒置），讓 hydration 後才掛的延遲特效與選單先排好版面。
+ * 等這份文件 hydrate 完、主執行緒閒下來（同 nav-skeleton.spec）：根 layout 的換頁骨架掛好監聽後標 `data-ready`；
+ * 再等兩次 `requestIdleCallback`（上限 2 秒：CI 機器忙時不會一直等不到閒置），讓 hydration 後才掛的延遲特效與選單先排好版面。
  */
 async function hydrated(page: Page) {
-  await expect
-    .poll(() => page.evaluate(() => Object.keys(document.body).some((key) => key.startsWith('__reactFiber$'))))
-    .toBe(true)
+  await expect(page.locator('.nav-skeleton'), '根 layout 還沒 hydrate（.nav-skeleton 沒有 data-ready）').toHaveAttribute('data-ready', '', {
+    timeout: 15_000,
+  })
   for (let i = 0; i < 2; i++) await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve(), { timeout: 2000 })))
 }
 

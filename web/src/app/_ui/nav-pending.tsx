@@ -15,6 +15,7 @@ import { clickIntent, navKey } from '@/app/_ui/nav-pending-rules'
  * - 8 秒還沒到：不算完成，骨架留著並加「仍在載入……」＋重新整理連結。
  * - 骨架顯示只靠 `html[data-nav-pending]` 的 CSS；沒有 `style=`（CSP）。
  * - 監聽與計時放在 Suspense 外：Suspense 裡的內容 hydrate 得晚，放裡面的話換頁完成前都沒在聽點擊。
+ * - 監聽掛好後骨架節點標 `data-ready`（e2e 等它再操作，畫面上沒有差別）。
  */
 
 const SHOW_DELAY_MS = 150
@@ -32,9 +33,11 @@ export function NavPending() {
   const [slowHref, setSlowHref] = useState<string | null>(null)
   const committed = useRef<string | null>(null)
   const clearRef = useRef<() => void>(() => {})
+  const box = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const root = document.documentElement
+    const el = box.current
     let showTimer: number | undefined
     let slowTimer: number | undefined
     let target: string | null = null
@@ -73,7 +76,9 @@ export function NavPending() {
 
     document.addEventListener('click', onClick, true)
     window.addEventListener('popstate', onPopState)
+    el?.setAttribute('data-ready', '')
     return () => {
+      el?.removeAttribute('data-ready')
       document.removeEventListener('click', onClick, true)
       window.removeEventListener('popstate', onPopState)
       clear()
@@ -90,7 +95,7 @@ export function NavPending() {
   useEffect(sync, [pathname, sync])
 
   return (
-    <div className="nav-skeleton" role="status" aria-live="polite">
+    <div ref={box} className="nav-skeleton" role="status" aria-live="polite">
       {/* 邊界只包這個小元件，頁面在外面，3xx／404 狀態碼不受影響（AC-46）。 */}
       <Suspense fallback={null}>
         <SearchKey onChange={sync} />

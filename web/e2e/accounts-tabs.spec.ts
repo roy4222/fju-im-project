@@ -182,7 +182,7 @@ test('AC-C2-20：待審核分頁不寫「第 N 版」，退回後重送的列尾
   await expect(pendingRow(people.resubmitted.name)).toHaveCount(0)
 
   // 學生登入看到退回理由，用畫面重新送出（新的申請，版本從 1 開始）。
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const student = await context.newPage()
   await context.addCookies([toPlaywrightCookie(people.resubmitted.cookie, BASE_URL)])
   await student.goto('/register/pending')
