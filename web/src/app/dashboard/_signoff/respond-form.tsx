@@ -3,6 +3,7 @@ import { useActionState, useState } from 'react'
 import { IconCheck, IconX } from '@tabler/icons-react'
 import { respondAction } from './actions'
 import { Feedback, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { blockOverLimit, CharCount, charCountId } from '@/app/_ui/char-count'
 
 // 外觀照原型 `signoff-actions.tsx` 的 ApproveActions（票 38；原型學生與老師用同一個）：
 // 橘色實心「我已閱讀並同意」＋白底細框「不同意」，對話框大圓角、按鈕 44px 高。
@@ -45,6 +46,8 @@ export function RespondForm({
   reasonMaxLength: number
 }) {
   const [state, formAction, pending] = useActionState(respondAction, undefined)
+  // 理由超過上限：送出前就擋（訊息同 `pg-signoff.ts` 的「不同意或退回的理由最多 N 字。」），打的字留著。
+  const [tooLong, setTooLong] = useState<string | null>(null)
   const [read, setRead] = useState(false)
   const agree = useDialog()
   const reject = useDialog()
@@ -99,7 +102,11 @@ export function RespondForm({
       </dialog>
 
       <dialog ref={reject.ref} aria-label={rejectText} className={DIALOG}>
-        <form action={formAction} className="space-y-4 p-6">
+        <form
+          action={formAction}
+          onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, `不同意或退回的理由最多 ${reasonMaxLength} 字。`))}
+          className="space-y-4 p-6"
+        >
           {hidden}
           <input type="hidden" name="decision" value="reject" />
           <h2 className="text-lg font-extrabold">{rejectText}？</h2>
@@ -110,9 +117,10 @@ export function RespondForm({
             <label htmlFor={`reason-${versionId}`} className={LABEL}>
               理由（選填）
             </label>
-            <textarea id={`reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`reason-${versionId}`} max={reasonMaxLength} />
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
+          <Feedback state={tooLong ? { ok: false, message: tooLong } : state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={reject.close}>
               先不要

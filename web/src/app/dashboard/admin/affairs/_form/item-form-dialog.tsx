@@ -65,6 +65,7 @@ export function LazyItemFormPage(props: Parameters<typeof ItemFormPageType>[0]) 
   return <ItemFormPage {...props} />
 }
 
+// `admin/showcase/honor-dialogs.tsx` 的 `HonorFormDialog` 複製了這個外框（延遲 chunk 不能 import 本檔）；改一邊要一起改另一邊。
 export function ItemFormDialog({ open, title, ...props }: Omit<ItemFormProps, 'layout'> & { open: boolean; title: string }) {
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {

@@ -24,6 +24,7 @@ describe('normalizeProfileCard', () => {
   it('(a) 自介 51 字被擋，50 字可以；中文、emoji 都算一個字', () => {
     expect(normalizeProfileCard({ ...base, bio: '字'.repeat(50) }).ok).toBe(true)
     expect(normalizeProfileCard({ ...base, bio: '😀'.repeat(50) }).ok).toBe(true)
+    expect(normalizeProfileCard({ ...base, bio: '😀'.repeat(51) })).toMatchObject({ ok: false, details: { field: 'bio' } })
     const tooLong = normalizeProfileCard({ ...base, bio: '字'.repeat(51) })
     expect(tooLong).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', message: '自介最多 50 字。', details: { field: 'bio' } })
   })

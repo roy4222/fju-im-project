@@ -2,6 +2,7 @@
 import { useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/shared/cn'
+import { charLength } from '@/shared/text'
 import { resetAvatarAction } from './actions'
 import type { DialogOpener } from './role-dialogs'
 
@@ -14,6 +15,11 @@ import type { DialogOpener } from './role-dialogs'
 
 /** 同 `REASON_MAX`（app 對 application 只能帶型別，值在這裡寫一次；用例會再判）。 */
 const REASON_MAX = 200
+
+/** 去頭尾空白後超過上限（以字計，emoji 算一個字；同用例的 `charLength`）。 */
+export function reasonTooLong(trimmed: string): boolean {
+  return charLength(trimmed) > REASON_MAX
+}
 
 const BUTTON =
   'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
@@ -57,7 +63,7 @@ export function AvatarResetDialog({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     const trimmed = reason.trim()
-    if (Array.from(trimmed).length > REASON_MAX) {
+    if (reasonTooLong(trimmed)) {
       setError(`理由請在 ${REASON_MAX} 字以內。`)
       return
     }
