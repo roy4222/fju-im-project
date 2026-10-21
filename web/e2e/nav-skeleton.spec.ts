@@ -65,7 +65,7 @@ async function hydrated(page: Page) {
   await expect
     .poll(() => skeleton(page).evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactFiber$'))))
     .toBe(true)
-  await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve())))
+  await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve(), { timeout: 2000 })))
 }
 
 /** 記下 `data-nav-pending` 每次出現的時間與最近一次點擊／返回的時間（同一份文件內的換頁都記得到）。 */

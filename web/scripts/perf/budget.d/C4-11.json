@@ -1,0 +1,23 @@
+{
+  "ticket": "C4-11",
+  "override": {
+    "$shared": { "from": "base", "value": { "baseline": 224.7, "limit": 230 } },
+    "/": { "from": "base", "value": { "baseline": 224.7, "limit": 248 } },
+    "/403": { "from": "base", "value": { "baseline": 224.7, "limit": 248 } },
+    "/_not-found": { "from": "C4-05", "value": { "baseline": 224.7, "limit": 248 } },
+    "/competitions": { "from": "base", "value": { "baseline": 227.3, "limit": 250 } },
+    "/dashboard/admin": { "from": "base", "value": { "baseline": 227.9, "limit": 250 } },
+    "/dashboard/admin/accounts": { "from": "base", "value": { "baseline": 243.7, "limit": 250 } },
+    "/dashboard/admin/affairs": { "from": "C1-06", "value": { "baseline": 238.3, "limit": 250 } },
+    "/dashboard/admin/grading/rules": { "from": "C1-13", "value": { "baseline": 244.6, "limit": 250 } },
+    "/dashboard/admin/groups": { "from": "base", "value": { "baseline": 241, "limit": 250 } },
+    "/dashboard/student": { "from": "base", "value": { "baseline": 225.7, "limit": 249 } },
+    "/dashboard/teacher": { "from": "base", "value": { "baseline": 225.7, "limit": 249 } },
+    "/login": { "from": "base", "value": { "baseline": 232.3, "limit": 250 } },
+    "/office-edit": { "from": "C1-06", "value": { "baseline": 238.8, "limit": 250 } },
+    "/register": { "from": "base", "value": { "baseline": 231.6, "limit": 250 } },
+    "/register/apply": { "from": "base", "value": { "baseline": 229.8, "limit": 250 } },
+    "/register/verify": { "from": "base", "value": { "baseline": 230.8, "limit": 250 } },
+    "/reset-password": { "from": "base", "value": { "baseline": 230.6, "limit": 250 } }
+  }
+}

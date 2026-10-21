@@ -5,5 +5,7 @@
   "/dashboard/teacher": { "as": "teacher", "actions": [{ "click": "link:評分", "waitFor": "main h1" }] },
   "/dashboard/teacher/grading": { "as": "teacher", "actions": [{ "click": "link:各組繳交", "waitFor": "main h1" }] },
   "/dashboard/admin": { "as": "admin", "actions": [{ "click": "link:帳號管理", "waitFor": "main h1" }] },
-  "/dashboard/admin/accounts": { "as": "admin", "actions": [{ "click": "link:專題事務", "waitFor": "main h1" }] }
+  "/dashboard/admin/accounts": { "as": "admin", "actions": [{ "click": "link:專題事務", "waitFor": "main h1" }] },
+  "/login": { "as": "anonymous", "actions": [{ "click": "link:專題規則", "waitFor": "main h1" }] },
+  "/competitions": { "as": "anonymous", "actions": [{ "click": "link:專題規則", "waitFor": "main h1" }] }
 }
