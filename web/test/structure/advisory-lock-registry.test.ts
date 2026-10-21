@@ -46,16 +46,17 @@ function parseRegistry(md: string): Entry[] {
       continue
     }
     const c = cells(line)
+    const [keyCell = '', hashCell = '', , fileCell = ''] = c
     if (c.some((x) => x.includes('雜湊函式'))) {
       inTable = true
       continue
     }
-    if (!inTable || /^-+$/.test(c[0].replace(/[:\s]/g, ''))) continue
-    const ticks = (s: string) => [...s.matchAll(/`([^`]+)`/g)].map((m) => m[1])
-    const hash = ticks(c[1])[0]
-    const seed = c[1].match(/seed\s*(\d+)/)?.[1] ?? null
-    const files = ticks(c[3]).filter((f) => /\.(ts|tsx|mjs)$/.test(f))
-    for (const key of ticks(c[0])) entries.push({ prefix: key.split('<')[0], hash, seed, files })
+    if (!inTable || /^-+$/.test(keyCell.replace(/[:\s]/g, ''))) continue
+    const ticks = (s: string) => [...s.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? '')
+    const hash = ticks(hashCell)[0] ?? ''
+    const seed = hashCell.match(/seed\s*(\d+)/)?.[1] ?? null
+    const files = ticks(fileCell).filter((f) => /\.(ts|tsx|mjs)$/.test(f))
+    for (const key of ticks(keyCell)) entries.push({ prefix: key.split('<')[0] ?? key, hash, seed, files })
   }
   return entries
 }
@@ -63,19 +64,19 @@ function parseRegistry(md: string): Entry[] {
 /** 把 `src` 從 `open` 那格（`(` 或 `[`）切到對應的收尾，回傳裡面依頂層逗號切開的參數。字串與樣板字串裡的符號不算。 */
 function splitArgs(src: string, open: number): string[] {
   const close: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
-  const stack: string[] = [close[src[open]]]
+  const stack: string[] = [close[src[open] ?? ''] ?? '']
   const args: string[] = []
   let cur = ''
   let i = open + 1
   while (i < src.length && stack.length) {
-    const ch = src[i]
+    const ch = src[i] ?? ''
     if (ch === "'" || ch === '"' || ch === '`') {
       const end = skipString(src, i)
       cur += src.slice(i, end)
       i = end
       continue
     }
-    if (ch in close) stack.push(close[ch])
+    if (ch in close) stack.push(close[ch] ?? '')
     else if (ch === stack[stack.length - 1]) {
       stack.pop()
       if (!stack.length) break
@@ -122,33 +123,33 @@ function resolveKey(expr: string, file: string, at: number, depth = 0): string[]
   expr = expr.trim()
   if (depth > 3) return null
   const lit = expr.match(/^(['"])((?:\\.|(?!\1).)*)\1$/)
-  if (lit) return [lit[2]]
-  if (expr.startsWith('`') && expr.endsWith('`')) return [expr.slice(1, -1).split('${')[0]]
+  if (lit) return [lit[2] ?? '']
+  if (expr.startsWith('`') && expr.endsWith('`')) return [expr.slice(1, -1).split('${')[0] ?? '']
   const call = expr.match(/^(\w+)\(/)
   if (call) {
-    const def = new RegExp(`function ${escapeRe(call[1])}\\s*\\(`).exec(file)
+    const def = new RegExp(`function ${escapeRe(call[1] ?? '')}\\s*\\(`).exec(file)
     if (!def) return null
     const body = file.indexOf('{', file.indexOf(')', def.index))
     const ret = /return\s+/.exec(file.slice(body))
     if (!ret) return null
     const retStart = body + ret.index + ret[0].length
-    const retExpr = file.slice(retStart).split('\n')[0]
+    const retExpr = file.slice(retStart).split('\n')[0] ?? ''
     return resolveKey(retExpr, file, retStart, depth + 1)
   }
   if (!/^\w+$/.test(expr)) return null
   const constDef = new RegExp(`const ${escapeRe(expr)}\\s*(?::[^=]+)?=\\s*([^\\n]+)`).exec(file)
-  if (constDef) return resolveKey(constDef[1], file, constDef.index, depth + 1)
+  if (constDef) return resolveKey(constDef[1] ?? '', file, constDef.index, depth + 1)
   // 外層函式的參數：有預設值用預設值，沒有就去找同檔所有呼叫處對應位置的參數。
   const fns = [...file.slice(0, at).matchAll(/function (\w+)\s*\(/g)]
   const fn = fns[fns.length - 1]
   if (!fn) return null
   const params = splitArgs(file, fn.index + fn[0].length - 1)
-  const idx = params.findIndex((p) => p.split(/[:=]/)[0].trim() === expr)
+  const idx = params.findIndex((p) => (p.split(/[:=]/)[0] ?? '').trim() === expr)
   if (idx < 0) return null
-  const dflt = params[idx].match(/=\s*(.+)$/)
-  if (dflt) return resolveKey(dflt[1], file, at, depth + 1)
+  const dflt = (params[idx] ?? '').match(/=\s*(.+)$/)
+  if (dflt) return resolveKey(dflt[1] ?? '', file, at, depth + 1)
   const keys: string[] = []
-  for (const m of file.matchAll(new RegExp(`(?<!function )\\b${escapeRe(fn[1])}\\(`, 'g'))) {
+  for (const m of file.matchAll(new RegExp(`(?<!function )\\b${escapeRe(fn[1] ?? '')}\\(`, 'g'))) {
     const arg = splitArgs(file, m.index + m[0].length - 1)[idx]
     const got = arg === undefined ? null : resolveKey(arg, file, m.index, depth + 1)
     if (!got) return null
@@ -171,10 +172,11 @@ function findSites(rel: string, src: string): Site[] {
       sites.push({ file: base, line, prefix: null, hash: '?', seed: null, why: '鎖的參數要是 hashtext(…) 或 hashtextextended(…, 0)' })
       continue
     }
+    const hashFn = h[1] ?? ''
     const hashOpen = m.index + m[0].length + h[0].length - 1
     const hashArgs = splitArgs(src, hashOpen)
-    const seed = h[1] === 'hashtextextended' ? (hashArgs[1] ?? null) : null
-    const first = hashArgs[0].split('||')[0].trim()
+    const seed = hashFn === 'hashtextextended' ? (hashArgs[1] ?? null) : null
+    const first = (hashArgs[0] ?? '').split('||')[0]?.trim() ?? ''
     let prefixes: string[] | null
     const param = first.match(/^\$(\d+)(?:::\w+)*$/)
     if (param) {
@@ -188,10 +190,10 @@ function findSites(rel: string, src: string): Site[] {
       prefixes = resolveKey(first, src, m.index)
     }
     if (!prefixes) {
-      sites.push({ file: base, line, prefix: null, hash: h[1], seed, why: '解不出鍵（請寫成字串、$N 對到字串／樣板字串，或同檔一層函式）' })
+      sites.push({ file: base, line, prefix: null, hash: hashFn, seed, why: '解不出鍵（請寫成字串、$N 對到字串／樣板字串，或同檔一層函式）' })
       continue
     }
-    for (const prefix of new Set(prefixes)) sites.push({ file: base, line, prefix, hash: h[1], seed })
+    for (const prefix of new Set(prefixes)) sites.push({ file: base, line, prefix, hash: hashFn, seed })
   }
   return sites
 }

@@ -10,7 +10,7 @@ import { isWorkerStale, type HealthSnapshot } from '@/shared/health'
  * 沒部署 digest 時拿到的是空字串；照 `.env.example` 留空也一樣（CL-7 #823 第 11 條）。
  * VM 上 `ops/deploy.sh` 每次都會設 `IMAGE_DIGEST`，`ops/check-health.mjs` 拿它跟部署的 digest 比，那條路行為不變。
  */
-export function buildInfo(env: NodeJS.ProcessEnv = process.env): Pick<HealthSnapshot, 'version' | 'commit' | 'imageDigest'> {
+export function buildInfo(env: Readonly<Record<string, string | undefined>> = process.env): Pick<HealthSnapshot, 'version' | 'commit' | 'imageDigest'> {
   const read = (name: string) => (env[name] === '' ? undefined : env[name])
   return {
     version: read('APP_VERSION') ?? '0.0.0',

@@ -184,9 +184,9 @@ describe('.env.example', () => {
       const found = new Set<string>()
       const direct =
         /process\.env(?:\.([A-Z][A-Z0-9_]*)|\[['"]([A-Z][A-Z0-9_]*)['"]\])\s*(?:\?\?|[!=]==?\s*undefined)|['"]([A-Z][A-Z0-9_]*)['"]\s+in\s+process\.env/g
-      for (const m of src.matchAll(direct)) found.add(m[1] ?? m[2] ?? m[3])
+      for (const m of src.matchAll(direct)) found.add(m[1] ?? m[2] ?? m[3] ?? '')
       for (const m of src.matchAll(/(?:const|let)\s+(\w+)\s*=\s*process\.env\.([A-Z][A-Z0-9_]*)\s*(?:\n|;)/g)) {
-        if (new RegExp(`\\b${m[1]}\\s*(?:\\?\\?|[!=]==?\\s*undefined)`).test(src)) found.add(m[2])
+        if (new RegExp(`\\b${m[1] ?? ''}\\s*(?:\\?\\?|[!=]==?\\s*undefined)`).test(src)) found.add(m[2] ?? '')
       }
       return [...found]
     }

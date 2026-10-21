@@ -600,7 +600,7 @@ describe('機密不出現在指令列（CL-7 #823 第 4 條）：只能經 stdin
     fake(
       'docker',
       [
-        'case "$1 \${2:-}" in',
+        'case "$1 ${2:-}" in',
         "  'inspect '*) echo ghcr.io/roy4222/fju-web:old ;;",
         "  'image inspect') echo ghcr.io/roy4222/fju-web@sha256:0000 ;;",
         "  'compose ps') echo ghcr.io/roy4222/fju-web:old ;;",
