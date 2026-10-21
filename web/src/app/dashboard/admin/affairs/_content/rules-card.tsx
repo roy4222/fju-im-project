@@ -42,25 +42,65 @@ export const ROW_BTN =
 
 type Loaded = { cohortId: string; options: EditorVocabulary; initial: ItemFormInitial | null }
 
+/** 正文編輯區的內容指紋：去掉所有屬性（游標、placeholder 的 class 會變），只留標籤結構與文字。 */
+function editorShape(el: Element): string {
+  const copy = el.cloneNode(true) as Element
+  for (const node of [copy, ...copy.querySelectorAll('*')]) for (const name of node.getAttributeNames()) node.removeAttribute(name)
+  return copy.innerHTML
+}
+
 /**
  * 就地展開的表單：先經 `frontEditContextAction` 載完整的那一筆（附件、revision）再畫；`itemId` 是 null 時是新增一章。
- * 表單裡有任何輸入就呼叫 `onDirty`（`ItemForm` 不回報改動，這裡聽冒泡上來的 input 事件；Tiptap 的 contenteditable 也會發）。
+ *
+ * 有沒有未存改動（`onDirtyChange`；`ItemForm` 不回報改動，這裡從外面看）：
+ * - 一般欄位：聽冒泡上來的 input 事件，有輸入就算改過。
+ * - 正文（Tiptap 的 contenteditable）：粗體、清單、Enter 這類由編輯器自己處理的操作不一定發 input 事件，所以改看內容——
+ *   編輯區第一次出現時記下內容指紋（`editorShape`），之後每次 DOM 變動跟它比；改回原樣就不算改過。
  */
 export function InlineRuleForm({
   cohortId,
   itemId,
-  onDirty,
+  onDirtyChange,
   onDone,
   onCancel,
 }: {
   cohortId: string
   itemId: string | null
-  onDirty: () => void
+  onDirtyChange: (dirty: boolean) => void
   onDone: (result: InlineDone) => void
   onCancel: () => void
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const host = useRef<HTMLDivElement>(null)
+  const fieldsDirty = useRef(false)
+  const editorDirty = useRef(false)
+  const onDirtyRef = useRef(onDirtyChange)
+  useEffect(() => {
+    onDirtyRef.current = onDirtyChange
+  }, [onDirtyChange])
+
+  useEffect(() => {
+    const root = host.current
+    if (!root) return
+    let baseline: string | null = null
+    const check = () => {
+      const editor = root.querySelector('[contenteditable="true"]')
+      if (!editor) return
+      const shape = editorShape(editor)
+      if (baseline === null) baseline = shape
+      const dirty = shape !== baseline
+      if (dirty !== editorDirty.current) {
+        editorDirty.current = dirty
+        onDirtyRef.current(fieldsDirty.current || dirty)
+      }
+    }
+    const observer = new MutationObserver(check)
+    observer.observe(root, { subtree: true, childList: true, characterData: true })
+    check()
+    return () => observer.disconnect()
+    // 表單載入（`loaded`）後 host 才掛上。
+  }, [loaded])
 
   useEffect(() => {
     let alive = true
@@ -90,7 +130,17 @@ export function InlineRuleForm({
   }
   if (!loaded) return <p className="px-1 py-8 text-center text-sm text-muted-foreground">表單載入中…</p>
   return (
-    <div onInput={onDirty} data-testid="rule-inline-form">
+    <div
+      ref={host}
+      onInput={(e) => {
+        // 正文編輯區的輸入由上面的內容比對決定。
+        if (e.target instanceof Element && e.target.closest('[contenteditable="true"]')) return
+        if (fieldsDirty.current) return
+        fieldsDirty.current = true
+        onDirtyRef.current(true)
+      }}
+      data-testid="rule-inline-form"
+    >
       <ItemForm
         layout="inline"
         placement="rules"

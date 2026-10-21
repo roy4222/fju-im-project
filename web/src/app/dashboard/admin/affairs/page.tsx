@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
 import { PageTitle, pillClass } from '@/app/_ui/dashboard-kit'
-import { EmptyState, LinkButton } from '@/app/_ui/primitives'
+import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
@@ -24,10 +24,8 @@ const BASE = '/dashboard/admin/affairs'
  * 清單內容是規格①的 `AffairsNewsList`（C1-07：只列公告、置頂在列上的「⋯」、刪除鈕寫原因）；右上「新增」直接開公告表單
  * （`NewItemButton`，不問類型）。編輯器不另放側欄入口（產品模組 04「單一入口」）。
  *
- * 榮譽是跨屆的公開紀錄（第三波 W1／W1b）：選「榮譽」篩選時，屆別選單連已封存的屆別也列出來，
- * 系辦才點得到歷屆（例如示範資料 DEMO-113、DEMO-112）的榮譽並進編輯器；頁首多一顆「新增榮譽」，帶目前選的屆別。
- * 封存屆別只能動榮譽，所以那時不放「新增項目」與一般的完整編輯器入口。屆別全部封存時，一般篩選改成說明＋
- * 「管理歷屆榮譽」入口（不是「還沒有屆別」的死路）。
+ * 榮譽（含封存屆別的歷屆榮譽）在「成果展示」分頁的榮譽榜區（C1-09）；這頁只列未封存的屆別。屆別全部封存時改成說明＋
+ * 「成果展示」入口（不是「還沒有屆別」的死路）。
  *
  * 系辦 AD-04：標題用側欄名「公告與作業」、下方掛分頁列；頁首不放說明段落（AC-AD-06、07）。
  *
@@ -48,7 +46,6 @@ export default async function AffairsPage({
 
   const view = affairsView(await getCohortStatusQuery().list(), { ...params, placement: newsFilterOf(params) })
   const filter = view.filter
-  const honorView = filter === 'honor'
 
   const shell = (children: React.ReactNode, actions?: React.ReactNode) => (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
@@ -57,7 +54,7 @@ export default async function AffairsPage({
         <AdminTabs label="公告與作業分頁" current={BASE} items={AFFAIRS_TABS} actions={actions} />
       </div>
       <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
-        這一屆的公告與歷屆榮譽都在這裡；作業、資源下載、專題規則各有自己的分頁。
+        這一屆的公告都在這裡；作業、資源下載、專題規則各有自己的分頁。
       </p>
       <div className="flex flex-col gap-5">{children}</div>
     </DashboardShell>
@@ -67,8 +64,8 @@ export default async function AffairsPage({
     return shell(
       <EmptyState
         title="屆別都已封存"
-        description="封存的屆別不能再新增公告、資源或作業；榮譽是跨屆的公開紀錄，仍可新增、編輯、下架或刪除。要開始新的一屆請到屆別頁。"
-        action={{ href: '/dashboard/admin/affairs?placement=honor', label: '管理歷屆榮譽' }}
+        description="封存的屆別不能再新增公告、資源或作業；歷屆榮譽在「成果展示」的榮譽榜區管理。要開始新的一屆請到屆別頁。"
+        action={{ href: '/dashboard/admin/showcase', label: '前往成果展示' }}
       />,
     )
   }
@@ -84,9 +81,7 @@ export default async function AffairsPage({
   }
 
   const { cohorts, cohort } = view
-  // 封存屆別只會在榮譽篩選下出現；那時只能動榮譽。
-  const archived = cohort.status === 'archived'
-  const vocabulary = archived ? null : await editorVocabulary(cohort.id)
+  const vocabulary = await editorVocabulary(cohort.id)
 
   return shell(
     <>
@@ -95,26 +90,18 @@ export default async function AffairsPage({
           {cohorts.map((c) => (
             <Link
               key={c.id}
-              // 換屆別停在同一個種類篩選（榮譽篩選才看得到封存屆別）。
+              // 換屆別停在同一個種類篩選。
               href={`/dashboard/admin/affairs?${new URLSearchParams({ cohort: c.id, ...(filter === 'news' ? {} : { placement: filter }) }).toString()}`}
               aria-current={c.id === cohort.id ? 'page' : undefined}
               className={pillClass(c.id === cohort.id)}
             >
               {cohortLabel(c)}
-              {c.status === 'archived' ? <span className="ml-1 text-xs font-normal opacity-80">（已封存）</span> : null}
             </Link>
           ))}
         </nav>
       ) : null}
       <AffairsNewsList cohortId={cohort.id} searchParams={params} />
     </>,
-    <>
-      {honorView ? (
-        <LinkButton href={`/dashboard/admin/editor/new?cohort=${cohort.id}&placement=honor`} variant={archived ? 'primary' : 'secondary'}>
-          新增榮譽
-        </LinkButton>
-      ) : null}
-      {vocabulary ? <NewItemButton cohortId={cohort.id} vocabulary={vocabulary} placement="news" noun="公告" /> : null}
-    </>,
+    <NewItemButton cohortId={cohort.id} vocabulary={vocabulary} placement="news" noun="公告" />,
   )
 }

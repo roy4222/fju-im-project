@@ -1,6 +1,6 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { createItemOnPage, fillItemForm, formReady, openAdvanced } from './create-item'
+import { createItemOnPage, createRuleInline, fillItemForm, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -165,10 +165,16 @@ async function quickPublish(
     important?: boolean
   },
 ) {
+  // 專題規則沒有右上「新增」（CL-1）：走清單底部「新增章節」的就地表單（規則固定公開、沒有對象欄）。
+  if (options.placement.test('專題規則')) {
+    await page.goto(`/dashboard/admin/affairs/rules?cohort=${cohortId}`)
+    await createRuleInline(page, { title: options.title, html: options.body, file: options.file })
+    const rule = await itemByTitle(options.title)
+    itemIds[options.title] = rule.id
+    return rule
+  }
   // C1-07：各分頁的「新增」直接開那一類的表單（不再先選類型）。
-  const tab = options.placement.test('專題規則')
-    ? { path: 'affairs/rules', button: '新增規則' }
-    : options.placement.test('資源下載')
+  const tab = options.placement.test('資源下載')
       ? { path: 'affairs/resources', button: '新增資源' }
       : { path: 'affairs', button: '新增公告' }
   await page.goto(`/dashboard/admin/${tab.path}?cohort=${cohortId}`)
