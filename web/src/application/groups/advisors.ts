@@ -82,7 +82,11 @@ export type UnassignAdvisorInput = {
   readonly reason: string
 }
 
-export type AdvisorChangeKind = 'claimed' | 'assigned' | 'reassigned' | 'unassigned'
+/**
+ * `link_confirmed`（CL-3，Roy 10/21）：系辦已指派別的老師、合作案連結還在等確認時，負責老師按「確認指導」
+ * 只把連結改成已確認，指導老師不變；`teacherName` 是目前（不變）的指導老師。
+ */
+export type AdvisorChangeKind = 'claimed' | 'assigned' | 'reassigned' | 'unassigned' | 'link_confirmed'
 
 export type AdvisorChangeReceipt = {
   readonly groupId: string
@@ -113,6 +117,8 @@ function describeChange(receipt: AdvisorChangeReceipt): string {
       return `${receipt.groupCode} 的指導老師已從 ${receipt.previousTeacherName} 換成 ${receipt.teacherName}；全組、新老師與原老師都已收到通知。評分指派沒有變動。`
     case 'unassigned':
       return `已解除 ${receipt.previousTeacherName} 老師對 ${receipt.groupCode} 的指導；全組與原老師已收到通知。`
+    case 'link_confirmed':
+      return `已確認 ${receipt.groupCode} 選的合作案；指導老師維持 ${receipt.teacherName} 老師（系辦指派）。`
   }
 }
 

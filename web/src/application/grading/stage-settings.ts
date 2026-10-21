@@ -44,11 +44,11 @@ export function normalizeStageSetting(input: {
   }
   const description = text(input.description)
   if (description === undefined) return err('VALIDATION_FAILED', '說明格式不對，請重新整理頁面再試。', { details: { field: 'description' } })
-  if (description !== null && [...description].length > MAX_STAGE_DESCRIPTION_LENGTH) {
+  if (description !== null && charLength(description) > MAX_STAGE_DESCRIPTION_LENGTH) {
     return err('VALIDATION_FAILED', `說明最多 ${MAX_STAGE_DESCRIPTION_LENGTH} 字，請刪短一點再存。`, { details: { field: 'description' } })
   }
   const panelKey = text(input.panelKey)
-  if (panelKey === undefined || (panelKey !== null && [...panelKey].length > MAX_PANEL_KEY_LENGTH)) {
+  if (panelKey === undefined || (panelKey !== null && charLength(panelKey) > MAX_PANEL_KEY_LENGTH)) {
     return err('VALIDATION_FAILED', '評審組格式不對，請重新整理頁面再選。', { details: { field: 'panelKey' } })
   }
   return { ok: true, value: { itemId, description, panelKey } }

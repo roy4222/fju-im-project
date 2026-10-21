@@ -27,6 +27,7 @@ import { canReadSignoffVersions } from '@/infrastructure/signoff/version-read-ac
  * 該組此刻的組員與主指導）就下載得到——主指導因此能下載整組收件的同意書附件；系辦換掉附件後，只剩舊版 `signoff_version`
  * 引用的舊檔，系辦與該舊版參與者仍可下載。**不放寬其他附件**：沒有 `item_attachment`、也沒有可讀簽核版本引用的檔照舊拒絕；
  * 非該組參與者的老師對同一檔仍只依 item 對象判斷。訪客、狀態被擋的人（比照訪客）不走簽核這一條。
+ * 同意書作業刪除後，這一條**照舊放行**（簽核紀錄的留存性質，CL-14；見下方程式註解）。
  */
 
 type ItemFacts = {
@@ -47,6 +48,9 @@ export function createAttachmentPolicy(reader: () => Pick<Pool, 'query'>): Downl
     const db = reader()
     if (itemIds.length > 0 && (await viewableViaItems(db, actor, itemIds))) return true
     // 簽核版本引用：只給登入者，用版本頁同一個讀權判斷（管理員在裡面放行）。
+    // **項目已刪除時仍依簽核版本讀權放行**：簽核版本是「同意了什麼」的留存紀錄，連到的作業刪掉，紀錄與附件都留著，
+    // 版本頁、學生簽核頁也照樣列得出那一版（CL-14 決定，主腦代定；規格① §3.3「附件來源貫通」）。
+    // 一般附件不受影響：上面的 `item_attachment` 引用照舊只算未刪除的項目。
     if (signoffIds.length > 0 && actor.kind === 'authenticated') return canReadSignoffVersions(db, actor, signoffIds)
     return false
   }

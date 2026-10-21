@@ -455,8 +455,11 @@ export function Gantt({ stages, yearEndDate, activities, deadlines, today, mode,
       return
     }
     setScheduled(before) // 回彈到這次拖之前的位置
-    // 確認框按「取消」：只回彈，不顯示錯誤。
-    if ('cancelled' in result) return
+    // 確認框按「取消」：只回彈，不顯示錯誤；確認框開著時又拖一次留下的「上一次的調整還在處理」提示也一併清掉（CL-3 #819）。
+    if ('cancelled' in result) {
+      feedback('', '')
+      return
+    }
     feedback('', result.message)
   }
 

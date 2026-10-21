@@ -3,9 +3,8 @@ import { IconTrophy, IconPhoto } from '@tabler/icons-react'
 import { Panel, Pill, pillClass, type PillTone } from '@/app/_ui/dashboard-kit'
 import { EmptyState } from '@/app/_ui/primitives'
 import { renderActor } from '@/app/_ui/guard'
-import { RowActions } from '@/app/dashboard/admin/affairs/_content/list-actions'
 import { deleteBlockedText } from '@/app/dashboard/admin/affairs/affairs-view'
-import { EntryRowActions, HomeOrderPanel, ShowcaseDialogs, ShowcaseNewMenu, type ShowcaseDialogConfig } from '@/app/dashboard/admin/showcase/showcase-forms'
+import { EntryRowActions, HomeOrderPanel, HonorRowActions, ShowcaseDialogs, ShowcaseNewMenu, type ShowcaseDialogConfig } from '@/app/dashboard/admin/showcase/showcase-forms'
 import { showcaseCohorts, type ShowcaseEntryView } from '@/app/dashboard/admin/showcase/showcase-view'
 import { cohortLabel, getCohortStatusQuery } from '@/composition/cohorts'
 import { getItemQuery, getPublicItemQuery, ITEM_STATUS_LABEL } from '@/composition/items'
@@ -19,7 +18,7 @@ import { formatTaipeiMinute } from '@/shared/time'
  * - 上半：作品清單，每件一列（海報縮圖、題目、組別、狀態、獎項、首頁順序、「編輯」「刪除」）；「編輯」開 `ShowcaseEditDialog`
  *   一次存齊。屆別選單預設「全部（含歷屆）」：封存屆別的歷屆作品也在。首頁輪播順序另有一塊可拖曳排序。
  * - 下半：「榮譽榜」（`placement='honor'`，跨屆的公開紀錄，原本在 `/affairs` 的「榮譽」篩選）：屆別選單含已封存的屆別，
- *   每列標題、得獎日期、狀態、「編輯」「刪除」（公告分頁同一組 `RowActions`，編輯開 `ItemFormDialog`）。
+ *   每列標題、得獎日期、狀態、「編輯」「刪除」（`HonorRowActions`：編輯開共用表單、刪除一句確認，視窗按下才下載；CL-4）。
  * - 右上「新增」下拉：「作品」「補登歷屆作品」「榮譽」（榮譽帶榮譽榜區選的屆別）。沒有紅色危險操作區：刪除在列上。
  *
  * `?cohort=`：作品清單的屆別（沒帶＝全部）；`?honor=`：榮譽榜的屆別（沒帶跟著作品清單，再退到預設工作屆別）。
@@ -237,7 +236,7 @@ export async function ShowcaseTab({ cohortId, searchParams }: { cohortId: string
                 <span>
                   <Pill tone={r.status === 'published' ? 'success' : 'default'}>{ITEM_STATUS_LABEL[r.status]}</Pill>
                 </span>
-                <RowActions row={{ id: r.id, title: r.title, deleteBlocked: deleteBlockedText(r.status, null, r.receiverUnit), canPin: false, pinned: false }} />
+                <HonorRowActions row={{ id: r.id, title: r.title, deleteBlocked: deleteBlockedText(r.status, null, r.receiverUnit) }} />
               </li>
             ))}
           </ul>

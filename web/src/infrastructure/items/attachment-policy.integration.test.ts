@@ -209,3 +209,32 @@ describe('signoff_version 引用（C1-03）', () => {
     expect(await policy(actor(s.members[0]!, ['student']), await storedFile(s.cohortId, [{ refType: 'signoff_version', refId: randomUUID() }]))).toBe(false)
   })
 })
+
+describe('同意書作業刪除後（CL-14：簽核紀錄的留存性質）', () => {
+  it('簽核版本的附件照簽核版本讀權放行（參與者可、外人不行）；一般附件對所有人含系辦都拒絕', async () => {
+    const s = await scenario()
+    const both = await storedFile(s.cohortId, [
+      { refType: 'item_attachment', refId: s.itemId },
+      { refType: 'signoff_version', refId: s.versionId },
+    ])
+    const plain = await storedFile(s.cohortId, [{ refType: 'item_attachment', refId: s.itemId }])
+    const outsiderStudent = await newUser('別組學生', 'student', s.cohortId)
+    const outsiderTeacher = await newUser('外系老師', 'teacher')
+    // 刪除前：組員兩個都能下載（對照組）。
+    expect(await policy(actor(s.members[0]!, ['student']), plain)).toBe(true)
+
+    // 系辦先下架、再刪除（刪除只准下架或草稿）。
+    await owner.sql(`update managed_items set status = 'archived', deleted_at = now(), deleted_by_user_id = $2 where id = $1`, [s.itemId, adminId])
+
+    for (const who of [actor(adminId, ['admin']), actor(s.members[0]!, ['student']), actor(s.members[1]!, ['student']), actor(s.advisor, ['teacher'])]) {
+      expect(await policy(who, both)).toBe(true)
+    }
+    for (const who of [actor(outsiderStudent, ['student']), actor(outsiderTeacher, ['teacher']), ANON]) {
+      expect(await policy(who, both)).toBe(false)
+    }
+    // 只綁在作業上的一般附件：項目刪了就沒有有效引用，連系辦都下載不到（第三波 W1，不因簽核這條放寬）。
+    for (const who of [actor(adminId, ['admin']), actor(s.members[0]!, ['student']), actor(s.advisor, ['teacher']), ANON]) {
+      expect(await policy(who, plain)).toBe(false)
+    }
+  })
+})

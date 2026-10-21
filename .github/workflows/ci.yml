@@ -31,8 +31,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - run: pnpm install --frozen-lockfile --filter @fju/web...
+      - run: pnpm install --frozen-lockfile --filter @fju/web... --filter @fju/tutorial...
       - run: pnpm -C web typecheck
+      # 教學影片工具（劇本與引擎）的型別檢查，劇本寫錯型別時這一步會紅。
+      - run: pnpm -C tools/tutorial typecheck
 
   lint:
     runs-on: ubuntu-latest

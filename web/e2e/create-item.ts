@@ -8,6 +8,7 @@ import { fillItemBody, rawHtml } from './item-body'
  * - `createItemOnPage`：全頁 `/dashboard/admin/editor/new?placement=…`。先「儲存（先不發布）」拿到 id（網址換成 `/editor/<id>`），
  *   要發布就再按「發布」，成功後回到清單。
  * - `createItemInDialog`：那一類分頁右上「新增」→ 對話框裡的同一張表單 → 「發布」或「儲存（先不發布）」，對話框關掉（C1-07 起不先選類型）。
+ *   專題規則沒有右上「新增」（CL-1）：改走清單底部「新增章節」的就地表單（`createRuleInline`）。
  *
  * 表單根元素有 `data-hydrated`（hydration 完才填，免得填進去的字被 hydration 洗掉）。
  */
@@ -120,8 +121,22 @@ export async function createItemOnPage(page: Page, cohortId: string, item: NewIt
 const TABS: readonly { label: string; path: string; button: string }[] = [
   { label: '公告', path: '/dashboard/admin/affairs', button: '新增公告' },
   { label: '資源下載', path: '/dashboard/admin/affairs/resources', button: '新增資源' },
-  { label: '專題規則', path: '/dashboard/admin/affairs/rules', button: '新增規則' },
 ]
+
+/**
+ * 專題規則分頁底部「新增章節」→ 就地展開的同一張表單（layout `inline`：沒有對象欄，規則固定公開）→ 送出，卡片收起、回饋句出現。
+ * 呼叫前要已經在 `/dashboard/admin/affairs/rules?cohort=…`。
+ */
+export async function createRuleInline(page: Page, item: NewItem): Promise<void> {
+  await page.getByRole('button', { name: '新增章節' }).click()
+  const card = page.getByTestId('rule-new-card')
+  const form = await formReady(card)
+  await fillItemForm(page, form, { ...item, audience: undefined })
+  if (item.publish === false) await form.getByRole('button', { name: '儲存（先不發布）' }).click()
+  else await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(card).toBeHidden()
+  await expect(page.getByTestId('pin-feedback')).toHaveText(item.publish === false ? '已儲存' : '已發布')
+}
 
 /**
  * 清單頁的「新增」：到那一類的分頁按「新增」→ 對話框表單 → 送出。對話框關掉、清單刷新。
@@ -137,6 +152,11 @@ export async function createItemInDialog(
   const matches = (label: string) => (item.kind instanceof RegExp ? item.kind.test(label) : item.kind === label)
   if (item.kind && matches('榮譽／競賽')) {
     await createItemOnPage(page, cohortId, { ...item, placement: 'honor' })
+    return
+  }
+  if (item.kind && matches('專題規則')) {
+    await page.goto(`/dashboard/admin/affairs/rules?cohort=${cohortId}`)
+    await createRuleInline(page, item)
     return
   }
   const tab = item.kind ? TABS.find((t) => matches(t.label)) : undefined

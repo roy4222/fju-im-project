@@ -853,6 +853,10 @@ describe('TE-B4 評語（AC-A-3 API 半）', () => {
 
     const tooLong = await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: '字'.repeat(501) }, randomUUID())
     expect(tooLong).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'comment' } })
+    expect(await command.saveDraft(me, { assignmentId: a1, scores: { i1: '80' }, comment: '👍'.repeat(501) }, randomUUID())).toMatchObject({
+      ok: false,
+      details: { field: 'comment' },
+    })
     expect(
       await command.submitFinal(me, { assignmentId: a1, scores: { i1: '80', i2: '80' }, comment: '字'.repeat(501) }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })

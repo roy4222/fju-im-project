@@ -66,7 +66,8 @@ import { RealClock, type Clock } from '@/shared/time'
  * - 一組同時最多連一案由資料庫守（`opportunity_links_one_active` 部分唯一）；組別列鎖是第一道，部分唯一是後備。
  * - C3-09（規格③ §7.2）：連結有 `state`——組長「選合作案」（`request`）建立的是 `pending`，等負責老師在分組總覽
  *   「確認指導」（`pg-advisors.ts` 的 `claim` 把它改成 `active`）；負責老師也可以「婉拒」（`decline`：結束連結、通知全組）。
- *   組長／系辦的 `link` 與案主老師 TE-B3 直接連的一律 `active`。
+ *   組長／系辦的 `link` 與案主老師 TE-B3 直接連的一律 `active`。CL-15：組長選的案，負責老師正好是這組現任指導老師
+ *   → `request` 直接建 `active`（回執 `request_confirmed`）。
  *
  * 刪除（第三波 W11）：系辦限定，只限草稿或已下架且沒有連著組別；打刪除標記（`deleted_at`）不實體刪列。
  * 被刪的案在鎖列、列表、詳情、管理清單、連結目標全部當作不存在。
@@ -844,11 +845,18 @@ export class PgOpportunityCommand implements OpportunityCommand {
       const current = await activeLink(tx, group.id)
       if (current) return err('CONFLICT', `${group.code} 已經有合作案「${current.name}」（${current.state === 'pending' ? '等負責老師確認' : '已確認'}）；要換案請用「換案」。`)
 
+      // CL-15（Roy 10/21，延伸 CL-3 規則）：負責老師正好就是這組現任指導老師 → 不必再等確認，連結直接 active。
+      // 組別已鎖（屆別 → 組別），系辦改派、老師確認／婉拒都要先拿這把鎖，這裡讀到的指導老師在 commit 前不會變。
+      const advisor = await tx.query<{ teacher_user_id: string }>(
+        `select teacher_user_id from advisor_assignments where group_id = $1 and valid_to is null`,
+        [group.id],
+      )
+      const confirmed = advisor.rows[0]?.teacher_user_id === opportunity.owner_teacher_user_id
       const linkId = uuidv7()
       await tx.query(
         `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id, created_at, state)
-         values ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [linkId, group.id, opportunity.id, businessNow, actorId, realAt],
+         values ($1, $2, $3, $4, $5, $6, $7)`,
+        [linkId, group.id, opportunity.id, businessNow, actorId, realAt, confirmed ? 'active' : 'pending'],
       )
       const revision = await bumpGroup(tx, group.id, realAt, actorId)
       await this.#events.publish(tx, {
@@ -860,7 +868,9 @@ export class PgOpportunityCommand implements OpportunityCommand {
         recipients: [opportunity.owner_teacher_user_id],
         recipientBasis: { groupId: group.id, basis: 'opportunity_owner', revision, ownerUserId: opportunity.owner_teacher_user_id },
         payload: {
-          title: `組別 ${group.code} 選了你的合作案「${name}」，請到分組總覽確認是否指導`,
+          title: confirmed
+            ? `組別 ${group.code} 選了你的合作案「${name}」；你是這組的指導老師，已直接確認`
+            : `組別 ${group.code} 選了你的合作案「${name}」，請到分組總覽確認是否指導`,
           groupId: group.id,
           code: group.code,
           opportunityId: opportunity.id,
@@ -880,12 +890,17 @@ export class PgOpportunityCommand implements OpportunityCommand {
         cohortId: group.cohort_id,
         realAt,
         businessAt: businessNow,
-        payload: { linkId, opportunityId: opportunity.id, revision },
+        payload: {
+          linkId,
+          opportunityId: opportunity.id,
+          revision,
+          ...(confirmed ? { confirmedLinkId: linkId, advisorUserId: opportunity.owner_teacher_user_id } : {}),
+        },
       })
       const receipt = {
         groupId: group.id,
         groupCode: group.code,
-        change: 'requested' as const,
+        change: confirmed ? ('request_confirmed' as const) : ('requested' as const),
         opportunityName: name,
         previousOpportunityName: null,
         requestId,
@@ -947,7 +962,9 @@ export class PgOpportunityCommand implements OpportunityCommand {
           where a.group_id = $1 and a.valid_to is null`,
         [group.id],
       )
-      if (advisor.rows[0]) {
+      // CL-3（Roy 10/21）：連結還在等確認（pending）時，系辦先指派了別的老師也照樣可以婉拒（只結束連結，指導老師不變）；
+      // 已確認（active）的連結有指導老師就不能婉拒。
+      if (advisor.rows[0] && row.state !== 'pending') {
         return err('VALIDATION_FAILED', `${group.code} 已經有指導老師（${advisor.rows[0].name}），不能婉拒；要拆掉連結請用「解除」。`)
       }
 
@@ -1654,13 +1671,14 @@ export class PgOpportunityQuery implements OpportunityQuery {
       cardsByOpportunity.set(g.opportunity_id, list)
     }
     // 分兩段：沒有指導老師的是「待確認要帶的組」（pending 或 TE-B3／系辦直接連的 active 都算）；指導老師是本人的是
-    // 「已帶的組」；指導老師是別人的兩段都不列（連結仍在那一列的連結欄）。
+    // 「已帶的組」；指導老師是別人的兩段都不列（連結仍在那一列的連結欄）——除了連結還在等確認（pending）的：系辦先指派了
+    // 別的老師，負責老師仍要確認或婉拒這個合作案（CL-3，Roy 10/21），列在「待確認」、卡片帶目前的指導老師。
     return {
       cases: items.map((opportunity) => {
         const cards = cardsByOpportunity.get(opportunity.id) ?? []
         return {
           opportunity,
-          pending: cards.filter((c) => c.advisor === null),
+          pending: cards.filter((c) => c.advisor === null || (c.linkState === 'pending' && c.advisor.teacherUserId !== actor.userId)),
           advised: cards.filter((c) => c.advisor?.teacherUserId === actor.userId),
         }
       }),

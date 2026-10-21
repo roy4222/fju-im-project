@@ -263,15 +263,15 @@ export class PgPublicItemQuery implements PublicItemQuery {
   async open(actor: ResolvedActor, itemId: string, placement: Placement): Promise<PublicItemPage> {
     if (!isUuid(itemId)) return { access: 'not_found', placement: null }
     const db = this.#reader()
-    const found = await db.query<Row & { body_html: string }>(
-      // 已刪除＝找不到（不是「已下架」）：已下架的刪掉後，原網址跟從來沒有這一頁一樣（第三波 W1）。
-      `select ${COLUMNS}, m.body_html from managed_items m where m.id = $1 and m.placement = $2 and m.deleted_at is null`,
+    const found = await db.query<Row & { body_html: string; deleted: boolean }>(
+      // 已刪除的也查出來（CL-14）：原本看得到的人看到「已刪除」，看不到的人照舊找不到（`publicAccessOf`）。
+      `select ${COLUMNS}, m.body_html, m.deleted_at is not null as deleted from managed_items m where m.id = $1 and m.placement = $2`,
       [itemId, placement],
     )
     const row = found.rows[0]
     if (!row) return { access: 'not_found', placement: null }
     const viewer = await viewerOf(db, actor, { needsGroups: row.audience_kind === 'groups' || row.audience_kind === 'cohort_students' })
-    const access = publicAccessOf(viewer, { ...visibilityOf(row), everPublished: row.actual_opened_at !== null })
+    const access = publicAccessOf(viewer, { ...visibilityOf(row), everPublished: row.actual_opened_at !== null, deleted: row.deleted })
     if (access !== 'visible') return { access, placement: access === 'not_found' ? null : row.placement }
     const [card] = await this.#cards(db, [row])
     return { access, item: { ...card!, bodyHtml: renderBodyHtml(row.body_html) } }

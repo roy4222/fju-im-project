@@ -55,7 +55,7 @@ function item(over: Partial<MyItemRow> & { itemId: string }): MyItemRow {
   }
 }
 
-type ConsentOver = Partial<Pick<VersionDetail, 'state' | 'cause' | 'isCurrent' | 'createdAt'>> & {
+type ConsentOver = Partial<Pick<VersionDetail, 'state' | 'cause' | 'isCurrent' | 'createdAt' | 'itemId'>> & {
   versionId?: string
   canRespond?: boolean
   voted?: VersionDetail['viewer']['voted']
@@ -99,6 +99,7 @@ function consent(over: ConsentOver = {}): VersionDetail {
     viewer: { userId: 'u-s', role: 'student', eligible: true, voted: over.voted ?? null, canRespond: over.canRespond ?? false },
     lastRemindedAt: null,
     exports: [],
+    ...(over.itemId !== undefined ? { itemId: over.itemId } : {}),
   }
 }
 
@@ -182,6 +183,11 @@ describe('consentTodo：同意書（Q123）', () => {
     })
   })
 
+  it('連到同意書作業的版本：直接連作業的「狀態」分頁，不繞舊的同意書頁轉址（CL-2）', () => {
+    expect(consentTodo(consent({ versionId: 'v9', canRespond: true, itemId: 'it-7' }))!.href).toBe('/dashboard/student/affairs/it-7?tab=status')
+    expect(consentTodo(consent({ versionId: 'v9', canRespond: true, itemId: null }))!.href).toBe('/dashboard/student/signoff?version=v9')
+  })
+
   it('表態過：已同意／不同意，都算已完成', () => {
     expect(pick(consentTodo(consent({ voted: 'agree' }))!)).toEqual({ status: 'done', label: '已同意' })
     expect(pick(consentTodo(consent({ voted: 'disagree', state: 'revision' }))!)).toEqual({ status: 'done', label: '退回修正中' })
@@ -214,6 +220,22 @@ describe('consentTodo：同意書（Q123）', () => {
     const todos = buildTodos([], NOW, view(consent({ versionId: 'v1', isCurrent: true, state: 'superseded', voted: 'agree' }), consent({ versionId: 'v2', canRespond: true })))
     expect(todos.map((t) => t.id)).toEqual(['v2'])
     expect(studentOpenCount(todos)).toBe(1)
+  })
+
+  // CL-16：連到作業的同意書，作業列本身就在清單裡（狀態在作業的「狀態」分頁），不再多一張同意書卡。
+  it('同意書連到清單裡的作業：只留作業列，不重複列同意書卡', () => {
+    const todos = buildTodos(
+      [item({ itemId: 'ci', kind: 'consent_form' })],
+      NOW,
+      view(consent({ versionId: 'v2', canRespond: true, itemId: 'ci' })),
+    )
+    expect(todos.map((t) => `${t.kind}:${t.id}`)).toEqual(['item:ci'])
+    expect(studentOpenCount(todos)).toBe(1)
+  })
+
+  it('沒連作業的同意書（舊 API 建的包）照舊列卡片', () => {
+    const todos = buildTodos([item({ itemId: 'a' })], NOW, view(consent({ versionId: 'v2', canRespond: true, itemId: null })))
+    expect(todos.map((t) => `${t.kind}:${t.id}`)).toEqual(['item:a', 'consent:v2'])
   })
 })
 

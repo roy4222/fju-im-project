@@ -118,6 +118,7 @@ describe('產學組的確認流程（C3-09；規格③ §7.1、§7.2）', () => 
   it('選案與婉拒的回執句子', () => {
     const base = { groupId: 'g', groupCode: 'G01', opportunityName: '甲公司・資訊部', previousOpportunityName: null }
     expect(describeLinkReceipt({ ...base, change: 'requested' })).toBe('G01 已選「甲公司・資訊部」，等負責老師確認指導；確認後全組會收到通知。')
+    expect(describeLinkReceipt({ ...base, change: 'request_confirmed' })).toBe('G01 已選「甲公司・資訊部」；負責老師就是你們的指導老師，合作案已直接確認。')
     expect(describeLinkReceipt({ ...base, change: 'declined' })).toBe('已婉拒 G01 選的「甲公司・資訊部」；全組已收到通知，請他們重新選合作案。')
   })
 })

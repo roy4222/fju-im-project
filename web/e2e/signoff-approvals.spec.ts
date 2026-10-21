@@ -240,7 +240,7 @@ test('全員同意後輪到老師（通知「輪到你」）、老師同意即�
   await signIn(page, t1)
   await expect(async () => {
     await page.goto('/dashboard/teacher/inbox')
-    await expect(page.getByText('G01「期中結果確認」第 2 版：3 位學生都已同意，輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByText('G01「期中結果確認」：3 位學生都已同意，輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
   // C1-11：作業區的「同意書」卡片分頁拿掉（等你同意的併進「我的作業」）；舊 API 建的包直接開版本頁。
   await page.goto(`/dashboard/teacher/signoff/${g1v2}`)

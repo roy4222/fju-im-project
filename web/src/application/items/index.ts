@@ -96,6 +96,7 @@ export type {
   ItemDetail,
   ItemFileSummary,
   ItemListRow,
+  ItemListRowWithContent,
   ItemQuery,
   ItemReview,
   MyDeadline,

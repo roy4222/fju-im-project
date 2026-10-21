@@ -184,7 +184,7 @@ export class PgReminders implements ReminderCommand, ReminderQuery {
       const next = nextAllowedAt(last, realAt)
       if (last && next) return coolingDown(`「${item.title}」`, last, next)
 
-      const targets = await this.#itemTargets(tx, item, businessNow, 'all')
+      const targets = (await this.#targetsOf(tx, [item], businessNow, 'all')).get(item.id)!
       if (targets.recipients.length === 0) {
         return err(
           'CONFLICT',
@@ -249,11 +249,14 @@ export class PgReminders implements ReminderCommand, ReminderQuery {
       )
       for (const id of due.rows.map((r) => r.id).sort()) await lockKey(tx, `reminder:item:${id}`)
 
+      // 讀取一次查完全部逾期作業；通知與稽核仍逐份寫。
+      const targetsOf = await this.#targetsOf(tx, due.rows, businessNow, 'overdue')
+      const lastOf = await lastItemRemindedAt(tx, due.rows.map((r) => r.id))
       const items: RemindOverdueItem[] = []
       for (const item of due.rows) {
-        const targets = await this.#itemTargets(tx, item, businessNow, 'overdue')
+        const targets = targetsOf.get(item.id)!
         if (targets.recipients.length === 0) continue
-        const last = await lastRemindedAt(tx, 'item', item.id)
+        const last = lastOf.get(item.id) ?? null
         if (last && nextAllowedAt(last, realAt)) {
           items.push({ itemId: item.id, title: item.title, notified: 0, skippedCooldown: true })
           continue
@@ -376,31 +379,54 @@ export class PgReminders implements ReminderCommand, ReminderQuery {
 
   // ── 內部 ──────────────────────────────────────────────────────────────────
 
-  /** 一份作業這次要催的人：先挑名單上還沒完成的收件者，再展開成人（整組→組員、同意書→還沒表態的人）。 */
-  async #itemTargets(tx: PoolClient, item: ItemRow, businessNow: Date, scope: 'all' | 'overdue'): Promise<ItemTargets> {
-    const consent = item.consent_mode === 'form'
-    const receivers = await receiversOf(tx, item, businessNow)
-    const pending = pendingReceiverIds(receivers, { scope, consent })
-    if (pending.length === 0) return { recipients: [], mails: [] }
+  /**
+   * 每份作業這次要催的人：先挑名單上還沒完成的收件者，再展開成人（整組→組員、同意書→還沒表態的人）。
+   * 名單、組員、同意書、聯絡人各一句查完全部作業（逾期卡一次催多份），不隨份數增加。
+   */
+  async #targetsOf(tx: PoolClient, items: readonly ItemRow[], businessNow: Date, scope: 'all' | 'overdue'): Promise<Map<string, ItemTargets>> {
+    const receivers = await receiversOf(tx, items, businessNow)
+    const pendingOf = new Map(
+      items.map((item) => [item.id, pendingReceiverIds(receivers.get(item.id) ?? [], { scope, consent: item.consent_mode === 'form' })]),
+    )
+    const withPending = items.filter((item) => pendingOf.get(item.id)!.length > 0)
+    const consentItems = withPending.filter((item) => item.consent_mode === 'form')
+    const groupItems = withPending.filter((item) => item.consent_mode !== 'form' && item.receiver_unit === 'group')
+    const consentOf = await consentPending(tx, consentItems.map((item) => ({ itemId: item.id, groupIds: pendingOf.get(item.id)! })))
+    const membersOf = await activeMembersOf(tx, groupItems.flatMap((item) => pendingOf.get(item.id)!))
 
-    // 每個人點進哪一頁：同意書學生進簽核頁、主指導進老師的簽核頁；給老師的作業進老師作業區；其餘進學生作業區。
-    const paths = new Map<string, string>()
-    if (consent) {
-      for (const p of await consentPending(tx, item.id, pending)) {
-        paths.set(p.userId, p.advisor ? '/dashboard/teacher/signoff' : '/dashboard/student/signoff')
+    // 每個人點進哪一頁：同意書學生進那份作業的狀態分頁、主指導進老師的簽核頁；給老師的作業進老師作業區；其餘進學生作業區。
+    const pathsOf = new Map<string, Map<string, string>>()
+    for (const item of withPending) {
+      const paths = new Map<string, string>()
+      const pending = pendingOf.get(item.id)!
+      if (item.consent_mode === 'form') {
+        for (const p of consentOf.get(item.id) ?? []) {
+          paths.set(p.userId, p.advisor ? '/dashboard/teacher/signoff' : `/dashboard/student/affairs/${item.id}?tab=status`)
+        }
+      } else {
+        const path = item.audience_kind === 'teachers' ? `/dashboard/teacher/affairs/${item.id}` : `/dashboard/student/affairs/${item.id}`
+        const people = item.receiver_unit === 'group' ? pending.flatMap((groupId) => membersOf.get(groupId) ?? []) : pending
+        for (const userId of people) paths.set(userId, path)
       }
-    } else {
-      const path = item.audience_kind === 'teachers' ? `/dashboard/teacher/affairs/${item.id}` : `/dashboard/student/affairs/${item.id}`
-      const people = item.receiver_unit === 'group' ? await activeMembersOf(tx, pending) : pending
-      for (const userId of people) paths.set(userId, path)
+      pathsOf.set(item.id, paths)
     }
-    const contacts = await activeContacts(tx, [...paths.keys()])
-    const recipients = [...paths.keys()].filter((id) => contacts.has(id)).sort()
-    const mails = recipients.flatMap((id): PendingMail[] => {
-      const to = contacts.get(id)
-      return to ? [{ to, kind: 'item', title: item.title, dueAt: item.due_at, path: paths.get(id)! }] : []
-    })
-    return { recipients, mails }
+    const contacts = await activeContacts(tx, [...pathsOf.values()].flatMap((paths) => [...paths.keys()]))
+
+    const out = new Map<string, ItemTargets>()
+    for (const item of items) {
+      const paths = pathsOf.get(item.id)
+      if (!paths) {
+        out.set(item.id, { recipients: [], mails: [] })
+        continue
+      }
+      const recipients = [...paths.keys()].filter((id) => contacts.has(id)).sort()
+      const mails = recipients.flatMap((id): PendingMail[] => {
+        const to = contacts.get(id)
+        return to ? [{ to, kind: 'item', title: item.title, dueAt: item.due_at, path: paths.get(id)! }] : []
+      })
+      out.set(item.id, { recipients, mails })
+    }
+    return out
   }
 
   async #publishItem(
@@ -510,9 +536,24 @@ async function lastRemindedAt(db: Queryable, kind: 'item' | 'grading', sourceId:
   return row.rows[0]?.at ?? null
 }
 
-/** 名單上每位收件者取一列（目前那一列優先），帶分類、有沒有正式版本與逾期（同名單頁的挑法與 `receiverStatus`）。 */
-async function receiversOf(db: Queryable, item: ItemRow, businessNow: Date): Promise<ReminderReceiver[]> {
+/** 多份作業各自最近一次催繳的真實時間（逾期卡一次查完；沒催過的不在結果裡）。 */
+async function lastItemRemindedAt(db: Queryable, itemIds: readonly string[]): Promise<Map<string, Date>> {
+  if (itemIds.length === 0) return new Map()
+  const rows = await db.query<{ source_id: string; at: Date }>(
+    `select source_id, max(occurred_real_at) as at from domain_events
+      where type = $1 and source_type = $2 and source_id = any($3::uuid[])
+      group by source_id`,
+    [TYPE_OF.item, SOURCE_OF.item, itemIds],
+  )
+  return new Map(rows.rows.map((r) => [r.source_id, r.at]))
+}
+
+/** 名單上每位收件者取一列（目前那一列優先），帶分類、有沒有正式版本與逾期（同名單頁的挑法與 `receiverStatus`）；依作業分組。 */
+async function receiversOf(db: Queryable, items: readonly ItemRow[], businessNow: Date): Promise<Map<string, ReminderReceiver[]>> {
+  const out = new Map<string, ReminderReceiver[]>()
+  if (items.length === 0) return out
   const rows = await db.query<{
+    item_id: string
     receiver_id: string
     eligible_to_business_at: Date | null
     exempt: boolean
@@ -521,67 +562,84 @@ async function receiversOf(db: Queryable, item: ItemRow, businessNow: Date): Pro
     reopen_until: Date | null
   }>(
     `with picked as (
-       select distinct on (r.receiver_kind, r.receiver_id) r.*
+       select distinct on (r.item_id, r.receiver_kind, r.receiver_id) r.*
          from response_rosters r
-        where r.item_id = $1
-        order by r.receiver_kind, r.receiver_id, (r.eligible_to_business_at is null) desc,
+        where r.item_id = any($1::uuid[])
+        order by r.item_id, r.receiver_kind, r.receiver_id, (r.eligible_to_business_at is null) desc,
                  r.eligible_to_business_at desc nulls first, r.eligible_from_business_at desc, r.id desc
      )
-     select r.receiver_id, r.eligible_to_business_at, r.exempt, facts.has_draft, latest.version_no as latest_version_no,
+     select r.item_id, r.receiver_id, r.eligible_to_business_at, r.exempt, facts.has_draft, latest.version_no as latest_version_no,
             ${REOPEN_UNTIL}
        from picked r
        ${receiverFactsJoin('r.item_id', 'r.receiver_kind', 'r.receiver_id')}
-      order by r.receiver_id`,
-    [item.id],
+      order by r.item_id, r.receiver_id`,
+    [items.map((item) => item.id)],
   )
-  const window = { opensAt: item.opens_at, dueAt: item.due_at }
-  return rows.rows.map((r) => {
+  const itemOf = new Map(items.map((item) => [item.id, item]))
+  for (const r of rows.rows) {
+    const item = itemOf.get(r.item_id)!
+    const window = { opensAt: item.opens_at, dueAt: item.due_at }
     const facts = { eligibleTo: r.eligible_to_business_at, exempt: r.exempt, hasDraft: r.has_draft, latestVersionNo: r.latest_version_no, reopenUntil: r.reopen_until }
-    return {
+    const list = out.get(r.item_id) ?? []
+    list.push({
       receiverId: r.receiver_id,
       current: categoryOf(facts) === 'current',
       submitted: r.latest_version_no !== null,
       // 「逾期」只看時間窗：同意書不看繳交版本，所以用「還沒送出」的事實去算。
       overdue: receiverStatus(window, { ...facts, latestVersionNo: null }, businessNow).overdue,
-    }
-  })
+    })
+    out.set(r.item_id, list)
+  }
+  return out
 }
 
-/** 整組收件的組 → 該組此刻的有效組員（組別未解散）。 */
-async function activeMembersOf(db: Queryable, groupIds: readonly string[]): Promise<string[]> {
-  const rows = await db.query<{ user_id: string }>(
-    `select distinct gm.user_id from group_memberships gm join groups g on g.id = gm.group_id and g.status = 'active'
+/** 整組收件的組 → 該組此刻的有效組員（組別未解散）；依組分組。 */
+async function activeMembersOf(db: Queryable, groupIds: readonly string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>()
+  if (groupIds.length === 0) return out
+  const rows = await db.query<{ group_id: string; user_id: string }>(
+    `select distinct gm.group_id, gm.user_id from group_memberships gm join groups g on g.id = gm.group_id and g.status = 'active'
       where gm.group_id = any($1::uuid[]) and gm.valid_to is null`,
-    [groupIds],
+    [[...new Set(groupIds)]],
   )
-  return rows.rows.map((r) => r.user_id)
+  for (const r of rows.rows) out.set(r.group_id, [...(out.get(r.group_id) ?? []), r.user_id])
+  return out
 }
 
-/** 站內同意書：這些組的包（`item_id`＝這份作業）目前版本還沒表態的人。沒建包的組不在結果裡。 */
-async function consentPending(db: Queryable, itemId: string, groupIds: readonly string[]): Promise<{ userId: string; advisor: boolean }[]> {
-  const versions = await db.query<{ version_id: string; participants: unknown; state: SignoffState }>(
-    `select v.id as version_id, v.participants, s.state
+/** 站內同意書：每份作業的這些組的包（`item_id`＝那份作業）目前版本還沒表態的人；依作業分組。沒建包的組不在結果裡。 */
+async function consentPending(
+  db: Queryable,
+  wanted: readonly { itemId: string; groupIds: readonly string[] }[],
+): Promise<Map<string, { userId: string; advisor: boolean }[]>> {
+  const out = new Map<string, { userId: string; advisor: boolean }[]>()
+  if (wanted.length === 0) return out
+  const pairs = new Set(wanted.flatMap((w) => w.groupIds.map((g) => `${w.itemId}:${g}`)))
+  const found = await db.query<{ item_id: string; group_id: string; version_id: string; participants: unknown; state: SignoffState }>(
+    `select p.item_id, p.group_id, v.id as version_id, v.participants, s.state
        from signoff_packages p
        join signoff_package_versions v on v.id = p.current_version_id
        join signoff_version_status s on s.version_id = v.id
-      where p.item_id = $1 and p.group_id = any($2::uuid[])`,
-    [itemId, groupIds],
+      where p.item_id = any($1::uuid[]) and p.group_id = any($2::uuid[])`,
+    [wanted.map((w) => w.itemId), [...new Set(wanted.flatMap((w) => w.groupIds))]],
   )
-  if (versions.rows.length === 0) return []
+  // 兩個陣列各自 any 會多撈到「別份作業的組」，這裡只留真的要的（作業, 組）。
+  const versions = found.rows.filter((v) => pairs.has(`${v.item_id}:${v.group_id}`))
+  if (versions.length === 0) return out
   const votes = await db.query<{ version_id: string; user_id: string; role: VoteRecord['role']; result: VoteRecord['result']; reason: string | null; real_at: Date }>(
     `select version_id, user_id, role, result, reason, real_at from approvals where version_id = any($1::uuid[]) order by real_at`,
-    [versions.rows.map((v) => v.version_id)],
+    [versions.map((v) => v.version_id)],
   )
-  const out: { userId: string; advisor: boolean }[] = []
-  for (const v of versions.rows) {
+  for (const v of versions) {
     const participants = readParticipants(v.participants)
     if (!participants) continue
     const mine = votes.rows
       .filter((x) => x.version_id === v.version_id)
       .map((x): VoteRecord => ({ userId: x.user_id, role: x.role, result: x.result, reason: x.reason, realAt: x.real_at }))
+    const list = out.get(v.item_id) ?? []
     for (const userId of remindRecipients(buildProgress(participants, mine, v.state), v.state)) {
-      out.push({ userId, advisor: userId === participants.advisor.userId })
+      list.push({ userId, advisor: userId === participants.advisor.userId })
     }
+    out.set(v.item_id, list)
   }
   return out
 }

@@ -11,14 +11,14 @@
  "files": [
   {
    "destination": "docs/product/CONTEXT.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
    "source_sha256": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
    "mirror_sha256": "7659118b13c3c9a8dfe3bbd00c4cf458650fb7161e0df273be98bf4bc7412104",
    "change": "merged-both-ways"
   },
   {
    "destination": "CONTEXT.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
    "source_sha256": "d4309453f6c5d6c465f7c8ca8592869c25afa83ca01603f1e19dd89acedc1214",
    "mirror_sha256": "4e502431a986348a614a2a3ed3547958b953fd0d5d2d9be36d51b33cf3c0a809",
    "change": "merged-both-ways"

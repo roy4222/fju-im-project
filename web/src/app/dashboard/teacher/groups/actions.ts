@@ -16,7 +16,7 @@ export async function claimGroupAction(_state: ClaimActionState, formData: FormD
   )
   refresh()
   if (!result.ok) return { ok: false, conflict: result.code === 'ALREADY_CLAIMED', message: result.message }
-  return { ok: true, conflict: false, message: describeAdvisorChangeReceipt(result.receipt) }
+  return { ok: true, conflict: false, linkOnly: result.receipt.change === 'link_confirmed', message: describeAdvisorChangeReceipt(result.receipt) }
 }
 
 export async function declineGroupAction(_state: DeclineActionState, formData: FormData): Promise<DeclineActionState> {

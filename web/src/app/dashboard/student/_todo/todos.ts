@@ -102,7 +102,8 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
     id: version.versionId,
     title: PURPOSE_LABEL[version.purpose],
     due: null,
-    href: `${BASE}/signoff?version=${version.versionId}`,
+    // 連到同意書作業的版本直接進作業的「狀態」分頁（CL-2）；舊 API 建的包沒有作業，照舊進同意書頁。
+    href: version.itemId ? `${BASE}/affairs/${version.itemId}?tab=status` : `${BASE}/signoff?version=${version.versionId}`,
     unit: null,
     late: false,
   }
@@ -121,7 +122,11 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
 export function buildTodos(rows: readonly MyItemRow[], now: Date, signoff: StudentSignoffView): readonly StudentTodo[] {
   const entries: { todo: StudentTodo; finishedAt: number }[] = []
   for (const row of rows) entries.push({ todo: itemTodo(row, now), finishedAt: row.latestReceivedAt?.getTime() ?? -Infinity })
+  // CL-16：連到作業的同意書，作業列已經在清單裡（狀態在作業的「狀態」分頁），不再多列一張卡。
+  // 只看作業列有沒有這份作業，不是「有 itemId 就不列」：作業不在本人名單上時，同意書卡仍是唯一入口。
+  const listedItems = new Set(rows.map((row) => row.itemId))
   for (const version of signoff.versions) {
+    if (version.itemId && listedItems.has(version.itemId)) continue
     const todo = consentTodo(version)
     if (!todo) continue
     const mine = version.progress.students.find((s) => s.userId === version.viewer.userId)

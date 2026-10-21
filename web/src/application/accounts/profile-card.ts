@@ -1,6 +1,7 @@
 import type { AvatarUser } from '@/application/accounts/avatar'
 import { hasControlChars, isValidEmail } from '@/application/accounts/registration'
 import { err, type Err } from '@/shared/result'
+import { charLength } from '@/shared/text'
 
 /**
  * 學生名片卡（C3 設計方案 §4；票 C3-07）：一句話自介、技能、聯絡 Email、公開找隊員。
@@ -52,7 +53,7 @@ export type ProfileCardInput = {
 
 /** 字數照「字」算（中文、emoji 各一個），跟 PostgreSQL 的 `length()` 一樣以 code point 計。 */
 export function textLength(value: string): number {
-  return Array.from(value).length
+  return charLength(value)
 }
 
 function invalid(field: 'bio' | 'skills' | 'contactEmail', message: string): Err {

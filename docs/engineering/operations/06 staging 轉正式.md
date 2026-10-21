@@ -6,7 +6,7 @@ execution_status: NOT_RUN
 ---
 # SOP 06｜staging→正式切換（獨立程序，不在 CD）
 
-> **2026-09-23 v3：本程序的清庫切換不再需要（Roy 定案，[主控台交接](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2 節；總表見 [05 執行手冊](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6）。** 正式站 `fju.roy422.dev` 是同一台 VM 上另一組 Compose project（`fju-prod`），自己的 PostgreSQL、volume、`.env`（秘密存 Doppler `prd`），先建好維持空站，不從測試站搬資料。新的 Gate 是：
+> **2026-09-23 v3：本程序的清庫切換不再需要（Roy 定案，[主控台交接](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2 節；總表見 [05 執行手冊](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6）。** 正式站 `fju.roy422.dev` 是同一台 VM 上另一組 Compose project（`fju-prod`），自己的 PostgreSQL、volume、`.env`（秘密存 Doppler `prd`），先建好維持空站，不從測試站搬資料。新的 Gate 是：
 >
 > 1. 同一映像先部署到測試站 `test.fju.roy422.dev`（`fju-test`）。
 > 2. Roy 在該里程碑的 GitHub 驗收 issue 留言接受。
