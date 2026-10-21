@@ -508,7 +508,7 @@ describe('票 32：測試站的示範資料', () => {
     expect(upAt).toBeGreaterThan(demoAt)
     // FJU_ROOT 沒設時是 /srv/fju；FILES_ROOT 是 Doppler 的值（容器裡的路徑）。
     expect(demoCalls(result.calls)).toEqual([
-      'compose run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v /srv/fju/test/files:/srv/fju/files migrate node migrate/web/scripts/seed-demo.mjs',
+      'compose run --rm --no-deps -e FJU_SITE -e FILES_ROOT -e SEED_DEMO_PASSWORD -v /srv/fju/test/files:/srv/fju/files migrate node migrate/web/scripts/seed-demo.mjs',
     ])
     expect(result.calls).toContain('DEMO_ENV site=test files=set')
     expect(result.stdout).toContain('示範資料已建立')
