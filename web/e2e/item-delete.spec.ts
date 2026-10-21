@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createItemOnPage } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
@@ -60,6 +60,16 @@ test.afterAll(async () => {
 async function signIn(page: Page, session: TestSession) {
   await page.context().clearCookies()
   await page.context().addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
+}
+
+/** 新帳號（CL-14 的「外人」）：每個帳號各用一個乾淨的 request context 註冊（帶著上一個的 cookie 會被 Origin 檢查擋）。 */
+async function freshSession(role: 'student' | 'teacher'): Promise<TestSession> {
+  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  try {
+    return await createTestSession(context, role)
+  } finally {
+    await context.dispose()
+  }
 }
 
 async function asAdmin(page: Page) {
@@ -203,12 +213,12 @@ test('已下架、沒人交件的收件刪掉後：學生的通知還在、點�
   await expect(page.getByRole('main')).not.toContainText(title)
 
   // 不在名單上的學生（沒有本屆資料）、沒指導這一屆的老師：照舊 404，分不出這份作業存在過（CL-14）。
-  await signIn(page, await createTestSession(page.request, 'student'))
+  await signIn(page, await freshSession('student'))
   const outsider = await page.goto(`/dashboard/student/affairs/${itemId}`)
   expect(outsider?.status()).toBe(404)
   await expect(page.getByText('找不到這個頁面').first()).toBeVisible()
   await expect(page.getByTestId('gone-notice')).toHaveCount(0)
-  await signIn(page, await createTestSession(page.request, 'teacher'))
+  await signIn(page, await freshSession('teacher'))
   const teacher = await page.goto(`/dashboard/teacher/affairs/${itemId}`)
   expect(teacher?.status()).toBe(404)
   await expect(page.getByTestId('gone-notice')).toHaveCount(0)
@@ -247,7 +257,7 @@ test('已刪除的本屆學生公告（CL-14）：本屆學生看到「已刪除
   await expect(page.getByRole('main')).not.toContainText(title)
 
   // 不在對象內的學生：照舊 404。
-  await signIn(page, await createTestSession(page.request, 'student'))
+  await signIn(page, await freshSession('student'))
   const outsider = await page.goto(`/news/${itemId}`)
   expect(outsider?.status()).toBe(404)
   await expect(page.getByText('找不到這個頁面').first()).toBeVisible()
