@@ -63,7 +63,7 @@ execution_status: NOT_RUN
 | `HEALTHCHECKS_WORKER_URL` | 只給 worker（打卡網址）；沒設＝不打卡 | VM（選填）、本機 | ✓ |
 | `IDENTITY_CACHE_TTL_SECONDS` | app 身分快取秒數（沒設＝60；e2e 設 0） | 本機、CI | ✓ |
 | `UPLOAD_RATE_MAX` | app 上傳限速額度（沒設＝20；e2e 設 1000）；VM 不設 | 本機、CI | ✓ |
-| `REGISTRATION_OPEN` | app（開放註冊開關，沒設＝false）；只有 `docker-compose.vm.yml` 轉交 | VM | ✓ |
+| `REGISTRATION_OPEN` | app（開放註冊開關）：程式沒這個鍵＝開放，空字串或不是 `true`＝關閉；VM compose 沒設時補 `false`。刻意不放範本，因為本機照範本建出空值會把註冊關掉 | VM | 否：空值會關閉註冊 |
 | `DATABASE_URL_OWNER` | `migrate` 服務、owner 級腳本與整合測試；app 容器內不得有 | VM、本機 | ✓ |
 | `APP_DB_PASSWORD` | `ops/deploy.sh`（每次 migrate 後設定 `fju_app` 的密碼）；不進 app 容器 | VM | ✓ |
 | `DATABASE_URL_BACKUP` | 目前沒有任何程式讀它（備份走 `ops/backup-daily.sh`）；留著是因為基礎 Compose 與 CI 要有 `.env.backup` 這個檔 | 本機 | ✓ |
