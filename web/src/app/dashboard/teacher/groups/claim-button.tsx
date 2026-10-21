@@ -19,7 +19,8 @@ import { cn } from '@/shared/cn'
  *   這裡沒有任何「擔任／認領」入口：產學組由負責老師在產學組分頁確認，一般組由系辦指派。
  */
 
-export type ClaimActionState = { ok: boolean; conflict: boolean; message: string } | undefined
+/** `linkOnly`：這次只確認了合作案（系辦已指派別的老師，指導老師不變；CL-3）——成功畫面依它決定標題，不看卡片（卡片可能是指派前的舊資料）。 */
+export type ClaimActionState = { ok: boolean; conflict: boolean; linkOnly?: boolean; message: string } | undefined
 export type DeclineActionState = { ok: boolean; message: string } | undefined
 
 export type CardMember = { userId: string; name: string; isLeader: boolean; avatarPreset: number | null; avatarFileId: string | null }
@@ -229,9 +230,11 @@ function ClaimForm({
         <CloseX onClose={onClose} />
         <StampMark>
           <IconCheck className="size-4" strokeWidth={3} />
-          {linkOnly ? '已確認合作案' : '你已是指導老師'}
+          {result.linkOnly ? '已確認合作案' : '你已是指導老師'}
         </StampMark>
-        <h2 className="text-lg font-extrabold text-foreground">{linkOnly ? `${card.groupCode} 的合作案已確認` : `${card.groupCode} 已指定為你的組別`}</h2>
+        <h2 className="text-lg font-extrabold text-foreground">
+          {result.linkOnly ? `${card.groupCode} 的合作案已確認` : `${card.groupCode} 已指定為你的組別`}
+        </h2>
         <p role="status" className="text-sm text-muted-foreground">
           {result.message}
         </p>
