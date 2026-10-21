@@ -1018,6 +1018,7 @@ sudo docker ps -aq --filter label=com.docker.compose.project=fju-status | xargs 
 sudo docker volume ls -q --filter label=com.docker.compose.project=fju-status | xargs -r sudo docker volume rm
 sudo docker volume rm beszel_socket beszel_agent_data 2>/dev/null || true
 sudo docker network rm fju-status fju-status-docker 2>/dev/null || true
+sudo docker rm -f fju-status-verify-origin fju-status-verify-cloudflared 2>/dev/null; sudo docker network rm fju-status-verify 2>/dev/null || true
 ```
 
 怎麼確認做完（三行都印 `0`）：
