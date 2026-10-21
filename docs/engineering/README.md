@@ -59,6 +59,9 @@
 
    - 核對 7 處例外：`git grep -nE "archivedGuard\(|status === 'archived'|replayed<" -- web/src/infrastructure/submissions/pg-submissions.ts web/src/infrastructure/ops/file-storage.ts web/src/infrastructure/signoff/pg-consent-bridge.ts`，每個命令的封存檢查（`archivedGuard(` 或 `status === 'archived'`）行號要小於它自己的 `replayed<` 行號（上傳不走 requestId，只有封存檢查行）；測試見 `archived-readonly.integration.test.ts` 的 AC-56c。
 5. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
+6. **「已刪除」這類例外頁的可見判斷，沿用「項目還在時」同一段可見範圍查詢**（2026-10-22，CL-7 #823 第 9 條；來源 CL-14 #849）：白話：東西刪掉後，誰能看到「已刪除」提示、誰還是只看到「找不到」，要跟刪除前「誰看得到這個項目」完全一樣；不准另寫一套判斷，否則刪除後會多放人進來（洩漏「這裡曾經有東西」）或把原本看得到的人擋掉。
+   - 寫法：刪除後的判斷（例如 `PgSubmissionQuery.deletedItemSeenBy`）重用項目頁本來的可見範圍條件（老師照作業頁 `#scope`、學生照作業區），只把「項目還在」那個條件拿掉。
+   - **測試一定要用同一個身分比對刪除前後**：刪前對每個身分記下「看得到嗎」，刪除後用例外頁的判斷再問一次，斷言兩份結果相等。範本：`web/src/infrastructure/items/pg-items.integration.test.ts` 的 it「已刪除的作業（CL-14 Review r1）：同一個人「刪前看得到」⇔「刪後算看得到」……」（`expect(after).toEqual(before)`），以及同檔 it「已刪除的公告（CL-14）……」的刪除前後比對。新增別種「已刪除」頁時照這兩支寫，不另寫結構測試（主腦 10/22 裁定）。
 
 ## GitHub review 入口（2026-09-12）
 

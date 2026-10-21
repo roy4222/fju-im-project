@@ -4,6 +4,22 @@ import { readWorkerHealth } from '@/infrastructure/notifications/worker-runtime'
 import { isWorkerStale, type HealthSnapshot } from '@/shared/health'
 
 /**
+ * 映像的版本資訊：`version`、`commit`、`imageDigest`（契約 05 §1）。
+ *
+ * **空字串當成沒設**，回跟沒設一樣的預設值（`0.0.0`、`unknown`、null）：Compose 用 `${IMAGE_DIGEST:-}` 傳進來，
+ * 沒部署 digest 時拿到的是空字串；照 `.env.example` 留空也一樣（CL-7 #823 第 11 條）。
+ * VM 上 `ops/deploy.sh` 每次都會設 `IMAGE_DIGEST`，`ops/check-health.mjs` 拿它跟部署的 digest 比，那條路行為不變。
+ */
+export function buildInfo(env: NodeJS.ProcessEnv = process.env): Pick<HealthSnapshot, 'version' | 'commit' | 'imageDigest'> {
+  const read = (name: string) => (env[name] === '' ? undefined : env[name])
+  return {
+    version: read('APP_VERSION') ?? '0.0.0',
+    commit: read('GIT_COMMIT') ?? 'unknown',
+    imageDigest: read('IMAGE_DIGEST') ?? null,
+  }
+}
+
+/**
  * 組出 `/api/health` 的回應（契約 05 §1、§3、§5）。
  *
  * `version`、`commit`、`imageDigest` 在 build 時由環境變數注入（Dockerfile 的 ARG）。
@@ -21,9 +37,7 @@ export async function readHealth(now: Date = new Date()): Promise<HealthSnapshot
   // 鍵的順序照契約 05 §1 寫，讓人直接對照。
   return {
     ok: !isWorkerStale(worker, now),
-    version: process.env.APP_VERSION ?? '0.0.0',
-    commit: process.env.GIT_COMMIT ?? 'unknown',
-    imageDigest: process.env.IMAGE_DIGEST ?? null,
+    ...buildInfo(),
     schemaVersion: schema.rows[0]?.value ?? null,
     worker,
   }
@@ -33,9 +47,7 @@ export async function readHealth(now: Date = new Date()): Promise<HealthSnapshot
 export function unavailableHealth(): HealthSnapshot {
   return {
     ok: false,
-    version: process.env.APP_VERSION ?? '0.0.0',
-    commit: process.env.GIT_COMMIT ?? 'unknown',
-    imageDigest: process.env.IMAGE_DIGEST ?? null,
+    ...buildInfo(),
     schemaVersion: null,
     worker: { version: null, lastTickAt: null },
   }
