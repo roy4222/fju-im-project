@@ -109,6 +109,7 @@ export async function AffairsNewsList({ cohortId, searchParams }: { cohortId: st
               <span className="sr-only">搜尋標題或對象</span>
               <IconSearch aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
+                key={q}
                 name="q"
                 defaultValue={q}
                 placeholder="搜尋標題、對象"
