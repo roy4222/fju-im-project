@@ -8,6 +8,7 @@ import type {
   GradingAssignmentSummary,
   TeacherOption,
 } from '@/application/groups'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 import { cn } from '@/shared/cn'
 import { formatBytes } from '@/shared/format-bytes'
 import {
@@ -79,12 +80,13 @@ function Reason({ id, maxLength, placeholder }: { id: string; maxLength: number;
         id={id}
         name="reason"
         rows={3}
-        maxLength={maxLength}
+        aria-describedby={charCountId(id)}
         placeholder={placeholder}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         className={INPUT}
       />
+      <CharCount forId={id} max={maxLength} value={value} />
     </div>
   )
 }
@@ -539,12 +541,13 @@ function BatchPreview({
         <textarea
           id="advisor-batch-reason"
           rows={2}
-          maxLength={reasonMaxLength}
+          aria-describedby={charCountId('advisor-batch-reason')}
           placeholder="例：115 學年抽籤結果"
           value={reason}
           onChange={(e) => onReason(e.target.value)}
           className={INPUT}
         />
+        <CharCount forId="advisor-batch-reason" max={reasonMaxLength} value={reason} />
       </div>
       <div className="flex flex-wrap justify-end gap-2">
         <button type="button" className={SECONDARY} onClick={onRestart} disabled={Boolean(busy)}>

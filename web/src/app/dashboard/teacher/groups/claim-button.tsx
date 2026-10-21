@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/app/_ui/ui/tooltip'
 import { DataTable, type Column } from '@/app/dashboard/teacher/_ui/data-table'
 import { DIALOG, GHOST_BUTTON, OUTLINE_BUTTON_SM, Panel, Pill, PRIMARY_BUTTON, StampMark, TEXTAREA } from '@/app/dashboard/teacher/_ui/dash'
 import { cn } from '@/shared/cn'
+import { blockOverLimit, CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 老師「分組總覽」會動的部分（票 19、37；C3-09 規格③ §7.1、§7.2 改成「確認指導／婉拒」）。
@@ -283,6 +284,7 @@ function DeclineForm({
   onClose: () => void
 }) {
   const [baseline] = useState(state)
+  const [tooLong, setTooLong] = useState<string | null>(null)
   const result = state !== baseline && !pending ? state : undefined
   const reasonId = `decline-reason-${card.groupId}`
 
@@ -299,7 +301,11 @@ function DeclineForm({
   }
   if (result && !result.ok) return <Failure title="沒有成功" message={result.message} onClose={onClose} />
   return (
-    <form action={formAction} className="relative flex flex-col gap-4 p-6">
+    <form
+      action={formAction}
+      onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, `婉拒的理由最多 ${reasonMaxLength} 個字。`))}
+      className="relative flex flex-col gap-4 p-6"
+    >
       <CloseX onClose={onClose} />
       <div className="pr-8">
         <h2 className="text-lg font-extrabold text-foreground">婉拒 {card.groupCode}？</h2>
@@ -314,8 +320,14 @@ function DeclineForm({
         <label htmlFor={reasonId} className="text-sm font-semibold text-foreground">
           理由（可不填）
         </label>
-        <textarea id={reasonId} name="reason" rows={3} maxLength={reasonMaxLength} placeholder="例：題目方向與這一組的技術背景不合" className={TEXTAREA} />
+        <textarea id={reasonId} name="reason" rows={3} aria-describedby={charCountId(reasonId)} placeholder="例：題目方向與這一組的技術背景不合" className={TEXTAREA} />
+        <CharCount forId={reasonId} max={reasonMaxLength} />
       </div>
+      {tooLong ? (
+        <p role="alert" className="rounded-lg bg-destructive-subtle px-3 py-2 text-sm text-destructive-on-subtle">
+          {tooLong}
+        </p>
+      ) : null}
       <button type="submit" disabled={pending} className={cn(PRIMARY_BUTTON, 'w-full')}>
         {pending ? '處理中…' : '確定婉拒'}
       </button>

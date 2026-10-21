@@ -6,6 +6,7 @@ import type { IndustryActionState, OpportunityFormLabels } from '@/app/dashboard
 import { DIALOG, GHOST_BUTTON, INPUT, OUTLINE_BUTTON_SM, PRIMARY_BUTTON, TEXTAREA } from '@/app/dashboard/teacher/_ui/dash'
 import type { NormalizedOpportunity, OpportunityField } from '@/application/groups'
 import { cn } from '@/shared/cn'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 老師「我的合作案」會動的部分（票 20；票 37 照原型 `IndustryFormDialog` 的樣子）：新增／編輯對話框、發布／下架／重新發布、解除連結。
@@ -338,12 +339,13 @@ export function LinkedGroupsCell({
               id={`unlink-reason-${requestId}`}
               name="reason"
               rows={3}
-              maxLength={reasonMaxLength}
+              aria-describedby={charCountId(`unlink-reason-${requestId}`)}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="例：企業暫停這個題目"
               className={TEXTAREA}
             />
+            <CharCount forId={`unlink-reason-${requestId}`} max={reasonMaxLength} value={reason} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <button type="submit" disabled={pending || !target} className={cn(PRIMARY_BUTTON, 'w-full')}>
