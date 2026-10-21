@@ -10,7 +10,7 @@ import { cn } from '@/shared/cn'
  * 公告與作業 › 資源下載的清單內容（C 階段規格① §4.3；②的分頁殼掛這個元件，`{ cohortId, searchParams }`）。
  *
  * 欄：標題、分類、附件數、狀態、編輯／刪除。工具列：分類篩選（`?category=`，選項是這一屆資源用到的分類）。
- * 分類與附件數不在清單查詢（`ItemListRow`）裡，逐份讀一次項目（`ItemQuery.get`；一屆的資源只有十幾份）。
+ * 分類與附件數跟清單同一句查完（`ItemQuery.listWithContent`，CL-1；不逐份讀項目）。
  * 分類改名在前台「檔案下載」的分類標題上（`resource_category`，跨屆一起改）。
  */
 
@@ -28,15 +28,12 @@ export async function AffairsResourceList({
   cohortId: string
   searchParams: { readonly category?: string | string[] }
 }) {
-  const itemQuery = getItemQuery()
-  const placements: readonly string[] = AFFAIRS_TAB_PLACEMENTS.resources
-  const rows = (await itemQuery.list(cohortId)).filter((r) => placements.includes(r.placement))
-  const details = new Map((await Promise.all(rows.map((r) => itemQuery.get(r.id)))).flatMap((d) => (d ? [[d.id, d] as const] : [])))
-  const categoryOf = (id: string) => details.get(id)?.category || NO_CATEGORY
-  const categories = [...new Set(rows.map((r) => categoryOf(r.id)))].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  const rows = await getItemQuery().listWithContent(cohortId, AFFAIRS_TAB_PLACEMENTS.resources)
+  const categoryOf = (r: (typeof rows)[number]) => r.category || NO_CATEGORY
+  const categories = [...new Set(rows.map(categoryOf))].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   const wanted = one(searchParams.category)
   const category = wanted && categories.includes(wanted) ? wanted : null
-  const shown = category ? rows.filter((r) => categoryOf(r.id) === category) : rows
+  const shown = category ? rows.filter((r) => categoryOf(r) === category) : rows
   const href = (value: string | null) =>
     `/dashboard/admin/affairs/resources?${new URLSearchParams({ cohort: cohortId, ...(value ? { category: value } : {}) }).toString()}`
 
@@ -67,9 +64,9 @@ export async function AffairsResourceList({
             <Link href={`/dashboard/admin/editor/${r.id}`} className="link-ink block min-w-0 truncate text-[15px] font-bold">
               {r.title}
             </Link>
-            <span className="min-w-0 truncate text-xs text-muted-foreground md:text-sm">{categoryOf(r.id)}</span>
+            <span className="min-w-0 truncate text-xs text-muted-foreground md:text-sm">{categoryOf(r)}</span>
             <span className="text-xs tabular-nums md:text-sm" data-testid="attachment-count">
-              {details.get(r.id)?.attachments.length ?? 0} 個
+              {r.attachmentCount} 個
             </span>
             <span>
               <Pill tone={r.status === 'published' ? 'success' : 'default'}>{ITEM_STATUS_LABEL[r.status]}</Pill>

@@ -23,6 +23,7 @@ import {
   normalizeItemInput,
   pinDenial,
   publishChecks,
+  renderBodyHtml,
   sanitizeBody,
   snapshotDueAt,
   storedPlacementOf,
@@ -41,6 +42,7 @@ import {
   type ItemDraft,
   type ItemInput,
   type ItemListRow,
+  type ItemListRowWithContent,
   type ItemQuery,
   type ItemReview,
   type ItemStatus,
@@ -1754,7 +1756,8 @@ export class PgItemCommand implements ItemCommand {
       id: item.id,
       cohortId: item.cohort_id,
       groupIds,
-      bodyHtml: item.body_html,
+      // 寫入時已經過 `sanitizeBody`；讀出再清一次（防資料庫被直接改過）。
+      bodyHtml: renderBodyHtml(item.body_html),
       attachmentFileIds: files,
       purpose: item.consent_purpose ?? 'result_confirmation',
       dueAt: item.due_at,
@@ -2089,6 +2092,34 @@ type ListRow = {
   roster_count: string
 }
 
+const LIST_SELECT = `select m.id, m.placement, m.title, m.status, m.audience_kind, m.receiver_unit, m.consent_mode, m.due_at, m.actual_opened_at,
+              m.pinned_at, m.rules_position, m.updated_at,
+              (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id
+                where a.item_id = m.id) as group_codes,
+              (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
+                as roster_count`
+const LIST_FROM = `from managed_items m
+        where m.cohort_id = $1 and m.deleted_at is null`
+
+function listRowOf(r: ListRow): ItemListRow {
+  return {
+    id: r.id,
+    placement: r.placement,
+    title: r.title,
+    status: r.status,
+    audienceKind: r.audience_kind,
+    audienceGroupCodes: r.group_codes ?? [],
+    receiverUnit: r.receiver_unit,
+    consentMode: r.consent_mode,
+    dueAt: r.due_at,
+    actualOpenedAt: r.actual_opened_at,
+    pinnedAt: r.pinned_at,
+    rulesPosition: r.rules_position,
+    updatedAt: r.updated_at,
+    rosterCount: Number(r.roster_count),
+  }
+}
+
 export class PgItemQuery implements ItemQuery {
   readonly #reader: () => Pick<Pool, 'query'>
   readonly #responses: { hasAnyResponse(itemId: string): Promise<boolean> }
@@ -2104,33 +2135,28 @@ export class PgItemQuery implements ItemQuery {
 
   async list(cohortId: string): Promise<ItemListRow[]> {
     if (!isUuid(cohortId)) return []
-    const rows = await this.#reader().query<ListRow>(
-      `select m.id, m.placement, m.title, m.status, m.audience_kind, m.receiver_unit, m.consent_mode, m.due_at, m.actual_opened_at,
-              m.pinned_at, m.rules_position, m.updated_at,
-              (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id
-                where a.item_id = m.id) as group_codes,
-              (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
-                as roster_count
-         from managed_items m
-        where m.cohort_id = $1 and m.deleted_at is null
+    const rows = await this.#reader().query<ListRow>(`${LIST_SELECT} ${LIST_FROM} order by m.updated_at desc`, [cohortId])
+    return rows.rows.map(listRowOf)
+  }
+
+  async listWithContent(cohortId: string, placements: readonly Placement[]): Promise<ItemListRowWithContent[]> {
+    if (!isUuid(cohortId) || placements.length === 0) return []
+    const rows = await this.#reader().query<
+      ListRow & { category: string | null; attachment_count: string; registration_deadline_day: string | null; body_html: string }
+    >(
+      `${LIST_SELECT}, m.category, m.body_html,
+              to_char(m.registration_deadline, 'YYYY-MM-DD') as registration_deadline_day,
+              (select count(*) from item_attachments ia where ia.item_id = m.id) as attachment_count
+         ${LIST_FROM} and m.placement = any($2::text[])
         order by m.updated_at desc`,
-      [cohortId],
+      [cohortId, placements],
     )
     return rows.rows.map((r) => ({
-      id: r.id,
-      placement: r.placement,
-      title: r.title,
-      status: r.status,
-      audienceKind: r.audience_kind,
-      audienceGroupCodes: r.group_codes ?? [],
-      receiverUnit: r.receiver_unit,
-      consentMode: r.consent_mode,
-      dueAt: r.due_at,
-      actualOpenedAt: r.actual_opened_at,
-      pinnedAt: r.pinned_at,
-      rulesPosition: r.rules_position,
-      updatedAt: r.updated_at,
-      rosterCount: Number(r.roster_count),
+      ...listRowOf(r),
+      category: r.category,
+      attachmentCount: Number(r.attachment_count),
+      registrationDeadline: r.registration_deadline_day,
+      bodyHtml: renderBodyHtml(r.body_html),
     }))
   }
 
@@ -2203,7 +2229,7 @@ export class PgItemQuery implements ItemQuery {
       status: item.status,
       title: item.title,
       summary: item.summary,
-      bodyHtml: item.body_html,
+      bodyHtml: renderBodyHtml(item.body_html),
       category: item.category,
       cover: coverRow ? summary(coverRow) : null,
       attachments: files.rows.filter((f) => f.sort !== null).map(summary),
