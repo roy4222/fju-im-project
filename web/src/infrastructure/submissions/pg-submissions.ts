@@ -227,6 +227,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
       if (!locked) return notInRoster()
       const notReceiver = receiverDenied(actor, locked)
       if (notReceiver) return notReceiver
+      const archived = this.#archivedGuard(locked, businessAt)
+      if (archived) return archived
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -325,6 +327,8 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const notReceiver = receiverDenied(actor, locked)
       if (notReceiver) return notReceiver
       const { item } = locked
+      const archived = this.#archivedGuard(locked, businessAt)
+      if (archived) return archived
 
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
@@ -569,6 +573,12 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const item = found.rows[0]
       if (!item) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
 
+      // 收件單位與屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重播回 COHORT_ARCHIVED，不回原回執。
+      if (item.receiver_unit !== 'individual') {
+        return err('VALIDATION_FAILED', '指導老師閱覽只用在「個人一份」的作業；整組一份的正式版本本來就給目前的指導老師看。')
+      }
+      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再改設定。')
+
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
         tx,
@@ -583,11 +593,6 @@ export class PgSubmissionCommand implements SubmissionCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<VisibilityReceipt>(begun)
-
-      if (item.receiver_unit !== 'individual') {
-        return err('VALIDATION_FAILED', '指導老師閱覽只用在「個人一份」的作業；整組一份的正式版本本來就給目前的指導老師看。')
-      }
-      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再改設定。')
       const latest = await tx.query<{ enabled: boolean; effective_from_version_no: number }>(
         `select enabled, effective_from_version_no from advisor_visibility_settings
           where item_id = $1 order by set_at desc, id desc limit 1`,
@@ -667,6 +672,12 @@ export class PgSubmissionCommand implements SubmissionCommand {
       if (!item) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
       const kind: 'user' | 'group' = group ? 'group' : 'user'
 
+      // 收件單位與屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重播回 COHORT_ARCHIVED，不回原回執。
+      if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
+        return err('VALIDATION_FAILED', '這個項目不用繳交，不需要補交。')
+      }
+      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再開放補交。')
+
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
         tx,
@@ -687,10 +698,6 @@ export class PgSubmissionCommand implements SubmissionCommand {
       if (dueAt.getTime() <= businessAt.getTime()) {
         return err('VALIDATION_FAILED', `補交期限要晚於現在（${formatTaipeiMinute(businessAt)}，臺灣時間）。`, { details: { field: 'dueAt' } })
       }
-      if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
-        return err('VALIDATION_FAILED', '這個項目不用繳交，不需要補交。')
-      }
-      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再開放補交。')
       if (item.status !== 'published') return err('ITEM_NOT_OPEN', '這個作業目前沒有發布，不能開放補交。')
       if (phaseOf({ opensAt: item.opens_at, dueAt: item.due_at }, businessAt) !== 'closed') {
         return err('VALIDATION_FAILED', '這個作業還沒截止，學生現在就能交，不需要補交；要讓所有人晚點交，請改它的截止時間。')
@@ -821,6 +828,14 @@ export class PgSubmissionCommand implements SubmissionCommand {
       const item = found.rows[0]
       if (!item) return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
 
+      // 收件單位與屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重播回 COHORT_ARCHIVED，不回原回執。
+      if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
+        return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
+      }
+      if (cohort.rows[0]?.status === 'archived') {
+        return err('COHORT_ARCHIVED', exempt ? '這一屆已經封存，不能再設免繳。' : '這一屆已經封存，不能再恢復需繳交。')
+      }
+
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
         tx,
@@ -837,12 +852,6 @@ export class PgSubmissionCommand implements SubmissionCommand {
       )
       if (begun.outcome !== 'fresh') return replayed<ExemptReceipt>(begun)
 
-      if (item.receiver_unit !== 'individual' && item.receiver_unit !== 'group') {
-        return err('VALIDATION_FAILED', '找不到這個作業，請重新整理頁面。')
-      }
-      if (cohort.rows[0]?.status === 'archived') {
-        return err('COHORT_ARCHIVED', exempt ? '這一屆已經封存，不能再設免繳。' : '這一屆已經封存，不能再恢復需繳交。')
-      }
       const group = item.receiver_unit === 'group'
       const kind: 'user' | 'group' = group ? 'group' : 'user'
       const roster = await tx.query<{ id: string; exempt: boolean; exempt_reason: string | null }>(
@@ -919,6 +928,14 @@ export class PgSubmissionCommand implements SubmissionCommand {
       return err('DEADLINE_PASSED', `已經截止（截止：${formatTaipeiMinute(item.due_at!)}，含此分鐘，臺灣時間）；需要補交請聯絡系辦。`)
     }
     return null
+  }
+
+  /**
+   * 屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重播也回 COHORT_ARCHIVED，不回原回執。
+   * 走整套守門，名單、免繳這些排在封存前面的拒絕碼順序不變；沒封存回 null，照舊先查重播。
+   */
+  #archivedGuard(locked: Locked, businessAt: Date): Err | null {
+    return locked.cohortStatus === 'archived' ? this.#guard(locked, businessAt) : null
   }
 
   /**

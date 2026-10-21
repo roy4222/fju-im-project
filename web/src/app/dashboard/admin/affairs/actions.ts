@@ -233,6 +233,7 @@ export async function moveRuleAction(
 
 export async function startItemUploadAction(input: {
   cohortId: string
+  placement: string
   kind: 'attachment' | 'cover'
   fileName: string
   declaredMime: string
@@ -240,6 +241,7 @@ export async function startItemUploadAction(input: {
 }): Promise<ItemActionOutcome<UploadTicket>> {
   const result = await getItemCommand().startUpload(await currentActor(), {
     cohortId: str(input?.cohortId, 100),
+    placement: str(input?.placement, 40),
     kind: input?.kind === 'cover' ? 'cover' : 'attachment',
     fileName: str(input?.fileName, 500),
     declaredMime: str(input?.declaredMime, 200),

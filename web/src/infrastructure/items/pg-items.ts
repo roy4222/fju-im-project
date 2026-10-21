@@ -1016,6 +1016,16 @@ export class PgItemCommand implements ItemCommand {
     if (!isUuid(input.cohortId)) return err('VALIDATION_FAILED', '請先選擇屆別。')
     const rules = ITEM_UPLOAD[input.kind]
     if (!rules) return err('VALIDATION_FAILED', '上傳的種類不對。')
+    // 封存屆別只有榮譽還能上傳（AC-55）。`placement` 是畫面帶來的：謊報成榮譽最多多一個檔，
+    // 存成非榮譽項目時存草稿的封存守門會擋、檔案綁不上去，之後由無引用檔案清理收掉。
+    const client = await this.#pool().connect()
+    let cohortStatus: string | undefined
+    try {
+      cohortStatus = (await client.query<{ status: string }>('select status from cohorts where id = $1', [input.cohortId])).rows[0]?.status
+    } finally {
+      client.release()
+    }
+    if (cohortStatus && archivedBlocks(cohortStatus, input.placement)) return cohortArchived()
     const issued = await this.#files.issueUploadTicket(
       actor.userId,
       { fileName: input.fileName, declaredMime: input.declaredMime, declaredSize: input.declaredSize },
