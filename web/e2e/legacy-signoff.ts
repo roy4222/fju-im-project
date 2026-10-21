@@ -257,7 +257,7 @@ async function insertLegacyVersion(tx: PoolClient, input: LegacyVersionInput): P
     adminId,
   ])
 
-  // 輪到本人同意：只發給參與學生。
+  // 輪到本人同意：只發給參與學生。標題照抄 `infrastructure/signoff/pg-signoff.ts` 的 `#publishVersionCreated`（CL-2 起不寫版本號）。
   await publish(tx, {
     type: 'signoff.version_created',
     cohortId,
@@ -266,7 +266,7 @@ async function insertLegacyVersion(tx: PoolClient, input: LegacyVersionInput): P
     adminId,
     recipients: [...new Set(students.map((s) => s.userId.toLowerCase()))].sort(),
     recipientBasis: { basis: 'signoff_participants', versionId, groupId },
-    payload: { title: `${group.code}「${PURPOSE_LABEL[purpose]}」第 ${versionNo} 版輪到你閱讀並同意`, groupId, code: group.code, purpose, versionNo },
+    payload: { title: `${group.code}「${PURPOSE_LABEL[purpose]}」同意書輪到你閱讀並同意`, groupId, code: group.code, purpose, versionNo },
   })
   await audit(tx, {
     adminId,
