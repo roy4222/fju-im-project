@@ -5,7 +5,7 @@
 
 Host fju-vm
   HostName 140.136.155.167
-  # VM 的 sshd_config 只放行 AllowUsers gtuser fjubackup fjureset fjustatus；
+  # VM 的 sshd_config 只放行 AllowUsers gtuser fjubackup fjureset；
   # 所以登入帳號是 gtuser（不是 roy422roy，那個帳號 VM 不放行）。
   User gtuser
   # 換成自己的私鑰；預設 ~/.ssh/id_ed25519
@@ -36,23 +36,6 @@ Host fju-reset
   # reset／restore 要跑幾分鐘，中途沒有輸出時也別讓連線被當成斷了。
   ServerAliveInterval 30
   ServerAliveCountMax 10
-  ForwardAgent no
-  ClearAllForwardings yes
-  RequestTTY no
-
-# 驗收結果送上開發者後台（ops/status-publish-run.sh；acceptance-night.sh 收尾自動叫）。
-# 在 Mac mini 或 MacBook 用；金鑰由 ops/status-prepare.sh 產生，公鑰在 VM 上只能 rrsync 寫
-# /srv/fju/status/inbox（不能開 shell、不能讀）。一夜只連一次。
-# HostName 是占位符：貼到自己的 ~/.ssh/config 後把 VM_IP_HERE 換成 VM 的 IP（repo 不寫真實位址）。
-Host fju-status-publish
-  HostName VM_IP_HERE
-  User fjustatus
-  IdentityFile ~/.ssh/fju_status_publish
-  IdentitiesOnly yes
-  BatchMode yes
-  ConnectTimeout 20
-  ServerAliveInterval 15
-  ServerAliveCountMax 4
   ForwardAgent no
   ClearAllForwardings yes
   RequestTTY no
