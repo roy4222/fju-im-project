@@ -68,6 +68,7 @@ pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seco
 
 - `perf:lab`：量 `lab-routes.json` 中 `as` 相同的路由；每路由暖機 1 次再量 N 次（新 context、CPU×4），印 p75。INP 有兩個數：click 事件時長（Event Timing，短於 16 ms 沒有紀錄時取 `first-input`）與「點下去到新頁 `main h1` 出現」。量不到的格 `N/A`、exit 1。✓／✗ 只是和 §7.2 目標對照。
 - `perf:trail`：首頁 `section.hero` 上以固定 8 字路徑掃 N 秒，Pixel 開與對照組（`reducedMotion: reduce`）各一次；判定 §7.5（Pixel 開 `scriptPct ≤ 20`、`longTasks === 0`；對照組 `scriptPct ≤ 2`）。Pixel 開那組要找得到 `section.hero [data-testid=hero-pixel]` 而且 `data-running=1`（常駐閃在跑；規格④ §2.3 不准關常駐閃達標），否則算失敗。
+  選擇器是 `section.hero [data-testid=hero-pixel]`（後台「現在」橫幅，`dashboard/_stage.tsx` 掛的 `HeroPixel`）；前台首頁橫幅的 `home-hero-pixel`（C4-08）是另一層，不在這支量。
 - 兩者的數字跟機器與當下負載有關，不同機器不能直接比；`perf:sql`、`perf:bundle` 的數字則與機器無關。
 
 ## 5. 基準檔
