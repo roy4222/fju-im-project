@@ -1,4 +1,5 @@
 import type { FileTypeId } from '@/application/ops'
+import { charLength } from '@/shared/text'
 
 /**
  * 首頁設定（第三波 W3；設計方案 §3，Q18、Q32「存了就生效」）：首頁大圖、圖片說明、標語兩行。
@@ -81,11 +82,6 @@ export type NormalizedHomeSettings =
   | { readonly ok: false; readonly field: HomeSettingsField; readonly message: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/** 以「字」計（code point），跟 Postgres 的 `char_length` 一樣；emoji 算一個字。 */
-function charLength(value: string): number {
-  return Array.from(value).length
-}
 
 const LABEL: Record<Exclude<HomeSettingsField, 'hero'>, string> = {
   heroAlt: '圖片說明',
