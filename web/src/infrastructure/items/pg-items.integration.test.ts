@@ -21,6 +21,7 @@ import { listStoredFiles } from '@/infrastructure/ops/file-list'
 import { FsFileStorage } from '@/infrastructure/ops/file-storage'
 import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { PgSubmissionLateFlags } from '@/infrastructure/ops/submission-late-flags'
+import { PgAdvisorSubmissionQuery } from '@/infrastructure/submissions/pg-advisor-submissions'
 import { PgResponsePresence, responsePresenceReader } from '@/infrastructure/submissions/pg-response-presence'
 import { PgSubmissionCommand, PgSubmissionQuery } from '@/infrastructure/submissions/pg-submissions'
 
@@ -1892,7 +1893,75 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     expect(await publicQuery.open(adminActor(), draft.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
   })
 
-  it('已刪除的作業（CL-14 `deletedItemSeenBy`）：名單上的學生、此刻指導該屆的老師才算「看得到」；外人、別屆老師、還在的作業、從沒發布的草稿都不算', async () => {
+  it('已刪除的作業（CL-14 Review r1）：同一個人「刪前看得到」⇔「刪後算看得到」——老師照作業頁 `#scope`（整組、或個人且開了主指導閱覽），學生照作業區', async () => {
+    const { cohortId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const outsider = await newStudent((await newCohort()).cohortId)
+    const mine = await newGroup(cohortId, [s1], 'G81')
+    const other = await newGroup(cohortId, [], 'G82')
+    const advisor = await newTeacher()
+    await assignAdvisor(mine, advisor)
+    const submissions = new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app))
+    const advisorQuery = new PgAdvisorSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app))
+    const teacher: ResolvedActor = { kind: 'authenticated', userId: advisor, roles: ['teacher'], status: 'active', mustChangePassword: false, cohortMemberships: [] }
+
+    const publish = async (patch: Partial<ItemInput>) => {
+      const created = await mustCreate(cohortId, patch)
+      return { itemId: created.itemId, revision: (await mustPublish(created.itemId, 1, false)).revision }
+    }
+    const items_ = {
+      // 個人一份、沒開主指導閱覽：老師作業頁本來就 404。
+      individualHidden: await publish({}),
+      // 個人一份、開了主指導閱覽：老師看得到。
+      individualShown: await publish({}),
+      // 整組一份、發給本組：老師看得到。
+      groupItem: await publish({ receiverUnit: 'group', audienceKind: 'groups', groupIds: [mine] }),
+      // 只發給別組的公告：老師作業頁本來就 404。
+      otherNews: await publish({ placement: 'news', receiverUnit: 'none', audienceKind: 'groups', groupIds: [other], fields: [], dueAt: '' }),
+    }
+    await owner.sql(
+      `insert into advisor_visibility_settings (id, item_id, enabled, effective_from_version_no, set_by_user_id, set_at)
+       values (gen_random_uuid(), $1, true, 1, $2, now())`,
+      [items_.individualShown.itemId, adminId],
+    )
+
+    const teacherSees = async (itemId: string) =>
+      (await advisorQuery.item(teacher, itemId)) !== null || (await submissions.myItem(advisor, itemId)) !== null
+    const studentSees = async (userId: string, itemId: string) => (await submissions.myItem(userId, itemId)) !== null
+    const snapshot = async (seen: (who: 'teacher' | 's1' | 'outsider', itemId: string) => Promise<boolean>) => {
+      const out: Record<string, boolean> = {}
+      for (const [name, it] of Object.entries(items_)) {
+        for (const who of ['teacher', 's1', 'outsider'] as const) out[`${name}:${who}`] = await seen(who, it.itemId)
+      }
+      return out
+    }
+    const before = await snapshot((who, itemId) =>
+      who === 'teacher' ? teacherSees(itemId) : studentSees(who === 's1' ? s1.id : outsider.id, itemId),
+    )
+    // 對照：刪前老師看得到的正好是「開了閱覽的個人一份」與「本組的整組一份」。
+    expect(before).toMatchObject({
+      'individualHidden:teacher': false,
+      'individualShown:teacher': true,
+      'groupItem:teacher': true,
+      'otherNews:teacher': false,
+      'individualHidden:s1': true,
+      'groupItem:s1': true,
+      'individualHidden:outsider': false,
+    })
+
+    for (const it of Object.values(items_)) {
+      const archived = await mustChange(it.itemId, it.revision, 'archive')
+      expect((await items.delete(adminActor(), it.itemId, archived.revision, randomUUID())).ok).toBe(true)
+    }
+    const after = await snapshot((who, itemId) =>
+      who === 'teacher'
+        ? submissions.deletedItemSeenBy(advisor, itemId, { asAdvisor: true })
+        : submissions.deletedItemSeenBy(who === 's1' ? s1.id : outsider.id, itemId),
+    )
+    expect(after).toEqual(before)
+  })
+
+  it('已刪除的作業（CL-14 `deletedItemSeenBy`）：名單上的學生、此刻指導該屆（閱覽開著）的老師才算「看得到」；外人、別屆老師、還在的作業、從沒發布的草稿都不算', async () => {
     const { cohortId } = await newCohort()
     const s1 = await newStudent(cohortId)
     const outsider = await newStudent((await newCohort()).cohortId)
@@ -1905,6 +1974,12 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
 
     const item = await mustCreate(cohortId)
     const published = await mustPublish(item.itemId, 1)
+    // 個人一份：系辦開了主指導閱覽，指導老師刪前才看得到（沒開的情況見上一條）。
+    await owner.sql(
+      `insert into advisor_visibility_settings (id, item_id, enabled, effective_from_version_no, set_by_user_id, set_at)
+       values (gen_random_uuid(), $1, true, 1, $2, now())`,
+      [item.itemId, adminId],
+    )
     // 還在的作業：一律 false（頁面該走原本的路）。
     expect(await submissions.deletedItemSeenBy(s1.id, item.itemId)).toBe(false)
     const archived = await mustChange(item.itemId, published.revision, 'archive')

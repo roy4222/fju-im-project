@@ -1373,9 +1373,16 @@ export class PgSubmissionQuery implements SubmissionQuery {
                            join groups g on g.id = p.group_id and g.status = 'active'
                            join group_memberships gm on gm.group_id = p.group_id and gm.user_id = $1 and gm.valid_to is null
                           where p.item_id = m.id)
-              or ($3::boolean and exists (select 1 from advisor_assignments a join groups g on g.id = a.group_id
-                                  where a.teacher_user_id = $1 and a.valid_to is null and g.status = 'active'
-                                    and g.cohort_id = m.cohort_id))
+              -- 主指導：跟老師作業頁 PgAdvisorSubmissionQuery.#scope（pg-advisor-submissions.ts）同一個範圍——
+              -- 此刻指導該屆任一有效組，而且是整組一份、或個人一份且最新的主指導閱覽設定開著（同 latestVisibility）。
+              -- 改其中一邊要一起改另一邊。
+              or ($3::boolean
+                  and (m.receiver_unit = 'group'
+                    or (m.receiver_unit = 'individual'
+                        and coalesce((${LATEST_VISIBILITY.replace('%ITEM%', 'm.id')}->>'enabled')::boolean, false)))
+                  and exists (select 1 from advisor_assignments a join groups g on g.id = a.group_id
+                               where a.teacher_user_id = $1 and a.valid_to is null and g.status = 'active'
+                                 and g.cohort_id = m.cohort_id))
             )
        ) as seen`,
       [userId, itemId, options.asAdvisor === true],

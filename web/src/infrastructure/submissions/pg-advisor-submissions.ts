@@ -441,6 +441,8 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     receiverId: string | null,
   ): Promise<{ item: RosterItem; entries: RosterEntry[]; effective: number | null } | null> {
     const db = this.#reader()
+    // 這裡的範圍（指導該屆任一有效組；整組一份，或個人一份且閱覽開著）也寫在 `PgSubmissionQuery.deletedItemSeenBy`
+    // 的主指導那一段（CL-14：刪掉的作業只對原本看得到的老師顯示「已刪除」）；改其中一邊要一起改另一邊。
     const item = await rosterItemOf(db, itemId)
     if (!item || item.status !== 'published') return null
     const advising = await db.query(`${MY_GROUPS} and g.cohort_id = $2 limit 1`, [teacherId, item.cohortId])
