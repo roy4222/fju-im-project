@@ -318,6 +318,8 @@ test('作業內容看說明與繳交欄位；按「寫作業」開表單：只�
 
   await form.getByLabel('想做的題目').fill('校園導覽 App')
   await page.getByRole('link', { name: '作業內容' }).click()
+  // 等真的離開表單頁再點：表單頁自己就有「寫作業」（指向目前網址），還沒換完就點等於點回原頁、導覽被取消。
+  await expect(page).not.toHaveURL(/write=1/)
   await page.getByRole('link', { name: '寫作業' }).click()
   await expect(page.getByRole('form', { name: '寫作業' }).getByLabel('想做的題目')).toHaveValue('')
   expect(await versions(itemIds.open, s1.userId)).toHaveLength(0)
