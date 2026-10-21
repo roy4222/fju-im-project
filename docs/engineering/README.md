@@ -26,7 +26,7 @@
      | 鍵（雜湊函式的輸入） | 雜湊函式 | 保護什麼 | 程式位置 |
      |---|---|---|---|
      | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts:302,393,464,500` |
-     | `cohorts.<欄位>` | `hashtext` | 屆別唯一欄位（如代碼）不重複 | `pg-cohorts.ts:235` |
+     | `cohorts.<欄位>` | `hashtext` | 同時只有一屆帶 `is_default_working`／`is_registration_open`（設定新屆別時把舊的取消） | `pg-cohorts.ts:235` |
      | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts:691`、`pg-group-import.ts:270` |
      | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts:127`、`pg-group-import.ts:292` |
      | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts:190` |
