@@ -192,7 +192,7 @@ node engine/cli.ts assemble --out ~/work/tutorial-out/dub-Charon/final --feature
 
 合規範例：`env/lib.sh` 的 `lock_acquire`（`env/lib.sh:395-421`）：用 `mkdir` 原子建立鎖目錄；逾時 `die`，訊息列出鎖位置、持有者 pid 與狀態、建置 PGID 與刪鎖前要先確認的事，不刪鎖；`lock_release`（`env/lib.sh:424`起）只在 owner 是自己時才放。測試見 `env/safety.test.mjs` 的「多實例共用鎖」。
 
-不做靜態檢查的理由：#411 曾提議用靜態檢查攔「刪鎖檔」的程式，這次不做——整個 repo 目前只有 `lock_acquire` 這一處鎖實作，規則加 Review 就夠；等出現第二處鎖實作再評估。
+不做靜態檢查的理由：#411 曾提議用靜態檢查攔「刪鎖檔」的程式，這次不做——`tools/tutorial` 只有 `lock_acquire` 這一處鎖實作；`ops/` 的部署鎖（`ops/deploy.sh:110,166`、`ops/auto-deploy.sh:63,130-131`）用 flock 的非阻塞模式，拿不到就退出、不刪鎖，本來就合規。規則加 Review 就夠；等出現會自行回收鎖的實作再評估。
 
 ## 測試
 

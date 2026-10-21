@@ -17,19 +17,29 @@
 白話：好幾段程式同時改同一批資料時，大家要照同一個順序去「鎖」，才不會你等我、我等你卡死；字數也只用一種算法，畫面和後端才不會對不上。這節是規則，不是新程式；碰到下列情況，寫法要照做，Review 也照此檢查。
 
 1. **鎖的順序一律固定**（交易內先鎖前面的，再鎖後面的，不准反過來）：
-   - 檔案：先 `stored_files`，再 `file_references`。程式位置：`web/src/infrastructure/accounts/avatar-store.ts:47-59` 的 `softDeleteAvatarFile`（先更新 `stored_files` 標刪、再釋放 `file_references`），呼叫處 `avatar-store.ts:154`、`avatar-store.ts:200`；帳號操作的整串順序（管理員 → `users` → `user_profiles` → 檔案）寫在 `avatar-store.ts:28-32` 與 `avatar-store.ts:194`。
+   - 檔案：**同一個檔案內**，先 `stored_files`，再 `file_references`。程式位置：`web/src/infrastructure/accounts/avatar-store.ts:47-59` 的 `softDeleteAvatarFile`（先更新 `stored_files` 標刪、再釋放 `file_references`），呼叫處 `avatar-store.ts:154`、`avatar-store.ts:200`。一次附多個檔時是逐檔做完（一個檔的 `stored_files`＋`file_references` 做完再換下一個，檔案依 id 排序），見 `pg-items.ts:1916-1922`、`pg-submissions.ts:293-304`。
+   - 頭像（換頭像、系辦重設）的整串順序：（重設先整組管理員）→ `users` → `user_profiles` → 檔案，寫在 `avatar-store.ts:28-32` 與 `avatar-store.ts:194`。**這串只適用頭像**；停用帳號是先組別（屆別 `FOR SHARE` → 組別 `FOR UPDATE`）再 `users`，見 `web/src/application/groups/ports.ts:131`。
    - 屆別、組、成員：先屆別，再組，最後成員。程式位置：`web/src/infrastructure/groups/pg-groups.ts:1387`（屆別 `FOR SHARE` → 組別 `FOR UPDATE`）；註冊自動開通的整串順序 `cohorts → users → registration_applications → student_identities` 見 `web/src/infrastructure/accounts/registration-command.ts:376`。「組 → 成員」目前只是規則，程式裡沒有集中的一處可指，新寫入照此做。
 2. **worker 與網站（兩個程序）會同時寫的資料，用 `pg_advisory_xact_lock`**，並且鎖的鍵要在同一張表列舉，避免兩邊各取各的名字：
-   - 交易層級（`pg_advisory_xact_lock`）：交易結束自動放，不會漏放；各處的鍵名現況，例如 `groups.code:<cohortId>`、`groups.student:<id>`、`items.rules:<cohortId>`、`business_clock_overrides`（散在 `web/src/infrastructure/**`，用 `git grep pg_advisory_xact_lock` 可全部列出）。目前還沒有集中登記的那張表，所以**新增鍵名時，要把它加進本節這張表**：
+   - 交易層級（`pg_advisory_xact_lock`）：交易結束自動放，不會漏放。**本表就是登記處，新增鍵一定要登記**（`git grep -n "pg_advisory"` 應該和本表一一對得上）。注意「雜湊函式」那欄：同一個字串用 `hashtext` 和 `hashtextextended` 算出來是兩把不同的鎖，互不排斥；同一把鎖的所有使用處必須用同一個函式。
 
-     | 鍵（hashtext／hashtextextended 的輸入） | 保護什麼 | 程式位置 |
-     |---|---|---|
-     | `groups.code:<cohortId>` | 同屆組別代碼不重複 | `pg-groups.ts:691`、`pg-group-import.ts:270` |
-     | `groups.student:<studentId>` | 同一學生同時只能被一個組操作 | `pg-groups.ts:127`、`pg-group-import.ts:292` |
-     | `items.rules:<cohortId>` | 同屆規則集合 | `pg-items.ts:190` |
-     | `business_clock_overrides` | 營運時鐘覆寫 | `pg-business-clock.ts:140` |
+     | 鍵（雜湊函式的輸入） | 雜湊函式 | 保護什麼 | 程式位置 |
+     |---|---|---|---|
+     | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts:302,393,464,500` |
+     | `cohorts.<欄位>` | `hashtext` | 屆別唯一欄位（如代碼）不重複 | `pg-cohorts.ts:235` |
+     | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts:691`、`pg-group-import.ts:270` |
+     | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts:127`、`pg-group-import.ts:292` |
+     | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts:190` |
+     | `items.resource_category` | `hashtextextended`（seed 0） | 資源分類 | `pg-items.ts:1672` |
+     | `reminder:item:<id>`、`reminder:grading:<cohortId>` | `hashtext` | 催繳／評分提醒排隊 | `pg-reminders.ts:163,250,293`（取鎖函式在 498） |
+     | `submission_reopen:<itemId>:<receiverId>` | `hashtextextended`（seed 0） | 重新開放繳交 | `pg-submissions.ts:723` |
+     | `business_clock_overrides` | `hashtext` | 營運時鐘覆寫 | `pg-business-clock.ts:140` |
 
-   - 整個程序層級的單一實例鎖（`pg_try_advisory_lock`，綁在專用連線上，程序死掉自動放）：worker 只准一個在跑，見 `web/src/infrastructure/notifications/worker-runtime.ts:10-24`（`WORKER_LOCK_NAME`、`acquireWorkerLock`）。
+   - session 層級（`pg_try_advisory_lock`，綁在專用連線上，程序死掉自動放；也登記在這裡）：
+
+     | 鍵 | 雜湊函式 | 保護什麼 | 程式位置 |
+     |---|---|---|---|
+     | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts:10,28`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖在 46） |
 3. **字數一律用 `charLength()`**（`web/src/shared/text.ts`，按字元算，一個表情符號算一個字）。不准用 `.length`（會把表情符號算成兩個字，和畫面計數不一致）。現有用法：`web/src/application/accounts/avatar.ts:84`、`application/cohorts/stages.ts:76`、`application/grading/scheme.ts:164`。
 4. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
 
