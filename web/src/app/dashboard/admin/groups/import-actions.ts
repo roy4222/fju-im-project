@@ -3,6 +3,7 @@ import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { GroupImportSettings, ImportActionOutcome } from '@/app/dashboard/admin/groups/import-dialog'
 import type { GroupImportPreview, GroupImportReceipt, GroupImportUploadTicket } from '@/application/groups'
+import { actorHasRole, checkStatus } from '@/composition/accounts'
 import {
   describeGroupImportReceipt,
   getGroupImportCommand,
@@ -27,8 +28,11 @@ function outcome<T>(result: Result<T>): ImportActionOutcome<T> {
   return result.ok ? { ok: true, data: result.receipt } : { ok: false, message: result.message }
 }
 
-/** 對話框開啟時拿的文字與上限（對話框不進頁面首載，所以不從頁面帶 props）。 */
+/** 對話框開啟時拿的文字與上限（對話框不進頁面首載，所以不從頁面帶 props）。
+ * SEC-2：不碰資料也先過系辦＋business 狀態守門；不過就丟錯，對話框照「連線中斷」處理，不回任何設定。 */
 async function settings(): Promise<GroupImportSettings> {
+  const actor = await currentActor()
+  if (!actorHasRole(actor, 'admin') || checkStatus(actor, 'business') !== null) throw new Error('只有系辦可以匯入分組。')
   return { kindLabels: GROUP_IMPORT_KIND_LABEL, outcomeLabels: GROUP_IMPORT_OUTCOME_LABEL, maxBytes: GROUP_IMPORT_MAX_BYTES }
 }
 
