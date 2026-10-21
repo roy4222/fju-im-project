@@ -10,11 +10,11 @@
 
 整體架構的守門是「每一層都自己認人、自己判狀態」，而且有兩份結構測試把 Server Action 的守門形狀鎖住（SEC-1、SEC-2）。本次逐一讀過結構測試掃不到的 9 條 route handler，沒有找到繞過守門的路。CSP、上傳憑證、私有檔授權、advisory lock 登記、監測與備份都和文件一致。
 
-真正要處理的只有一件事，而且是「一致性」問題、不是漏洞：
+本次沒有「中」或「高」等級的問題。有一件事要記成規則（主腦已裁定，Review 第 1 輪定案）：
 
-1. **重播（requestId 冪等）排在屆別封存檢查之前，是全站的既定寫法**。⑤-12a／12c 把 7 處改成「封存檢查在前」，但其餘約 60 個寫入命令仍是「先重播、後看封存」。後果是：封存前成功過的 requestId，封存後再送一次會拿到原本的成功回執（不會寫入任何資料）。這和 AC-56c 定下的「封存後重播要回 `COHORT_ARCHIVED`」不一致。要請主腦先裁定是「全站統一」還是「只限繳交」，再決定要不要開一張掃全站的票（第 2 節第 3 列）。
+1. **重播（requestId 冪等）排在屆別封存檢查之前，是全站的既定寫法**：Review 實測 56 處（指令見第 2 節）。後果是封存前成功過的 requestId，封存後再送一次會拿到原本的成功回執，**不寫任何資料**。主腦裁定：重播回原回執就是冪等的標準行為，這 56 處**不改程式**；只有 AC-56c 指定的繳交家族 7 處（⑤-12a／12c 改的 submit、saveDraft、改閱覽設定、開放補交、設免繳、上傳完成、同意書補建）是例外，維持封存後重播回 `COHORT_ARCHIVED`。要開的票：#814，把重播語意與例外清單寫進 `docs/engineering/README.md`「寫入規則」。
 
-其他列在「低」的項目都有記錄位置與理由，不影響上線。
+其餘列在「低」的項目都有記錄位置與理由，不影響上線；已開票的有 #813（route handler 結構登記）、#815（環境變數文件）、#816（e2e 分頁與 request context 沒關）。
 
 測試站目前**還沒切 Cloudflare 橘雲**（回應沒有 `cf-ray`、`server: cloudflare`，只有 `via: 1.1 Caddy`）。正式站公開網址回 502（還沒部署）。這兩件事都是現況、不是缺陷，驗收夜前要照 `ops/README.md`「Cloudflare（橘雲代理）」那一節做。
 
@@ -43,13 +43,26 @@
 
 | 項目 | 證據 | 結論 | 要開的票 |
 |---|---|---|---|
-| advisory lock 鍵表與程式一一對得上 | `git grep -n "pg_advisory" -- web/src ':!*.test.ts'` 共 16 處，逐一對上 `docs/engineering/README.md:26-42` 的兩張表（註冊續辦 4、屆別旗標、組別代碼 2、學生 2、規則、資源分類、催繳 1 個取鎖函式、重新開放繳交、營運時鐘、worker 單實例）；雜湊函式也一致 | OK | — |
+| advisory lock 鍵表與程式一一對得上 | `git grep -n "pg_advisory" -- web/src ':!*.test.ts'` 共 15 處取鎖（不含 `worker-runtime.ts:19` 的註解與 `:46` 的放鎖），逐一對上 `docs/engineering/README.md:26-42` 的兩張表（註冊續辦 4、屆別旗標、組別代碼 2、學生 2、規則、資源分類、催繳 1 個取鎖函式、重新開放繳交、營運時鐘、worker 單實例）；雜湊函式也一致 | OK | — |
 | 鎖的順序（檔案：`stored_files` → `file_references`；屆別 → 組 → 成員） | `docs/engineering/README.md:19-21` 列的程式位置都存在（`avatar-store.ts:47-59`、`pg-groups.ts:1387`、`registration-command.ts:376`）；「組 → 成員」只是規則、沒有集中檢查 | 低（規則靠 review） | — |
-| **重播（requestId 冪等）與屆別封存檢查的順序** | ⑤-12 改成「封存檢查在重播之前」的 7 處：`pg-submissions.ts` 的 `saveDraft`／`submit`／`setAdvisorVisibility`／`reopen`／`setExempt`（用 `#archivedGuard`，例如 `:325-334`）、`file-storage.ts:218-221`（上傳完成）、`pg-consent-bridge.ts:261-265`（同意書補建）。其餘命令仍是「先重播、後看封存」，實際讀過確認的 6 處：`pg-grading.ts:218-231`、`pg-timeline.ts:226-239`、`pg-items.ts:1146-1162`、`pg-groups.ts:993-1006`（`groupWriteBlocked` 在 `replayed` 之後）、`pg-advisors.ts:259-274`（`writeBlocked` 在之後）、`pg-opportunities.ts:562-577`。全站掃法：`git grep -n -A18 'ledger.begin(' -- web/src/infrastructure ':!*.test.ts' \| grep -E "replayed<\|archived\|archivedBlocks\|writeBlocked\|groupWriteBlocked\|#archivedGuard"`，每個 `ledger.begin` 後面 `replayed<` 先出現、封存檢查後出現的都是同一類；grading、timeline、items、groups、advisors、opportunities、signoff、reminders、showcase、cohorts、profile-card、profile-edit、account-command（新增學生）全部如此，約 60 處。後果：封存前成功的 requestId 封存後重送，拿到原本的成功回執、**不寫任何資料**；`archived-readonly.integration.test.ts:863-923`（AC-56c）只對 5 條繳交命令驗「重播回 `COHORT_ARCHIVED`」 | 中（一致性；不是資料外洩或損毀） | 票 B（中）：主腦先裁定「全站統一 AC-56c 的語意」或「只限繳交」。若統一：(1) 一張掃全站的票，把封存檢查搬到 `ledger.begin` 之前（各模組一個 `#archivedGuard` 樣式）；(2) 補一條結構測試：`ledger.begin(` 之前必須已出現封存檢查，反例要紅；(3) `archived-readonly.integration.test.ts` 的 AC-56c `replays` 清單擴到每個模組至少一條。可改檔案：各模組 `pg-*.ts`、`web/test/structure/ledger-order.test.ts`（新）、`archived-readonly.integration.test.ts` |
+| **重播（requestId 冪等）與屆別封存檢查的順序** | ⑤-12a／12c 改成「封存檢查在重播之前」的 7 處：`pg-submissions.ts` 的 `saveDraft`／`submit`／`setAdvisorVisibility`／`reopen`／`setExempt`（用 `#archivedGuard`，例如 `:325-334`）、`file-storage.ts:218-221`（上傳完成）、`pg-consent-bridge.ts:261-265`（同意書補建）。其餘寫入命令是「先重播、後看封存」：Review 實測 **56 處**，清單與數量用本表下方的「重播掃描指令」直接印出（依 `ledger.begin(` 分段，判斷 `replayed<` 之後才出現封存檢查）；實際讀過確認的 6 處：`pg-grading.ts:218-231`、`pg-timeline.ts:226-239`、`pg-items.ts:1146-1162`、`pg-groups.ts:993-1006`（`groupWriteBlocked` 在 `replayed` 之後）、`pg-advisors.ts:259-274`（`writeBlocked` 在之後）、`pg-opportunities.ts:562-577`。排除清單（不在 56 內）：屆別狀態轉換本身（`pg-cohorts.ts` 的封存／解封、啟用、設旗標，指令明確排除這個檔）；#715／#788 已裁定的例外（對外紀錄與六類維護操作）與不屬於任何屆別的命令（營運時鐘 `pg-business-clock.ts`、建屆別、站台文字、首頁設定、帳號命令）本來就沒有封存檢查，掃描不會計入。後果：封存前成功的 requestId 封存後重送，拿到原本的成功回執、**不寫任何資料**；`archived-readonly.integration.test.ts:863-923`（AC-56c）對 5 條繳交命令驗「重播回 `COHORT_ARCHIVED`」 | 低（語意一致性，不寫資料） | **主腦裁定（最終）**：重播回原回執是冪等的標準行為、不寫資料，這 56 處**不改程式**；AC-56c 指定的繳交家族 7 處是例外，維持封存後重播回 `COHORT_ARCHIVED`。要開的票：#814——在 `docs/engineering/README.md`「寫入規則」記下重播語意與例外清單。不建議加「`ledger.begin(` 之前必須有封存檢查」的結構測試：照字面做會擋到解封與 #715 裁定的例外 |
 | 授權在重播之前 | 同一個掃描：每個 `ledger.begin` 所在方法開頭都先 `authorizeAdmin`／`authorizeTeacher`／`authorizeReceiver`／`statusGate`／`prepareGroupChange` 等，只有 4 個私有 helper（`pg-advisors.ts:486`、`pg-group-import.ts:255`、`file-storage.ts:634`、`pg-home-settings.ts:124`）由呼叫端守門 | OK | — |
 | 屆別封存唯讀：封存拒絕寫入、鎖序決定先後、解封不延長截止 | `web/src/infrastructure/cohorts/archived-readonly.integration.test.ts`（`:507` 已封存清單涵蓋評分、結算、簽核、催繳、指導、匯入、名單、註冊、個資轉屆、新增學生、繳交、建組；`:817-860` AC-56a／56b 鎖序；`:979` AC-56e）；主腦裁定的維護例外 `:750` | OK | — |
 | 封存後仍可讀、可匯出（D-08） | 同檔 `:925`、`:957`、`:970` | OK | — |
 | 多路徑寫入同一欄位都帶 `revision`（舊版本存回去回 `CONFLICT`） | 例：`pg-timeline.ts:240`（`cohort.revision !== expectedRevision`）、`pg-groups.ts:1006`（`groupWriteBlocked(..., input.revision)`） | OK | — |
+
+重播掃描指令（第 3 列用；在 repo 根目錄跑，印出 56 行 `檔案:行號` 與 `total 56`）：
+
+```sh
+git grep -n -A40 'ledger.begin(' -- web/src/infrastructure ':!*.test.ts' | awk '
+function flush() { if (site != "" && rep && after && site !~ /pg-cohorts\.ts/) { print site; n++ } }
+/^[^ :]+:[0-9]+:.*ledger\.begin\(/ { flush(); split($0, a, ":"); site = a[1] ":" a[2]; rep = 0; after = 0; next }
+/replayed</ { rep = 1; next }
+rep && /status === .archived.|cohortStatus === .archived.|cohort_status === .archived.|archivedBlocks[(]|writeBlocked[(]|groupWriteBlocked[(]/ { after = 1 }
+END { flush(); print "total " n }'
+```
+
+規則：以每個 `ledger.begin(` 起算往後 40 行為一段；一段裡先出現 `replayed<`（重播回原回執）、之後才出現封存檢查（`status === 'archived'`、`archivedBlocks(`、`writeBlocked(`、`groupWriteBlocked(` 之一）就算一處；`pg-cohorts.ts`（屆別狀態轉換本身）整檔排除。
 
 ## 3. 檔案與上傳
 
@@ -84,7 +97,7 @@
 | health-cron：每 10 分鐘巡兩站，判 `ok`、`commit`、worker 心跳 5 分鐘內；失敗與恢復送 Discord；workflow 無任何 repo 權限 | `.github/workflows/health-cron.yml`（`permissions: {}`、`CHECK` 的 jq 判定、`notify` job） | OK | — |
 | Healthchecks.io 打卡網址不進指令列（`ps` 看不到） | `ops/lib/healthchecks.sh:35-40`（curl 設定檔經 stdin）；worker 從環境變數讀（`web/src/composition/worker.ts:161`、`docker-compose.vm.yml:85`） | OK | — |
 | 每日備份＋磁碟 ≥ 80% 告警；異地副本目錄 700／檔案 600；非 `deploy` 身分直接擋 | `ops/backup-daily.sh:31,38,44-49,74-80` | OK | — |
-| 機密不進 argv | `ops/seed-demo.sh:79-81`（`-e 名稱` 不帶值）；全 repo 掃 `git grep -nE "(PASSWORD\|SECRET\|TOKEN\|KEY)=\\$\|--password" -- ops '*.sh' '*.yml' '*.mjs'`：只有本機 verify 起測試容器時的固定測試密碼（`web/scripts/verify.mjs:39,321`，不是正式機密） | OK | — |
+| 機密不進 argv | `ops/seed-demo.sh:79-81`（`-e 名稱` 不帶值）；全 repo 掃 `git grep -nE "(PASSWORD\|SECRET\|TOKEN\|KEY)=\\$\|--password" -- ops web/scripts tools '*.sh' '*.yml' '*.mjs'`：命中的只有 `web/scripts/verify.mjs:321`（本機 verify 起測試容器用的固定測試密碼 `verify.mjs:39`，不是正式機密）與 `tools/tutorial/env/` 的 `--passwords`（`accounts.mjs` 與其 README；只是參數名稱，不是機密） | OK | — |
 | `.env.example` 與 Doppler 清單 | `.env.example` 27 鍵；`docs/engineering/operations/02 …清單.md` 已標 `ALERT_WEBHOOK_URL`、R2、age 不用（`:11`），但 `:55` 的舊段落仍列著它們，且 `BREVO_API_KEY`、`MAIL_FROM`、`UPLOAD_RATE_MAX`、`IDENTITY_CACHE_TTL_SECONDS`、`HTTP_PORT`、`DB_POOL_MAX` 在該文件找不到 | 低（文件） | 票 C（低，純文件）：`02 環境變數、OAuth 與 Secrets 清單.md` 以 `.env.example` 為準重列一張「鍵／誰用／放哪」表，舊段落移到摺疊區；可改檔案只有那一份文件 |
 | 容器以非 root 執行、不送 `X-Powered-By`、app 埠不對外 | `web/Dockerfile:94`（`USER nextjs`）、`web/next.config.ts:18`、`docker-compose.vm.yml:93` | OK | — |
 | 依賴稽核：high 以上就擋，只看會進到 web 的相依 | `.github/workflows/ci.yml:244-245` | OK | — |
@@ -99,7 +112,7 @@
 | broken-page（`:84` 取 canvas 顏色）：抖動改用 `MutationObserver` 在 class 加上的當下抓，等待都有上限（8 秒、7.5 秒） | `9a0b1079`（C4-05）；`web/e2e/broken-page.spec.ts:150-170,198-210`；顏色取樣前先 `expectFuzzyReady`（`:76`） | OK（推斷：本票沒有重跑 5 次） | — |
 | front-edit-activity（`:152` 之後的「建立活動」）：C3-08 修 e2e 回饋後沒有再紅的紀錄 | `d5f27bce`；`web/e2e/front-edit-activity.spec.ts:140-165` 的等待都是 `expect(...).toHaveCount(0)`（有預設上限） | OK（推斷） | — |
 | deidentify：`browser.newContext()` 開了兩個 context，測試結尾有關 | `web/e2e/deidentify.spec.ts:58-65,120-121` | OK | — |
-| 其他 spec 用 `browser.newContext()` 卻從不 `close()`，context 會活到 worker 結束，連跑整套時累積 | `for f in web/e2e/*.spec.ts; do …; done` 比對 `newContext(` 與 `close()` 次數：`account-edit.spec.ts`（4／0）、`admin-roles.spec.ts`（2／0）、`role-switch.spec.ts`（2／0）、`email-verify.spec.ts`（1／0）、`google.spec.ts`（1／0）、`accounts-tabs.spec.ts`（3／1） | 低 | 票 D（低）：六份 spec 的 `newContext()` 改成 `try/finally` 或 `test.afterEach` 關掉；可改檔案只有那六份 spec |
+| 其他 spec 用 `browser.newContext()` 卻沒有 `close()`，context 會活到 worker 結束，連跑整套時累積；另有三份 spec 的 `playwrightRequest.newContext()` 沒有 `dispose()` | 瀏覽器 context：`for f in web/e2e/*.spec.ts; do a=$(grep -c "browser.newContext(" "$f"); b=$(grep -c "\.close()" "$f"); [ "$a" -gt "$b" ] && echo "$f newContext=$a close=$b"; done` → `account-edit.spec.ts`（3／0）、`accounts.spec.ts`（3／2，`:34` 的 `adminPage()`）、`accounts-tabs.spec.ts`（2／1）、`admin-roles.spec.ts`（1／0）、`bulk-approve.spec.ts`（3／2，`:44` 的 `adminPage()`）、`email-verify.spec.ts`（1／0）、`google.spec.ts`（1／0）、`role-switch.spec.ts`（1／0）。request context：`for f in web/e2e/*.spec.ts; do a=$(grep -cE "(playwright\|playwrightRequest\|request)\.(request\.)?newContext\(" "$f"); b=$(grep -c "dispose()" "$f"); [ "$a" -gt "$b" ] && echo "$f request.newContext=$a dispose=$b"; done` → `avatar-download.spec.ts`（4／2）、`file-download-pages.spec.ts`（9／7）、`file-public-read-gated.spec.ts`（3／2） | 低 | #816：八份 spec 的 `browser.newContext()` 改成 `try/finally` 或 `test.afterEach` 關掉，三份 spec 的 request context 補 `dispose()`；可改檔案只有那 11 份 spec |
 | 「等某件事」都有上限 | `page.waitForEvent`／`waitForResponse` 23 處沒寫 `timeout`，但 Playwright 預設 30 秒；`grading.spec.ts:659-663` 的 `holdNextAction` 兩個 Promise 沒有自己的上限，由測試整體逾時兜底 | 低 | — |
 | 跳過開關 | `web/e2e/grading.spec.ts` 的 `GRADING_E2E_SKIP` 只在重現舊紅燈時用；`file-download-pages.spec.ts:414,616` 依環境跳過 fd 與檔案本體檢查 | OK | — |
 | 本票 verify | `pnpm -C web verify`：lint 12.3 秒、typecheck 19.8 秒、單元 150 檔 1951 通過／7 跳過（含 `test/structure/server-action-guard.test.ts` 175 個、`front-edit-actor.test.ts` 55 個、`test/overlay/merge.test.ts` 43 個）；全部通過 | OK | — |
@@ -136,9 +149,9 @@
 
 | 票 | 等級 | 一句話 | 建議可改檔案 |
 |---|---|---|---|
-| A | 低 | route handler 也納入結構登記：POST 先同源檢查、進用例前先 `resolveActor` | `web/test/structure/route-handler-guard.test.ts`（新） |
-| B | 中 | 主腦先裁定 AC-56c「封存後重播回 `COHORT_ARCHIVED`」是全站語意還是只限繳交；若全站，掃約 60 處把封存檢查搬到 `ledger.begin` 之前，補結構測試與 AC-56c 各模組重播案例 | 各模組 `web/src/infrastructure/**/pg-*.ts`、`web/test/structure/ledger-order.test.ts`（新）、`web/src/infrastructure/cohorts/archived-readonly.integration.test.ts` |
-| C | 低（純文件） | 環境變數文件以 `.env.example` 為準重列，舊的 R2／age／`ALERT_WEBHOOK_URL` 段落收進摺疊區 | `docs/engineering/operations/02 環境變數、OAuth 與 Secrets 清單.md` |
-| D | 低 | 六份 e2e 的 `browser.newContext()` 補 `close()` | `web/e2e/account-edit.spec.ts`、`admin-roles.spec.ts`、`role-switch.spec.ts`、`email-verify.spec.ts`、`google.spec.ts`、`accounts-tabs.spec.ts` |
+| A（#813） | 低 | route handler 也納入結構登記：POST 先同源檢查、進用例前先 `resolveActor` | `web/test/structure/route-handler-guard.test.ts`（新） |
+| B（#814） | 低（語意一致性，不寫資料） | 主腦裁定：重播回原回執是冪等的標準行為，56 處不改程式；AC-56c 的繳交家族 7 處是例外。在 `docs/engineering/README.md`「寫入規則」記下重播語意與例外清單 | `docs/engineering/README.md` |
+| C（#815） | 低（純文件） | 環境變數文件以 `.env.example` 為準重列，舊的 R2／age／`ALERT_WEBHOOK_URL` 段落收進摺疊區 | `docs/engineering/operations/02 環境變數、OAuth 與 Secrets 清單.md` |
+| D（#816） | 低 | 八份 e2e 的 `browser.newContext()` 補 `close()`、三份的 `playwrightRequest.newContext()` 補 `dispose()` | `web/e2e/account-edit.spec.ts`、`accounts.spec.ts`、`accounts-tabs.spec.ts`、`admin-roles.spec.ts`、`bulk-approve.spec.ts`、`email-verify.spec.ts`、`google.spec.ts`、`role-switch.spec.ts`；`avatar-download.spec.ts`、`file-download-pages.spec.ts`、`file-public-read-gated.spec.ts` |
 
-本次沒有發現「高」等級的問題。
+本次沒有發現「中」或「高」等級的問題。
