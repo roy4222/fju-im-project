@@ -121,17 +121,35 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
  */
 export function buildTodos(rows: readonly MyItemRow[], now: Date, signoff: StudentSignoffView): readonly StudentTodo[] {
   const entries: { todo: StudentTodo; finishedAt: number }[] = []
-  for (const row of rows) entries.push({ todo: itemTodo(row, now), finishedAt: row.latestReceivedAt?.getTime() ?? -Infinity })
-  // CL-16：連到作業的同意書，作業列已經在清單裡（狀態在作業的「狀態」分頁），不再多列一張卡。
-  // 只看作業列有沒有這份作業，不是「有 itemId 就不列」：作業不在本人名單上時，同意書卡仍是唯一入口。
-  const listedItems = new Set(rows.map((row) => row.itemId))
+  const consentOf = new Map<string, { todo: StudentTodo; finishedAt: number }>()
   for (const version of signoff.versions) {
-    if (version.itemId && listedItems.has(version.itemId)) continue
     const todo = consentTodo(version)
     if (!todo) continue
     const mine = version.progress.students.find((s) => s.userId === version.viewer.userId)
-    entries.push({ todo, finishedAt: (mine?.at ?? version.createdAt).getTime() })
+    consentOf.set(version.itemId ?? `version:${version.versionId}`, { todo, finishedAt: (mine?.at ?? version.createdAt).getTime() })
   }
+  // CL-16：連到作業的同意書，作業列已經在清單裡（狀態在作業的「狀態」分頁），不再多列一張卡。
+  // 只看作業列有沒有這份作業，不是「有 itemId 就不列」：作業不在本人名單上時，同意書卡仍是唯一入口。
+  const listedItems = new Set(rows.map((row) => row.itemId))
+  for (const row of rows) {
+    const todo = itemTodo(row, now)
+    const consent = row.kind === 'consent_form' ? consentOf.get(row.itemId) : undefined
+    // CL-18：同意書的表態不寫進繳交紀錄，作業列改看本人表態（字與完成與否沿用 `consentTodo`）。
+    // 免繳、尚未開放仍以作業為準；輪到你表態時保留作業的時間狀態（逾期／快到期／待交），沒逾期就寫「待你同意」。
+    // 找不到有效版本（失效、作廢、還沒建立）照舊是作業本身的狀態。
+    if (consent && todo.status !== 'exempt' && todo.status !== 'notOpen') {
+      if (consent.todo.status === 'done') {
+        entries.push({ todo: { ...todo, status: 'done', label: consent.todo.label, late: false }, finishedAt: consent.finishedAt })
+        continue
+      }
+      if (todo.status !== 'overdue') {
+        entries.push({ todo: { ...todo, label: consent.todo.label }, finishedAt: consent.finishedAt })
+        continue
+      }
+    }
+    entries.push({ todo, finishedAt: row.latestReceivedAt?.getTime() ?? -Infinity })
+  }
+  for (const [key, consent] of consentOf) if (!listedItems.has(key)) entries.push(consent)
   const byDue = (a: StudentTodo, b: StudentTodo) => (a.due?.getTime() ?? Infinity) - (b.due?.getTime() ?? Infinity)
   const byTitle = (a: StudentTodo, b: StudentTodo) => a.title.localeCompare(b.title, 'zh-Hant')
   const open = entries.filter((e) => !isFinished(e.todo)).map((e) => e.todo)
