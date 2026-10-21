@@ -306,15 +306,23 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     try {
       await fs.mkdir(path.dirname(finalPath), { recursive: true })
       await fs.rename(tempPath, finalPath)
+      // 傳輸途中屆別才封存（#824）：標 stored 同一句先對屆別 FOR SHARE 再查一次，跟封存交易的 FOR UPDATE 排隊；
+      // 鎖序照寫入規則先屆別、後檔案。沒標記號（榮譽附件等）的 $6 是 null，不碰屆別。
+      const archivedGuard = claims.rejectWhenCohortArchived && row.scope === 'cohort' ? row.cohort_id : null
       const updated = await this.#options.db().query(
-        `update stored_files
+        `with live as (select 1 from cohorts where id = $6::uuid and status <> 'archived' for share)
+         update stored_files
             set status = 'stored', size_bytes = $2, checksum = $3, mime_detected = $4,
                 finalized_at = $5, revision = revision + 1, updated_at = $5
-          where id = $1 and status = 'uploading'`,
-        [row.id, sizeBytes, checksum, mimeDetected, this.#clock.now()],
+          where id = $1 and status = 'uploading' and ($6::uuid is null or exists (select 1 from live))`,
+        [row.id, sizeBytes, checksum, mimeDetected, this.#clock.now(), archivedGuard],
       )
       if (updated.rowCount !== 1) {
         await fs.rm(finalPath, { force: true })
+        if (archivedGuard) {
+          const cohort = await this.#options.db().query<{ status: string }>('select status from cohorts where id = $1', [archivedGuard])
+          if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再上傳檔案。')
+        }
         return err('CONFLICT', '這個檔案的狀態已經改變，請重新上傳。')
       }
     } catch (error) {
