@@ -81,3 +81,12 @@ describe('重設頭像的理由', () => {
     expect(normalizeAvatarResetReason(42)).toEqual({ ok: false })
   })
 })
+
+describe('重設理由字數以字計（⑤-16、AC-63）', () => {
+  it('舊結果＝新結果：emoji 與中文剛好上限過、多一字擋（原本就用 Array.from）', () => {
+    const reason = `👍中${'字'.repeat(AVATAR_RESET_REASON_MAX - 2)}`
+    expect(normalizeAvatarResetReason(reason)).toEqual({ ok: true, value: reason })
+    expect(normalizeAvatarResetReason(`${reason}字`)).toEqual({ ok: false })
+    expect(normalizeAvatarResetReason(`a\n b${'x'.repeat(AVATAR_RESET_REASON_MAX - 4)}`)).toMatchObject({ ok: true })
+  })
+})
