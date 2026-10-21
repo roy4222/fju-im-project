@@ -1,5 +1,6 @@
 import { err, type Err } from '@/shared/result'
 import { LETTER_GRADES, type LetterGrade, type LetterMap, type ScoreItemType } from '@/shared/score'
+import { charLength } from '@/shared/text'
 
 /**
  * 評分方案的型別與純規則（產品模組 06 §4「7.2 評分方案」；模組實作設計 06 §3、附錄 A `stages`）。
@@ -160,7 +161,7 @@ export function normalizeSchemeStages(
     const label = `第 ${index + 1} 個評分項目`
     const name = String(raw.name ?? '').trim()
     if (!name) return fail(`請填${label}的名稱。`, `stage${index + 1}.name`)
-    if (name.length > SCHEME_LIMITS.nameLength) return fail(`${label}的名稱最多 ${SCHEME_LIMITS.nameLength} 個字。`, `stage${index + 1}.name`)
+    if (charLength(name) > SCHEME_LIMITS.nameLength) return fail(`${label}的名稱最多 ${SCHEME_LIMITS.nameLength} 個字。`, `stage${index + 1}.name`)
     const weight = asInt(raw.weight)
     if (weight === null || weight < 1 || weight > 100) {
       return fail(`「${name}」占總成績的百分比要是 1–100 的整數。`, `stage${index + 1}.weight`)
@@ -185,7 +186,7 @@ export function normalizeSchemeStages(
       const field = `stage${index + 1}.item${itemIndex + 1}`
       const itemName = String(rawItem.name ?? '').trim()
       if (!itemName) return fail(`請填「${name}」第 ${itemIndex + 1} 個細項的名稱。`, `${field}.name`)
-      if (itemName.length > SCHEME_LIMITS.nameLength) {
+      if (charLength(itemName) > SCHEME_LIMITS.nameLength) {
         return fail(`「${itemName}」的名稱最多 ${SCHEME_LIMITS.nameLength} 個字。`, `${field}.name`)
       }
       const type = rawItem.type

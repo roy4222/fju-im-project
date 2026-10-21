@@ -1,4 +1,5 @@
 import { err, type Err } from '@/shared/result'
+import { charLength } from '@/shared/text'
 import {
   addTaipeiDays,
   formatTaipeiDate,
@@ -72,12 +73,12 @@ export function normalizeScheduleInput(
     // 換行、連續空白收成一個空格：說明是時間軸上的一句話。
     const description = (raw.description ?? '').replace(/\s+/g, ' ').trim()
     if (!name) return err('VALIDATION_FAILED', `請填第 ${seq} 階段的名稱。`, { details: { field: `stage${seq}.name` } })
-    if (name.length > STAGE_NAME_MAX_LENGTH) {
+    if (charLength(name) > STAGE_NAME_MAX_LENGTH) {
       return err('VALIDATION_FAILED', `第 ${seq} 階段的名稱最多 ${STAGE_NAME_MAX_LENGTH} 個字。`, {
         details: { field: `stage${seq}.name` },
       })
     }
-    if (description.length > STAGE_DESCRIPTION_MAX_LENGTH) {
+    if (charLength(description) > STAGE_DESCRIPTION_MAX_LENGTH) {
       return err('VALIDATION_FAILED', `第 ${seq} 階段的說明最多 ${STAGE_DESCRIPTION_MAX_LENGTH} 個字。`, {
         details: { field: `stage${seq}.description` },
       })

@@ -124,3 +124,17 @@ describe('readSiteText：資料庫 JSON 形狀不對就當沒有列', () => {
     expect(readSiteText('privacy', { sections: [{ heading: 1, paragraphs: ['P'] }] })).toBeNull()
   })
 })
+
+describe('字數改用共用 charLength（⑤-16）：舊結果＝新結果', () => {
+  it('emoji＋中文剛好上限過、多一字擋，訊息字數照 code point 算', () => {
+    const slogan = `👍中${'字'.repeat(118)}`
+    expect(normalizeSiteText('footer_contact', { ...CONTACT, slogan })).toMatchObject({ ok: true })
+    expect(normalizeSiteText('footer_contact', { ...CONTACT, slogan: `${slogan}😀` })).toMatchObject({ ok: false, field: 'slogan', message: '一句話介紹最多 120 字（現在 121 字）。' })
+  })
+
+  it('隱私權政策標題：emoji＋中文剛好 60 字過、61 字擋', () => {
+    const heading = `👍中${'字'.repeat(58)}`
+    expect(parsePrivacyBody(`# ${heading}\n內文 a b`)).toMatchObject({ ok: true })
+    expect(parsePrivacyBody(`# ${heading}字\n內文`)).toMatchObject({ ok: false, field: 'body' })
+  })
+})

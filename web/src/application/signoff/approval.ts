@@ -1,4 +1,5 @@
 import { err, type Err } from '@/shared/result'
+import { charLength } from '@/shared/text'
 import type { Participants, SignoffState, SupersedeCause } from '@/application/signoff/version'
 import { describeCause } from '@/application/signoff/version'
 
@@ -44,7 +45,7 @@ export const MAX_REASON_CHARS = 500
 /** 理由：去頭尾空白；要理由的動作沒給就拒絕，太長也拒絕。 */
 export function normalizeReason(raw: unknown, required: boolean, what: string): { ok: true; reason: string | null } | Err {
   const reason = typeof raw === 'string' ? raw.trim() : ''
-  if (reason.length > MAX_REASON_CHARS) {
+  if (charLength(reason) > MAX_REASON_CHARS) {
     return err('VALIDATION_FAILED', `${what}的理由最多 ${MAX_REASON_CHARS} 字。`, { details: { field: 'reason' } })
   }
   if (required && reason === '') return err('VALIDATION_FAILED', `請填寫${what}的理由。`, { details: { field: 'reason' } })

@@ -4,6 +4,7 @@ import {
   normalizeScheduleInput,
   planStageVersions,
   STAGE_DESCRIPTION_MAX_LENGTH,
+  STAGE_NAME_MAX_LENGTH,
   stageChangeSummary,
   stagePositionAt,
   timelineView,
@@ -299,5 +300,34 @@ describe('stageChangeSummary：階段確認框與通知的句子（③ §9.2、A
     expect(summary?.changedStages).toEqual([1, 2, 3, 4])
     expect(summary?.message).toBe('第 2 階段『題目與計畫書』開始日 11/19 → 11/12；第 4 階段『成果』開始日 5/1 → 5/8。')
     expect(summary?.notificationTitle).toBe('專題時程更新：第 2 階段『題目與計畫書』改為 11/12–2/28、第 4 階段『成果』改為 5/8–6/30')
+  })
+})
+
+describe('階段名稱與說明字數以字計（⑤-16、AC-63）', () => {
+  const dates = ['2026-09-15', '2026-11-01', '2027-01-10', '2027-03-01']
+  const firstStage = (name: string, description?: string): ScheduleInput => ({
+    stages: dates.map((startDate, i) => ({ name: i === 0 ? name : `第${i + 1}段`, startDate, ...(i === 0 ? { description } : {}) })),
+    yearEndDate: '2027-06-30',
+  })
+
+  it('舊結果＝新結果：純中文名稱剛好上限過、多一字擋', () => {
+    expect(normalizeScheduleInput(firstStage('字'.repeat(STAGE_NAME_MAX_LENGTH))).ok).toBe(true)
+    const long = normalizeScheduleInput(firstStage('字'.repeat(STAGE_NAME_MAX_LENGTH + 1)))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.name')
+  })
+
+  it('名稱含 emoji 與中文剛好上限：通過；多一字擋', () => {
+    const name = `👍中${'字'.repeat(STAGE_NAME_MAX_LENGTH - 2)}`
+    expect(name.length).toBe(STAGE_NAME_MAX_LENGTH + 1)
+    expect(normalizeScheduleInput(firstStage(name)).ok).toBe(true)
+    const long = normalizeScheduleInput(firstStage(`${name}字`))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.name')
+  })
+
+  it('說明含 emoji 與中文剛好上限：通過；多一字擋', () => {
+    const description = `👍中${'字'.repeat(STAGE_DESCRIPTION_MAX_LENGTH - 2)}`
+    expect(normalizeScheduleInput(firstStage('成組期', description)).ok).toBe(true)
+    const long = normalizeScheduleInput(firstStage('成組期', `${description}字`))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.description')
   })
 })

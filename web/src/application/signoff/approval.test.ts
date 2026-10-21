@@ -4,6 +4,7 @@ import {
   causeForRestart,
   checkVoid,
   checkVote,
+  MAX_REASON_CHARS,
   nextRemindAt,
   nextStateAfterVote,
   normalizeReason,
@@ -249,5 +250,19 @@ describe('匯出', () => {
       expect(out).toContain('系辦重新收集同意')
       expect(out).not.toContain('重置')
     }
+  })
+})
+
+describe('理由字數以字計（⑤-16、AC-63）', () => {
+  it('舊結果＝新結果：純中文與空白、換行剛好上限過、多一字擋', () => {
+    expect(normalizeReason(`第一行\n${'字'.repeat(MAX_REASON_CHARS - 4)}`, false, '不同意')).toMatchObject({ ok: true })
+    expect(normalizeReason('字'.repeat(MAX_REASON_CHARS + 1), false, '不同意')).toMatchObject({ ok: false })
+  })
+
+  it('含 emoji 與中文剛好上限：通過；多一字擋', () => {
+    const reason = `👍中${'字'.repeat(MAX_REASON_CHARS - 2)}`
+    expect(reason.length).toBe(MAX_REASON_CHARS + 1)
+    expect(normalizeReason(reason, true, '退回')).toEqual({ ok: true, reason })
+    expect(normalizeReason(`${reason}字`, true, '退回')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
   })
 })
