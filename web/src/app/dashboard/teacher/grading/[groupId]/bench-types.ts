@@ -1,4 +1,5 @@
 import type { GroupVersionWithFiles } from '@/application/submissions'
+import { charLength } from '@/shared/text'
 
 /**
  * 評分單組頁（TE-06b）用的型別。總覽的在 `../overview-types.ts`；`../types.ts`（Server Action 回傳）不放這裡。
@@ -45,4 +46,4 @@ export type BenchSnapshot = {
 
 /** 評語上限（B 階段 TE-B4）：跟用例、資料庫 `char_length` 同一個數，按字元（code point）算，emoji 算一個字。 */
 export const COMMENT_MAX = 500
-export const commentLength = (text: string) => [...text].length
+export const commentLength = charLength

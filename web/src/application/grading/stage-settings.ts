@@ -1,4 +1,5 @@
 import { err, type Err } from '@/shared/result'
+import { charLength } from '@/shared/text'
 
 /**
  * 評分項目的側表（C 階段 C1-04；設計方案① §1.3、§3.4）：對應作業、給老師看的說明、評審組。
@@ -109,6 +110,6 @@ export function optionalReason(raw: unknown, what: string, max = 500): { ok: tru
   if (typeof raw !== 'string') return err('VALIDATION_FAILED', `${what}格式不對，請重新整理頁面再試。`, { details: { field: 'reason' } })
   const value = raw.trim()
   if (value === '') return { ok: true, value: null }
-  if ([...value].length > max) return err('VALIDATION_FAILED', `${what}最多 ${max} 字。`, { details: { field: 'reason' } })
+  if (charLength(value) > max) return err('VALIDATION_FAILED', `${what}最多 ${max} 字。`, { details: { field: 'reason' } })
   return { ok: true, value }
 }

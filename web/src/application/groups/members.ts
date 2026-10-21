@@ -1,4 +1,5 @@
 import { err, type Err } from '@/shared/result'
+import { charLength } from '@/shared/text'
 
 /**
  * 管理員調整組員與換組長的型別與純規則（票 14；產品模組 03 §5.2 的 2026-09-24 定案、「組長」、§5.5「換成員」）。
@@ -19,7 +20,7 @@ export const CHANGE_REASON_MAX_LENGTH = 200
  */
 export function normalizeReason(reason: string, what: string): { ok: true; value: string } | Err {
   const trimmed = reason.trim()
-  if (trimmed.length > CHANGE_REASON_MAX_LENGTH) {
+  if (charLength(trimmed) > CHANGE_REASON_MAX_LENGTH) {
     return err('VALIDATION_FAILED', `${what}的理由最多 ${CHANGE_REASON_MAX_LENGTH} 個字。`, { details: { field: 'reason' } })
   }
   return { ok: true, value: trimmed }

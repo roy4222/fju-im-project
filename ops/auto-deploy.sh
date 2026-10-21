@@ -18,12 +18,18 @@
 # 失敗的 SHA 不會每 2 分鐘重試（避免一直重啟測試站）：同一個 SHA 只試一次，
 # 下一次 main 有新映像才會再動。要重試同一個 SHA：rm /srv/fju/test/deploy/auto-deploy.last
 # 紀錄：journalctl -u fju-auto-deploy.service，以及 /srv/fju/test/deploy/auto-deploy.log。
+#
+# Healthchecks.io 打卡（⑤-06）：/srv/fju/secrets/healthchecks-deploy.url 存在時，每一輪結束都打一次——
+# exit 0（含沒新映像、暫停中、上一輪還在跑）→ 成功；其他（拉不到映像、deploy.sh 失敗）→ /fail。
+# body 是這一輪最後一句說明。檔案不存在就完全不呼叫 curl（ops/lib/healthchecks.sh）。
 set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_ROOT"
 # shellcheck source-path=SCRIPTDIR source=lib/site.sh
 . "$APP_ROOT/ops/lib/site.sh"
+# shellcheck source-path=SCRIPTDIR source=lib/healthchecks.sh
+. "$APP_ROOT/ops/lib/healthchecks.sh"
 
 # 在 mkdir／鎖檔／寫紀錄之前擋掉非 deploy 身分（見 ops/lib/site.sh）。
 require_deploy_user "$APP_ROOT/ops/auto-deploy.sh"
@@ -39,7 +45,10 @@ LAST_FILE="$STATE_DIR/auto-deploy.last"
 AUTO_LOG="$STATE_DIR/auto-deploy.log"
 DEPLOY_LOG="$STATE_DIR/deploy_log"
 
-say() { printf '[auto-deploy] %s\n' "$*"; }
+HC_URL_FILE="$FJU_SECRETS_DIR/healthchecks-deploy.url"
+LAST_SAY=""
+
+say() { LAST_SAY="$*"; printf '[auto-deploy] %s\n' "$*"; }
 record() { printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$1" "$2" >> "$AUTO_LOG"; }
 
 # 部署成功後清舊的 fju-web 映像（Q172，2026-10-17：每版約 816MB，86 次合併就把 VM 根目錄塞滿）。
@@ -91,6 +100,18 @@ cleanup_old_images() {
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
+
+# 每一輪結束（任何 exit）都打卡；身分不對的在上面 require_deploy_user 就停了，不會走到這裡。
+# shellcheck disable=SC2329  # 由下面的 trap 呼叫。
+hc_on_exit() {
+  local code=$?
+  if [ "$code" = 0 ]; then
+    hc_ping "$HC_URL_FILE" '' "$LAST_SAY"
+  else
+    hc_ping "$HC_URL_FILE" fail "exit ${code}：${LAST_SAY}"
+  fi
+}
+trap hc_on_exit EXIT
 
 if [ -e "$PAUSE_FILE" ]; then
   say "暫停中（$PAUSE_FILE 存在），不檢查。"

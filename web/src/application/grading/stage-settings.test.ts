@@ -95,3 +95,13 @@ describe('optionalReason（X2 理由選填）', () => {
     expect(optionalReason(3, '結算理由')).toMatchObject({ ok: false, details: { field: 'reason' } })
   })
 })
+
+describe('optionalReason 字數改用共用 charLength（⑤-16、AC-63）', () => {
+  it('舊結果＝新結果：emoji＋中文剛好上限過、多一字擋', () => {
+    const reason = `👍中${'字'.repeat(498)}`
+    expect(reason.length).toBe(501)
+    expect(optionalReason(reason, '結算理由')).toEqual({ ok: true, value: reason })
+    expect(optionalReason(`${reason}字`, '結算理由')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+    expect(optionalReason(`a b\n${'x'.repeat(496)}`, '結算理由')).toMatchObject({ ok: true })
+  })
+})

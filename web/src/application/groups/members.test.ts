@@ -170,3 +170,17 @@ describe('停用組長時的接任（票 42；GRP-18）', () => {
     expect(A).toBeDefined()
   })
 })
+
+describe('理由字數以字計（⑤-16、AC-63）', () => {
+  it('舊結果＝新結果：英文、空白、換行剛好上限過、多一字擋', () => {
+    expect(normalizeReason(`a b\n${'x'.repeat(CHANGE_REASON_MAX_LENGTH - 4)}`, '移出組員')).toMatchObject({ ok: true })
+    expect(normalizeReason('x'.repeat(CHANGE_REASON_MAX_LENGTH + 1), '移出組員')).toMatchObject({ ok: false })
+  })
+
+  it('含 emoji 與中文剛好上限：通過；多一字擋', () => {
+    const reason = `👍中${'字'.repeat(CHANGE_REASON_MAX_LENGTH - 2)}`
+    expect(reason.length).toBe(CHANGE_REASON_MAX_LENGTH + 1)
+    expect(normalizeReason(reason, '換組長')).toEqual({ ok: true, value: reason })
+    expect(normalizeReason(`${reason}字`, '換組長')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  })
+})

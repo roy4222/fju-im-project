@@ -8,6 +8,8 @@
  * 這個檔只有規則，沒有資料庫：key 清單、每種文字的欄位與字數上限、表單收斂、資料庫 JSON 的讀取。
  */
 
+import { charLength } from '@/shared/text'
+
 export const SITE_TEXT_KEYS = ['footer_contact', 'quick_card_1', 'quick_card_2', 'quick_card_3', 'privacy'] as const
 export type SiteTextKey = (typeof SITE_TEXT_KEYS)[number]
 export type QuickCardKey = Extract<SiteTextKey, `quick_card_${number}`>
@@ -85,11 +87,6 @@ export const FOOTER_CONTACT_LABEL: Record<FooterContactField, string> = {
 export type NormalizedSiteText<K extends SiteTextKey = SiteTextKey> =
   | { readonly ok: true; readonly value: SiteTextValue[K] }
   | { readonly ok: false; readonly field: string; readonly message: string }
-
-/** 以「字」計（code point），跟 Postgres 的 `char_length` 一樣；emoji 算一個字。 */
-function charLength(value: string): number {
-  return Array.from(value).length
-}
 
 type Line = { ok: true; value: string } | { ok: false; field: string; message: string }
 

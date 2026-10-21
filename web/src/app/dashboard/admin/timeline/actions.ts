@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { refresh } from 'next/cache'
 import { currentActor } from '@/app/_ui/guard'
 import type { TimelineActionState } from '@/app/dashboard/admin/timeline/timeline-forms'
+import { actorHasRole, checkStatus } from '@/composition/accounts'
 import { cohortLabel, getSchedulePreview, getTimelineCommand, getTimelineQuery, STAGE_COUNT } from '@/composition/cohorts'
 
 /**
@@ -143,6 +144,12 @@ export async function moveActivityAction(
   return { ok: true, message: `已更新活動「${result.receipt.title}」。` }
 }
 
+/** SEC-2：甘特的兩個動作要先讀目前存的階段才進用例，所以在讀之前先過系辦＋business 狀態守門（同 `groups/actions.ts`）。 */
+const STAGE_DATES_FORBIDDEN = '只有系辦可以調整階段日期；請重新登入。'
+function isAdmin(actor: Awaited<ReturnType<typeof currentActor>>): boolean {
+  return actorHasRole(actor, 'admin') && checkStatus(actor, 'business') === null
+}
+
 type StageDatesInput = { stages: { seq: number; startDate: string }[]; yearEndDate: string; revision: number }
 
 /** gantt 只給四段開始日與年度結束日：名稱、說明照目前存的補齊成整份 `ScheduleInput`。 */
@@ -164,8 +171,10 @@ export async function previewScheduleAction(
   cohortId: string,
   input: StageDatesInput,
 ): Promise<{ ok: true; message: string; groupItemCount: number; changed: boolean } | { ok: false; message: string }> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, message: STAGE_DATES_FORBIDDEN }
   const id = String(cohortId)
-  const result = await getSchedulePreview().previewSchedule(await currentActor(), id, await scheduleFromDates(id, input), Number(input?.revision))
+  const result = await getSchedulePreview().previewSchedule(actor, id, await scheduleFromDates(id, input), Number(input?.revision))
   if (!result.ok) return { ok: false, message: result.message }
   const { preview } = result
   return { ok: true, message: preview.message, groupItemCount: preview.groupItemCount, changed: preview.changedStages.length > 0 }
@@ -179,9 +188,11 @@ export async function saveStageDatesAction(
   cohortId: string,
   input: StageDatesInput,
 ): Promise<{ ok: true; message?: string } | { ok: false; message: string }> {
+  const actor = await currentActor()
+  if (!isAdmin(actor)) return { ok: false, message: STAGE_DATES_FORBIDDEN }
   const id = String(cohortId)
   const result = await getTimelineCommand().saveSchedule(
-    await currentActor(),
+    actor,
     id,
     await scheduleFromDates(id, input),
     Number(input?.revision),

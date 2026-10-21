@@ -6,6 +6,8 @@
  * 上傳、縮圖、重設是 SH-9。
  */
 
+import { charLength } from '@/shared/text'
+
 /** 頭像要的最小資料。各來源（Actor、組員、表態列）的 id／姓名欄名不同，呼叫端自己組這個物件。 */
 export type AvatarUser = {
   readonly id: string
@@ -79,5 +81,5 @@ export function normalizeAvatarResetReason(reason: unknown): { ok: true; value: 
   if (typeof reason !== 'string') return { ok: false }
   const trimmed = reason.trim()
   if (!trimmed) return { ok: true, value: null }
-  return Array.from(trimmed).length <= AVATAR_RESET_REASON_MAX ? { ok: true, value: trimmed } : { ok: false }
+  return charLength(trimmed) <= AVATAR_RESET_REASON_MAX ? { ok: true, value: trimmed } : { ok: false }
 }

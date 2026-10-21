@@ -112,3 +112,14 @@ describe('首頁大圖的上傳規則', () => {
     expect(HERO_UPLOAD).toEqual({ allowedTypes: ['png', 'jpg'], maxBytes: 5 * 1024 * 1024 })
   })
 })
+
+describe('字數改用共用 charLength（⑤-16）：舊結果＝新結果', () => {
+  it('emoji＋中文剛好上限過、多一字擋，訊息字數照 code point 算', () => {
+    const max = HOME_LIMITS.line1
+    const line1 = `👍中${'字'.repeat(max - 2)}`
+    expect(normalizeHomeSettings({ heroFileId: null, heroAlt: '', line1, line2: '' })).toMatchObject({ ok: true })
+    const over = normalizeHomeSettings({ heroFileId: null, heroAlt: '', line1: `${line1}a`, line2: '' })
+    expect(over).toMatchObject({ ok: false, field: 'line1' })
+    if (!over.ok) expect(over.message).toContain(`（現在 ${max + 1} 字）`)
+  })
+})

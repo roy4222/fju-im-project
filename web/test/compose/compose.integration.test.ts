@@ -280,6 +280,17 @@ describe('VM 兩站（docker-compose.vm.yml，2026-09-24）', () => {
     expect(Object.keys(test.services.app?.environment ?? {})).not.toContain('DB_POOL_MAX')
   })
 
+  it('Healthchecks.io 打卡網址只轉交給 worker，app 拿不到；沒設時 worker 是空字串（⑤-06，AC-40a）', async () => {
+    const fake = 'https://hc.example/ping/fake'
+    const given = await siteConfig('test', { ...FAKE_SITE_SECRETS, HEALTHCHECKS_WORKER_URL: fake })
+    expect(given.services.worker?.environment?.HEALTHCHECKS_WORKER_URL).toBe(fake)
+    expect(Object.keys(given.services.app?.environment ?? {})).not.toContain('HEALTHCHECKS_WORKER_URL')
+
+    const missing = await siteConfig('test')
+    expect(missing.services.worker?.environment?.HEALTHCHECKS_WORKER_URL).toBe('')
+    expect(Object.keys(missing.services.app?.environment ?? {})).not.toContain('HEALTHCHECKS_WORKER_URL')
+  })
+
   it('少一個秘密就整個失敗，不會用空值把容器建起來', async () => {
     const partial = { ...FAKE_SITE_SECRETS }
     delete partial.DATABASE_URL
