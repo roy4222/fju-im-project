@@ -46,10 +46,11 @@ afterEach(() => {
 function run(
   script: string,
   args: string[],
-  opts: { user?: string; locale?: string; bash?: string } = {},
+  opts: { user?: string; locale?: string; bash?: string; env?: Record<string, string> } = {},
 ) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...opts.env,
     PATH: `${path.join(dir, 'bin')}:${process.env.PATH ?? ''}`,
     FJU_ROOT: fjuRoot,
     FJU_SECRETS_DIR: path.join(fjuRoot, 'secrets'),
@@ -88,6 +89,7 @@ const GUARDED: Array<[string, string[]]> = [
   ['seed-demo.sh', ['test']],
   ['seed-demo.sh', ['test', '--remove']],
   ['auto-deploy.sh', []],
+  ['backup-daily.sh', []],
   ['site.sh', ['test', 'check']],
   ['fault-drill.sh', ['--site', 'test', 'restart', '--execute']],
 ]
@@ -182,6 +184,130 @@ describe('restore-drill.sh 的參數與目錄檢查', () => {
     expect(r.code).toBe(0)
     expect(r.stdout).toContain('還沒有備份目錄')
     expect(r.written).toEqual([])
+  })
+})
+
+describe('Healthchecks.io 打卡（⑤-06）：有 url 檔才呼叫 curl', () => {
+  // 假網址；測試與 repo 都不放真網址。
+  const FAKE_URL = 'https://hc.example/ping/fake'
+  const secrets = () => path.join(fjuRoot, 'secrets')
+  const curlCalls = (calls: string[]) => calls.filter((c) => c.startsWith('curl '))
+
+  function fakeCommand(name: string, body: string) {
+    const file = path.join(dir, 'bin', name)
+    fs.writeFileSync(file, `#!/usr/bin/env bash\necho "${name} $*" >> "$CALLS_LOG"\n${body}\n`)
+    fs.chmodSync(file, 0o755)
+  }
+
+  function writeUrlFile(name: string) {
+    fs.mkdirSync(secrets(), { recursive: true })
+    fs.writeFileSync(path.join(secrets(), name), `${FAKE_URL}\n`, { mode: 0o600 })
+  }
+
+  beforeEach(() => {
+    fakeCommand('curl', 'exit 0')
+  })
+
+  /** auto-deploy 走到「拿鎖」那一步：token 檔在、手動部署過一次。假 flock 失敗＝上一輪還在跑（exit 0）。 */
+  function prepareAutoDeploy() {
+    fs.mkdirSync(secrets(), { recursive: true })
+    fs.writeFileSync(path.join(secrets(), 'doppler-test.token'), 'not-a-real-token', { mode: 0o600 })
+    const deployDir = path.join(fjuRoot, 'test', 'deploy')
+    fs.mkdirSync(deployDir, { recursive: true })
+    fs.writeFileSync(path.join(deployDir, 'deploy_log'), `2026-10-21T00:00:00Z\tdeployed\t${'0'.repeat(40)}\tfull\n`)
+  }
+
+  it('auto-deploy：有 url 檔 → 檢查完畢（exit 0）呼叫假 curl 一次，打成功網址、body 是這輪的說明', () => {
+    prepareAutoDeploy()
+    writeUrlFile('healthchecks-deploy.url')
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('上一輪還在跑')
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(1)
+    expect(curls[0]).toMatch(/ https:\/\/hc\.example\/ping\/fake$/)
+    expect(curls[0]).toContain('-fsS -m 10 --retry 3 -o /dev/null')
+    expect(curls[0]).toContain('--data-raw 上一輪還在跑')
+    expect(r.stdout).toContain('[healthchecks] ping 已送（成功）')
+    expect(r.stdout).not.toContain('hc.example')
+  })
+
+  it('auto-deploy：沒有 url 檔 → 行為不變、不呼叫 curl（AC-35）', () => {
+    prepareAutoDeploy()
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('上一輪還在跑')
+    expect(curlCalls(r.calls)).toEqual([])
+    expect(r.stdout).not.toContain('[healthchecks]')
+  })
+
+  it('auto-deploy：這輪失敗（拉不到映像，exit 1）→ 打 /fail，exit code 不變', () => {
+    prepareAutoDeploy()
+    writeUrlFile('healthchecks-deploy.url')
+    fakeCommand('flock', 'exit 0')
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(1)
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(1)
+    expect(curls[0]).toMatch(/ https:\/\/hc\.example\/ping\/fake\/fail$/)
+    expect(curls[0]).toContain('--data-raw exit 1：拉不到')
+  })
+
+  it('auto-deploy：curl 失敗只印一行，不改這輪的 exit code', () => {
+    prepareAutoDeploy()
+    writeUrlFile('healthchecks-deploy.url')
+    fakeCommand('curl', 'exit 7')
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(0)
+    expect(curlCalls(r.calls)).toHaveLength(1)
+    expect(r.stdout).toContain('ping 沒送出')
+  })
+
+  it('backup-daily：沒有正式站容器 → 印「正式站不存在，略過」、送 /start 與成功、exit 0（AC-38）', () => {
+    writeUrlFile('healthchecks-backup.url')
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '42' } })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('正式站不存在，略過')
+    expect(r.calls).toContain('docker inspect fju-prod-postgres')
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(2)
+    expect(curls[0]).toMatch(/ https:\/\/hc\.example\/ping\/fake\/start$/)
+    expect(curls[1]).toMatch(/ https:\/\/hc\.example\/ping\/fake$/)
+    expect(curls[1]).toContain('磁碟 42%')
+    // 正式站不存在就不跑 backup.sh、不建異地目錄。
+    expect(r.written).toEqual(['secrets', path.join('secrets', 'healthchecks-backup.url')])
+  })
+
+  it('backup-daily：磁碟 ≥ 80% → 送 /fail，body 含「磁碟 NN%」（AC-39）', () => {
+    writeUrlFile('healthchecks-backup.url')
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '85' } })
+    expect(r.code).toBe(0)
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(2)
+    expect(curls[1]).toMatch(/ https:\/\/hc\.example\/ping\/fake\/fail$/)
+    expect(curls[1]).toContain('--data-raw 磁碟 85%')
+  })
+
+  it('backup-daily：正式站在但 backup.sh 失敗（這裡是取不到 Doppler 秘密）→ 送 /fail、非 0 結束、不同步異地', () => {
+    writeUrlFile('healthchecks-backup.url')
+    fakeCommand('docker', 'exit 0')
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '42' } })
+    expect(r.code).not.toBe(0)
+    expect(r.stdout).toContain('正式站備份失敗')
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(2)
+    expect(curls[0]).toMatch(/\/start$/)
+    expect(curls[1]).toMatch(/ https:\/\/hc\.example\/ping\/fake\/fail$/)
+    expect(curls[1]).toContain('--data-raw 正式站備份失敗')
+    expect(fs.existsSync(path.join(fjuRoot, 'offsite'))).toBe(false)
+  })
+
+  it('backup-daily：沒有 url 檔 → 照樣跑完、不呼叫 curl', () => {
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '85' } })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('正式站不存在，略過')
+    expect(r.stdout).toContain('磁碟 85%')
+    expect(curlCalls(r.calls)).toEqual([])
   })
 })
 
@@ -358,6 +484,7 @@ describe('中文語系：$VAR 後面緊貼中文字', () => {
     ['restore-drill.sh', ['--site', 'test', '--backup', 'latest'], 'self'],
     ['backup.sh', ['--site', 'test', '--status'], 'self'],
     ['auto-deploy.sh', [], undefined],
+    ['backup-daily.sh', [], undefined],
   ]
 
   for (const shell of shells) {
