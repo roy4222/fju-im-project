@@ -25,21 +25,21 @@
 
      | 鍵（雜湊函式的輸入） | 雜湊函式 | 保護什麼 | 程式位置 |
      |---|---|---|---|
-     | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts:302,393,464,500` |
-     | `cohorts.<欄位>` | `hashtext` | 同時只有一屆帶 `is_default_working`／`is_registration_open`（設定新屆別時把舊的取消） | `pg-cohorts.ts:235` |
-     | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts:691`、`pg-group-import.ts:270` |
-     | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts:127`、`pg-group-import.ts:292` |
-     | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts:190` |
-     | `items.resource_category` | `hashtextextended`（seed 0） | 資源分類 | `pg-items.ts:1672` |
-     | `reminder:item:<id>`、`reminder:grading:<cohortId>` | `hashtext` | 催繳／評分提醒排隊 | `pg-reminders.ts:163,250,293`（取鎖函式在 498） |
-     | `submission_reopen:<itemId>:<receiverId>` | `hashtextextended`（seed 0） | 重新開放繳交 | `pg-submissions.ts:723` |
-     | `business_clock_overrides` | `hashtext` | 營運時鐘覆寫 | `pg-business-clock.ts:140` |
+     | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts` |
+     | `cohorts.<欄位>` | `hashtext` | 同時只有一屆帶 `is_default_working`／`is_registration_open`（設定新屆別時把舊的取消） | `pg-cohorts.ts` |
+     | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts`、`pg-group-import.ts` |
+     | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts`、`pg-group-import.ts` |
+     | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts` |
+     | `items.resource_category` | `hashtextextended`（seed 0） | 資源分類 | `pg-items.ts` |
+     | `reminder:item:<id>`、`reminder:grading:<cohortId>` | `hashtext` | 催繳／評分提醒排隊 | `pg-reminders.ts`（三個呼叫處共用取鎖函式 `lockKey`） |
+     | `submission_reopen:<itemId>:<receiverId>` | `hashtextextended`（seed 0） | 重新開放繳交 | `pg-submissions.ts` |
+     | `business_clock_overrides` | `hashtext` | 營運時鐘覆寫 | `pg-business-clock.ts` |
 
    - session 層級（`pg_try_advisory_lock`，綁在專用連線上，程序死掉自動放；也登記在這裡）：
 
      | 鍵 | 雜湊函式 | 保護什麼 | 程式位置 |
      |---|---|---|---|
-     | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts:10,28`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖在 46） |
+     | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖也在同檔） |
 3. **字數一律用 `charLength()`**（`web/src/shared/text.ts`，按字元算，一個表情符號算一個字）。不准用 `.length`（會把表情符號算成兩個字，和畫面計數不一致）。現有用法：`web/src/application/accounts/avatar.ts:84`、`application/cohorts/stages.ts:76`、`application/grading/scheme.ts:164`。
 4. **requestId 重播預設回原回執，屆別已封存也一樣**（2026-10-21，#814，主腦裁定）：白話：同一個 requestId 再送一次，等於「上次那件事」，系統只把上次的結果再回你一次，不會再寫資料；就算那一屆後來封存了也照回，因為那次操作在封存前真的成功過。所以寫入命令的順序是先看重播、後看封存（全站約 56 處，不改）。**例外只有 AC-56c 指定的 7 處，封存檢查排在重播之前，封存後重送回 `COHORT_ARCHIVED`**：
    - `pg-submissions.ts`：`saveDraft`（`:210`，封存檢查 `:230`）、`submit`（`:312`，`:330`）、`setAdvisorVisibility`（改閱覽設定，`:553`，`:581`）、`reopen`（開放補交，`:639`，`:680`）、`setExempt`（設免繳，`:802`，`:836`）。
