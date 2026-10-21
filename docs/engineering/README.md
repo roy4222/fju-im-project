@@ -41,7 +41,24 @@
      |---|---|---|---|
      | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts:10,28`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖在 46） |
 3. **字數一律用 `charLength()`**（`web/src/shared/text.ts`，按字元算，一個表情符號算一個字）。不准用 `.length`（會把表情符號算成兩個字，和畫面計數不一致）。現有用法：`web/src/application/accounts/avatar.ts:84`、`application/cohorts/stages.ts:76`、`application/grading/scheme.ts:164`。
-4. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
+4. **requestId 重播預設回原回執，屆別已封存也一樣**（2026-10-21，#814，主腦裁定）：白話：同一個 requestId 再送一次，等於「上次那件事」，系統只把上次的結果再回你一次，不會再寫資料；就算那一屆後來封存了也照回，因為那次操作在封存前真的成功過。所以寫入命令的順序是先看重播、後看封存（全站約 56 處，不改）。**例外只有 AC-56c 指定的 7 處，封存檢查排在重播之前，封存後重送回 `COHORT_ARCHIVED`**：
+   - `pg-submissions.ts`：`saveDraft`（`:210`，封存檢查 `:230`）、`submit`（`:312`，`:330`）、`setAdvisorVisibility`（改閱覽設定，`:553`，`:581`）、`reopen`（開放補交，`:639`，`:680`）、`setExempt`（設免繳，`:802`，`:836`）。
+   - `ops/file-storage.ts` 的 `upload`（上傳完成，`:193`，封存檢查 `:220`）：這一處靠的是上傳憑證（ticket）只能用一次，不是 requestId 重播；同樣是封存後重送拿到錯誤而不是舊結果。
+   - `signoff/pg-consent-bridge.ts` 的 `createForGroup`（同意書補建，`:228`，封存檢查 `:262` 在重播 `:277` 之前）。
+   - 新寫入命令照預設（先重播、後封存）；要變成例外，要有規格明文（像 AC-56c），並在這裡登記。**不要**加「`ledger.begin(` 前必須有封存檢查」的結構測試，會擋到解封與 #715／#788 已裁定的例外。
+   - 重新找出「先重播、後封存」的清單（預期印出 56 行與 `total 56`；在 repo 根目錄跑，來源：`docs/reviews/2026-10-21-architecture-security-review.md` 的重播掃描指令）：
+
+     ```sh
+     git grep -n -A40 'ledger.begin(' -- web/src/infrastructure ':!*.test.ts' | awk '
+     function flush() { if (site != "" && rep && after && site !~ /pg-cohorts\.ts/) { print site; n++ } }
+     /^[^ :]+:[0-9]+:.*ledger\.begin\(/ { flush(); split($0, a, ":"); site = a[1] ":" a[2]; rep = 0; after = 0; next }
+     /replayed</ { rep = 1; next }
+     rep && /status === .archived.|cohortStatus === .archived.|cohort_status === .archived.|archivedBlocks[(]|writeBlocked[(]|groupWriteBlocked[(]/ { after = 1 }
+     END { flush(); print "total " n }'
+     ```
+
+   - 核對 7 處例外：`git grep -nE "archivedGuard\(|status === 'archived'|replayed<" -- web/src/infrastructure/submissions/pg-submissions.ts web/src/infrastructure/ops/file-storage.ts web/src/infrastructure/signoff/pg-consent-bridge.ts`，每個命令的封存檢查（`archivedGuard(` 或 `status === 'archived'`）行號要小於它自己的 `replayed<` 行號（上傳不走 requestId，只有封存檢查行）；測試見 `archived-readonly.integration.test.ts` 的 AC-56c。
+5. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
 
 ## GitHub review 入口（2026-09-12）
 

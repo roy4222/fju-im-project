@@ -28,7 +28,7 @@ export function GradingWeights({ weights }: { weights: PublicGradingWeights }) {
   return (
     <section aria-labelledby="grading-weights-title" className="flex flex-col gap-3" data-testid="grading-weights">
       <h2 id="grading-weights-title" className="border-b-2 border-border pb-2 text-[22px] font-bold text-ink">
-        評分方式
+        評分方式與比例
       </h2>
       <p className="text-[15px] text-muted-foreground">{weights.cohortName}・依系辦目前發布的評分規則</p>
       <ul className="mt-1 flex flex-col gap-3">
