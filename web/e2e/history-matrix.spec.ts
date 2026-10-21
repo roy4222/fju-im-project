@@ -1,4 +1,4 @@
-import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -196,9 +196,12 @@ async function versionRows(page: Page, tableName: string): Promise<string[]> {
  * 學生繳交歷史表的每一列「第幾次＋送出者」，格式同 versionRows。學生的表不寫版本號（C 階段規格① §5.2、AC-19），
  * 新的在上，所以第幾次由列的位置推（最上面一列＝最新一次）。
  */
-async function timelineRows(page: Page, tableName: string): Promise<string[]> {
-  await expect(page.getByRole('table', { name: tableName })).toBeVisible()
-  const rows = await page.getByRole('table', { name: tableName }).locator('tbody tr').all()
+async function timelineRows(page: Page, tableNames: readonly string[]): Promise<string[]> {
+  const rows: Locator[] = []
+  for (const name of tableNames) {
+    await expect(page.getByRole('table', { name })).toBeVisible()
+    rows.push(...(await page.getByRole('table', { name }).locator('tbody tr').all()))
+  }
   const out: string[] = []
   for (const [index, row] of rows.entries()) {
     const text = (await row.innerText()).replace(/\s+/g, ' ')
@@ -207,6 +210,24 @@ async function timelineRows(page: Page, tableName: string): Promise<string[]> {
     out.push(`v${rows.length - index}:${who}`)
   }
   return out
+}
+
+/**
+ * 版本表只露出最後一次，舊的折在「之前的版本（N）」（C 收尾 CL-13）：先確認最新那張表只有一列、折疊數字對，再展開。
+ */
+async function openOlder(page: Page, latestTable: string, olderCount: number) {
+  await expect(page.getByRole('table', { name: latestTable }).locator('tbody tr')).toHaveCount(1)
+  const summary = page.getByTestId('older-versions').locator('summary')
+  await expect(summary).toHaveText(`之前的版本（${olderCount}）`)
+  await expect(page.getByRole('table', { name: '之前的版本' })).toBeHidden()
+  await summary.click()
+}
+
+/** 指導老師閱覽的開關（C 收尾 CL-13：在編輯表單的進階設定裡，跟表單一起存）。 */
+async function advisorToggle(page: Page, id: string): Promise<Locator> {
+  await page.goto(`/dashboard/admin/editor/${id}`)
+  await page.getByTestId('advanced-settings').locator('summary').click()
+  return page.getByTestId('advisor-visibility').getByLabel('開放指導老師閱覽')
 }
 
 async function submitAs(page: Page, who: Person, topic: string, file?: { name: string; buffer: Buffer }) {
@@ -277,7 +298,8 @@ test('1. 全組、目前主指導、系辦看到同一份版本歷史；名單�
   // 組員：繳交歷史。
   await signIn(page, s2)
   await page.goto(`/dashboard/student/affairs/${itemId}?tab=history`)
-  const byStudent = await timelineRows(page, '繳交歷史')
+  await openOlder(page, '繳交歷史', 1)
+  const byStudent = await timelineRows(page, ['繳交歷史', '之前的版本'])
   expect(byStudent).toEqual(['v2:組員二號', 'v1:組長一號'])
 
   // 目前主指導：矩陣 → 點 G1 的格子 → 同一份版本。
@@ -298,7 +320,8 @@ test('1. 全組、目前主指導、系辦看到同一份版本歷史；名單�
   await page.goto(`/dashboard/admin/affairs/${itemId}`)
   await expect(page.getByTestId('completion-rate')).toHaveText('1／2')
   await page.getByRole('link', { name: `查看 ${G1} 組的繳交` }).click()
-  expect(await versionRows(page, '正式送出的版本')).toEqual(byStudent)
+  await openOlder(page, '正式送出的版本', 1)
+  expect([...(await versionRows(page, '正式送出的版本')), ...(await versionRows(page, '之前的版本'))]).toEqual(byStudent)
 })
 
 test('2＋3. 下載授權逐角色；矩陣只列自己目前指導的組；換老師後舊老師 404／403、新老師接手', async ({ page }) => {
@@ -361,20 +384,23 @@ test('4. 被移出的人只看得到自己還在組裡時的版本（移出後�
   expect((await page.goto(`/dashboard/student/affairs/${itemId}?record=${g1}`))?.status()).toBe(404)
 })
 
-test('4. 個人回答：老師預設看不到；系辦在名單頁開主指導閱覽後，學生看到告知、目前主指導看得到正式版本', async ({ page }) => {
-  // 系辦：發布前在名單頁開主指導閱覽（有確認對話框與結果回饋）。
+test('4. 個人回答：老師預設看不到；系辦在編輯表單開指導老師閱覽後，學生看到告知、目前主指導看得到正式版本', async ({ page }) => {
+  // 名單頁不再有閱覽面板（C 收尾 CL-13）。
   await signIn(page, admin)
   await page.goto(`/dashboard/admin/affairs/${personalId}`)
-  const panel = page.getByTestId('visibility-panel')
-  await expect(panel.getByTestId('visibility-state')).toHaveText('不開放')
-  await panel.getByRole('button', { name: '開放指導老師閱覽' }).click()
-  const dialog = page.getByRole('dialog', { name: '開放指導老師閱覽' })
-  await expect(dialog).toContainText('學生填寫頁會先出現')
-  await dialog.getByRole('button', { name: '確定開放' }).click()
-  const opened = page.locator('dialog[open]')
-  await expect(opened.getByRole('status')).toContainText('已開放')
-  await opened.getByRole('button', { name: '關閉', exact: true }).click()
-  await expect(panel.getByTestId('visibility-state')).toContainText('開放中')
+  await expect(page.getByText('還沒發布，還沒有需要繳交的名單')).toBeVisible()
+  await expect(page.getByTestId('visibility-panel')).toHaveCount(0)
+
+  // 系辦：發布前在編輯表單的進階設定勾「開放指導老師閱覽」，跟草稿一起存。
+  let toggle = await advisorToggle(page, personalId)
+  await expect(toggle).not.toBeChecked()
+  await expect(page.getByTestId('advisor-visibility')).toContainText('個人回答只有本人與系辦看得到')
+  await toggle.check()
+  await expect(page.getByTestId('advisor-visibility')).toContainText('學生填寫前會看到告知')
+  await page.getByRole('button', { name: '儲存（先不發布）' }).click()
+  await expect(page.getByText('已存成草稿')).toBeVisible()
+  toggle = await advisorToggle(page, personalId)
+  await expect(toggle).toBeChecked()
 
   await publish(personalId, PERSONAL_TITLE, PERSONAL_FIELDS, [
     { kind: 'user', id: s1.userId },
@@ -403,17 +429,18 @@ test('4. 個人回答：老師預設看不到；系辦在名單頁開主指導�
   await signIn(page, t1)
   expect((await page.goto(`/dashboard/teacher/affairs/${personalId}?person=${s1.userId}&version=1`))?.status()).toBe(404)
 
-  // 系辦關掉：老師馬上看不到；已經有人作答，不能再開（按鈕停用並說明原因）。
+  // 系辦在編輯表單取消勾選、儲存更新：老師馬上看不到；已經有人作答，不能再開（開關停用並說明原因）。
   await signIn(page, admin)
-  await page.goto(`/dashboard/admin/affairs/${personalId}`)
-  await panel.getByRole('button', { name: '關閉指導老師閱覽' }).click()
-  await page.getByRole('dialog', { name: '關閉指導老師閱覽' }).getByRole('button', { name: '確定關閉' }).click()
-  const closed = page.locator('dialog[open]')
-  await expect(closed.getByRole('status')).toContainText('已關閉')
-  await closed.getByRole('button', { name: '關閉', exact: true }).click()
-  await expect(panel.getByTestId('visibility-state')).toHaveText('不開放')
-  await expect(panel.getByTestId('visibility-blocked')).toContainText('已經有人作答')
-  await expect(panel.getByRole('button', { name: '開放指導老師閱覽' })).toBeDisabled()
+  toggle = await advisorToggle(page, personalId)
+  await expect(toggle).toBeChecked()
+  await expect(toggle).toBeEnabled()
+  await toggle.uncheck()
+  await page.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
+  toggle = await advisorToggle(page, personalId)
+  await expect(toggle).not.toBeChecked()
+  await expect(toggle).toBeDisabled()
+  await expect(page.getByTestId('advisor-visibility')).toContainText('已經有人作答，不能再開放')
 
   await signIn(page, t3)
   expect((await page.goto(`/dashboard/teacher/affairs/${personalId}?person=${s1.userId}&version=1`))?.status()).toBe(404)

@@ -56,7 +56,7 @@ uc('getItemCommand', 'PgItemCommand', 'authorizeAdmin', [
   'create', 'saveDraft', 'review', 'publish', 'updatePublished', 'changeStatus', 'delete', 'setPinned', 'moveRule', 'startUpload',
   'renameResourceCategory', 'reorderRules',
 ])
-uc('getSubmissionCommand', 'PgSubmissionCommand', 'authorizeAdmin', ['setAdvisorVisibility', 'reopen', 'setExempt'])
+uc('getSubmissionCommand', 'PgSubmissionCommand', 'authorizeAdmin', ['reopen', 'setExempt'])
 uc('getSubmissionCommand', 'PgSubmissionCommand', 'authorizeReceiver', ['saveDraft', 'submit'])
 uc('getReminderCommand', 'PgReminders', 'authorizeAdmin', ['remindItem', 'remindOverdue', 'remindGrading'])
 uc('getBusinessClockCommand', 'PgBusinessClock', 'authorizeAdmin', ['set'])
@@ -182,7 +182,6 @@ const REGISTRY: Record<string, Entry> = {
   [`${AFF}#moveRuleAction`]: use('getItemCommand().moveRule'),
   [`${AFF}#startItemUploadAction`]: use('getItemCommand().startUpload'),
   'dashboard/admin/affairs/front-edit-context-action.ts#frontEditContextAction': self('frontEditActor'),
-  [`${AFF_ID}#setAdvisorVisibilityAction`]: use('getSubmissionCommand().setAdvisorVisibility'),
   [`${AFF_ID}#reopenAction`]: use('getSubmissionCommand().reopen'),
   [`${AFF_ID}#setExemptAction`]: use('getSubmissionCommand().setExempt'),
   [`${AFF_ID}#remindItemAction`]: use('getReminderCommand().remindItem'),
@@ -741,10 +740,10 @@ function mutate(file: string, from: string | RegExp, to: string): Sources {
 }
 
 describe('SEC-2：每個 Server Action 都經守門', () => {
-  it('盤點：src/app 的 use server 檔共 163 個 action（含 dispatch 子 op）全部登記', () => {
+  it('盤點：src/app 的 use server 檔共 162 個 action（含 dispatch 子 op）全部登記', () => {
     const helpers = Object.keys(REGISTRY).filter((k) => k.includes('>')).length
     expect(actions.length + helpers).toBe(Object.keys(REGISTRY).length)
-    expect(actions.length).toBe(163)
+    expect(actions.length).toBe(162)
     for (const e of Object.values(REGISTRY)) if (e.kind === 'allow') expect(e.reason.length).toBeGreaterThan(10)
   })
 

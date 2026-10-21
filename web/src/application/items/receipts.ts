@@ -26,7 +26,10 @@ const CHANGE_LABEL: Record<UpdateReceipt['changes'][number], string> = {
 }
 
 export function describeUpdateReceipt(receipt: UpdateReceipt): string {
-  const changed = receipt.changes.map((c) => CHANGE_LABEL[c]).join('、')
+  const changed = [
+    ...receipt.changes.map((c) => CHANGE_LABEL[c]),
+    ...(receipt.advisorVisibility === null ? [] : [receipt.advisorVisibility ? '開放指導老師閱覽' : '關閉指導老師閱覽']),
+  ].join('、')
   const roster =
     receipt.rosterAdded > 0 || receipt.rosterRemoved > 0
       ? `需要繳交的名單加入 ${receipt.rosterAdded}、移除 ${receipt.rosterRemoved}。`

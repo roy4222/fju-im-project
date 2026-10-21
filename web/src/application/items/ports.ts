@@ -63,6 +63,8 @@ export type UpdateReceipt = {
   readonly rosterRemoved: number
   readonly notify: boolean
   readonly notifiedCount: number
+  /** 這次把指導老師閱覽改成什麼（C 收尾 CL-13）；沒改是 null。只改閱覽時 `changes` 是空的、不發通知、不記發布紀錄。 */
+  readonly advisorVisibility: boolean | null
 }
 
 /** 置頂／取消置頂的回執（第 1 批 V1）：`pinned` 是做完之後的狀態。 */
@@ -277,6 +279,11 @@ export type ItemDetail = {
   readonly updatedAt: Date
   /** 已有人存過草稿或正式送出（見 `ResponsePresence`）：收件單位、對象、欄位結構鎖定。 */
   readonly hasResponses: boolean
+  /**
+   * 指導老師閱覽目前的狀態（最新一列；沒設過＝不開放，生效版本 null）。只對個人一份的作業有意義（C 收尾 CL-13：
+   * 表單進階設定的開關讀這裡）。
+   */
+  readonly advisorVisibility: { readonly enabled: boolean; readonly effectiveFromVersionNo: number | null }
   /** 發布、發布更新的紀錄，新的在前。 */
   readonly publications: readonly {
     readonly action: string
