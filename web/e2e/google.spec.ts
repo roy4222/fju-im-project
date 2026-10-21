@@ -14,6 +14,17 @@ import { createTestSession, toPlaywrightCookie } from './session'
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 
 /** 攔下往 Google 的導向，回一頁假的，並把網址交出來。 */
@@ -120,7 +131,7 @@ test.describe('帳號頁', () => {
   let session: { cookie: string; email: string; userId: string }
 
   test.beforeEach(async ({ browser }) => {
-    const context = await browser.newContext()
+    const context = track(await browser.newContext())
     page = await context.newPage()
     session = await createTestSession(page.request, 'student')
     await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])

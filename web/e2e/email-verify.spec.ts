@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, toPlaywrightCookie } from './session'
 
@@ -17,6 +17,17 @@ import { createTestSession, toPlaywrightCookie } from './session'
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const PASSWORD = 'E2e-Password-Correct-9'
 const SHOT_DIR = process.env.VB5_SHOT_DIR
@@ -48,7 +59,7 @@ let ipSeq = 0
 const uniqueIp = () => `10.251.${Math.floor(Math.random() * 250)}.${(++ipSeq % 250) + 1}`
 
 async function freshPage(browser: Browser): Promise<Page> {
-  const context = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': uniqueIp() } })
+  const context = track(await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': uniqueIp() } }))
   return context.newPage()
 }
 

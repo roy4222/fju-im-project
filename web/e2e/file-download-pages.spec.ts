@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { expect, request as playwrightRequest, test, type APIResponse, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { PUBLIC_FILE_MAX_AGE_SECONDS } from '../src/application/ops/files'
 import { createItemInDialog, formReady, openAdvanced } from './create-item'
@@ -20,6 +20,17 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的 request context 每個測試結束就 dispose（#816）；回應要在測試裡讀 body，所以不在抓完就關。 */
+const openRequests: APIRequestContext[] = []
+function track(context: APIRequestContext): APIRequestContext {
+  openRequests.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openRequests.splice(0).map((context) => context.dispose()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 /** `createTestSession` 註冊時用的密碼（e2e/session.ts）。 */
 const PASSWORD = 'E2e-Password-Correct-9'
@@ -115,7 +126,7 @@ async function fetchFile(
   headers: Record<string, string> = {},
   id: string = fileId,
 ): Promise<APIResponse> {
-  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  const context = track(await playwrightRequest.newContext({ baseURL: BASE_URL }))
   return context.get(`/api/files/${encodeURIComponent(id)}`, {
     headers: as ? { ...headers, cookie: as.cookie } : headers,
     maxRedirects: 0,
@@ -591,7 +602,7 @@ test.describe('A-06 檔案預覽端點：權限同下載、只內嵌 PDF／圖�
   let assignmentId: string
 
   async function fetchPreview(as: TestSession | null, headers: Record<string, string> = {}, id: string = files.pdf): Promise<APIResponse> {
-    const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    const context = track(await playwrightRequest.newContext({ baseURL: BASE_URL }))
     return context.get(`/api/files/${encodeURIComponent(id)}/preview`, {
       headers: as ? { ...headers, cookie: as.cookie } : headers,
       maxRedirects: 0,

@@ -15,6 +15,17 @@ import { createTestSession, sharedTestSession, type TestSession } from './sessio
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的 request context 每個測試結束就 dispose（#816）；回應要在測試裡讀 body，所以不在抓完就關。 */
+const openRequests: APIRequestContext[] = []
+function track(context: APIRequestContext): APIRequestContext {
+  openRequests.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openRequests.splice(0).map((context) => context.dispose()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 
 test.describe.configure({ mode: 'serial' })
@@ -72,7 +83,7 @@ async function upload(purpose: string, cohortId: string | null, fileName: string
 }
 
 async function fetchFile(as: TestSession, id: string): Promise<APIResponse> {
-  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  const context = track(await playwrightRequest.newContext({ baseURL: BASE_URL }))
   const response = await context.get(`/api/files/${encodeURIComponent(id)}`, { headers: { cookie: as.cookie } })
   await response.body()
   return response

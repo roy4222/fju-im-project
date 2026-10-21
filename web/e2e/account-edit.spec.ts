@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
@@ -16,6 +16,17 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const PASSWORD = 'E2e-Password-Correct-9'
 
@@ -103,7 +114,7 @@ async function group(code: string, members: string[]): Promise<string> {
 }
 
 async function adminPage(browser: Browser): Promise<Page> {
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const admin = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(admin.cookie, BASE_URL)])
@@ -124,7 +135,7 @@ async function openEdit(page: Page, who: string) {
 }
 
 async function login(browser: Browser, email: string): Promise<Page> {
-  const page = await (await browser.newContext()).newPage()
+  const page = await track(await browser.newContext()).newPage()
   await page.goto('/login')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('密碼', { exact: true }).fill(PASSWORD)
@@ -173,7 +184,7 @@ test('AC-C2-21：改姓名學號屆別、學生改老師（舊 session 失效、
     { student_no: `4111${run}`, cohort_id: cohortB },
   ])
   // 只改學號屆別不撤登入：學生還在自己的後台。
-  const sxPage = await (await browser.newContext()).newPage()
+  const sxPage = await track(await browser.newContext()).newPage()
   await sxPage.context().addCookies([toPlaywrightCookie(sx1.cookie, BASE_URL)])
   await sxPage.goto('/dashboard/student')
   await expect(sxPage).toHaveURL(/\/dashboard\/student/)
