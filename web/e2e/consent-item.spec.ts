@@ -253,7 +253,7 @@ test('看板「提醒未同意者」：收件人是還沒表態的組員（從�
   await signIn(page, g1[2]!)
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByText(/提醒：G01「期中結果確認」第 1 版同意書還有人沒回覆/)).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByText(/提醒：G01「期中結果確認」同意書還有人沒回覆/)).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
   // 已經同意的人不在收件人裡。
   await signIn(page, g1[0]!)

@@ -3,7 +3,7 @@
   "rule": "v2-2026-09-12",
   "round": "2026-09-13 round9 (ticket drafts v0.3 after full-set review F01–F15 (166 tickets, 10 BLOCKED, decisions file); local spec write-backs: master v3.7, contract 01 v2.5, modules 02/07/08/09/10 v2.4, slice map v2.4)",
   "rule_description": "relative links normalized; links to unmirrored files → Vault absolute path; wiki links → markdown; engineering docs: product links → docs/product, engineering links → docs/engineering|docs/adr|docs/ARCHITECTURE.md; frontmatter kept except ARCHITECTURE/CONTEXT/FRONTEND copies",
-  "repo_target": "/Users/lubaiyu/fju-project/.claude/worktrees/fju-spec-architecture-fd7cc7",
+  "repo_target": "<home>/fju-project/.claude/worktrees/fju-spec-architecture-fd7cc7",
   "probe": [
     {
       "file": "AGENTS.md",
@@ -56,7 +56,7 @@
   ],
   "files": [
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🏗️ 系統架構與資料流.md",
       "mirror": "docs/ARCHITECTURE.md",
       "change": "updated",
       "kind": "engineering",
@@ -67,7 +67,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/2026-09-12 本期進場包與操作手冊.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/2026-09-12 本期進場包與操作手冊.md",
       "mirror": "docs/engineering/verification/2026-09-12-handbook.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -78,7 +78,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P05 發布期中工作.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P05 發布期中工作.md",
       "mirror": "docs/engineering/verification/scripts/P05 發布期中工作.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -89,7 +89,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P02 註冊與審核.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P02 註冊與審核.md",
       "mirror": "docs/engineering/verification/scripts/P02 註冊與審核.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -100,7 +100,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B02 分組指導分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B02 分組指導分支.md",
       "mirror": "docs/engineering/verification/scripts/B02 分組指導分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -111,7 +111,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P04 正式成組與指導.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P04 正式成組與指導.md",
       "mirror": "docs/engineering/verification/scripts/P04 正式成組與指導.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -122,7 +122,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B07 公開授權分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B07 公開授權分支.md",
       "mirror": "docs/engineering/verification/scripts/B07 公開授權分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -133,7 +133,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P00 進場與環境核對.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P00 進場與環境核對.md",
       "mirror": "docs/engineering/verification/scripts/P00 進場與環境核對.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -144,7 +144,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B03 收件名單分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B03 收件名單分支.md",
       "mirror": "docs/engineering/verification/scripts/B03 收件名單分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -155,7 +155,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P03 成組前收件.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P03 成組前收件.md",
       "mirror": "docs/engineering/verification/scripts/P03 成組前收件.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -166,7 +166,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P07 截止補交與期中評分.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P07 截止補交與期中評分.md",
       "mirror": "docs/engineering/verification/scripts/P07 截止補交與期中評分.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -177,7 +177,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B05 簽核分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B05 簽核分支.md",
       "mirror": "docs/engineering/verification/scripts/B05 簽核分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -188,7 +188,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B04 評分分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B04 評分分支.md",
       "mirror": "docs/engineering/verification/scripts/B04 評分分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -199,7 +199,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B06 時間與屆別分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B06 時間與屆別分支.md",
       "mirror": "docs/engineering/verification/scripts/B06 時間與屆別分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -210,7 +210,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B01 帳號分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B01 帳號分支.md",
       "mirror": "docs/engineering/verification/scripts/B01 帳號分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -221,7 +221,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P01 開學準備.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P01 開學準備.md",
       "mirror": "docs/engineering/verification/scripts/P01 開學準備.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -232,7 +232,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B08 通知與全程分支.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B08 通知與全程分支.md",
       "mirror": "docs/engineering/verification/scripts/B08 通知與全程分支.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -243,7 +243,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P09 成果公開封存與下一屆.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P09 成果公開封存與下一屆.md",
       "mirror": "docs/engineering/verification/scripts/P09 成果公開封存與下一屆.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -254,7 +254,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P08 期末繳交評分與授權.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P08 期末繳交評分與授權.md",
       "mirror": "docs/engineering/verification/scripts/P08 期末繳交評分與授權.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -265,7 +265,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P06 共用草稿與版本.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/P06 共用草稿與版本.md",
       "mirror": "docs/engineering/verification/scripts/P06 共用草稿與版本.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -276,7 +276,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0005-single-node-outbox-and-due-work.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0005-single-node-outbox-and-due-work.md",
       "mirror": "docs/adr/0005-single-node-outbox-and-due-work.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -287,7 +287,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0001-school-owned-modular-monolith.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0001-school-owned-modular-monolith.md",
       "mirror": "docs/adr/0001-school-owned-modular-monolith.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -298,7 +298,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0004-better-auth-drizzle-caddy.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0004-better-auth-drizzle-caddy.md",
       "mirror": "docs/adr/0004-better-auth-drizzle-caddy.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -309,7 +309,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0003-unified-project-affairs.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0003-unified-project-affairs.md",
       "mirror": "docs/adr/0003-unified-project-affairs.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -320,7 +320,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0002-new-system-without-legacy-migration.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/adr/0002-new-system-without-legacy-migration.md",
       "mirror": "docs/adr/0002-new-system-without-legacy-migration.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -331,7 +331,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/06 staging 轉正式.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/06 staging 轉正式.md",
       "mirror": "docs/engineering/operations/06 staging 轉正式.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -342,7 +342,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/02 環境變數、OAuth 與 Secrets 清單.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/02 環境變數、OAuth 與 Secrets 清單.md",
       "mirror": "docs/engineering/operations/02 環境變數、OAuth 與 Secrets 清單.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -353,7 +353,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/04 備份、還原演練與故障處理.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/04 備份、還原演練與故障處理.md",
       "mirror": "docs/engineering/operations/04 備份、還原演練與故障處理.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -364,7 +364,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/00 Roy 前置工作清單.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/00 Roy 前置工作清單.md",
       "mirror": "docs/engineering/operations/00 Roy 前置工作清單.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -375,7 +375,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/01 VM 首次設定.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/01 VM 首次設定.md",
       "mirror": "docs/engineering/operations/01 VM 首次設定.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -386,7 +386,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/05 監測與告警.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/05 監測與告警.md",
       "mirror": "docs/engineering/operations/05 監測與告警.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -397,7 +397,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/03 部署與回滾.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🚀 部署與維運/03 部署與回滾.md",
       "mirror": "docs/engineering/operations/03 部署與回滾.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -408,7 +408,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/04 專題事務發布與編輯.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/04 專題事務發布與編輯.md",
       "mirror": "docs/engineering/modules/04 專題事務發布與編輯.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -419,7 +419,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/09 公開展示與共用介面.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/09 公開展示與共用介面.md",
       "mirror": "docs/engineering/modules/09 公開展示與共用介面.md",
       "change": "updated",
       "kind": "engineering",
@@ -430,7 +430,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/07 線上簽核.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/07 線上簽核.md",
       "mirror": "docs/engineering/modules/07 線上簽核.md",
       "change": "updated",
       "kind": "engineering",
@@ -441,7 +441,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/06 評分與成績.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/06 評分與成績.md",
       "mirror": "docs/engineering/modules/06 評分與成績.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -452,7 +452,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/08 站內通知與日曆.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/08 站內通知與日曆.md",
       "mirror": "docs/engineering/modules/08 站內通知與日曆.md",
       "change": "updated",
       "kind": "engineering",
@@ -463,7 +463,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/10 檔案與服務維運.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/10 檔案與服務維運.md",
       "mirror": "docs/engineering/modules/10 檔案與服務維運.md",
       "change": "updated",
       "kind": "engineering",
@@ -474,7 +474,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/02 屆別與年度流程.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/02 屆別與年度流程.md",
       "mirror": "docs/engineering/modules/02 屆別與年度流程.md",
       "change": "updated",
       "kind": "engineering",
@@ -485,7 +485,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/05 個人與組別繳交.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/05 個人與組別繳交.md",
       "mirror": "docs/engineering/modules/05 個人與組別繳交.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -496,7 +496,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/03 分組、指導與產學.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/03 分組、指導與產學.md",
       "mirror": "docs/engineering/modules/03 分組、指導與產學.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -507,7 +507,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/01 帳號與權限.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/01 帳號與權限.md",
       "mirror": "docs/engineering/modules/01 帳號與權限.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -518,7 +518,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
       "mirror": "docs/engineering/contracts/03 安全與隱私.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -529,7 +529,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/05 CI-CD、部署與維運.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/05 CI-CD、部署與維運.md",
       "mirror": "docs/engineering/contracts/05 CI-CD、部署與維運.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -540,7 +540,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/04 測試與驗收.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/04 測試與驗收.md",
       "mirror": "docs/engineering/contracts/04 測試與驗收.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -551,7 +551,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
       "mirror": "docs/engineering/contracts/02 前後端介面與 UI 整合.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -562,7 +562,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/01 資料模型與一致性.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/01 資料模型與一致性.md",
       "mirror": "docs/engineering/contracts/01 資料模型與一致性.md",
       "change": "updated",
       "kind": "engineering",
@@ -573,7 +573,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S04 專題事務發布.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S04 專題事務發布.md",
       "mirror": "docs/engineering/slices/S04 專題事務發布.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -584,7 +584,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/01 案例責任表.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/01 案例責任表.md",
       "mirror": "docs/engineering/slices/01 案例責任表.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -595,7 +595,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/00 切片總圖與依賴.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/00 切片總圖與依賴.md",
       "mirror": "docs/engineering/slices/00 切片總圖與依賴.md",
       "change": "updated",
       "kind": "engineering",
@@ -606,7 +606,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S02 屆別、業務鐘與事件基礎.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S02 屆別、業務鐘與事件基礎.md",
       "mirror": "docs/engineering/slices/S02 屆別、業務鐘與事件基礎.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -617,7 +617,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S07 組別繳交主線.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S07 組別繳交主線.md",
       "mirror": "docs/engineering/slices/S07 組別繳交主線.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -628,7 +628,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S11 簽核.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S11 簽核.md",
       "mirror": "docs/engineering/slices/S11 簽核.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -639,7 +639,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S06 指導與產學.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S06 指導與產學.md",
       "mirror": "docs/engineering/slices/S06 指導與產學.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -650,7 +650,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S09 成員異動與解散.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S09 成員異動與解散.md",
       "mirror": "docs/engineering/slices/S09 成員異動與解散.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -661,7 +661,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S10 評分.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S10 評分.md",
       "mirror": "docs/engineering/slices/S10 評分.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -672,7 +672,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S12 公開精選、授權與收尾.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S12 公開精選、授權與收尾.md",
       "mirror": "docs/engineering/slices/S12 公開精選、授權與收尾.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -683,7 +683,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S00 工程骨架與 CI.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S00 工程骨架與 CI.md",
       "mirror": "docs/engineering/slices/S00 工程骨架與 CI.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -694,7 +694,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S01 帳號與 Auth.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S01 帳號與 Auth.md",
       "mirror": "docs/engineering/slices/S01 帳號與 Auth.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -705,7 +705,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S03 提案與成組.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S03 提案與成組.md",
       "mirror": "docs/engineering/slices/S03 提案與成組.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -716,7 +716,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S14 維運執行.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S14 維運執行.md",
       "mirror": "docs/engineering/slices/S14 維運執行.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -727,7 +727,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S08 名單變動與到期工作.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S08 名單變動與到期工作.md",
       "mirror": "docs/engineering/slices/S08 名單變動與到期工作.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -738,7 +738,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S05 個人收件.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S05 個人收件.md",
       "mirror": "docs/engineering/slices/S05 個人收件.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -749,7 +749,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S13 封存、多屆與下一屆.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/S13 封存、多屆與下一屆.md",
       "mirror": "docs/engineering/slices/S13 封存、多屆與下一屆.md",
       "change": "unchanged",
       "kind": "engineering",
@@ -760,7 +760,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S04 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S04 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S04 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -771,7 +771,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S08 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S08 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S08 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -782,7 +782,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S14 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S14 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S14 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -793,7 +793,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S06 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S06 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S06 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -804,7 +804,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S02 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S02 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S02 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -815,7 +815,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S10 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S10 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S10 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -826,7 +826,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/00 總索引.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/00 總索引.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/00 總索引.md",
       "change": "updated",
       "kind": "engineering",
@@ -837,7 +837,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S12 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S12 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S12 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -848,7 +848,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S00 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S00 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S00 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -859,7 +859,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S05 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S05 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S05 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -870,7 +870,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md",
       "change": "added",
       "kind": "engineering",
@@ -881,7 +881,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S09 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S09 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S09 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -892,7 +892,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S07 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S07 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S07 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -903,7 +903,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S03 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S03 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S03 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -914,7 +914,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S11 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S11 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S11 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -925,7 +925,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S13 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S13 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S13 票草稿.md",
       "change": "updated",
       "kind": "engineering",
@@ -936,7 +936,7 @@
       "links_broken": []
     },
     {
-      "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S01 票草稿.md",
+      "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/🎫 票草稿/S01 票草稿.md",
       "mirror": "docs/engineering/slices/🎫 票草稿/S01 票草稿.md",
       "change": "updated",
       "kind": "engineering",

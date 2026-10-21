@@ -6,7 +6,7 @@ status: draft-v2.5-pending-review
 ---
 # 共用契約 05｜CI／CD、部署與維運（v2.5）
 
-> **2026-09-23 v2.5（Roy 定案，來源：[主控台交接](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2 節；變更總表見 [05 執行手冊](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6）**：同一台 VM 兩站——正式 `fju.roy422.dev`、測試 `test.fju.roy422.dev`；Cloudflare 只當 DNS。Docker Compose 兩組 project（`fju-test`、`fju-prod`），各自 PostgreSQL、volume、`.env`；共用一個 Caddy 依主機名分流。正式站先建好維持空站；每版同一映像：測試站→Roy 接受→推正式站，§9 的清庫切換不再需要。Turnstile、R2、age、告警 webhook 不用；備份只放 VM、不做異地；分支插槽 `b1`／`b2` 取消。秘密值存 Doppler（`stg`＝測試站、`prd`＝正式站），VM 取值方式與 Compose／Caddy／SOP 01–03 的具體寫法由 0-C 設計。下方被取代的原文以刪除線保留。
+> **2026-09-23 v2.5（Roy 定案，來源：[主控台交接](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2 節；變更總表見 [05 執行手冊](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6）**：同一台 VM 兩站——正式 `fju.roy422.dev`、測試 `test.fju.roy422.dev`；Cloudflare 只當 DNS。Docker Compose 兩組 project（`fju-test`、`fju-prod`），各自 PostgreSQL、volume、`.env`；共用一個 Caddy 依主機名分流。正式站先建好維持空站；每版同一映像：測試站→Roy 接受→推正式站，§9 的清庫切換不再需要。Turnstile、R2、age、告警 webhook 不用；備份只放 VM、不做異地；分支插槽 `b1`／`b2` 取消。秘密值存 Doppler（`stg`＝測試站、`prd`＝正式站），VM 取值方式與 Compose／Caddy／SOP 01–03 的具體寫法由 0-C 設計。下方被取代的原文以刪除線保留。
 
 > 2026-09-12 v2：依母 spec v3.2 §4.16 與 Codex R02、R14、R15、R16 重寫。具體命令只在 `🚀 部署與維運` 的 SOP 維護。已寫、待 review；所有操作 NOT_RUN。
 
