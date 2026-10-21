@@ -759,7 +759,7 @@ describe('補建、對象減組、並發', () => {
     expect({ ledger: await ledger(), pkg: await packageOf(item.itemId, g1.groupId) }).toEqual(before)
   })
 
-  it('對象減組：移出的組目前版本作廢，cause=void、理由「系辦移出對象」；對象加組：新組建包', async () => {
+  it('對象減組：移出的組目前版本作廢，cause=void、理由「系辦移出對象」；對象加組：不自動建包，系辦在看板補建', async () => {
     const cohortId = await newCohort()
     const g1 = await newGroup(cohortId, 'G01')
     const g2 = await newGroup(cohortId, 'G02')
