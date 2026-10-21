@@ -24,6 +24,9 @@ export function navKey(url: string | URL): string {
  */
 export type ClickIntent = 'start' | 'cancel' | 'ignore'
 
+// 專題規則就地編輯的「離開擋未存」（`admin/affairs/_content/rules-actions.tsx` 的 `leavingHref`）抄了同一套規則
+// （為了不動共用區塊沒有 import 這裡）；改這裡的判斷要一起改那邊。
+
 export function clickIntent(anchor: AnchorLike, event: ClickLike, currentUrl: string): ClickIntent {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return 'ignore'
   if ((anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return 'ignore'
