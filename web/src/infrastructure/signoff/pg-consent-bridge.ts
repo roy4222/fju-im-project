@@ -258,6 +258,9 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
       )
       if ((onRoster.rowCount ?? 0) === 0) return err('VALIDATION_FAILED', `${group.code} 不在這份同意書的對象裡，請先把它加進對象再建立。`)
 
+      // 屆別封存在重播之前擋（AC-56c）：封存前成功過的同一個 requestId，封存後重送也回 COHORT_ARCHIVED，不回原回執。
+      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
+
       const realAt = this.#realClock.now()
       const begun = await this.#ledger.begin(
         tx,
@@ -272,7 +275,6 @@ export class PgConsentPublishHook implements ConsentPublishHook<PoolClient> {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<{ packageId: string; versionId: string }>(begun)
-      if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立同意書。`)
 
       const pkg = await lockItemPackage(tx, { cohort, group, itemId: item.id, purpose: item.consent_purpose, adminId, realAt, create: true })

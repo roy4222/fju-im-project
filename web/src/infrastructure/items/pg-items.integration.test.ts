@@ -1031,6 +1031,43 @@ describe('附件與封面（共用檔案能力；下載依對象）', () => {
       expect(saved.ok || saved.code).toBe('COHORT_ARCHIVED')
       expect(await count('select count(*) as n from file_references where file_id = $1', [fileId])).toBe(0)
     })
+
+    describe('封存前拿到的 ticket，封存後才完成上傳（AC-55 F4）', () => {
+      const send = (ticket: string) =>
+        storage.upload(adminId, ticket, new ReadableStream<Uint8Array>({ start(c) { c.enqueue(PDF); c.close() } }), PDF.length)
+      const fileRow = async (fileId: string) =>
+        (await owner.sql('select status, size_bytes, checksum, finalized_at, revision from stored_files where id = $1', [fileId])).rows[0]
+
+      it('非榮譽：COHORT_ARCHIVED，檔案列維持 uploading、沒有暫存也沒有正式檔', async () => {
+        const { cohortId } = await newCohort()
+        const issued = await start(cohortId, 'news')
+        if (!issued.ok) throw new Error(issued.message)
+        await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+        const before = await fileRow(issued.receipt.fileId)
+        const refused = await send(issued.receipt.ticket)
+        expect(refused.ok || refused.code).toBe('COHORT_ARCHIVED')
+        expect(await fileRow(issued.receipt.fileId)).toEqual(before)
+        expect(before).toMatchObject({ status: 'uploading' })
+        expect(await fs.readdir(path.join(root, 'tmp')).catch(() => [])).not.toContain(issued.receipt.fileId)
+      })
+
+      it('榮譽：封存後照樣完成上傳', async () => {
+        const { cohortId } = await newCohort()
+        const issued = await start(cohortId, 'honor')
+        if (!issued.ok) throw new Error(issued.message)
+        await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+        expect((await send(issued.receipt.ticket)).ok).toBe(true)
+        expect(await fileRow(issued.receipt.fileId)).toMatchObject({ status: 'stored' })
+      })
+
+      it('沒封存：非榮譽照舊完成上傳', async () => {
+        const { cohortId } = await newCohort()
+        const issued = await start(cohortId, 'news')
+        if (!issued.ok) throw new Error(issued.message)
+        expect((await send(issued.receipt.ticket)).ok).toBe(true)
+        expect(await fileRow(issued.receipt.fileId)).toMatchObject({ status: 'stored' })
+      })
+    })
   })
 
   it('下載授權：草稿只有管理員；發布後本屆學生可以、別屆學生與老師不行', async () => {

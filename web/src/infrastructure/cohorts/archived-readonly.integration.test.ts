@@ -337,7 +337,7 @@ const denied: DenialCase[] = [
       : commands.items.reorderRules(admin, s.cohortId, [second.itemId, first.itemId], randomUUID())
   } })),
   direct('ItemCommand.startUpload', s => commands.items.startUpload(admin, { cohortId: s.cohortId, placement: 'news', kind: 'attachment', fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: 100 })),
-  { name: 'FileStorage.upload/preArchiveTicket', issue: '#792 F4：封存前憑證仍可完成上傳', writesWhenArchived: true, prepare: async s => {
+  { name: 'FileStorage.upload/preArchiveTicket', prepare: async s => {
     const bytes = new TextEncoder().encode('%PDF-1.4\n% 封存前取得憑證的工作附件\n')
     const ticket = receipt(await commands.items.startUpload(admin, { cohortId: s.cohortId, placement: 'news', kind: 'attachment',
       fileName: 'report.pdf', declaredMime: 'application/pdf', declaredSize: bytes.length }))
@@ -345,7 +345,6 @@ const denied: DenialCase[] = [
       new ReadableStream<Uint8Array>({ start(c) { c.enqueue(bytes); c.close() } }), bytes.length)
   } },
   ...(['fresh', 'replay'] as const).map(mode => ({ name: `ConsentPublishHook.createForGroup/${mode}`,
-    ...(mode === 'replay' ? { issue: '#792 F5：補建同意書重播漏擋' } : {}),
     prepare: async (s: Scenario): Promise<Run> => {
       // 發布至少要有一組已指派老師。G02 正常建包，G01 無老師先跳過，之後才補建。
       const otherGroupId = randomUUID()
