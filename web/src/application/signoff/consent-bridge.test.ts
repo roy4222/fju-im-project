@@ -45,7 +45,7 @@ describe('內容改版（AC-23、AC-23a）', () => {
   })
 
   it('通知標題帶組別、用途、版本', () => {
-    expect(contentChangedTitle('G01', '期中結果確認', 2)).toBe('G01「期中結果確認」第 2 版內容已更新，請重新閱讀並同意')
+    expect(contentChangedTitle('G01', '期中結果確認')).toBe('G01「期中結果確認」同意書內容已更新，請重新閱讀並同意')
   })
 })
 

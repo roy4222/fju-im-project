@@ -36,7 +36,7 @@ export function contentChangedRecipients(previous: Participants): string[] {
 /** 對象減組時作廢版本的理由（進稽核與事件 payload；狀態 `cause` 仍是固定代碼 `void`）。 */
 export const GROUP_REMOVED_REASON = '系辦移出對象'
 
-/** `signoff.content_changed` 通知標題。 */
-export function contentChangedTitle(groupCode: string, purposeLabel: string, versionNo: number): string {
-  return `${groupCode}「${purposeLabel}」第 ${versionNo} 版內容已更新，請重新閱讀並同意`
+/** `signoff.content_changed` 通知標題（學生、老師端不寫版本號：AC-22）。 */
+export function contentChangedTitle(groupCode: string, purposeLabel: string): string {
+  return `${groupCode}「${purposeLabel}」同意書內容已更新，請重新閱讀並同意`
 }
