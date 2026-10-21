@@ -30,6 +30,7 @@ execution_status: NOT_RUN
    | `app`、`worker` | `DATABASE_URL`、`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`FILES_ROOT`、`FILE_MAX_BYTES`、`BUSINESS_CLOCK_OVERRIDE_ENABLED` |
    | `ops/deploy.sh` 本身 | `APP_DB_PASSWORD`（每次 migrate 後以 stdin 設成 `fju_app` 的密碼；migration 只建角色不設密碼） |
    | `ops/seed-admin.sh`（每站一次，migrate 容器內跑 `seed-a1.mjs`） | `A1_EMAIL`、`A1_INITIAL_PASSWORD`（必填，一次性密碼 ≥ 12 字元）、`A1_NAME`（可選）＋`DATABASE_URL_OWNER`；以 `-e 名稱` 轉交，不進指令列、不印 |
+   | `ops/seed-demo.sh`（選填，只在 `stg`；⑤-18） | `SEED_DEMO_PASSWORD`：測試站示範帳號（示範老師與在學示範學生）共用的登入密碼。`prd` **不加**（正式站本來就不准跑 seed-demo）。`seed-demo.sh` 以 `-e SEED_DEMO_PASSWORD`（名稱不帶值）轉交進 migrate 容器；只在**新建**示範資料時寫入（已存在就不動，要換密碼＝`seed-demo.sh test --remove` 後重建）。沒設＝示範帳號沒有密碼、照舊建立。值由 Roy 自己產（例 `openssl rand -base64 18`），不寫進任何檔、票或聊天；設定：`doppler secrets set SEED_DEMO_PASSWORD -p fju-im-capstone -c stg`（互動輸入） |
    | `worker`（選填，⑤-06） | `HEALTHCHECKS_WORKER_URL`：Healthchecks.io「worker 測試站／正式站」check 的 ping 網址（`stg`、`prd` 各一個）。`docker-compose.vm.yml` 用 `${HEALTHCHECKS_WORKER_URL:-}` **只轉交給 worker**（app 沒有）、不在 `ops/lib/site.sh` 的必要鍵裡；沒設＝空字串＝不打卡 |
 
    驗證 app 容器內沒有 owner 連線（只看名稱）：`sudo -u deploy docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' fju-test-app | cut -d= -f1`，預期沒有 `DATABASE_URL_OWNER`、`POSTGRES_PASSWORD`。

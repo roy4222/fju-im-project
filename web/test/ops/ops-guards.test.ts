@@ -120,6 +120,13 @@ describe('身分守門：不是 deploy 就什麼都不做', () => {
 })
 
 describe('seed-demo.sh（票 32）：只准測試站', () => {
+  it('⑤-18：docker compose run 以名稱轉交 SEED_DEMO_PASSWORD（不帶值，值不進指令列）', () => {
+    const script = fs.readFileSync(ops('seed-demo.sh'), 'utf8')
+    const run = script.split('\n').find((line) => line.startsWith('docker compose run'))!
+    expect(run).toMatch(/ -e SEED_DEMO_PASSWORD /)
+    expect(script).not.toMatch(/SEED_DEMO_PASSWORD=/)
+  })
+
   it.each([['prod'], ['prod', '--remove'], ['staging']])('%s %s：就算是 deploy 身分，也在動任何東西之前拒絕', (...args) => {
     const r = run('seed-demo.sh', args.filter(Boolean), { user: me })
     expect(r.code).not.toBe(0)

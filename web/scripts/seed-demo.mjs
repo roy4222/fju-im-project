@@ -2,7 +2,7 @@
 /**
  * 測試站示範資料（票 32，#281）：把原型的假資料灌進測試站，讓前後台看起來跟原型差不多有內容。
  *
- *   FJU_SITE=test DATABASE_URL_OWNER=... [FILES_ROOT=...] node scripts/seed-demo.mjs            建立（已存在就不動）
+ *   FJU_SITE=test DATABASE_URL_OWNER=... [FILES_ROOT=...] [SEED_DEMO_PASSWORD=...] node scripts/seed-demo.mjs   建立（已存在就不動）
  *   FJU_SITE=test DATABASE_URL_OWNER=... [FILES_ROOT=...] node scripts/seed-demo.mjs --remove   全部清掉
  *
  * 內容在 `demo/data.mjs`（照 `prototype/src/lib/fixtures.ts` 抄）。ops/deploy.sh 在 `--site test` 部署時、
@@ -12,10 +12,13 @@
  *
  * 怎麼認得出示範資料：
  *   - 一個示範屆別：代碼 `DEMO-114`、名稱「示範 114 屆」，id 是固定值（`demoId('cohort')`）。
- *     組別、收件、評分、簽核、精選、活動全都掛在這一屆底下。
- *   - 示範帳號的 Email 一律是保留網域 `@demo.invalid`（老師、學生、「系辦管理員（示範）」）。
- *     **登不進來**：沒有密碼（`accounts` 沒有列）、Google 也不可能有 `.invalid` 的帳號；
- *     「系辦管理員（示範）」只是所有示範資料的建立者，狀態是停用、沒有任何角色。
+ *     組別、收件、評分、簽核、精選、活動全都掛在這一屆底下。新建時它成為**預設工作屆別**（同一筆交易清掉別屆的這個旗標；
+ *     開放註冊旗標一律不碰）；已存在就不動旗標，系辦之後改回別屆，重跑也不搶回來（⑤-18）。
+ *   - 示範帳號的 Email 一律是保留網域 `@demo.invalid`（老師、學生、「系辦管理員（示範）」）。Google 不可能有 `.invalid` 的帳號。
+ *     密碼（⑤-18）：有設 `SEED_DEMO_PASSWORD`（Doppler 只在 stg 有）時，新建的示範老師與在學示範學生（狀態 active）
+ *     都用它當密碼（Better Auth 同一套雜湊，`accounts` 一列 credential）；沒設就沒有密碼、登不進來，照舊建立。
+ *     密碼只在新建時寫，已存在就不動（要換＝--remove 後重建）。
+ *     「系辦管理員（示範）」只是所有示範資料的建立者，狀態是停用、沒有任何角色、沒有密碼。
  *   - 產學合作案的案主是示範老師；封面與附件的檔案擁有者是「系辦管理員（示範）」，繳交的檔案是送出的那位示範學生。
  *   - 每個 id 都由固定的 key 算出來（`demoId`），重跑產生一樣的 id。
  *
@@ -29,6 +32,7 @@
  *   - 稽核：只在最後寫一筆全系範圍（`scope='global'`）的 `demo.seed`，不寫屆別範圍的稽核（會擋住 --remove 刪屆別）。
  *
  * `--remove`：同一筆交易裡刪掉示範屆別底下的一切、示範帳號與它們的個人資料、示範檔案（含 FILES_ROOT 裡的實體檔）。
+ * 示範屆別先清掉自己的兩個旗標再刪；**別屆的旗標一律不動**：原本預設是 DEMO-114 → 刪完沒有預設工作屆別；原本是真的屆別 → 還是它。
  * 不可變表（版本、稽核、評分紀錄……）有「連 owner 都擋」的 trigger，所以**只在這筆交易裡**以 table owner 身分
  * `ALTER TABLE … DISABLE TRIGGER USER`、刪完再 `ENABLE`（外鍵是系統 trigger，照樣檢查）。這是測試站專用的
  * owner 操作，不改任何 GRANT；交易失敗整批回滾，trigger 也跟著回到啟用。
@@ -67,6 +71,8 @@ if (!url) {
 }
 const filesRoot = process.env.FILES_ROOT ? path.resolve(process.env.FILES_ROOT) : null
 const removing = args.includes('--remove')
+/** 示範帳號的密碼（⑤-18）：只讀這一次，不印、不寫進任何紀錄。 */
+const demoPassword = process.env.SEED_DEMO_PASSWORD || null
 
 // ── 固定 id 與小工具 ─────────────────────────────────────────────────────────
 
@@ -223,10 +229,35 @@ function makeClock(anchorYmd) {
 
 // ── 檔案（封面與附件）──────────────────────────────────────────────────────────
 
-/** 一頁的示範 PDF：只有 ASCII 字「示範檔案」的英文說明，不假裝是真的範本。 */
-function demoPdf(label) {
-  const text = `FJU IM capstone - demo placeholder file (${label}). Not a real document.`
-  const stream = `BT /F1 14 Tf 60 780 Td (${text.replace(/[()\\]/g, '')}) Tj ET`
+/** 一行一行折成不超過 `width` 個字元（只有 ASCII，用空白斷）。 */
+function wrapAscii(text, width) {
+  const lines = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line ? `${line} ${word}` : word
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+/**
+ * 一頁的示範 PDF（⑤-18）：標題、日期、檔案代號與兩段文字（`demo.DEMO_PDF`）。仍是佔位檔，文字講清楚不是真的範本。
+ * 內建 Helvetica 只能放 ASCII；內容只由 `label`、`date` 決定，補回遺失的檔時重算出來的 checksum 一定一樣。
+ */
+function demoPdf(label, date) {
+  const clean = (text) => text.replace(/[()\\]/g, '')
+  const lines = [`Date: ${date}`, `File: ${label}`, '', ...demo.DEMO_PDF.paragraphs.flatMap((p, i) => [...(i > 0 ? [''] : []), ...wrapAscii(p, 86)])]
+  const stream = [
+    `BT /F1 18 Tf 60 780 Td (${clean(demo.DEMO_PDF.title)}) Tj ET`,
+    'BT /F1 11 Tf 15 TL 60 748 Td',
+    ...lines.map((line) => `(${clean(line)}) Tj T*`),
+    'ET',
+  ].join('\n')
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -296,7 +327,7 @@ function fileSpecs() {
 }
 
 async function fileBytes(spec) {
-  return spec.kind === 'jpg' ? fs.readFile(path.join(IMAGES, spec.source)) : demoPdf(spec.source)
+  return spec.kind === 'jpg' ? fs.readFile(path.join(IMAGES, spec.source)) : demoPdf(spec.source, spec.date)
 }
 
 /** storage key 同 `application/ops/files.ts` 的 storageKeyFor：files/<UTC 年>/<UTC 月>/<id>。 */
@@ -516,6 +547,8 @@ async function seed(db, phases) {
   const realNow = new Date()
   const counts = {}
   const count = (k, n = 1) => (counts[k] = (counts[k] ?? 0) + n)
+  // ⑤-18：示範帳號的密碼只在新建第一批時寫（雜湊算一次、每個帳號共用同一串；Better Auth 驗得過）。
+  const passwordHash = phases.current && demoPassword ? await (await import('better-auth/crypto')).hashPassword(demoPassword) : null
 
   // ── 帳號 ──
   const addUser = async (key, name, local, { status = 'active', createdAt }) => {
@@ -532,6 +565,19 @@ async function seed(db, phases) {
       must_change_password: false,
     })
     count('帳號')
+    // 能登入的只有在學（active）的示範老師與學生；停用、待審、建立者、畢業學長姐都沒有密碼。
+    if (passwordHash && status === 'active') {
+      await insert(db, 'accounts', {
+        id: demoId(`account:${key}`),
+        account_id: id,
+        provider_id: 'credential',
+        user_id: id,
+        password: passwordHash,
+        created_at: createdAt,
+        updated_at: createdAt,
+      })
+      count('密碼')
+    }
     return id
   }
   const role = async (uid, r, at_) => {
@@ -802,6 +848,9 @@ async function seed(db, phases) {
     teacherUserId: g.advisor ? userId(g.advisor) : null,
   })
 
+  /** 新建第一批之前的預設工作屆別代碼（沒有＝null）；只拿來印摘要。 */
+  let defaultFrom = null
+
   // ═══ 第一批：DEMO-114 與它底下的一切（#290）═══
   const seedCurrent = async () => {
   // 建立者（系辦管理員（示範））：停用、沒有角色、沒有密碼。
@@ -809,13 +858,19 @@ async function seed(db, phases) {
   await addUser(demo.OFFICE.key, demo.OFFICE.name, demo.OFFICE.email, { status: 'disabled', createdAt: officeCreated })
   await profile(OFFICE_ID, demo.OFFICE.name, email(demo.OFFICE.email), { completedAt: officeCreated })
 
-  // 屆別（先建，學生的個人資料要指過去）。兩個全系旗標都不動。
+  // 屆別（先建，學生的個人資料要指過去）。⑤-18：新建時成為預設工作屆別——同一筆交易先清掉別屆的這個旗標
+  // （一次只能有一個預設，`cohorts_one_default_working`；revision＋1，拿舊版本存檔的設定頁會收到衝突）。
+  // 開放註冊旗標不碰：示範屆別開放註冊的話，真的申請者會掉進示範屆別。
+  const replaced = await db.query(
+    `update cohorts set is_default_working = false, revision = revision + 1, updated_at = now() where is_default_working returning code`,
+  )
+  defaultFrom = replaced.rows[0]?.code ?? null
   await insert(db, 'cohorts', {
     id: COHORT_ID,
     code: demo.COHORT.code,
     name: demo.COHORT.name,
     status: 'active',
-    is_default_working: false,
+    is_default_working: true,
     is_registration_open: false,
     year_end_date: day(demo.COHORT.yearEndDate),
     proposal_default_days: 7,
@@ -1240,7 +1295,7 @@ async function seed(db, phases) {
         break
       }
       case 'mi-013':
-        answers = { f2: leader.studentNo, f3: typeLabel, f4: ['五位組員皆為本屆學生', '已閱讀專題規則第四節'] }
+        answers = { f2: leader.studentNo, f3: typeLabel, f4: ['全體組員皆為本屆學生', '已閱讀專題規則第四節'] }
         break
       case 'mi-012':
         answers = { f2: g.title, f3: g.titleEn, f4: demo.SHOWCASE_SUMMARY[g.key], f5: g.tech, ...(company ? { f6: company } : {}) }
@@ -1560,7 +1615,9 @@ async function seed(db, phases) {
       updated_at: signoffAt,
       updated_by_user_id: OFFICE_ID,
     })
-    const content = `<p><strong>${escapeHtml(demo.SIGNOFF.title)}</strong></p>${paragraphs(demo.SIGNOFF.body)}`
+    // ⑤-18：每份同意書帶自己的組別與文件編號（`demoId(consent:組別)`），內容不同、檢查碼（sha256）也各不相同。
+    const docLine = `${g.code}「${g.title}」・文件編號 ${demoId(`consent:${g.key}`)}`
+    const content = `<p><strong>${escapeHtml(demo.SIGNOFF.title)}</strong></p><p>${escapeHtml(docLine)}</p>${paragraphs(demo.SIGNOFF.body)}`
     const draftSnapshot = { title: g.title, summaryChecksum: sha256(summary), videoUrl: null, poster: null }
     const participants = {
       students: [...g.members]
@@ -1996,7 +2053,7 @@ async function seed(db, phases) {
     payload: json({ source: 'seed:demo', site: 'test', cohortCode: demo.COHORT.code, offsetDays, phases, counts }),
   })
 
-  return { counts, pendingWrites, offsetDays, anchor }
+  return { counts, pendingWrites, offsetDays, anchor, defaultFrom }
 }
 
 // ── 移除 ─────────────────────────────────────────────────────────────────────
@@ -2085,6 +2142,8 @@ const REMOVE_STEPS = [
   // 檔案（實體檔在交易之後刪）
   [`delete from file_references where file_id in (select id from stored_files where cohort_id = any($1::uuid[]) or owner_user_id in (select id from users where email like $2))`],
   [`delete from stored_files where cohort_id = any($1::uuid[]) or owner_user_id in (select id from users where email like $2) returning storage_key`, 'files'],
+  // 先清示範屆別自己的兩個旗標再刪（⑤-18）；別屆的旗標不動。
+  [`update cohorts set is_default_working = false, is_registration_open = false where id = any($1::uuid[])`],
   [`delete from cohorts where id = any($1::uuid[])`],
   [`delete from users where email like $2`],
 ]
@@ -2265,6 +2324,14 @@ try {
         if (phases.current) {
           console.log(
             `示範資料已建立（${demo.COHORT.code}「${demo.COHORT.name}」，日期平移 ${result.offsetDays} 天，以 ${result.anchor} 當原型的 ${demo.PROTOTYPE_TODAY}）：${summary}。`,
+          )
+          console.log(
+            `預設工作屆別改成 ${demo.COHORT.code}${result.defaultFrom ? `（原本是 ${result.defaultFrom}；要用原本的，到後台設定頁改回，之後重跑不會再改）` : '（原本沒有預設）'}；開放註冊屆別不動。`,
+          )
+          console.log(
+            demoPassword
+              ? '示範老師與在學示範學生的密碼是 SEED_DEMO_PASSWORD（值不印）。'
+              : '示範帳號沒有密碼（沒設 SEED_DEMO_PASSWORD），照舊建立；要能登入，在 Doppler stg 設好後 --remove 再重建。',
           )
         } else {
           console.log(`示範資料已存在（${demo.COHORT.code}）；補上第二批（歷屆專題、榮譽榜、競賽）：${summary}。`)

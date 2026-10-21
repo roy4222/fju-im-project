@@ -33,6 +33,7 @@ type DemoData = {
   DISABLED: { studentNo: string }[]
   PENDING: { studentNo: string }[]
   AUTO_APPROVED: { studentNo: string }[]
+  DEMO_PDF: { title: string; paragraphs: string[] }
 }
 const demo = (await import(pathToFileURL(path.join(webRoot, 'scripts', 'demo', 'data.mjs')).href)) as DemoData
 
@@ -180,6 +181,18 @@ describe('C3-01 示範資料（規格③ §10.3）', () => {
     }
     const spans = demo.EVENTS.filter((e) => e.allDay && days(e.date, e.endDate!) === 3)
     expect(spans.map((e) => e.audience)).toEqual(['teachers'])
+  })
+})
+
+describe('⑤-18 示範 PDF 的內容', () => {
+  it('有標題與兩段文字、只用 ASCII（PDF 內建字型），不是只有「示範檔案」四個字', () => {
+    const { title, paragraphs } = demo.DEMO_PDF
+    expect(title.trim().length).toBeGreaterThan(10)
+    expect(paragraphs).toHaveLength(2)
+    for (const p of paragraphs) expect(p.split(' ').length, p).toBeGreaterThan(10)
+    const text = [title, ...paragraphs].join(' ')
+    expect(text).toMatch(/^[\x20-\x7e]+$/)
+    expect(text).not.toContain('示範檔案')
   })
 })
 
