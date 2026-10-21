@@ -1,5 +1,7 @@
 # 文件與開發入口
 
+> **路徑寫法**：`Vault:` 開頭的路徑指 Roy 的 Obsidian Vault 根目錄；各機器上的實際位置記在私人設定，不放公開 repo。
+
 > **2026-10-18 B 階段文件回寫 Vault**：stage-b 相對 main 只改了契約 02（`FILE_GONE`、`TURNSTILE_UNAVAILABLE` 兩個錯誤碼）與契約 03（身分快取 60 秒、Turnstile 重新加回、GA4 的 CSP）兩份鏡像，已逐段寫進 Vault；Vault 端沒有比鏡像新的段落。只動這兩個 manifest 條目，見 [receipt 2026-10-18](vault-sync-receipt-2026-10-18.json)。
 
 > **2026-10-17 A 階段文件回寫 Vault**：#495、#498、#497／#503 改到的 22 個鏡像條目已回寫 Vault 對應的 19 個檔（產品十模組、總規格、覆蓋矩陣、前台／後台頁面清單、術語表、契約 02／03、工程模組 03、劇本 B02），連同 10/12 第三波只改進 repo 副本的段落；Vault 端 9/25 對齊與 10/08 實況全部保留。同日 Review FIX 把 Vault 比 `docs/` 新的 11 個條目（契約 03、工程模組 03、覆蓋矩陣、產品總規格、產品模組 01／02／03／07／10、前台／後台頁面清單）連同 `DASHBOARD-PAGES.md` 副本從 Vault 轉回，22 個條目的鏡像現在與 Vault 只差連結格式。`docs/plans/**`、`docs/status/**`、`docs/engineering/效能量測 SOP.md` 不鏡像。見 [receipt 2026-10-17](vault-sync-receipt-2026-10-17.json)。
@@ -45,6 +47,6 @@ Vault「🛠️ 工程開發」的鏡像（2026-09-13 第六輪，依 Codex 對 
 
 Vault現行來源位於「輔大資管系專題網站／🎯 專案目標」，工程來源在「🛠️ 工程開發」。需求先回寫Vault總規格／對應模組與決策，再同步這裡；不能只改repo鏡像。
 
-每次先比對來源與工作樹，保留並整合雙邊改動，再轉換連結並更新 [來源與鏡像hash](vault-sync-manifest.json)。文件 PR 合併後，主工作副本（`proto/role-ux-round1`）不要只跑裸的 `git checkout -- . && git clean -fd docs`：那只清工作樹、不會把合併後的 `main` 帶進目前分支；完整程序（核對 PR 已合併→保存並逐檔核對本機修改→把合併結果 merge 進原型分支→驗證 spec 與原型都在）見 Vault `🛠️ 工程開發/🧭 文件分工與開發接續.md`「文件 PR 合併後」一節，逐步執行。只有本次verified_at更新項已重新核對正文；工程條目只修正搬移路徑時另註，不把舊hash當現在已同步。沒有背景同步。
+每次先比對來源與工作樹，保留並整合雙邊改動，再轉換連結並更新 [來源與鏡像hash](vault-sync-manifest.json)。文件 PR 合併後，主工作副本（`proto/role-ux-round1`）不要只跑裸的 `git checkout -- . && git clean -fd docs`：那只清工作樹、不會把合併後的 `main` 帶進目前分支；完整程序（核對 PR 已合併→保存並逐檔核對本機修改→把合併結果 merge 進原型分支→驗證 spec 與原型都在）見 Vault `🛠️ 工程開發/🧭 文件分工與開發接續.md`「文件 PR 合併後」一節，逐步執行。只有本次verified_at更新項已重新核對正文；工程條目只修正搬移路徑時另註，不把舊hash當現在已同步。沒有背景同步。鏡像進 repo 時，本機的使用者目錄路徑（含帳號名那種）一律改成 `Vault:` 寫法，repo 內路徑改相對路徑（結構測試 `web/test/structure/no-local-paths.test.ts` 會擋）。
 
 原specs/product-v1.md保留相容入口；完整舊規格逐位元組保存在product歷史目錄。此次替換的repo入口原件保存在 [_archive/2026-09-11-before-product-module-split](<_archive/2026-09-11-before-product-module-split/docs/README.md>)。原始會議、圖片、研究、日記與其他歷史不刪除。

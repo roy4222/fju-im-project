@@ -42,21 +42,21 @@ UI：老師評分列、學生手機清單與管理員編輯順序變清楚；但
 
 | 角色 | 報告 | 原型 | 全部文件 |
 |---|---|---|---|
-| 學生 | [完整報告](</Users/lubaiyu/.codex/worktrees/a433/fju-project/docs/reviews/2026-09-10-role-ux-retest/student/REPORT.md>) | [A／B／C 原型](</Users/lubaiyu/.codex/worktrees/a433/fju-project/docs/reviews/2026-09-10-role-ux-retest/student/concepts/index.html>) | [文件與證據入口](</Users/lubaiyu/.codex/worktrees/a433/fju-project/docs/reviews/2026-09-10-role-ux-retest/student/README.md>) |
-| 老師 | [完整報告](</Users/lubaiyu/.codex/worktrees/f9cd/fju-project/docs/reviews/2026-09-10-role-ux-retest/teacher/REPORT.md>) | [A／B／C 原型](</Users/lubaiyu/.codex/worktrees/f9cd/fju-project/docs/reviews/2026-09-10-role-ux-retest/teacher/concepts/index.html>) | [文件與證據入口](</Users/lubaiyu/.codex/worktrees/f9cd/fju-project/docs/reviews/2026-09-10-role-ux-retest/teacher/README.md>) |
-| 管理員 | [完整報告](</Users/lubaiyu/.codex/worktrees/adf9/fju-project/docs/reviews/2026-09-10-role-ux-retest/admin/REPORT.md>) | [A／B／C 原型](</Users/lubaiyu/.codex/worktrees/adf9/fju-project/docs/reviews/2026-09-10-role-ux-retest/admin/concepts/index.html>) | [文件與證據入口](</Users/lubaiyu/.codex/worktrees/adf9/fju-project/docs/reviews/2026-09-10-role-ux-retest/admin/README.md>) |
+| 學生 | [完整報告](<student/REPORT.md>) | [A／B／C 原型](<student/concepts/index.html>) | [文件與證據入口](<student/README.md>) |
+| 老師 | [完整報告](<teacher/REPORT.md>) | [A／B／C 原型](<teacher/concepts/index.html>) | [文件與證據入口](<teacher/README.md>) |
+| 管理員 | [完整報告](<admin/REPORT.md>) | [A／B／C 原型](<admin/concepts/index.html>) | [文件與證據入口](<admin/README.md>) |
 
 HTML以瀏覽器開啟，使用頁首A／B／C切換。證據及提案限制由各角色README進入。
 
 ## 原始文件與第一輪脈絡
 
-- [第一輪三角色審查入口](/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/README.md)
-- [第一輪學生報告](/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/student.md)
-- [第一輪老師報告](/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/teacher.md)
-- [第一輪管理員報告](/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/admin.md)
-- [工程師逐項改版回覆](/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/RESPONSE.md)
-- [後台頁面清單與改版規則](/Users/lubaiyu/fju-project/docs/DASHBOARD-PAGES.md)
-- [Vault完整產品規格](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/📋 完整產品規格.md>)
+- [第一輪三角色審查入口](../2026-09-10-role-ux/README.md)
+- [第一輪學生報告](../2026-09-10-role-ux/student.md)
+- [第一輪老師報告](../2026-09-10-role-ux/teacher.md)
+- [第一輪管理員報告](../2026-09-10-role-ux/admin.md)
+- [工程師逐項改版回覆](../2026-09-10-role-ux/RESPONSE.md)
+- [後台頁面清單與改版規則](../../DASHBOARD-PAGES.md)
+- [Vault完整產品規格](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/📋 完整產品規格.md>)
 - [PR #5](https://github.com/roy4222/fju-im-project/pull/5)：使用者提供的改版PR；本輪未另查合併狀態。
 
 ## 明天建議順序
