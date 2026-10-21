@@ -158,7 +158,8 @@ function resolveKey(expr: string, file: string, at: number, depth = 0): string[]
   return keys.length ? keys : null
 }
 
-const CALL = /pg_(?:try_)?advisory_(?:xact_)?(?:un)?lock(?:_shared)?\s*\(/g
+// SQL 不分大小寫：`PG_ADVISORY_XACT_LOCK(HASHTEXT(…))` 也是同一個呼叫。
+const CALL = /pg_(?:try_)?advisory_(?:xact_)?(?:un)?lock(?:_shared)?\s*\(/gi
 
 /** 找出一個檔裡所有 `pg_advisory*(` 呼叫，解出雜湊函式、seed 與鍵前綴。 */
 function findSites(rel: string, src: string): Site[] {
@@ -167,12 +168,12 @@ function findSites(rel: string, src: string): Site[] {
     const line = src.slice(0, m.index).split('\n').length
     const base = path.basename(rel)
     const after = src.slice(m.index + m[0].length)
-    const h = after.match(/^\s*(hashtext(?:extended)?)\s*\(/)
+    const h = after.match(/^\s*(hashtext(?:extended)?)\s*\(/i)
     if (!h) {
       sites.push({ file: base, line, prefix: null, hash: '?', seed: null, why: '鎖的參數要是 hashtext(…) 或 hashtextextended(…, 0)' })
       continue
     }
-    const hashFn = h[1] ?? ''
+    const hashFn = (h[1] ?? '').toLowerCase()
     const hashOpen = m.index + m[0].length + h[0].length - 1
     const hashArgs = splitArgs(src, hashOpen)
     const seed = hashFn === 'hashtextextended' ? (hashArgs[1] ?? null) : null
@@ -250,7 +251,7 @@ function repoSources(): Map<string, string> {
   for (const d of SCAN_DIRS) {
     for (const f of walk(path.join(webRoot, d))) {
       const src = readFileSync(f, 'utf8')
-      if (src.includes('advisory')) map.set(path.relative(webRoot, f), src)
+      if (/advisory/i.test(src)) map.set(path.relative(webRoot, f), src)
     }
   }
   return map
@@ -319,6 +320,12 @@ describe('advisory lock 的鍵都登記在 docs/engineering/README.md（CL-7 #82
       expect(mutate('pg-business-clock.ts', (s) => s.replace("hashtext('business_clock_overrides')", 'hashtext($1)'))).toEqual(
         expect.arrayContaining([expect.stringContaining('解不出鍵')]),
       )
+    })
+
+    it('大寫的 SQL（PG_ADVISORY_XACT_LOCK(HASHTEXT(…))）也算呼叫：沒登記的鍵 → 紅', () => {
+      const copy = new Map(sources)
+      copy.set('src/infrastructure/cohorts/upper-case.ts', "await tx.query(`SELECT PG_ADVISORY_XACT_LOCK(HASHTEXT('brand.new'))`)")
+      expect(check(copy, md)).toEqual([expect.stringContaining('鍵「brand.new」沒有登記')])
     })
 
     it('表上列了、程式裡已經沒有 → 紅', () => {

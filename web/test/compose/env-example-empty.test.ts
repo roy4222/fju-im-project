@@ -34,7 +34,7 @@ describe('「空字串」和「沒設」行為不同的鍵不准列（CL-7 #823 
     BETTER_AUTH_SECRET: '必填（FJU_REQUIRED_SECRETS）；只有 scripts/auth-generate.mjs 產生 schema 時給佔位值，不連線',
     HEALTHCHECKS_WORKER_URL: "composition/worker.ts 寫 `?? ''` 再 trim，空字串與沒設一樣＝不打卡（compose 測試 AC-40a 也斷言沒設時是空字串）",
     GIT_COMMIT:
-      'worker-main.ts 寫 `?? unknown`；容器裡的值來自 Dockerfile 的 ARG，Compose 用 ${GIT_COMMIT:-unknown} 傳，空字串在 Compose 就換成 unknown（health-reader.ts 也把空字串當沒設）',
+      '本機 `.env` 照範本留空時，app 與 worker 容器拿到空字串（${GIT_COMMIT:-unknown} 只是 build 參數），worker 回報空字串（worker-main.ts 在 composition，另開票修；health-reader.ts 已把空字串當沒設）；VM 由 Doppler 給值',
   }
 
   /** 找出把「沒設」單獨處理的寫法：`process.env.X ??`、`process.env.X === undefined`、`'X' in process.env`，以及先存進變數再比 undefined。 */
