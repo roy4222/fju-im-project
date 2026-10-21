@@ -6,11 +6,18 @@ import { describe, expect, it } from 'vitest'
 // 公開 repo 的文件不能帶本機路徑（含帳號名）。Vault 鏡像進來時，
 // 本機的 Vault 路徑一律寫成 `Vault:專案/…`（定義見 docs/README.md 開頭）。
 const repoRoot = path.resolve(import.meta.dirname, '../../..')
-const scopes = ['docs', 'CONTEXT.md', 'steps']
-const localPath = /\/Users\//
+const scopes = ['docs', 'CONTEXT.md', 'steps', 'e2e/acceptance']
+// 斜線寫法 /Users/…，以及 Claude 工作目錄把斜線換成橫線的 -Users-…
+const localPath = /\/Users\/|-Users-/
 
 describe('公開文件不含本機路徑', () => {
-  it('docs/、CONTEXT.md、steps/ 沒有 /Users/', () => {
+  it('比對規則：斜線與橫線寫法都會紅', () => {
+    expect(localPath.test('/Users/someone/x')).toBe(true)
+    expect(localPath.test('/private/tmp/-Users-someone-proj/x')).toBe(true)
+    expect(localPath.test('Vault:專案/x、/home/deploy/.ssh')).toBe(false)
+  })
+
+  it('docs/、CONTEXT.md、steps/、e2e/acceptance/ 沒有本機路徑', () => {
     const files = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', '-z', '--', ...scopes], {
       cwd: repoRoot,
       encoding: 'utf8',

@@ -42,9 +42,9 @@ UI：老師評分列、學生手機清單與管理員編輯順序變清楚；但
 
 | 角色 | 報告 | 原型 | 全部文件 |
 |---|---|---|---|
-| 學生 | [完整報告](<student/REPORT.md>) | [A／B／C 原型](<student/concepts/index.html>) | [文件與證據入口](<student/README.md>) |
-| 老師 | [完整報告](<teacher/REPORT.md>) | [A／B／C 原型](<teacher/concepts/index.html>) | [文件與證據入口](<teacher/README.md>) |
-| 管理員 | [完整報告](<admin/REPORT.md>) | [A／B／C 原型](<admin/concepts/index.html>) | [文件與證據入口](<admin/README.md>) |
+| 學生 | 完整報告（未入庫） | A／B／C 原型（未入庫） | 文件與證據入口（未入庫） |
+| 老師 | 完整報告（未入庫） | A／B／C 原型（未入庫） | 文件與證據入口（未入庫） |
+| 管理員 | 完整報告（未入庫） | A／B／C 原型（未入庫） | 文件與證據入口（未入庫） |
 
 HTML以瀏覽器開啟，使用頁首A／B／C切換。證據及提案限制由各角色README進入。
 
