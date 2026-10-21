@@ -117,6 +117,7 @@ export default async function IndustryPage({
             ))}
           </nav>
           <SearchField
+            key={q}
             action="/industry"
             id="industry-q"
             label="搜尋合作案"
@@ -124,7 +125,7 @@ export default async function IndustryPage({
             defaultValue={q}
             keep={{ linked }}
           >
-            <SortSelect id="industry-sort" defaultValue={sort} options={Object.entries(SORT_LABEL)} />
+            <SortSelect key={sort} id="industry-sort" defaultValue={sort} options={Object.entries(SORT_LABEL)} />
           </SearchField>
         </div>
 

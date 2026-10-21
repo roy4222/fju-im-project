@@ -130,7 +130,7 @@ export function OpportunityFormBody({
       {field('content', { required: true, textarea: true, rows: 5, span: true })}
       {field('requirements', { textarea: true, rows: 3, span: true })}
       {field('notes', { textarea: true, rows: 2, span: true })}
-      <fieldset className="sm:col-span-2">
+      <fieldset key={values?.notesVisibility ?? 'internal'} className="sm:col-span-2">
         <legend className={LABEL}>備註給誰看</legend>
         <div className="mt-1.5 flex flex-wrap gap-4 text-sm text-foreground">
           <label className="flex items-center gap-2">

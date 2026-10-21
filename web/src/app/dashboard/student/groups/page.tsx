@@ -594,6 +594,7 @@ function TeammateFilters({ q, skill, skills, invited }: { q: string; skill: stri
         {skill ? <input type="hidden" name="skill" value={skill} /> : null}
         {invited.length > 0 ? <input type="hidden" name="invite" value={invited.join(',')} /> : null}
         <input
+          key={q}
           type="search"
           name="q"
           defaultValue={q}

@@ -35,7 +35,10 @@ export function StageSettingsForm(p: StageSettingFormProps) {
   const id = (name: string) => `stage-${p.stageKey}-${name}`
   const disabled = p.disabledReason !== null
   return (
-    <form action={action} className="space-y-3" aria-label={`「${p.stageName}」的對應作業與說明`}>
+    <form
+      key={`${p.itemId ?? ''}-${p.panelWith ?? ''}-${p.description ?? ''}`}
+      action={action}
+      className="space-y-3" aria-label={`「${p.stageName}」的對應作業與說明`}>
       <input type="hidden" name="cohortId" value={p.cohortId} />
       <input type="hidden" name="stageKey" value={p.stageKey} />
       <input type="hidden" name="stageName" value={p.stageName} />
