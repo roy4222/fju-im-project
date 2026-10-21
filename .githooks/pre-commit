@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# pre-commit：單檔大小上限（tokens 以 bytes ÷ 4 估算），只看這次暫存的檔。
+#
+#   - 新檔超過 5,000 tokens：不能 commit。
+#   - 已經超過 5,000 tokens 的舊檔可以改，但這次 commit 讓它變大就擋。
+#   - 原本沒超過、這次改到超過的舊檔，也擋。
+#   - 略過 agent 不會手寫的檔：lockfile、產生的程式碼、vendored、minified、二進位檔
+#     （規則在 is_skipped；也認 .gitattributes 的 linguist-generated／linguist-vendored／binary）。
+#
+# 啟用（每個 clone 做一次，不用裝任何套件）：git config core.hooksPath .githooks
+# 緊急略過：git commit --no-verify
+
+set -u
+
+LIMIT=5000
+
+# 比的是「暫存區的版本」對「HEAD 的版本」，不是工作目錄。
+if git rev-parse --verify -q HEAD >/dev/null; then
+  HAS_HEAD=1
+else
+  HAS_HEAD=0
+fi
+
+is_skipped() {
+  local path=$1 lower
+  lower=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
+
+  case "$lower" in
+    # lockfile
+    *pnpm-lock.yaml | *package-lock.json | *npm-shrinkwrap.json | *yarn.lock | *bun.lock | *bun.lockb | \
+    *cargo.lock | *poetry.lock | *uv.lock | *pipfile.lock | *gemfile.lock | *composer.lock | *go.sum | \
+    *flake.lock | *.lock)
+      return 0 ;;
+    # 產生的程式碼（drizzle-kit 產生 migration 與 snapshot；Next 與 tsc 的產物；測試快照）
+    drizzle/* | */drizzle/* | *.generated.* | *.gen.* | */__generated__/* | __generated__/* | \
+    *next-env.d.ts | *.tsbuildinfo | *.snap | \
+    .next/* | */.next/* | dist/* | */dist/* | coverage/* | */coverage/*)
+      return 0 ;;
+    # vendored
+    vendor/* | */vendor/* | third_party/* | */third_party/* | node_modules/* | */node_modules/*)
+      return 0 ;;
+    # minified
+    *.min.js | *.min.mjs | *.min.cjs | *.min.css | *-min.js | *.map)
+      return 0 ;;
+    # 二進位檔（常見副檔名；其他的靠下面的內容檢查）
+    *.png | *.jpg | *.jpeg | *.gif | *.webp | *.avif | *.ico | *.bmp | *.tif | *.tiff | *.heic | \
+    *.pdf | *.woff | *.woff2 | *.ttf | *.otf | *.eot | \
+    *.mp3 | *.mp4 | *.mov | *.webm | *.wav | *.ogg | \
+    *.zip | *.gz | *.tgz | *.bz2 | *.xz | *.7z | *.jar | *.wasm | *.sqlite | *.db)
+      return 0 ;;
+  esac
+
+  # .gitattributes 標成產生的、vendored 或二進位的檔
+  if git check-attr --cached linguist-generated linguist-vendored binary -- "$path" 2>/dev/null |
+    grep -Eq ': (linguist-generated|linguist-vendored|binary): (true|set)$'; then
+    return 0
+  fi
+
+  # 內容檢查：暫存的版本含 NUL 之類的二進位內容就略過
+  if ! git cat-file blob ":$path" 2>/dev/null | LC_ALL=C grep -qI .; then
+    return 0
+  fi
+
+  return 1
+}
+
+blocked=""
+count=0
+
+# -z 讓含空白、中文的路徑也能正確解析；改名（R）要拿舊路徑比大小。
+while IFS= read -r -d '' status; do
+  old_path=""
+  case "$status" in
+    R* | C*)
+      IFS= read -r -d '' old_path
+      IFS= read -r -d '' path
+      ;;
+    *)
+      IFS= read -r -d '' path
+      ;;
+  esac
+
+  # 子模組或讀不到暫存版本的，略過
+  new_bytes=$(git cat-file -s ":$path" 2>/dev/null) || continue
+  new_tokens=$((new_bytes / 4))
+  [ "$new_tokens" -le "$LIMIT" ] && continue
+
+  # 舊版本大小：改名用舊路徑；複製（C）與新增（A）算新檔
+  old_tokens=-1
+  if [ "$HAS_HEAD" -eq 1 ]; then
+    case "$status" in
+      R*) base=$old_path ;;
+      M*) base=$path ;;
+      *) base="" ;;
+    esac
+    if [ -n "$base" ]; then
+      if old_bytes=$(git cat-file -s "HEAD:$base" 2>/dev/null); then
+        old_tokens=$((old_bytes / 4))
+      fi
+    fi
+  fi
+
+  # 舊檔沒有變大就放行（已經超過的檔可以改小或維持）
+  if [ "$old_tokens" -ge 0 ] && [ "$new_tokens" -le "$old_tokens" ]; then
+    continue
+  fi
+
+  is_skipped "$path" && continue
+
+  parts=$(((new_tokens + LIMIT - 1) / LIMIT))
+  if [ "$old_tokens" -lt 0 ]; then
+    growth="新檔"
+  else
+    growth="+$((new_tokens - old_tokens))"
+  fi
+  blocked="${blocked}  - ${path}：${new_tokens} tokens（${growth}），至少拆成 ${parts} 個檔
+"
+  count=$((count + 1))
+done < <(git diff --cached --name-status -z -M --diff-filter=ACMR)
+
+[ "$count" -eq 0 ] && exit 0
+
+cat >&2 <<EOF
+
+pre-commit：有 ${count} 個檔超過 ${LIMIT} tokens（tokens 以 bytes ÷ 4 估算），這次 commit 已擋下。
+
+${blocked}
+規則：新檔不能超過 ${LIMIT} tokens；已經超過的舊檔可以改，但不能變大。
+（略過 lockfile、產生的程式碼、vendored、minified、二進位檔。）
+
+怎麼拆：
+  1. 依職責把程式分組（例如：型別、查詢、命令、畫面元件、工具函式各一組）。
+  2. 每組搬到一個新模組，每個新模組都要小於 ${LIMIT} tokens（約 $((LIMIT * 4)) bytes）。
+  3. 程式碼原封不動搬過去：不改寫、不改名、不調整順序。
+  4. 原檔留成薄的入口，只 re-export 新模組（例如 export * from './foo-queries'），舊的 import 不用改。
+  5. 跑測試（例如 pnpm -C web verify），確認行為沒變，再 git add、重新 commit。
+
+EOF
+exit 1

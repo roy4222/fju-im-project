@@ -1,6 +1,7 @@
 'use client'
 import { createContext, useActionState, useContext, useState, type ReactNode } from 'react'
 import { addMemberAction, changeLeaderAction, removeMemberAction } from './actions'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog, type AdminGroupActionState } from './admin-group-forms'
 
 const MemberMessage = createContext<((state: AdminGroupActionState) => void) | null>(null)
@@ -33,7 +34,8 @@ function Reason({ id, maxLength }: { id: string; maxLength: number }) {
   const [value, setValue] = useState('')
   return <div>
     <label htmlFor={id} className={LABEL}>理由（可不填）</label>
-    <textarea id={id} name="reason" rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={maxLength} className={INPUT} />
+    <textarea id={id} name="reason" rows={3} value={value} onChange={(e) => setValue(e.target.value)} aria-describedby={charCountId(id)} className={INPUT} />
+    <CharCount forId={id} max={maxLength} value={value} />
   </div>
 }
 

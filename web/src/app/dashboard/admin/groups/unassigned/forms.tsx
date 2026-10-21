@@ -2,6 +2,7 @@
 import { createContext, useActionState, useContext, useState, type ReactNode } from 'react'
 import { IconUserPlus, IconX } from '@tabler/icons-react'
 import { addMemberAction } from '../actions'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 import {
   DIALOG,
   Feedback,
@@ -86,12 +87,13 @@ export function UnassignedForms({
         id={id}
         name="reason"
         rows={3}
-        maxLength={reasonMaxLength}
+        aria-describedby={charCountId(id)}
         placeholder={placeholder}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         className={INPUT}
       />
+      <CharCount forId={id} max={reasonMaxLength} value={reason} />
     </div>
   )
 
