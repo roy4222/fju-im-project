@@ -1,5 +1,6 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
-import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
+import { expect, request as playwrightRequest, test, type Locator, type Page } from '@playwright/test'
+import { Pool } from 'pg'
+import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestRole, type TestSession } from './session'
 
 /**
  * CL-7（第 1 條，fju/default-value-needs-key）：網址參數帶進來的搜尋框，站內換頁把 `q` 拿掉後不留舊字。
@@ -75,22 +76,62 @@ for (const path of ['/dashboard/admin/accounts', '/dashboard/admin/accounts/disa
   })
 }
 
-test('系辦公告管理：點「種類」換到別的分類（連結拿掉 q），搜尋框清空', async ({ page }) => {
-  await signIn(page, 'admin')
-  await expectClearedAfterClientNav(
-    page,
-    '/dashboard/admin/affairs?placement=news',
-    () => page.locator('form[action="/dashboard/admin/affairs"] input[name="q"]'),
-    () => page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '全部' }).click(),
-  )
-})
+test.describe('要有一屆（成組期）與該屆學生', () => {
+  const stamp = `CL7-${Date.now().toString(36)}`
+  const ymd = (d: Date) => new Date(d.getTime() + 8 * 3600_000).toISOString().slice(0, 10)
+  let pool: Pool
+  let cohortId: string
+  let student: TestSession
 
-test('學生找隊員：再點「找隊員」分頁（連結拿掉 q），搜尋框清空', async ({ page }) => {
-  await signIn(page, 'student')
-  await expectClearedAfterClientNav(
-    page,
-    '/dashboard/student/groups?tab=team',
-    () => page.getByRole('searchbox', { name: '搜尋姓名、學號或技能' }),
-    () => page.getByRole('navigation', { name: '組別分頁' }).getByRole('link', { name: '找隊員' }).click(),
-  )
+  test.beforeAll(async () => {
+    test.setTimeout(240_000)
+    if (!process.env.DATABASE_URL_OWNER) throw new Error('e2e 需要 DATABASE_URL_OWNER')
+    pool = new Pool({ connectionString: process.env.DATABASE_URL_OWNER, max: 2 })
+    const now = new Date()
+    cohortId = String((await pool.query(
+      `insert into cohorts (id, code, name, status, year_end_date, created_by_kind)
+       values (gen_random_uuid(), $1, $1, 'active', $2, 'system') returning id`,
+      [stamp, ymd(new Date(now.getTime() + 300 * 86_400_000))],
+    )).rows[0]!.id)
+    for (const [i, days] of [-10, 30, 90, 150].entries()) {
+      await pool.query(
+        `insert into cohort_stages (id, cohort_id, seq, name, start_date, created_by_kind)
+         values (gen_random_uuid(), $1, $2, $3, $4, 'system')`,
+        [cohortId, i + 1, ['成組期', '期中', '期末', '成果'][i], ymd(new Date(now.getTime() + days * 86_400_000))],
+      )
+    }
+    const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    student = await createTestSession(context, 'student')
+    await context.dispose()
+    const studentNo = `419${String(Date.now()).slice(-6)}`
+    await pool.query(
+      `insert into user_profiles (user_id, display_name, name_normalized, student_no, cohort_id, phone, contact_email)
+       values ($1, 'CL7 學生', 'CL7 學生', $2, $3, '0987654321', $4)
+       on conflict (user_id) do update set student_no = excluded.student_no, cohort_id = excluded.cohort_id`,
+      [student.userId, studentNo, cohortId, `${stamp.toLowerCase()}@contact.example.com`],
+    )
+    await pool.query(`insert into student_identities (cohort_id, student_no, user_id) values ($1, $2, $3)`, [cohortId, studentNo, student.userId])
+  })
+
+  test.afterAll(async () => { await pool?.end() })
+
+  test('系辦公告管理：點「種類」換到別的分類（連結拿掉 q），搜尋框清空', async ({ page }) => {
+    await signIn(page, 'admin')
+    await expectClearedAfterClientNav(
+      page,
+      `/dashboard/admin/affairs?cohort=${cohortId}&placement=news`,
+      () => page.locator('form[action="/dashboard/admin/affairs"] input[name="q"]'),
+      () => page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '全部' }).click(),
+    )
+  })
+
+  test('學生找隊員：再點「找隊員」分頁（連結拿掉 q），搜尋框清空', async ({ page }) => {
+    await page.context().addCookies([toPlaywrightCookie(student.cookie, BASE_URL)])
+    await expectClearedAfterClientNav(
+      page,
+      '/dashboard/student/groups?tab=team',
+      () => page.getByRole('searchbox', { name: '搜尋姓名、學號或技能' }),
+      () => page.getByRole('navigation', { name: '組別分頁' }).getByRole('link', { name: '找隊員' }).click(),
+    )
+  })
 })
