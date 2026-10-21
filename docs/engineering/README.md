@@ -57,7 +57,7 @@
      END { flush(); print "total " n }'
      ```
 
-   - 核對 7 處例外：`git grep -nE "COHORT_ARCHIVED" -- web/src/infrastructure/submissions/pg-submissions.ts web/src/infrastructure/ops/file-storage.ts web/src/infrastructure/signoff/pg-consent-bridge.ts`，封存檢查行號要落在各自 `replayed<` 之前（上傳不走 requestId）；測試見 `archived-readonly.integration.test.ts` 的 AC-56c。
+   - 核對 7 處例外：`git grep -nE "archivedGuard\(|status === 'archived'|replayed<" -- web/src/infrastructure/submissions/pg-submissions.ts web/src/infrastructure/ops/file-storage.ts web/src/infrastructure/signoff/pg-consent-bridge.ts`，每個命令的封存檢查（`archivedGuard(` 或 `status === 'archived'`）行號要小於它自己的 `replayed<` 行號（上傳不走 requestId，只有封存檢查行）；測試見 `archived-readonly.integration.test.ts` 的 AC-56c。
 5. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
 
 ## GitHub review 入口（2026-09-12）
