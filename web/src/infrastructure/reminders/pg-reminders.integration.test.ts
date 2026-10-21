@@ -383,7 +383,7 @@ describe('收件人', () => {
     expect([...(event!.recipients as string[])].sort()).toEqual([g1m[1]!.id, t2.id].sort())
     const mails = await outbox([g1m[1]!.email, t2.email])
     expect(mails.find((m) => m.to_email === t2.email)!.body_text).toContain(`${SITE}/dashboard/teacher/signoff`)
-    expect(mails.find((m) => m.to_email === g1m[1]!.email)!.body_text).toContain(`${SITE}/dashboard/student/signoff`)
+    expect(mails.find((m) => m.to_email === g1m[1]!.email)!.body_text).toContain(`${SITE}/dashboard/student/affairs/${itemId}?tab=status`)
   })
 })
 
@@ -533,5 +533,186 @@ describe('寄信在 commit 之後、盡力而為', () => {
     expect(r).toMatchObject({ notified: 3, mailed: 1 })
     expect(await remindedEvents(itemId)).toHaveLength(1)
     expect((await outbox(s.map((x) => x.email))).map((m) => m.to_email)).toEqual([s[2]!.email])
+  })
+})
+
+/** 數交易裡跑了幾句：包一層 `connect()`，把 client 的 `query` 換成會記錄的版本（只記第一個字，分類用）。 */
+function countingPool(log: string[]) {
+  return () => ({
+    connect: async () => {
+      const client = await app.connect()
+      return new Proxy(client, {
+        get(target, prop, receiver) {
+          if (prop === 'query') {
+            return (...args: unknown[]) => {
+              const sql = typeof args[0] === 'string' ? args[0] : String((args[0] as { text?: string })?.text ?? '')
+              log.push(sql.trim().replace(/\s+/g, ' '))
+              return (target.query as (...a: unknown[]) => unknown)(...args)
+            }
+          }
+          const value = Reflect.get(target, prop, receiver)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })
+    },
+  })
+}
+
+function countingReminders(log: string[]) {
+  return new PgReminders({
+    audit: new PgAuditWriter(),
+    ledger: new PgOperationLedger(() => app),
+    events: new PgEventPublisher(),
+    businessClock,
+    pool: countingPool(log) as never,
+    reader: () => app,
+    realClock,
+    mail: { mailer: new CaptureMailer({ db: () => app }), siteUrl: SITE },
+  })
+}
+
+/** 句數分類：鎖、寫入（含帳本與交易控制）、其他讀取。 */
+function tally(log: readonly string[]) {
+  const lock = log.filter((s) => s.includes('pg_advisory_xact_lock')).length
+  const write = log.filter((s) => /^(insert|update|delete)\b/i.test(s)).length
+  const control = log.filter((s) => /^(begin|commit|rollback)$/i.test(s)).length
+  return { total: log.length, lock, write, control, read: log.length - lock - write - control }
+}
+
+describe('CL-12：逾期卡批次查詢（寄出的對象與內容不變、查詢句數只減不增）', () => {
+  it('前後對照：同一組資料，收件人、站內通知、稽核、信件標題與連結逐一比對', async () => {
+    realNow = new Date('2026-11-20T11:00:00Z')
+    const cohortId = await newCohort()
+    const t1 = await newUser('對照甲老師', 'teacher')
+    const t2 = await newUser('對照乙老師', 'teacher')
+    const ind = [await newUser('個一', 'student', cohortId), await newUser('個二', 'student', cohortId), await newUser('個三', 'student', cohortId)]
+    const g1m = [await newUser('組一甲', 'student', cohortId), await newUser('組一乙', 'student', cohortId)]
+    const g2m = [await newUser('組二甲', 'student', cohortId)]
+    const g3m = [await newUser('組三甲', 'student', cohortId), await newUser('組三乙', 'student', cohortId)]
+    const g1 = await newGroup(cohortId, g1m, t1)
+    const g2 = await newGroup(cohortId, g2m, t2)
+    const g3 = await newGroup(cohortId, g3m)
+    const people = [t1, t2, ...ind, ...g1m, ...g2m, ...g3m]
+    const nameOf = new Map<string, string>()
+    for (const [p, n] of [[t1, '對照甲老師'], [t2, '對照乙老師'], [ind[0], '個一'], [ind[1], '個二'], [ind[2], '個三'], [g1m[0], '組一甲'], [g1m[1], '組一乙'], [g2m[0], '組二甲'], [g3m[0], '組三甲'], [g3m[1], '組三乙']] as const) {
+      nameOf.set(p!.id, n)
+      nameOf.set(p!.email, n)
+    }
+
+    // 個人收件：個一已交、個三停用 → 只催個二。
+    const individual = await published(cohortId, { title: '對照個人' })
+    await submitted(individual, 'user', ind[0]!.id, ind[0]!.id)
+    await owner.sql(`update users set status = 'disabled' where id = $1`, [ind[2]!.id])
+    // 給老師的作業（路徑走老師作業區）：名單同上、沒人交。
+    const forTeachers = await published(cohortId, { title: '對照老師區' })
+    await owner.sql(`update managed_items set audience_kind = 'teachers' where id = $1`, [forTeachers])
+    // 整組收件：組二已交 → 組一、組三展開組員。
+    const grouped = await published(cohortId, { title: '對照小組', receiverUnit: 'group' })
+    await submitted(grouped, 'group', g2.id, g2m[0]!.id)
+    // 站內同意書：組一收集中（甲已同意 → 催乙）、組二等老師（催乙老師）、組三沒建包。
+    const consent = await published(cohortId, { title: '對照同意書', receiverUnit: 'group' })
+    await owner.sql(`update managed_items set consent_mode = 'form', consent_purpose = 'result_confirmation' where id = $1`, [consent])
+    const v1 = must(await signoff.createVersion(admin(), { groupId: g1.id, purpose: 'result_confirmation', content: '對照。', attachmentFileIds: [], showcaseEntryId: null }, randomUUID()))
+    const v2 = must(await signoff.createVersion(admin(), { groupId: g2.id, purpose: 'result_confirmation', content: '對照。', attachmentFileIds: [], showcaseEntryId: null }, randomUUID()))
+    await owner.sql(`update signoff_packages set item_id = $1 where group_id = any($2::uuid[])`, [consent, [g1.id, g2.id]])
+    for (const [v, who] of [[v1, g1m[0]!], [v2, g2m[0]!]] as const) {
+      const checksum = String((await rows('select content_checksum from signoff_package_versions where id = $1', [v.versionId]))[0]!.content_checksum)
+      must(await signoff.respond(actor(who.id, ['student']), { versionId: v.versionId, contentChecksum: checksum, decision: 'agree', reason: null }, randomUUID()))
+    }
+    // 全員已交 → 不出現在回執；剛催過 → 略過；還沒截止 → 不催。
+    const allDone = await published(cohortId, { title: '對照全交', receiverUnit: 'group' })
+    for (const [g, m] of [[g1, g1m], [g2, g2m], [g3, g3m]] as const) await submitted(allDone, 'group', g.id, m[0]!.id)
+    const recent = await published(cohortId, { title: '對照剛催過' })
+    realNow = new Date('2026-11-20T10:30:00Z')
+    must(await reminders.remindItem(admin(), { itemId: recent }, randomUUID()))
+    realNow = new Date('2026-11-20T11:00:00Z')
+    await published(cohortId, { title: '對照未截止', dueAt: '2026-12-31T23:59' })
+    const titleOf = new Map([[individual, '對照個人'], [forTeachers, '對照老師區'], [grouped, '對照小組'], [consent, '對照同意書'], [allDone, '對照全交'], [recent, '對照剛催過']])
+    const norm = (text: string) => {
+      let out = text.replace(SITE, '{SITE}')
+      for (const [id, t] of titleOf) out = out.replaceAll(id, `<${t}>`)
+      return out
+    }
+
+    const before = (await rows('select id from mail_outbox')).map((m) => String(m.id))
+    const log: string[] = []
+    const r = must(await countingReminders(log).remindOverdue(admin(), { cohortId }, randomUUID()))
+    const names = (ids: readonly string[]) => ids.map((id) => nameOf.get(id) ?? id).sort()
+    const events = await rows(
+      `select source_id, recipients, payload from domain_events where type = 'item.reminded' and cohort_id = $1 and occurred_real_at = $2 order by source_id`,
+      [cohortId, realNow],
+    )
+    const audits = await rows(`select target_id, payload from audit_events where action = 'item.remind' and cohort_id = $1 and real_at = $2`, [cohortId, realNow])
+    const mails = await rows(`select to_email, subject, body_text from mail_outbox where to_email = any($1) and id <> all($2::uuid[])`, [people.map((p) => p.email), before])
+    const snapshot = {
+      receipt: { notified: r.notified, mailed: r.mailed, items: r.items.map((i) => [titleOf.get(i.itemId), i.notified, i.skippedCooldown]).sort() },
+      events: events.map((e) => [titleOf.get(String(e.source_id)), names(e.recipients as string[]), (e.payload as { title: string }).title]).sort(),
+      audits: audits
+        .map((a) => [titleOf.get(String(a.target_id)), names((a.payload as { recipientUserIds: string[] }).recipientUserIds), (a.payload as { from: string }).from])
+        .sort(),
+      mails: mails.map((m) => [nameOf.get(String(m.to_email)), String(m.subject), norm(String(m.body_text))]).sort(),
+    }
+    console.info('[CL-12 前後對照]', JSON.stringify(snapshot, null, 1))
+    console.info('[CL-12 句數｜對照資料 4 份催出、1 份略過]', JSON.stringify(tally(log)))
+
+    // 個人收件的名單是整屆學生（含各組組員）：個一已交、個三停用。
+    const due = '截止 2026/11/15 23:59'
+    const groupStudents = ['組一乙', '組一甲', '組三乙', '組三甲', '組二甲']
+    const indRecipients = ['個二', ...groupStudents].sort()
+    const teacherRecipients = ['個一', '個二', ...groupStudents].sort()
+    const mail = (to: string, item: string, link: string) => [to, '【專題管理平台】作業催繳', `${item} 尚未繳交，${due}。請到 {SITE}${link} 查看並完成。`]
+    expect(snapshot).toEqual({
+      receipt: {
+        notified: 19,
+        mailed: 19,
+        items: [
+          ['對照個人', 6, false],
+          ['對照剛催過', 0, true],
+          ['對照同意書', 2, false],
+          ['對照小組', 4, false],
+          ['對照老師區', 7, false],
+        ].sort(),
+      },
+      events: [
+        ['對照個人', indRecipients, `對照個人 尚未繳交，${due}`],
+        ['對照同意書', ['對照乙老師', '組一乙'], `對照同意書 尚未繳交，${due}`],
+        ['對照小組', ['組一乙', '組一甲', '組三乙', '組三甲'], `對照小組 尚未繳交，${due}`],
+        ['對照老師區', teacherRecipients, `對照老師區 尚未繳交，${due}`],
+      ].sort(),
+      audits: [
+        ['對照個人', indRecipients, 'overdue'],
+        ['對照同意書', ['對照乙老師', '組一乙'], 'overdue'],
+        ['對照小組', ['組一乙', '組一甲', '組三乙', '組三甲'], 'overdue'],
+        ['對照老師區', teacherRecipients, 'overdue'],
+      ].sort(),
+      mails: [
+        ...indRecipients.map((n) => mail(n, '對照個人', '/dashboard/student/affairs/<對照個人>')),
+        ...teacherRecipients.map((n) => mail(n, '對照老師區', '/dashboard/teacher/affairs/<對照老師區>')),
+        ...['組一甲', '組一乙', '組三甲', '組三乙'].map((n) => mail(n, '對照小組', '/dashboard/student/affairs/<對照小組>')),
+        // CL-12（issue #832 留言）：同意書學生的連結改直連作業的狀態分頁；這是前後對照裡唯一的差異。
+        mail('組一乙', '對照同意書', '/dashboard/student/affairs/<對照同意書>?tab=status'),
+        mail('對照乙老師', '對照同意書', '/dashboard/teacher/signoff'),
+      ].sort(),
+    })
+  })
+
+  it('查詢句數：1 份與 3 份逾期作業（整組收件）；隨份數增加的只有每份的鎖與寫入', async () => {
+    realNow = new Date('2026-11-20T12:00:00Z')
+    const run = async (count: number) => {
+      const cohortId = await newCohort()
+      const members = [await newUser('數一', 'student', cohortId), await newUser('數二', 'student', cohortId)]
+      await newGroup(cohortId, members)
+      for (let i = 0; i < count; i += 1) await published(cohortId, { title: `數句 ${i + 1}`, receiverUnit: 'group' })
+      const log: string[] = []
+      const r = must(await countingReminders(log).remindOverdue(admin(), { cohortId }, randomUUID()))
+      expect(r.items).toHaveLength(count)
+      return tally(log)
+    }
+    const one = await run(1)
+    const three = await run(3)
+    console.info('[CL-12 句數｜1 份]', JSON.stringify(one))
+    console.info('[CL-12 句數｜3 份]', JSON.stringify(three))
+    expect(three.lock - one.lock).toBe(2)
+    expect(three.read - one.read).toBe(0)
   })
 })
