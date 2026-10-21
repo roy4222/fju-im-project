@@ -122,7 +122,11 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
 export function buildTodos(rows: readonly MyItemRow[], now: Date, signoff: StudentSignoffView): readonly StudentTodo[] {
   const entries: { todo: StudentTodo; finishedAt: number }[] = []
   for (const row of rows) entries.push({ todo: itemTodo(row, now), finishedAt: row.latestReceivedAt?.getTime() ?? -Infinity })
+  // CL-16：連到作業的同意書，作業列已經在清單裡（狀態在作業的「狀態」分頁），不再多列一張卡。
+  // 只看作業列有沒有這份作業，不是「有 itemId 就不列」：作業不在本人名單上時，同意書卡仍是唯一入口。
+  const listedItems = new Set(rows.map((row) => row.itemId))
   for (const version of signoff.versions) {
+    if (version.itemId && listedItems.has(version.itemId)) continue
     const todo = consentTodo(version)
     if (!todo) continue
     const mine = version.progress.students.find((s) => s.userId === version.viewer.userId)
