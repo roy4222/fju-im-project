@@ -121,7 +121,9 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 
 - `REGISTRATION_OPEN` 是註冊開關，**不在必要鍵的檢查裡**：沒設的話 VM 上當作 `false`（關閉註冊），
   所以測試站要記得設 `true`，否則註冊頁會是 404。只有 CI／本機（不經 `docker-compose.vm.yml`）沒設才是開放。
-  切換：改 Doppler 後跑 `sudo -u deploy /srv/fju/app/ops/site.sh <test|prod> docker compose up -d --no-deps app worker`（約 30 秒）。
+  切換：改 Doppler 後把**目前在跑的同一版**重新部署一次：`sudo -u deploy /srv/fju/app/ops/deploy.sh --site test <SHA> --execute`
+  （`<SHA>` 用 `docker inspect --format '{{.Config.Image}}' fju-test-app` 冒號後那段；正式站把 `test` 換成 `prod`）。
+  不要用 `site.sh … docker compose up`：那樣不會帶 `APP_IMAGE`，Compose 會直接報錯。
 - 寄信、Turnstile、GA4 這五個鍵**不在必要鍵的檢查裡**（`ops/lib/site.sh` 不擋）：少了站照樣起得來，
   只是寄信回失敗、表單被人機驗證擋、GA4 不載入。所以加完要自己對一次鍵名。
 - **`MAIL_CAPTURE` 絕對不要放進 Doppler**（stg、prd 都不要）：它是本機與 CI 的擷取模式，開了信不會寄出、整封存進資料庫。
@@ -381,7 +383,8 @@ sudo ls -lh /srv/fju/prod/backups/
 
 預期最後印 `✓ 完成：…、… 個項目，sha256 …` 與 `紀錄已寫入 /srv/fju/prod/backups/records.jsonl`。
 
-- 備份檔只存在這台 VM（`/srv/fju/<站>/backups/fju-<站>-<UTC 時間>.dump`，目錄 700、檔案 600，只有 deploy 讀得到）；不排程、不上傳。
+- 備份檔只存在這台 VM（`/srv/fju/<站>/backups/fju-<站>-<UTC 時間>.dump`，目錄 700、檔案 600，只有 deploy 讀得到）；不上傳到雲端。
+  **正式站每天自動備份一次**（下一節「每日備份」）；測試站只有手動跑這支時才備份。
 - **只備份資料庫**；附件（`/srv/fju/<站>/files`）不在備份裡，VM 硬碟壞了附件救不回來（Roy 已接受）。
 - 每次都在同一目錄的 `records.jsonl` 加一筆紀錄（成功：檔名、大小、sha256、各表筆數；失敗：哪一步、錯誤訊息）。
   紀錄只往後加，**失敗不會蓋掉上一次成功**。舊備份檔要清的話手動 `sudo -u deploy rm`，紀錄不用動。
@@ -391,6 +394,30 @@ sudo ls -lh /srv/fju/prod/backups/
 ```bash
 sudo -u deploy /srv/fju/app/ops/backup.sh --site prod --status
 ```
+
+### 每日備份（⑤-06）
+
+`fju-backup.timer`（`vm-setup.sh` 步驟 12 安裝）每天 **UTC 19:30（台灣 03:30）**、隨機延後最多 10 分鐘，
+以 deploy 身分跑 `ops/backup-daily.sh`；VM 那時關機的話，開機後補跑一次（`Persistent=true`）。它做三件事：
+
+1. 正式站的 `fju-prod-postgres` 容器存在 → `backup.sh --site prod`，再把 `/srv/fju/prod/backups/` 裡還沒同步過的 dump
+   複製到 `/srv/fju/offsite/prod/`（異地拉取從這裡拿）。容器不存在 → 印「正式站不存在，略過」，仍算成功。
+2. 量 `/srv` 的磁碟使用率（見下面「磁碟用量」）。
+3. 對 Healthchecks.io 的「每日備份」check 打卡：開始送 `/start`；備份失敗或磁碟 ≥ 80% 送 `/fail`；其他送成功（見「Healthchecks.io」）。
+
+```bash
+systemctl list-timers fju-backup.timer          # 下一次觸發是 UTC 19:30 起 10 分鐘內
+sudo systemctl start fju-backup.service         # 手動跑一次（跟 timer 跑的一模一樣）
+journalctl -u fju-backup.service -n 20 --no-pager
+sudo ls -lh /srv/fju/offsite/prod/
+```
+
+預期：journal 最後幾行是 `[backup-daily] 正式站備份完成，同步 1 個檔到 /srv/fju/offsite/prod。`、
+`[backup-daily] 磁碟 NN%（/srv）。`；放了打卡網址的話還有兩行 `[healthchecks] ping 已送（開始）`／`（成功）`。
+
+- 這支取代原本只放在 VM 上、不在 repo 的每日備份包裝腳本與 timer：同名的 `fju-backup.service`／`.timer` 會被步驟 12 覆蓋。
+  舊的包裝腳本若是別的單元名稱，Roy 看 `systemctl list-timers` 確認只剩 `fju-backup.timer` 一個在備份，舊的 `systemctl disable --now`。
+- 測試站不在每日備份內；異地目錄裡的舊檔不會自動清（要清時 `sudo -u deploy rm`）。
 
 ### 還原演練（票 27）
 
@@ -493,7 +520,51 @@ sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$(sudo -u deploy docker i
 
 ### 磁碟用量
 
-磁碟 80% 告警改由 status collector 負責（`status/collector/lib/vm.mjs`）；web 的 worker 不再量磁碟，系辦首頁也沒有「儲存與備份」磚。
+磁碟由 `ops/backup-daily.sh` 每天量一次（隨每日備份，台灣 03:30）：`/srv` 使用率 **≥ 80%** 就對 Healthchecks.io 的
+「每日備份」check 送 `/fail`，內容寫「磁碟 NN%」，Discord 會收到這一則；< 80% 照常打成功。web 的 worker 不量磁碟，
+系辦首頁也沒有「儲存與備份」磚。收到通知時：先清舊的 `backups/` 與 `offsite/prod/` dump，
+再看舊映像（自動部署成功後會清，`docker image ls ghcr.io/roy4222/fju-web`）；仍不夠就評估加大磁碟。
+
+### Healthchecks.io（⑤-06）
+
+三種排程工作各自定時「打卡」；過了寬限沒打卡，或打的是失敗，Healthchecks.io 就通知 Discord。
+**打卡網址等同密碼**：只放在下面兩個 secrets 檔與 Doppler，不貼進 repo、issue、PR 或聊天。檔案或變數沒設時一律不打卡，
+也不會讓腳本失敗（本機、CI 都是這樣）。
+
+| check 名稱 | 誰打卡 | 週期／寬限 | 網址放哪 |
+|---|---|---|---|
+| 每日備份 | `ops/backup-daily.sh`（開始、成功、失敗） | 1 天／2 小時 | VM `/srv/fju/secrets/healthchecks-backup.url` |
+| 自動部署 | `ops/auto-deploy.sh`（每一輪結束：成功或失敗） | 10 分鐘／10 分鐘 | VM `/srv/fju/secrets/healthchecks-deploy.url` |
+| worker 測試站 | 測試站 worker（每 5 分鐘） | 10 分鐘／10 分鐘 | Doppler `stg` 的 `HEALTHCHECKS_WORKER_URL` |
+| worker 正式站 | 正式站 worker（每 5 分鐘） | 10 分鐘／10 分鐘 | Doppler `prd` 的 `HEALTHCHECKS_WORKER_URL` |
+
+**Roy 設定一次（約 15 分鐘）**
+
+① 🌐 Healthchecks.io：建上表四個 check（Simple 排程，週期與寬限照表），整個專案接一次 Discord integration
+（選「寶寶聚會」的監測頻道）。每個 check 頁面上複製它的 ping 網址（`https://hc-ping.com/…`）。
+
+② 🖥️ VM：兩個網址各放一個檔（deploy 擁有、600）。用 `read -s` 貼，網址不會出現在畫面與 shell 紀錄裡：
+
+```bash
+for name in backup deploy; do
+  read -rsp "healthchecks-${name} 的 ping 網址：" url; echo
+  printf '%s\n' "$url" | sudo -u deploy tee /srv/fju/secrets/healthchecks-${name}.url >/dev/null
+  sudo chmod 600 /srv/fju/secrets/healthchecks-${name}.url
+done
+unset url
+sudo ls -l /srv/fju/secrets/
+```
+
+③ Doppler：`stg` 與 `prd` 各加 `HEALTHCHECKS_WORKER_URL`＝各自 worker check 的網址；加完把該站目前的版本重新部署一次
+（`deploy.sh --site <test|prod> <SHA> --execute`），worker 才拿得到。這個鍵**只轉交給 worker**（`docker-compose.vm.yml`），
+app 看不到；不在 `ops/lib/site.sh` 的必要鍵裡，沒設也起得來。
+
+④ 驗收：`sudo systemctl start fju-auto-deploy.service` 後 `journalctl -u fju-auto-deploy.service -n 5` 有
+`[healthchecks] ping 已送（成功）`；`sudo systemctl start fju-backup.service` 後有 `（開始）` 與 `（成功）`；
+等 5 分鐘兩個 worker check 都變綠。Healthchecks.io 四個都綠就好了。
+
+- 暫時不想收通知（例如整夜驗收前關了 timer）：在 Healthchecks.io 該 check 按 Pause，恢復時它會自己變回綠。
+- 換網址：Healthchecks.io 重建 check 後照 ②／③ 重做；舊網址立刻失效。
 
 ### 故障演練（票 28，只准測試站）
 
@@ -570,7 +641,8 @@ VM 新帳號 `fjureset`，它的金鑰被 `restrict,command=` 綁死只能跑守
 - **快照**：`/srv/fju/test/snapshots/<名稱>/{db.dump,files.tar.gz,meta}`，deploy 擁有、目錄 700、檔案 600；`meta` 記存的時間、commit、兩個檔的 sha256，restore 前先核對，附件包裡有 symlink、hardlink、`files/` 以外的路徑就拒絕。**最多留 5 份**，第 6 份存進來時刪最舊的。同名再存＝覆蓋。快照不在每日備份與異地拉取的範圍內。
 - **ssh 斷線不會把重置砍一半**：reset／snapshot／restore 在 VM 上的背景程序裡跑，輸出同步傳回來；斷線後它照樣跑完，之後 `ssh fju-reset status` 看 `last_run=`（`busy=yes`＝還在跑）。完整紀錄在 VM 的 `/var/log/fju-test-reset/`（root 才看得到）。同時只能跑一個。
 - **連線次數**：每個子命令＝一次新連線，ufw 對 22 埠 30 秒最多 6 次；整夜腳本每次間隔 ≥ 15 秒。
-- **每日備份撞到重置**：每日備份台灣 03:30 會跑 test 的 `backup.sh`；若整夜的 reset／restore 剛好停站中，那一次 test 備份會記失敗（prod 照常），屬正常，隔天會恢復。
+- **每日備份不碰測試站**：每日備份（台灣 03:30，`fju-backup.timer`）只備份正式站，整夜的 reset／restore 停測試站不會讓它失敗；
+  要留測試站的狀態用 `snapshot`。
 - **磁碟**：snapshot 用 `backup.sh` 產生 dump 後，`backups/` 裡那份會刪掉（快照裡已有一份）；`/var/log/fju-test-reset/` 只留最近 20 份。
 - **repo 的這兩支腳本改了之後**：照上一節把 ops 送上 VM，再重跑下面第 3 框的兩行 `sudo install`——`/usr/local/sbin` 那份才是生效的版本（root 不執行 `/srv/fju/app` 底下的腳本）。
 
@@ -952,6 +1024,8 @@ docker stop fju-n1-probe
 | `ops/deploy.sh` | 部署／回滾某一站（`--site test|prod`） |
 | `ops/auto-deploy.sh` | timer 呼叫：GHCR `:main` 有新 SHA 就部署到測試站 |
 | `ops/backup.sh` | 手動備份某一站的資料庫、寫備份紀錄；`--status` 看最近成功備份／演練 |
+| `ops/backup-daily.sh` | `fju-backup.timer` 呼叫：每天備份正式站、同步到 `offsite/prod/`、量磁碟、打卡 Healthchecks.io |
+| `ops/lib/healthchecks.sh` | `hc_ping`：讀 secrets 裡的打卡網址打 Healthchecks.io（檔案不存在就不打）；`auto-deploy.sh`、`backup-daily.sh` 共用 |
 | `ops/restore-drill.sh` | 把備份還原到演練副本（`fju-drill`）、抽查、寫演練紀錄；`--remove` 移除副本 |
 | `docker-compose.drill.yml` | 演練副本（獨立的 Compose 檔，不疊在站台設定上；不發布 port、不接 Caddy） |
 | `ops/fault-drill.sh` | 四種故障演練（只准測試站；`--execute` 才真的跑），結果寫 `/srv/fju/test/drills/fault-drills.log` |

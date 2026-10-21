@@ -50,6 +50,8 @@ DOPPLER_LIST=/etc/apt/sources.list.d/doppler-cli.list
 UNIT_DIR=/etc/systemd/system
 TIMER=fju-auto-deploy.timer
 SERVICE=fju-auto-deploy.service
+BACKUP_TIMER=fju-backup.timer
+BACKUP_SERVICE=fju-backup.service
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 todo() { printf '  \033[33m→\033[0m %s\n' "$*"; }
@@ -283,7 +285,8 @@ fi
 step "步驟 8：app 檔案（${APP_DIR}）與 Compose 設定預檢"
 APP_FILES=(docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml
   ops/Caddyfile.vm ops/check-health.mjs ops/lib/site.sh ops/lib/backup-common.sh ops/lib/backup-record.mjs
-  ops/deploy.sh ops/site.sh ops/backup.sh ops/restore-drill.sh ops/auto-deploy.sh ops/seed-admin.sh)
+  ops/lib/healthchecks.sh ops/deploy.sh ops/site.sh ops/backup.sh ops/backup-daily.sh ops/restore-drill.sh
+  ops/auto-deploy.sh ops/seed-admin.sh)
 app_ready=1
 for f in "${APP_FILES[@]}"; do
   if [ -f "$APP_DIR/$f" ]; then
@@ -293,7 +296,8 @@ for f in "${APP_FILES[@]}"; do
     app_ready=0
   fi
 done
-for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/restore-drill.sh ops/auto-deploy.sh ops/seed-admin.sh; do
+for f in ops/deploy.sh ops/site.sh ops/backup.sh ops/backup-daily.sh ops/restore-drill.sh ops/auto-deploy.sh \
+  ops/seed-admin.sh; do
   if [ -f "$APP_DIR/$f" ] && [ ! -x "$APP_DIR/$f" ]; then
     bad "$APP_DIR/$f 不能執行（rsync 應該保留 +x；或 chmod +x）"
   fi
@@ -485,6 +489,60 @@ for url in https://ghcr.io https://accounts.google.com https://acme-v02.api.lets
     bad "$url 連不到（curl 失敗）"
   fi
 done
+
+step "步驟 12：每日備份（systemd timer，每天 UTC 19:30＝台灣 03:30 備份正式站）"
+# 取代原本只在 VM 上、不在 repo 的包裝腳本與 timer（同名單元會被這裡的版本覆蓋）。
+# 打卡網址 $SECRETS_DIR/healthchecks-backup.url 由 Roy 放（ops/README.md「Healthchecks.io」），沒有也照常備份。
+BACKUP_SERVICE_UNIT="[Unit]
+Description=FJU 每日備份（正式站資料庫 → backups／offsite，量磁碟，打卡 Healthchecks.io）
+After=docker.service network-online.target
+Wants=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=$DEPLOY_USER
+Group=$DEPLOY_USER
+WorkingDirectory=$APP_DIR
+ExecStart=$APP_DIR/ops/backup-daily.sh
+TimeoutStartSec=1h
+SyslogIdentifier=fju-backup
+"
+BACKUP_TIMER_UNIT="[Unit]
+Description=每天 UTC 19:30（台灣 03:30）跑一次 FJU 每日備份
+
+[Timer]
+OnCalendar=*-*-* 19:30:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"
+units_changed=0
+install_unit "$BACKUP_SERVICE" "$BACKUP_SERVICE_UNIT"
+install_unit "$BACKUP_TIMER" "$BACKUP_TIMER_UNIT"
+if [ "$units_changed" = 1 ]; then
+  systemctl daemon-reload
+fi
+# 異地目錄：已存在就不動（擁有者與權限照現況）；沒有才建，deploy 擁有、700。
+for dir in "$SRV_ROOT/offsite" "$SRV_ROOT/offsite/prod"; do
+  if [ -d "$dir" ]; then
+    ok "$dir 已存在"
+  else
+    todo "$dir 不存在"
+    run install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 700 "$dir"
+  fi
+done
+if [ -x "$APP_DIR/ops/backup-daily.sh" ]; then
+  if systemctl is-enabled --quiet "$BACKUP_TIMER" 2>/dev/null && systemctl is-active --quiet "$BACKUP_TIMER" 2>/dev/null; then
+    ok "$BACKUP_TIMER 已啟用並在跑（看下一次：systemctl list-timers ${BACKUP_TIMER}）"
+  else
+    todo "$BACKUP_TIMER 還沒啟用"
+    run systemctl enable --now "$BACKUP_TIMER"
+  fi
+else
+  todo "app 檔還沒放（$APP_DIR/ops/backup-daily.sh），timer 先不啟用；放好後重跑本腳本"
+fi
 
 cat <<'NOTE'
 

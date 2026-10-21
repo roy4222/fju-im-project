@@ -81,6 +81,8 @@ services:
       <<: *app-secrets
       # worker 跟 app 共用 client.ts 的連線池；worker 只做排程工作，上限 2 條就夠（SH-B2）。
       DB_POOL_MAX: '2'
+      # Healthchecks.io 的 worker 打卡網址（⑤-06）：只給 worker、選填；沒設＝空字串＝不打卡。
+      HEALTHCHECKS_WORKER_URL: ${HEALTHCHECKS_WORKER_URL:-}
     volumes:
       - /srv/fju/${FJU_SITE:?}/files:${FILES_ROOT:?}
 
