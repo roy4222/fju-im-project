@@ -402,3 +402,34 @@ test('AC-23：系辦改正文「儲存更新」→ 每組建新版；學生狀�
   await page.getByRole('navigation', { name: '同意書分頁' }).getByRole('link', { name: '說明', exact: true }).click()
   await expect(page.getByTestId('signoff-content')).toContainText(BODY_V2)
 })
+
+// CL-18：同意書的表態不寫進繳交紀錄；作業列改看本人表態。用 G03 還沒表態的乙走一次真的「同意」。
+test('CL-18：學生按同意後，作業列「已同意」＋「查看」、移到「已交」篩選，側欄徽章與首頁待辦數歸 0', async ({ page }, testInfo) => {
+  const student = g3[1]!
+  const badge = page.getByTestId('nav-badge-/dashboard/student/affairs')
+  await signIn(page, student)
+  await page.goto('/dashboard/student/affairs')
+  const before = page.getByTestId(`affair-${itemId}`)
+  await expect(before).toContainText('待你同意')
+  await expect(before.getByRole('link', { name: '交作業', exact: true })).toBeVisible()
+  await expect(badge).toHaveText('1')
+
+  await openStatus(page, student)
+  await agree(page)
+
+  await page.goto('/dashboard/student/affairs')
+  await expect(page.getByTestId(`affair-${itemId}`)).toHaveCount(0)
+  await expect(badge).toHaveCount(0)
+  await page.goto('/dashboard/student/affairs?tab=done')
+  const row = page.getByTestId(`affair-${itemId}`)
+  await expect(row).toContainText('已同意')
+  await expect(row.getByRole('link', { name: '查看', exact: true })).toBeVisible()
+  await expect(row.getByRole('link', { name: '交作業', exact: true })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('cl-18-student-affairs-done.png'), fullPage: true })
+
+  await page.goto('/dashboard/student')
+  await expect(page.getByRole('region', { name: '待辦' }).getByTestId('section-count')).toHaveText('0')
+  await expect(page.getByTestId(`todo-${itemId}`)).toContainText('已同意')
+  await expect(badge).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('cl-18-student-home.png'), fullPage: true })
+})
