@@ -328,6 +328,11 @@ function PreviewStep({
             。都會匯入到{preview.selectedCohortId ? '你選的屆別' : '下面選的屆別'}。
           </p>
         ) : null}
+        {preview.cohorts.length > 0 && !preview.cohorts.some((c) => c.isRegistrationOpen) ? (
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="roster-no-open-cohort">
+            目前沒有開放註冊的屆別，請自己選要匯入到哪一屆。
+          </p>
+        ) : null}
         {!preview.columns.cohort ? (
           <p className="mt-1 text-xs text-muted-foreground">CSV 沒有屆別欄，請選要匯入的屆別。</p>
         ) : null}
