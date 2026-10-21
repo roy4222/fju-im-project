@@ -138,4 +138,23 @@ describe('publicAccessOf：前台內容頁顯示什麼', () => {
     expect(publicAccessOf(anonymous, item('public', 'draft', false))).toBe('not_found')
     expect(publicAccessOf(admin, item('public', 'draft', false))).toBe('not_found')
   })
+
+  it('已刪除（CL-14）：原本看得到的人看到「已刪除」；看不到的人跟還在時一樣（找不到或先登入），分不出被刪了', () => {
+    const gone = (audienceKind: AudienceKind, status: ItemStatus = 'archived', everPublished = true) => ({
+      ...item(audienceKind, status, everPublished),
+      deleted: true,
+    })
+    expect(publicAccessOf(anonymous, gone('public'))).toBe('deleted')
+    expect(publicAccessOf(admin, gone('public'))).toBe('deleted')
+    expect(publicAccessOf(student(), gone('cohort_students'))).toBe('deleted')
+    expect(publicAccessOf(student(COHORT, [G1]), gone('groups', 'draft', true))).toBe('deleted')
+    // 看不到的人：結果跟同一則還在時一樣。
+    expect(publicAccessOf(student(OTHER), gone('cohort_students'))).toBe('not_found')
+    expect(publicAccessOf(student(COHORT, []), gone('groups'))).toBe('not_found')
+    expect(publicAccessOf(anonymous, gone('cohort_students'))).toBe('need_login')
+    expect(publicAccessOf(anonymous, gone('cohort_students'))).toBe(publicAccessOf(anonymous, item('cohort_students', 'archived')))
+    // 從沒發布過就刪掉的草稿：連管理員都是找不到。
+    expect(publicAccessOf(admin, gone('public', 'draft', false))).toBe('not_found')
+    expect(publicAccessOf(anonymous, gone('public', 'draft', false))).toBe('not_found')
+  })
 })

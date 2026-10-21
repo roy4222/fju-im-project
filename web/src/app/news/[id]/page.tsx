@@ -13,7 +13,7 @@ const load = cache(async (id: string) => getPublicItemQuery().open(await current
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
   const page = await load(id)
-  // 看不到內容的狀態（要登入、已下架、已撤回、找不到）不在標題裡露出原本的標題。
+  // 看不到內容的狀態（要登入、已下架、已撤回、已刪除、找不到）不在標題裡露出原本的標題。
   if (page.access !== 'visible') return { title: '最新公告｜資管系專題平台', robots: { index: false } }
   return {
     title: `${page.item.title}｜資管系專題平台`,
@@ -26,8 +26,9 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 /**
  * 公告內容頁（票 16；原型 `/news/[id]`）。
  *
- * 五種狀態照 `PublicItemQuery.open`：看得到就顯示內容（正文已經過 `renderBodyHtml`）；
- * 已下架／已撤回告知下一步（不是 404）；沒登入而對象不是公開就導到登入頁；其餘一律 404。
+ * 各種狀態照 `PublicItemQuery.open`：看得到就顯示內容（正文已經過 `renderBodyHtml`）；
+ * 已下架／已撤回／已刪除（CL-14：原本看得到的人才會拿到）告知下一步（不是 404，200＋noindex）；
+ * 沒登入而對象不是公開就導到登入頁；其餘一律 404。
  */
 export default async function NewsDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

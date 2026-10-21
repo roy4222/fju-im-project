@@ -366,8 +366,8 @@ export type PublicItemCard = {
 }
 
 /**
- * 打開一個前台內容頁的結果（`publicAccessOf` 的四種狀態）。只有 `visible` 帶內容；
- * 已下架、已撤回、要登入、找不到都**不帶標題與內容**，只帶位置讓頁面給對的下一步。
+ * 打開一個前台內容頁的結果（`publicAccessOf` 的各種狀態）。只有 `visible` 帶內容；
+ * 已下架、已撤回、已刪除（CL-14）、要登入、找不到都**不帶標題與內容**，只帶位置讓頁面給對的下一步。
  */
 export type PublicItemPage =
   | {
