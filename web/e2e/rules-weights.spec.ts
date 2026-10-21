@@ -91,7 +91,7 @@ test.afterAll(async () => {
 async function openPublicRules(page: Page): Promise<Locator> {
   await page.goto('/rules')
   await expect(page.getByRole('navigation', { name: '規則目錄' })).toContainText(RULE)
-  return page.getByRole('region', { name: '評分方式' })
+  return page.getByRole('region', { name: '評分方式與比例' })
 }
 
 function stage(block: Locator, name: string): Locator {
