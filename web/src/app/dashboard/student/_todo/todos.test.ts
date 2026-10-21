@@ -239,6 +239,90 @@ describe('consentTodo：同意書（Q123）', () => {
   })
 })
 
+// CL-18：同意書的表態不寫進繳交紀錄，作業列改看本人表態（字與完成與否沿用 `consentTodo`）。
+describe('buildTodos：同意書作業列依本人表態', () => {
+  const row = (over: Partial<MyItemRow> = {}) => item({ itemId: 'ci', kind: 'consent_form', title: '專題成果授權同意書', ...over })
+  const linked = (over: ConsentOver = {}) => view(consent({ versionId: 'v2', itemId: 'ci', ...over }))
+  const only = (todos: readonly StudentTodo[]) => {
+    expect(todos).toHaveLength(1)
+    return todos[0]!
+  }
+
+  it('已同意：膠囊「已同意」、算已完成，不進徽章、首頁「下一件」；作業列本身的名稱、截止、連結不變', () => {
+    const todos = buildTodos([row({ dueAt: dayEnd(3) })], NOW, linked({ voted: 'agree', votedAt: NOW }))
+    expect(only(todos)).toMatchObject({
+      kind: 'item',
+      id: 'ci',
+      title: '專題成果授權同意書',
+      due: dayEnd(3),
+      status: 'done',
+      label: '已同意',
+      href: '/dashboard/student/affairs/ci',
+    })
+    expect(studentOpenCount(todos)).toBe(0)
+    expect(todoCounts(todos)).toEqual({ open: 0, done: 1, overdue: 0 })
+    expect(nextDue(todos)).toBeNull()
+  })
+
+  it('已同意、等其他組員或老師（collecting／teacher_pending）也是「已同意」', () => {
+    for (const state of ['collecting', 'teacher_pending'] as const) {
+      expect(pick(only(buildTodos([row()], NOW, linked({ state, voted: 'agree' }))))).toEqual({ status: 'done', label: '已同意' })
+    }
+  })
+
+  it('未表態、輪到你：膠囊「待你同意」、算進徽章；快到期仍照截止日排', () => {
+    const todos = buildTodos([row({ dueAt: dayEnd(3) })], NOW, linked({ canRespond: true }))
+    expect(pick(only(todos))).toEqual({ status: 'soon', label: '待你同意' })
+    expect(studentOpenCount(todos)).toBe(1)
+    expect(nextDue(todos)?.id).toBe('ci')
+    expect(pick(only(buildTodos([row()], NOW, linked({ canRespond: true }))))).toEqual({ status: 'open', label: '待你同意' })
+  })
+
+  it('未表態但已逾期：維持「逾期」（不進徽章，Q117）', () => {
+    const todos = buildTodos([row({ dueAt: dayEnd(-2) })], NOW, linked({ canRespond: true }))
+    expect(pick(only(todos))).toEqual({ status: 'overdue', label: '逾期' })
+    expect(studentOpenCount(todos)).toBe(0)
+  })
+
+  it('退回修正中：膠囊「退回修正中」、算已完成', () => {
+    const todos = buildTodos([row()], NOW, linked({ state: 'revision', voted: 'disagree' }))
+    expect(pick(only(todos))).toEqual({ status: 'done', label: '退回修正中' })
+    expect(studentOpenCount(todos)).toBe(0)
+  })
+
+  it('不同意（等老師）：膠囊「不同意」、算已完成', () => {
+    expect(pick(only(buildTodos([row()], NOW, linked({ state: 'teacher_pending', voted: 'disagree' }))))).toEqual({ status: 'done', label: '不同意' })
+  })
+
+  it('已完成排序用本人表態時間', () => {
+    const todos = buildTodos(
+      [
+        row(),
+        item({ itemId: 'a', latestVersionNo: 1, latestReceivedAt: new Date(NOW.getTime() - DAY / 2) }),
+        item({ itemId: 'b', latestVersionNo: 1, latestReceivedAt: new Date(NOW.getTime() - 2 * DAY) }),
+      ],
+      NOW,
+      linked({ voted: 'agree', votedAt: new Date(NOW.getTime() - DAY) }),
+    )
+    expect(todos.map((t) => t.id)).toEqual(['a', 'ci', 'b'])
+  })
+
+  it('免繳、尚未開放仍以作業本身為準', () => {
+    expect(pick(only(buildTodos([row({ exempt: true })], NOW, linked({ canRespond: true }))))).toEqual({ status: 'exempt', label: '免繳' })
+    expect(pick(only(buildTodos([row({ opensAt: dayEnd(2) })], NOW, linked({ canRespond: true }))))).toEqual({ status: 'notOpen', label: '尚未開放' })
+  })
+
+  it('找不到有效版本（失效、作廢、還沒建立）：維持作業本身的狀態', () => {
+    expect(pick(only(buildTodos([row()], NOW, linked({ state: 'superseded', cause: 'member_change', voted: 'agree' }))))).toEqual({ status: 'open', label: '待交' })
+    expect(pick(only(buildTodos([row()], NOW, linked({ state: 'void' }))))).toEqual({ status: 'open', label: '待交' })
+    expect(pick(only(buildTodos([row()], NOW, view())))).toEqual({ status: 'open', label: '待交' })
+  })
+
+  it('一般作業不受同意書影響（同 itemId 也只看 kind）', () => {
+    expect(pick(only(buildTodos([item({ itemId: 'ci' })], NOW, linked({ voted: 'agree' }))))).toEqual({ status: 'open', label: '待交' })
+  })
+})
+
 describe('buildTodos 排序', () => {
   it('未完成在前依截止日、同意書排在有日期的後面；已完成在後、最近送出在前，免繳最後', () => {
     const todos = buildTodos(
