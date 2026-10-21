@@ -84,28 +84,69 @@ function methodOf(cls: ts.ClassDeclaration, name: string) {
   return cls.members.find((m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && m.name.getText() === name && !!m.body)
 }
 
-/** ② 用例方法：守門前的呼叫有沒有以 this 欄位或 DB 物件開頭。回問題或 null。 */
+/** 變數宣告綁出來的名字（含解構）。 */
+function boundNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text]
+  return name.elements.flatMap((e) => (ts.isOmittedExpression(e) ? [] : boundNames(e.name)))
+}
+
+/**
+ * ② 用例方法：守門前的呼叫有沒有碰 this 欄位或 DB 物件——呼叫的出發點、參數（`inTransaction(this.#pool, …)`）、
+ * 守門函式自己的參數（`authorizeAdmin((void this.#pool().query('x'), actor))`），以及先取的別名（`const p = this.#pool`）都算。
+ */
 function preGuard(file: string, cls: ts.ClassDeclaration, method: string, guard: string, hops = 2): string | null {
   const member = methodOf(cls, method)
   if (!member?.body) return null // 找不到方法由 server-action-guard.test.ts 報
   const where = (n: ts.Node) => `${cls.name?.text}.${method}（${file}:${lineOf(n)}）`
   const isGuardCall = (n: ts.Node | undefined) => !!n && ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === guard
+  const isHop = (c: ts.CallExpression) =>
+    ts.isPropertyAccessExpression(c.expression) && c.expression.expression.kind === ts.SyntaxKind.ThisKeyword && !!methodOf(cls, c.expression.name.getText())
+  const aliases = new Set<string>()
+  /** 以 this、DB 物件或它們的別名為出發點。 */
+  const tainted = (e: ts.Expression): string | null => {
+    const root = rootOf(e)
+    if (root.kind === ts.SyntaxKind.ThisKeyword) return 'this 欄位'
+    if (ts.isIdentifier(root) && DB_ROOTS.has(root.text)) return `DB 物件 ${root.text}`
+    if (ts.isIdentifier(root) && aliases.has(root.text)) return `別名 ${root.text}`
+    return null
+  }
+  /** 一般呼叫（不是守門、不是 this.#方法）：出發點或任一參數碰到就違規。 */
+  const check = (c: ts.CallExpression): string | null => {
+    const callee = c.expression
+    if (ts.isPropertyAccessExpression(callee) && callee.expression.kind === ts.SyntaxKind.ThisKeyword) {
+      return `${where(c)} 守門前呼叫 this 欄位：${short(c)}`
+    }
+    const from = tainted(callee)
+    if (from === 'this 欄位') return `${where(c)} 守門前經 this 欄位發出呼叫：${short(c)}`
+    if (from) return `${where(c)} 守門前碰 ${from}：${short(c)}`
+    for (const arg of c.arguments) {
+      const passed = tainted(arg)
+      if (passed) return `${where(c)} 守門前把 ${passed} 交給呼叫：${short(c)}`
+    }
+    return null
+  }
   for (const s of member.body.statements) {
     let hop: string | null = null
     for (const c of calls(s)) {
-      if (isGuardCall(c)) return null
-      const callee = c.expression
-      if (ts.isPropertyAccessExpression(callee) && callee.expression.kind === ts.SyntaxKind.ThisKeyword) {
-        const name = callee.name.getText()
-        if (methodOf(cls, name)) {
-          hop ??= name
-          continue
+      if (isGuardCall(c)) {
+        // 守門函式的參數比守門本身先執行。
+        for (const inner of c.arguments.flatMap((arg) => calls(arg))) {
+          const problem = check(inner)
+          if (problem) return problem
         }
-        return `${where(c)} 守門前呼叫 this 欄位：${short(c)}`
+        return null
       }
-      const root = rootOf(callee)
-      if (root.kind === ts.SyntaxKind.ThisKeyword) return `${where(c)} 守門前經 this 欄位發出呼叫：${short(c)}`
-      if (ts.isIdentifier(root) && DB_ROOTS.has(root.text)) return `${where(c)} 守門前碰 DB 物件 ${root.text}：${short(c)}`
+      if (isHop(c)) {
+        hop ??= (c.expression as ts.PropertyAccessExpression).name.getText()
+        continue
+      }
+      const problem = check(c)
+      if (problem) return problem
+    }
+    if (ts.isVariableStatement(s)) {
+      for (const d of s.declarationList.declarations) {
+        if (d.initializer && tainted(d.initializer)) for (const n of boundNames(d.name)) aliases.add(n)
+      }
     }
     if (hop) return hops > 0 ? preGuard(file, cls, hop, guard, hops - 1) : null
   }
@@ -205,6 +246,13 @@ describe('SEC-2 補強：變造就紅', () => {
     ['this.deps.pool.query()，void 前綴', "void this.deps.pool.query('select 1')", '守門前經 this 欄位發出呼叫'],
     ['直接呼叫 this 欄位（不是方法）', 'const db = this.#pool()', '守門前呼叫 this 欄位'],
     ['getPool() 的查詢，沒 await', "const leak = getPool().query('select 1')", '守門前碰 DB 物件 getPool'],
+    ['pool 交給輔助函式，void', "void inTransaction(this.#pool, 'cohorts', async (tx) => tx.query('select 1'))", '守門前把 this 欄位 交給呼叫'],
+    ['pool 交給輔助函式，先存起來', "const pending = inTransaction(this.#pool, 'cohorts', async (tx) => tx.query('select 1'))", '守門前把 this 欄位 交給呼叫'],
+    ['pool 交給輔助函式，提早 return', "if (!input) return inTransaction(this.#pool, 'cohorts', async (tx) => tx.query('select 1'))", '守門前把 this 欄位 交給呼叫'],
+    ['查詢寫在守門的參數裡（逗號運算）', "const early = authorizeAdmin((void this.#pool().query('x'), actor))", '守門前經 this 欄位發出呼叫'],
+    ['查詢寫在守門的參數裡（await）', "const early = authorizeAdmin((await this.#pool().query('x')) && actor)", '守門前經 this 欄位發出呼叫'],
+    ['先取別名再呼叫', "const p = this.#pool\n    p().query('x')", '守門前碰 別名 p'],
+    ['解構出別名再呼叫', "const { query } = this.#deps\n    query('x')", '守門前碰 別名 query'],
   ])('② PgCohortCommand.activate 守門前插入：%s', (_name, line, message) => {
     const problems = useCaseViolations(insertBefore(file, anchor, `${line}\n    `, activate))
     expect(problems).toHaveLength(1)
