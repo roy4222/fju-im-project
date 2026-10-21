@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { IconBook2, IconPlus } from '@tabler/icons-react'
 import { Panel } from '@/app/_ui/dashboard-kit'
+import { leavingHref } from '@/app/dashboard/admin/affairs/_content/leaving-href'
 import { InlineRuleForm, RuleCard, type InlineDone, type RuleCardFacts } from '@/app/dashboard/admin/affairs/_content/rules-card'
 import { moveRuleAction } from '@/app/dashboard/admin/affairs/actions'
 import { DIALOG, PRIMARY, SECONDARY } from '@/app/dashboard/admin/affairs/item-form-parts'
@@ -26,22 +27,6 @@ const NEW = 'new'
 
 /** 確認框在問什麼：換展開另一章（`open`），或離開這一頁到 `href`（`leave`）。 */
 type Asking = { kind: 'open'; target: string } | { kind: 'leave'; href: string }
-
-/**
- * 這次點擊是不是「在同一個分頁換到別頁」的站內連結：新分頁、下載、修飾鍵、外站、`/api/` 底下（附件下載等 Route Handler）、
- * 點回目前這一頁都不算。跟 `nav-pending-rules.ts` 的 `clickIntent` 同一套規則；不 import 是為了不動共用區塊
- * （import 它會讓每條路由都載入的 `$shared` 變大，CL-1 實測 +46 bytes）。改一邊要一起改另一邊。
- */
-function leavingHref(event: MouseEvent): string | null {
-  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null
-  const link = event.target instanceof Element ? event.target.closest('a[href]') : null
-  if (!(link instanceof HTMLAnchorElement) || (link.target && link.target !== '_self') || link.hasAttribute('download')) return null
-  const url = new URL(link.href, window.location.href)
-  if (url.origin !== window.location.origin) return null
-  if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return null
-  if (url.pathname === window.location.pathname && url.search === window.location.search) return null
-  return url.pathname + url.search + url.hash
-}
 
 /** 把 `from` 移到 `to` 原本的位置（往下拖放在它後面、往上拖放在它前面）。 */
 function moveTo(ids: readonly string[], from: string, to: string): string[] {
@@ -88,7 +73,9 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
       event.returnValue = ''
     }
     const onClick = (event: MouseEvent) => {
-      const href = leavingHref(event)
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null
+      if (!(link instanceof HTMLAnchorElement)) return
+      const href = leavingHref(link, event, window.location.href)
       if (!href) return
       event.preventDefault()
       event.stopPropagation()
