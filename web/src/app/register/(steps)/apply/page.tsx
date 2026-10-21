@@ -8,9 +8,9 @@ import {
   homeForUser,
   isRegistrationOpen,
 } from '@/composition/accounts'
-import { ApplicationForm } from '../application-form'
-import { RegisterFrame } from '../_components/register-frame'
-import { applyStepAction } from './actions'
+import { ApplicationForm } from '@/app/register/application-form'
+import { RegisterFrame, stepDir } from '@/app/register/_components/register-frame'
+import { applyStepAction } from '@/app/register/apply/actions'
 
 export const metadata = { title: '填學生資料｜資管系專題平台', robots: { index: false } }
 
@@ -21,7 +21,7 @@ export const metadata = { title: '填學生資料｜資管系專題平台', robo
  * Google 第一次登入的新帳號也直接到這裡（`?via=google`），進度條第 2 格顯示「Google 已驗證」。
  * 還沒驗證 Email 的人導回第 2 步；已經送過申請（待審或被退回）的人到等待審核頁看狀態、修改。
  */
-export default async function RegisterApplyPage() {
+export default async function RegisterApplyPage({ searchParams }: { searchParams: Promise<{ dir?: string | string[] }> }) {
   if (!isRegistrationOpen()) notFound()
   const actor = await requireSignedIn('/register/apply', 'registration.viewOwn')
   if (actor.status !== 'pending') redirect(homeFor(actor))
@@ -31,10 +31,12 @@ export default async function RegisterApplyPage() {
   if (!viewed.ok || viewed.receipt.state !== 'none') redirect('/register/pending')
   const mine = viewed.receipt
   const viaGoogle = actor.loginMethod === 'google'
+  const { dir } = await searchParams
 
   return (
     <RegisterFrame
       step={3}
+      dir={stepDir(dir)}
       googleVerified={viaGoogle}
       title="填學生資料"
       description={

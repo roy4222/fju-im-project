@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { AuthSplit } from '@/app/_ui/auth-split'
+import { AuthStage } from '@/app/_ui/auth-stage'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { ResetForm } from '@/app/reset-password/reset-form'
 import { MIN_PASSWORD_LENGTH } from '@/composition/accounts'
@@ -27,10 +27,10 @@ export default async function ResetPasswordPage({
   if (typeof token !== 'string' || !token.trim()) redirect('/login?mode=forgot')
 
   return (
-    <SiteShell bare>
-      <AuthSplit image={{ src: '/placeholder/campus.jpg', alt: '輔仁大學校園', width: 960, height: 639 }}>
+    <SiteShell bare footer={false}>
+      <AuthStage>
         <ResetForm token={token} minLength={MIN_PASSWORD_LENGTH} />
-      </AuthSplit>
+      </AuthStage>
     </SiteShell>
   )
 }
