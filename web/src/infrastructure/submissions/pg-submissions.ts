@@ -1353,6 +1353,36 @@ export class PgSubmissionQuery implements SubmissionQuery {
     )
   }
 
+  /** 作業頁打不開時判斷「已刪除、本人原本看得到」（CL-14；條件見 port 註解）。只回真假，不帶標題或內容。 */
+  async deletedItemSeenBy(userId: string, itemId: string, options: { readonly asAdvisor?: boolean } = {}): Promise<boolean> {
+    if (!isUuid(userId) || !isUuid(itemId)) return false
+    const found = await this.#reader().query<{ seen: boolean }>(
+      `select exists (
+         select 1 from managed_items m
+          where m.id = $2 and m.deleted_at is not null and m.actual_opened_at is not null
+            and (
+              exists (select 1 from response_rosters r
+                       left join groups g on r.receiver_kind = 'group' and g.id = r.receiver_id
+                      where r.item_id = m.id
+                        and r.eligible_to_business_at is null
+                        and ((r.receiver_kind = 'user' and r.receiver_id = $1)
+                          or (r.receiver_kind = 'group' and g.status = 'active'
+                              and exists (select 1 from group_memberships gm
+                                           where gm.group_id = r.receiver_id and gm.user_id = $1 and gm.valid_to is null))))
+              or exists (select 1 from signoff_packages p
+                           join groups g on g.id = p.group_id and g.status = 'active'
+                           join group_memberships gm on gm.group_id = p.group_id and gm.user_id = $1 and gm.valid_to is null
+                          where p.item_id = m.id)
+              or ($3::boolean and exists (select 1 from advisor_assignments a join groups g on g.id = a.group_id
+                                  where a.teacher_user_id = $1 and a.valid_to is null and g.status = 'active'
+                                    and g.cohort_id = m.cohort_id))
+            )
+       ) as seen`,
+      [userId, itemId, options.asAdvisor === true],
+    )
+    return found.rows[0]?.seen === true
+  }
+
   async myItem(userId: string, itemId: string): Promise<MyItemDetail | null> {
     if (!isUuid(userId) || !isUuid(itemId)) return null
     const db = this.#reader()

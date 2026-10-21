@@ -1798,7 +1798,7 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     expect(await itemRow(item.itemId)).toMatchObject({ status: 'archived', deleted_at: null, revision: archived.revision })
   })
 
-  it('已下架的公開公告刪掉後：原網址對訪客與管理員都是找不到（不是已下架）、附件與封面連管理員都下載不到、檔案管理不再列它為引用來源', async () => {
+  it('已下架的公開公告刪掉後：原網址對訪客與管理員都是「已刪除」（不是已下架，CL-14）、附件與封面連管理員都下載不到、檔案管理不再列它為引用來源', async () => {
     const { cohortId } = await newCohort()
     const fileId = await uploadPdf(adminId, cohortId)
     const coverId = await uploadPdf(adminId, cohortId, 'png')
@@ -1821,8 +1821,9 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
 
     const deleted = await items.delete(adminActor(), item.itemId, archived.revision, randomUUID())
     expect(deleted.ok).toBe(true)
-    expect(await publicQuery.open({ kind: 'anonymous' }, item.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
-    expect(await publicQuery.open(adminActor(), item.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
+    // CL-14：原本看得到的人（公開公告＝訪客與管理員都算）看到「已刪除」，不是裸 404；不帶標題與內容。
+    expect(await publicQuery.open({ kind: 'anonymous' }, item.itemId, 'news')).toEqual({ access: 'deleted', placement: 'news' })
+    expect(await publicQuery.open(adminActor(), item.itemId, 'news')).toEqual({ access: 'deleted', placement: 'news' })
     for (const id of [fileId, coverId]) {
       expect(await canDownload({ kind: 'anonymous' }, id)).toBe(false)
       expect(await canDownload(adminActor(), id)).toBe(false)
@@ -1861,6 +1862,66 @@ describe('刪除（第三波 W1；AC-3～AC-7）：只限草稿與已下架、�
     expect(note).toBeDefined()
     expect(await new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app)).myItem(s1.id, item.itemId)).toBeNull()
     expect((await new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app)).myItems(s1.id)).map((r) => r.itemId)).not.toContain(item.itemId)
+  })
+
+  it('已刪除的公告（CL-14）：原本在對象內的人看到「已刪除」；不在對象內的照舊找不到、訪客照舊先登入；從沒發布過的草稿刪掉仍是找不到', async () => {
+    const { cohortId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const outsider = await newStudent((await newCohort()).cohortId)
+    const created = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'cohort_students' })
+    const news = { itemId: created.itemId, revision: (await mustPublish(created.itemId, 1, false)).revision }
+    // 刪除前後，看不到的人拿到的結果一模一樣（分不出被刪了）。
+    const before = {
+      outsider: await publicQuery.open(studentActor(outsider), news.itemId, 'news'),
+      anonymous: await publicQuery.open({ kind: 'anonymous' }, news.itemId, 'news'),
+    }
+    const archived = await mustChange(news.itemId, news.revision, 'archive')
+    expect((await items.delete(adminActor(), news.itemId, archived.revision, randomUUID())).ok).toBe(true)
+
+    expect(await publicQuery.open(studentActor(s1), news.itemId, 'news')).toEqual({ access: 'deleted', placement: 'news' })
+    expect(await publicQuery.open(adminActor(), news.itemId, 'news')).toEqual({ access: 'deleted', placement: 'news' })
+    expect(await publicQuery.open(studentActor(outsider), news.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
+    expect(await publicQuery.open({ kind: 'anonymous' }, news.itemId, 'news')).toEqual({ access: 'need_login', placement: 'news' })
+    expect(before).toEqual({ outsider: { access: 'not_found', placement: null }, anonymous: { access: 'need_login', placement: 'news' } })
+    // 不是公告的位置照舊找不到。
+    expect((await publicQuery.open(studentActor(s1), news.itemId, 'resource')).access).toBe('not_found')
+
+    const draft = await mustCreate(cohortId, { placement: 'news', receiverUnit: 'none', audienceKind: 'public' })
+    expect((await items.delete(adminActor(), draft.itemId, draft.revision, randomUUID())).ok).toBe(true)
+    expect(await publicQuery.open({ kind: 'anonymous' }, draft.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
+    expect(await publicQuery.open(adminActor(), draft.itemId, 'news')).toEqual({ access: 'not_found', placement: null })
+  })
+
+  it('已刪除的作業（CL-14 `deletedItemSeenBy`）：名單上的學生、此刻指導該屆的老師才算「看得到」；外人、別屆老師、還在的作業、從沒發布的草稿都不算', async () => {
+    const { cohortId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const outsider = await newStudent((await newCohort()).cohortId)
+    const groupId = await newGroup(cohortId, [], 'G77')
+    const advisor = await newTeacher()
+    await assignAdvisor(groupId, advisor)
+    const otherAdvisor = await newTeacher()
+    await assignAdvisor(await newGroup((await newCohort()).cohortId, [], 'G78'), otherAdvisor)
+    const submissions = new PgSubmissionQuery(() => app, new PgSubmissionLateFlags(() => app))
+
+    const item = await mustCreate(cohortId)
+    const published = await mustPublish(item.itemId, 1)
+    // 還在的作業：一律 false（頁面該走原本的路）。
+    expect(await submissions.deletedItemSeenBy(s1.id, item.itemId)).toBe(false)
+    const archived = await mustChange(item.itemId, published.revision, 'archive')
+    expect((await items.delete(adminActor(), item.itemId, archived.revision, randomUUID())).ok).toBe(true)
+
+    expect(await submissions.deletedItemSeenBy(s1.id, item.itemId)).toBe(true)
+    expect(await submissions.deletedItemSeenBy(outsider.id, item.itemId)).toBe(false)
+    expect(await submissions.deletedItemSeenBy(advisor, item.itemId, { asAdvisor: true })).toBe(true)
+    expect(await submissions.deletedItemSeenBy(advisor, item.itemId)).toBe(false)
+    expect(await submissions.deletedItemSeenBy(otherAdvisor, item.itemId, { asAdvisor: true })).toBe(false)
+    expect(await submissions.deletedItemSeenBy(s1.id, randomUUID())).toBe(false)
+    expect(await submissions.deletedItemSeenBy(s1.id, 'not-a-uuid')).toBe(false)
+
+    const draft = await mustCreate(cohortId)
+    expect((await items.delete(adminActor(), draft.itemId, draft.revision, randomUUID())).ok).toBe(true)
+    expect(await submissions.deletedItemSeenBy(s1.id, draft.itemId)).toBe(false)
+    expect(await submissions.deletedItemSeenBy(advisor, draft.itemId, { asAdvisor: true })).toBe(false)
   })
 
   it('已有人交件（Q28）：學生存過草稿的收件下架後也不能刪，只能下架（ITEM_HAS_RESPONSES），項目仍在清單', async () => {

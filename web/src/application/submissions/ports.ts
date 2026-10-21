@@ -296,6 +296,13 @@ export interface SubmissionQuery {
    * 放在這裡而不是 `RosterQuery`：補交是這個模組的寫入，讀它的 SQL 跟送出時的守門放在同一個檔。
    */
   reopens(actor: ResolvedActor, itemId: string, receiverId: string): Promise<readonly ReopenEntry[] | null>
+  /**
+   * 作業頁打不開時，這份作業是不是「已刪除、而本人原本看得到」（CL-14：舊通知、催繳信、書籤點進來給友善頁）。
+   * 原本看得到＝發布過，而且本人在還沒結束的名單列上（個人：本人那一列；整組：本人此刻所在、仍有效的組那一列；
+   * 下架不結束名單，所以「下架再刪」的人都算），或本人此刻所在的組有連到這份作業的同意書包；`asAdvisor` 另算「此刻指導該屆任一有效組」
+   * （跟老師作業頁 `#scope` 的範圍一樣）。其他人一律 false，頁面照舊 404，不透露這份作業存在過。
+   */
+  deletedItemSeenBy(userId: string, itemId: string, options?: { readonly asAdvisor?: boolean }): Promise<boolean>
 }
 
 /** 一次個別補交（只插不改的一列）。 */

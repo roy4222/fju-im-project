@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { requireRole } from '@/app/_ui/guard'
+import { GoneNotice } from '@/app/_ui/public-content'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
 import { AssignmentView, BackLink, UnitIcon } from '@/app/dashboard/_submissions/assignment-view'
@@ -9,7 +10,7 @@ import { getBusinessClock } from '@/composition/cohorts'
 import { getSignoffQuery } from '@/composition/signoff'
 import { getSubmissionQuery } from '@/composition/submissions'
 
-export const metadata = { title: '作業內容｜資管系專題平台' }
+export const metadata = { title: '作業內容｜資管系專題平台', robots: { index: false } }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -18,6 +19,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * 畫面本體是 `AssignmentView`，名單上的老師（`/dashboard/teacher/affairs/[id]`）用同一套。
  *
  * 只有自己（整組一份：自己此刻所在的組）在目前收件名單上才看得到（不在名單上一律 404，不透露這份收件存在）。
+ * 系辦刪掉的作業：本人原本看得到才顯示「這份作業已刪除」（200，CL-14），其他人照舊 404。
  * `?record=<收件者>` 是「以前的紀錄」（票 22）：已經不在作業區、本人讀得到的正式版本，唯讀。
  * 站內同意書（自己這組連到這份作業的簽核包）改成「說明｜狀態」兩個分頁（`?tab=about`／`?tab=status`，C1-11、§6.2）。
  */
@@ -85,6 +87,15 @@ export default async function StudentAffairPage({
     getSignoffQuery().studentViewByItem(actor, id),
   ])
   const consentVersion = consent.versions[0]
+  // 已刪除、本人原本看得到（CL-14）：舊通知、催繳信、書籤點進來給友善頁；同意書作業刪了也一樣（不再顯示同意書狀態）。
+  // 只在打不開或是同意書時多查這一句；看不到的人照舊 404。
+  if ((!item || consentVersion) && (await query.deletedItemSeenBy(userId, id))) {
+    return (
+      <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">
+        <GoneNotice kind="deleted" what="作業" unit="份" back={{ href: '/dashboard/student/affairs', label: '回到交作業' }} />
+      </DashboardShell>
+    )
+  }
   if (consentVersion) {
     return (
       <DashboardShell roleLabel="學生" items={STUDENT_NAV} current="/dashboard/student/affairs">

@@ -158,17 +158,24 @@ export function describeLifecycleReceipt(receipt: LifecycleReceipt): string {
  * - `visible`：發布中而且在對象內 → 顯示內容。
  * - `archived`：已下架，而且看的人原本就在對象內 → 告知已下架與下一步（不是 404），**不帶標題與內容**。
  * - `withdrawn`：發布過、後來撤回成草稿，看的人原本在對象內 → 告知「已撤回」（產品 08「來源已撤回」），同樣不帶內容。
+ * - `deleted`：已刪除，而且看的人**原本就看得到**（發布過、在對象內）→ 告知「已刪除」（CL-14），同樣不帶內容。
+ *   判斷跟還在的項目完全一樣，只把結果換掉：不在對象內的人照舊找不到、訪客遇到非公開照舊先登入，
+ *   所以看不到的人分不出「被刪了」還是「從來沒有」。
  * - `need_login`：沒登入、對象又不是公開 → 請他登入（不透露標題）。
  * - `not_found`：從沒發布過的草稿、別的位置、已登入但不在對象內 → 跟「沒有這一頁」一樣。
  *
  * 管理員在前台也只看得到發布中與已下架的（前台不是預覽草稿的地方）。
  */
-export type PublicAccess = 'visible' | 'archived' | 'withdrawn' | 'need_login' | 'not_found'
+export type PublicAccess = 'visible' | 'archived' | 'withdrawn' | 'deleted' | 'need_login' | 'not_found'
 
-export function publicAccessOf(viewer: Viewer, item: ItemVisibility & { readonly everPublished: boolean }): PublicAccess {
+export function publicAccessOf(
+  viewer: Viewer,
+  item: ItemVisibility & { readonly everPublished: boolean; readonly deleted?: boolean },
+): PublicAccess {
   if (item.status === 'draft' && !item.everPublished) return 'not_found'
   const inAudience = canViewItem(viewer, { ...item, status: 'published' })
   if (!inAudience) return viewer.kind === 'anonymous' ? 'need_login' : 'not_found'
+  if (item.deleted) return 'deleted'
   if (item.status === 'published') return 'visible'
   return item.status === 'archived' ? 'archived' : 'withdrawn'
 }

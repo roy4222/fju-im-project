@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { IconClock, IconFileText, IconHistory } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
+import { GoneNotice } from '@/app/_ui/public-content'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { AssignmentView } from '@/app/dashboard/_submissions/assignment-view'
@@ -13,7 +14,7 @@ import { getItemQuery, RECEIVER_UNIT_LABEL } from '@/composition/items'
 import { answerFields, categoryOf, completionOf, getAdvisorSubmissionQuery, getSubmissionQuery, receiverStatus } from '@/composition/submissions'
 import { formatTaipeiMinute } from '@/shared/time'
 
-export const metadata = { title: '繳交狀態｜資管系專題平台' }
+export const metadata = { title: '繳交狀態｜資管系專題平台', robots: { index: false } }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TONE: Record<StatusTone, PillTone> = { success: 'success', brand: 'brand', muted: 'default', info: 'info', danger: 'danger' }
@@ -33,6 +34,7 @@ function one(value: string | string[] | undefined): string | undefined {
  * - 個人一份：系辦開了主指導閱覽才看得到，只列自己指導的組裡的學生（`?person=`），只算開放那一版欄位以後的正式送出。
  * - 草稿一律不給老師（連有沒有草稿都不透露）。換掉的老師、別組的老師直接打網址一律 404（查詢自己再判一次授權）。
  * - 版本列表與內容跟組員、系辦看到的是同一段查詢；附件每次下載都重新授權。
+ * - 系辦刪掉的作業：本人原本看得到才顯示「這份作業已刪除」（200，CL-14），其他人照舊 404。
  */
 export default async function TeacherAffairPage({
   params,
@@ -74,6 +76,14 @@ export default async function TeacherAffairPage({
     )
   }
   if (!view) {
+    // 已刪除、本人原本看得到（名單上的老師，或此刻指導該屆的組；CL-14）：舊通知、催繳信、書籤點進來給友善頁。
+    if (await getSubmissionQuery().deletedItemSeenBy(userId, id, { asAdvisor: true })) {
+      return (
+        <DashboardShell roleLabel="老師" items={TEACHER_NAV} current="/dashboard/teacher/affairs">
+          <GoneNotice kind="deleted" what="作業" unit="份" back={{ href: '/dashboard/teacher/affairs', label: '回到作業區' }} />
+        </DashboardShell>
+      )
+    }
     // 發給老師的作業（發布中），這位老師卻不在名單上：明確拒絕（AC-20）。其他一律不透露存在。
     const target = await getItemQuery().get(id)
     if (target && target.status === 'published' && target.audienceKind === 'teachers') redirect('/403')
