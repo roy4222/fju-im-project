@@ -546,6 +546,7 @@ export class PgSubmissionCommand implements SubmissionCommand {
       allowedTypes: rules.allowedTypes,
       maxBytes: rules.maxMiB * MIB,
       scope: { kind: 'cohort', cohortId },
+      rejectWhenCohortArchived: true,
     })
   }
 

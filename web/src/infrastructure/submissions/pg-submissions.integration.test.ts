@@ -38,6 +38,7 @@ let itemQuery: PgItemQuery
 let submissions: PgSubmissionCommand
 let query: PgSubmissionQuery
 let lateFlags: PgSubmissionLateFlags
+let storage: FsFileStorage
 
 type Person = { id: string; name: string; cohortId: string }
 
@@ -177,7 +178,7 @@ beforeAll(async () => {
     [adminId, teacherId],
   )
 
-  const storage = new FsFileStorage({
+  storage = new FsFileStorage({
     root: () => '/tmp/fju-submissions-unused',
     environmentMaxBytes: () => 1024,
     ticketSecret: () => 'submissions-integration-secret-submissions',
@@ -297,6 +298,26 @@ describe('只看得到、只填得了自己在收件名單上的項目', () => {
     })
     expect(await ledger()).toBe(1)
     expect(Number((await owner.sql('select count(*) as n from submission_versions where item_id = $1', [itemId])).rows[0]!.n)).toBe(1)
+  })
+
+  it('封存前拿到的繳交附件 ticket，封存後才完成上傳：COHORT_ARCHIVED，stored_files 不變（AC-55 F4）', async () => {
+    const { cohortId, student, itemId } = await scenario({
+      fields: [{ key: 'report', type: 'file', label: '報告', required: true, fileRules: { allowedTypes: ['pdf'], maxMiB: 1 } }],
+    })
+    const pdf = new TextEncoder().encode('%PDF-1.4\n% 封存前取得憑證的繳交附件\n')
+    const issued = await submissions.requestUpload(studentActor(student), itemId, 'report', {
+      fileName: 'report.pdf',
+      declaredMime: 'application/pdf',
+      declaredSize: pdf.length,
+    })
+    if (!issued.ok) throw new Error(`${issued.code} ${issued.message}`)
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    const rows = async () => (await owner.sql('select * from stored_files where id = $1', [issued.receipt.fileId])).rows
+    const before = await rows()
+    const result = await storage.upload(student.id, issued.receipt.ticket, new ReadableStream<Uint8Array>({ start(c) { c.enqueue(pdf); c.close() } }), pdf.length)
+    expect(result).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect(await rows()).toEqual(before)
+    expect(before).toMatchObject([{ status: 'uploading' }])
   })
 
   it('封存前成功的存草稿，封存後用同一個 requestId 重播：回 COHORT_ARCHIVED，帳本不多列（AC-56c）', async () => {

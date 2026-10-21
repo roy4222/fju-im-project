@@ -248,6 +248,11 @@ export type UploadRules = {
   /** 這個用途（或項目）的上限；實際上限還要跟環境上限取小（模組 10 §11.2）。 */
   readonly maxBytes: number
   readonly scope: { readonly kind: 'global' } | { readonly kind: 'cohort'; readonly cohortId: string }
+  /**
+   * 屆別封存後就不准完成上傳（AC-55）：拿 ticket 時屆別還沒封存，傳完前封存了，`upload` 回 `COHORT_ARCHIVED`。
+   * 只對 `scope` 是屆別的有意義；榮譽附件、成果海報這些封存後仍可維護的用途不設。
+   */
+  readonly rejectWhenCohortArchived?: boolean
 }
 
 /** 單檔上限＝環境設定與項目設定的較小值（模組 10 §11.2）。 */

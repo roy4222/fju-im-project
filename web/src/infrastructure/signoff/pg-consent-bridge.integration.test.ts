@@ -740,6 +740,25 @@ describe('補建、對象減組、並發', () => {
     ])
   })
 
+  it('補建封存後重播（AC-55、AC-56c）：封存前成功過的同一請求編號，封存後重送回 COHORT_ARCHIVED，帳本與包不變', async () => {
+    const cohortId = await newCohort()
+    const g1 = await newGroup(cohortId, 'G01', { advisor: false })
+    await newGroup(cohortId, 'G02')
+    const item = await createItem(cohortId)
+    await mustPublish(item.itemId, item.revision)
+    await assignAdvisor(g1.groupId, (await newUser('補建老師', 'teacher')).id)
+    const requestId = randomUUID()
+    const built = await hook.createForGroup(admin(), { itemId: item.itemId, groupId: g1.groupId }, requestId)
+    if (!built.ok) throw new Error(`${built.code} ${built.message}`)
+
+    await owner.sql(`update cohorts set status = 'archived' where id = $1`, [cohortId])
+    const ledger = async () => (await owner.sql('select * from operation_records where request_id = $1', [requestId])).rows
+    const before = { ledger: await ledger(), pkg: await packageOf(item.itemId, g1.groupId) }
+    const replay = await hook.createForGroup(admin(), { itemId: item.itemId, groupId: g1.groupId }, requestId)
+    expect(replay).toMatchObject({ ok: false, code: 'COHORT_ARCHIVED' })
+    expect({ ledger: await ledger(), pkg: await packageOf(item.itemId, g1.groupId) }).toEqual(before)
+  })
+
   it('對象減組：移出的組目前版本作廢，cause=void、理由「系辦移出對象」；對象加組：新組建包', async () => {
     const cohortId = await newCohort()
     const g1 = await newGroup(cohortId, 'G01')

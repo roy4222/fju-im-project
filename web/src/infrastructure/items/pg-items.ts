@@ -1029,7 +1029,14 @@ export class PgItemCommand implements ItemCommand {
     const issued = await this.#files.issueUploadTicket(
       actor.userId,
       { fileName: input.fileName, declaredMime: input.declaredMime, declaredSize: input.declaredSize },
-      { purpose: 'attachment', allowedTypes: rules.allowedTypes, maxBytes: rules.maxBytes, scope: { kind: 'cohort', cohortId: input.cohortId } },
+      {
+        purpose: 'attachment',
+        allowedTypes: rules.allowedTypes,
+        maxBytes: rules.maxBytes,
+        scope: { kind: 'cohort', cohortId: input.cohortId },
+        // 拿到 ticket 後屆別才封存，傳完時也要擋（F4）；榮譽照樣放行。
+        rejectWhenCohortArchived: archivedBlocks('archived', input.placement),
+      },
     )
     if (!issued.ok) return issued
     const { ticket, fileId, maxBytes, expiresAt } = issued.receipt

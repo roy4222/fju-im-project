@@ -22,6 +22,8 @@ export type UploadTicketClaims = {
   readonly maxBytes: number
   /** 過期時間（epoch 毫秒）。 */
   readonly expiresAt: number
+  /** 屆別封存後就不准完成上傳（AC-55）。在簽章內，前端改不掉；舊 ticket 沒有這欄＝不擋。 */
+  readonly rejectWhenCohortArchived?: boolean
 }
 
 const LABEL = 'fju:file-upload-ticket:v1'
@@ -37,7 +39,14 @@ function sign(payload: string, secret: string): string {
 
 export function issueTicket(claims: UploadTicketClaims, secret: string): string {
   const payload = Buffer.from(
-    JSON.stringify({ f: claims.fileId, u: claims.userId, t: claims.type, m: claims.maxBytes, e: claims.expiresAt }),
+    JSON.stringify({
+      f: claims.fileId,
+      u: claims.userId,
+      t: claims.type,
+      m: claims.maxBytes,
+      e: claims.expiresAt,
+      ...(claims.rejectWhenCohortArchived ? { a: 1 } : {}),
+    }),
     'utf8',
   ).toString('base64url')
   return `${payload}.${sign(payload, secret)}`
@@ -59,7 +68,7 @@ export function verifyTicket(ticket: string, secret: string, now: Date): UploadT
   } catch {
     return null
   }
-  const r = raw as { f?: unknown; u?: unknown; t?: unknown; m?: unknown; e?: unknown }
+  const r = raw as { f?: unknown; u?: unknown; t?: unknown; m?: unknown; e?: unknown; a?: unknown }
   if (
     typeof r.f !== 'string' ||
     typeof r.u !== 'string' ||
@@ -70,5 +79,12 @@ export function verifyTicket(ticket: string, secret: string, now: Date): UploadT
     return null
   }
   if (r.e <= now.getTime()) return null
-  return { fileId: r.f, userId: r.u, type: r.t as FileTypeId, maxBytes: r.m, expiresAt: r.e }
+  return {
+    fileId: r.f,
+    userId: r.u,
+    type: r.t as FileTypeId,
+    maxBytes: r.m,
+    expiresAt: r.e,
+    ...(r.a === 1 ? { rejectWhenCohortArchived: true } : {}),
+  }
 }

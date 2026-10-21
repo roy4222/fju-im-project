@@ -34,6 +34,18 @@ describe('上傳 ticket', () => {
     expect(verifyTicket(`${forged}.${signature}`, secret, now)).toBeNull()
   })
 
+  it('「封存就擋」的記號簽在裡面：驗得回來；拿掉記號簽章就對不上；沒有記號的 ticket 驗出來沒有這欄', () => {
+    const flagged = { ...claims, rejectWhenCohortArchived: true }
+    const ticket = issueTicket(flagged, secret)
+    expect(verifyTicket(ticket, secret, now)).toEqual(flagged)
+    const [, signature] = ticket.split('.')
+    const stripped = Buffer.from(
+      JSON.stringify({ f: claims.fileId, u: claims.userId, t: 'csv', m: claims.maxBytes, e: claims.expiresAt }),
+    ).toString('base64url')
+    expect(verifyTicket(`${stripped}.${signature}`, secret, now)).toBeNull()
+    expect(verifyTicket(issueTicket(claims, secret), secret, now)).not.toHaveProperty('rejectWhenCohortArchived')
+  })
+
   it('格式不對一律 null', () => {
     for (const bad of ['', 'abc', 'a.b.c', '.', 'x'.repeat(2000)]) {
       expect(verifyTicket(bad, secret, now)).toBeNull()

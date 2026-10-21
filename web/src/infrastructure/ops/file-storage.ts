@@ -177,7 +177,14 @@ export class FsFileStorage implements FileStorage<PoolClient> {
 
     const expiresAt = now.getTime() + (this.#options.ticketTtlMs ?? 15 * 60 * 1000)
     const ticket = issueTicket(
-      { fileId, userId: ownerUserId, type: checked.type, maxBytes, expiresAt },
+      {
+        fileId,
+        userId: ownerUserId,
+        type: checked.type,
+        maxBytes,
+        expiresAt,
+        ...(rules.rejectWhenCohortArchived && rules.scope.kind === 'cohort' ? { rejectWhenCohortArchived: true } : {}),
+      },
       this.#options.ticketSecret(),
     )
     return ok({ ticket, fileId, maxBytes, expiresAt: new Date(expiresAt).toISOString() }, meta(now))
@@ -205,6 +212,12 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     // 同一張 ticket 只能用一次：傳完之後列就不是 uploading 了。
     if (!row || row.owner_user_id !== uploaderUserId || row.status !== 'uploading') {
       return err('FORBIDDEN', '上傳憑證無效或已使用過，請重新選擇檔案。')
+    }
+    // 拿 ticket 之後屆別才封存（AC-55）：寫暫存檔之前擋，檔案列維持 uploading，之後由逾時回收收掉。
+    // 只有發 ticket 時標了記號才查，其他上傳路徑的查詢數不變。
+    if (claims.rejectWhenCohortArchived && row.scope === 'cohort' && row.cohort_id) {
+      const cohort = await this.#options.db().query<{ status: string }>('select status from cohorts where id = $1', [row.cohort_id])
+      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再上傳檔案。')
     }
 
     const limit = claims.maxBytes
