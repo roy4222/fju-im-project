@@ -8,15 +8,15 @@ if (!daemonUrl || !/^http:\/\/127\.0\.0\.1:\d+$/.test(daemonUrl)) {
 const imports = [
   {
     projectId: "fju-public-site-20260817",
-    source: "/Users/lubaiyu/fju-project/prototypes/public-site/index.html",
+    source: "<home>/fju-project/prototypes/public-site/index.html",
   },
   {
     projectId: "fju-student-dashboard-20260817",
-    source: "/Users/lubaiyu/fju-project/prototypes/student-dashboard/index.html",
+    source: "<home>/fju-project/prototypes/student-dashboard/index.html",
   },
   {
     projectId: "fju-admin-editor-20260817",
-    source: "/Users/lubaiyu/fju-project/prototypes/admin-editor/index.html",
+    source: "<home>/fju-project/prototypes/admin-editor/index.html",
   },
 ];
 

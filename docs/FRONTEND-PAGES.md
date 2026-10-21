@@ -1,4 +1,4 @@
-> 2026-09-12 同文副本。編輯來源：[Vault 前台頁面清單](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md>)；repo 現行副本是 [docs/product/🗺️ 前台頁面清單.md](<product/🗺️ 前台頁面清單.md>)，本檔只為相容舊路徑，內容與其相同。
+> 2026-09-12 同文副本。編輯來源：[Vault 前台頁面清單](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md>)；repo 現行副本是 [docs/product/🗺️ 前台頁面清單.md](<product/🗺️ 前台頁面清單.md>)，本檔只為相容舊路徑，內容與其相同。
 
 ---
 type: page-inventory

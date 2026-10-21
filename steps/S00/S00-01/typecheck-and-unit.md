@@ -13,7 +13,7 @@ exit=0
 ```
 $ vitest run --project unit
 
- RUN  v3.2.4 /Users/lubaiyu/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
+ RUN  v3.2.4 <home>/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
 
  ✓ |unit| src/shared/result.test.ts (4 tests) 3ms
  ✓ |unit| src/shared/errors.test.ts (8 tests) 6ms

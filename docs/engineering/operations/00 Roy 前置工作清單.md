@@ -12,7 +12,7 @@ status: draft-v1.3-pending-roy
 
 > 2026-09-13 v1.2（Codex 第四輪 C5、C6）：GitHub 能力改為逐項表（branch protection／rulesets、environments、required reviewers 各自的方案限制），private repo 的 required reviewers 需 Enterprise，本專案一律用 Roy 親自 dispatch 作 approval；Google Testing 的基本 scope 例外寫進總表與 §5.2 全段，不再斷言名單外使用者必然無法登入。
 
-> 2026-09-23 v1.3（Roy 定案，[主控台交接](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2、4 節；變更總表見 [05 執行手冊](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6、Roy 待辦見其 §5）：同一台 VM 兩站（正式 `fju.roy422.dev`、測試 `test.fju.roy422.dev`，Compose project `fju-prod`／`fju-test`，各自 PostgreSQL、volume、`.env`，共用 Caddy）；**Cloudflare 只當 DNS**，Turnstile（§3.3）、R2（§4.1）不做；`b1`／`b2` 插槽取消；備份只放 VM、不做異地，age（§4.2）、rclone（§4.3）、告警 webhook 不用；秘密值存 Doppler 專案 `fju-im-capstone`（`stg`／`prd`／`dev`），VM 取值方式由 0-C 設計；DNS 兩筆 A 記錄與 Google OAuth client 9/23 已完成。各節開頭加 v1.3 註記；被取代的原文保留，現行以註記與執行手冊為準。本清單「現在先做」的日期排序改看執行手冊 §5。
+> 2026-09-23 v1.3（Roy 定案，[主控台交接](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📝 開發紀錄/2026-09-23 主控台交接.md>) 第 2、4 節；變更總表見 [05 執行手冊](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §6、Roy 待辦見其 §5）：同一台 VM 兩站（正式 `fju.roy422.dev`、測試 `test.fju.roy422.dev`，Compose project `fju-prod`／`fju-test`，各自 PostgreSQL、volume、`.env`，共用 Caddy）；**Cloudflare 只當 DNS**，Turnstile（§3.3）、R2（§4.1）不做；`b1`／`b2` 插槽取消；備份只放 VM、不做異地，age（§4.2）、rclone（§4.3）、告警 webhook 不用；秘密值存 Doppler 專案 `fju-im-capstone`（`stg`／`prd`／`dev`），VM 取值方式由 0-C 設計；DNS 兩筆 A 記錄與 Google OAuth client 9/23 已完成。各節開頭加 v1.3 註記；被取代的原文保留，現行以註記與執行手冊為準。本清單「現在先做」的日期排序改看執行手冊 §5。
 
 ## 0. 核對方式與現況等級
 
@@ -242,7 +242,7 @@ status: draft-v1.3-pending-roy
 7. **驗證與證據**：校方人員執行 SOP 03、04 的執行紀錄。
 
 ## 6. 推薦順序（Roy 本人操作，估計時間）
-> **2026-09-23 v1.3**：本節已被 [05 執行手冊](</Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §5 Roy 待辦取代；第 2 步 `b1`／`b2`、第 5 步 Turnstile、第 7 步 R2／age 取消。
+> **2026-09-23 v1.3**：本節已被 [05 執行手冊](<Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧱 實作切片/05 執行手冊.md>) §5 Roy 待辦取代；第 2 步 `b1`／`b2`、第 5 步 Turnstile、第 7 步 R2／age 取消。
 
 
 1. §2.1 先確認 GitHub 方案，再依方案設保護與 environments 或改書面約定（10 分鐘）。

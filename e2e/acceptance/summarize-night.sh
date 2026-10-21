@@ -35,7 +35,8 @@
 # 日期預設取 run.json 的 startedAt（整夜跨午夜仍算開始那天），沒有就取 runId／今天。
 set -euo pipefail
 
-DEFAULT_VAULT_BASE="/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發"
+# Vault 根目錄由環境變數 VAULT_DIR 指定（各機器位置記在私人設定，不寫死在 repo）。
+DEFAULT_VAULT_BASE="${VAULT_DIR:-}${VAULT_DIR:+/}專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發"
 
 usage() { echo "用法：$0 <RUN_DIR> [--vault [<工程開發目錄>]] [--date <YYYY-MM-DD[-標籤]>] [--polish]" >&2; exit 2; }
 
@@ -50,7 +51,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --vault)
       if [ $# -ge 2 ] && [ "${2#--}" = "$2" ]; then VAULT_BASE="$2"; shift 2
-      else VAULT_BASE="$DEFAULT_VAULT_BASE"; shift; fi ;;
+      else
+        [ -n "${VAULT_DIR:-}" ] || { echo "沒有指定 Vault：請設環境變數 VAULT_DIR（Vault 根目錄），或在 --vault 後面給工程開發目錄。" >&2; exit 2; }
+        VAULT_BASE="$DEFAULT_VAULT_BASE"; shift
+      fi ;;
     --date)
       [ $# -ge 2 ] || usage
       DATE_LABEL="$2"; shift 2 ;;

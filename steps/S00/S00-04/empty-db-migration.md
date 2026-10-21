@@ -44,7 +44,7 @@ verifications
 ```
 $ vitest run --project integration
 
- RUN  v3.2.4 /Users/lubaiyu/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
+ RUN  v3.2.4 <home>/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
 
  ✓ |integration| test/harness.integration.test.ts (10 tests) 188ms
  ✓ |integration| src/infrastructure/db/migrations.integration.test.ts (9 tests) 1096ms
