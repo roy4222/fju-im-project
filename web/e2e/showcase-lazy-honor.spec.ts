@@ -1,6 +1,7 @@
-import { expect, request as playwrightRequest, test, type Page, type Route } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { fillItemForm, formReady } from './create-item'
+import { holdAction, holdChunk } from './hold'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
@@ -56,23 +57,6 @@ const PAGE = () => `/dashboard/admin/showcase?cohort=${cohortId}&honor=${cohortI
 const honorRow = (page: Page, title: string) => page.getByTestId('honor-row').filter({ hasText: title })
 const openDialog = (page: Page) => page.locator('dialog[open]')
 
-/** 卡住含 `mark` 的 chunk，直到呼叫 `release`。 */
-async function holdChunk(page: Page, mark: string) {
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let held = 0
-  await page.route('**/_next/static/chunks/*.js', async (route) => {
-    const response = await route.fetch()
-    const body = await response.text()
-    if (body.includes(mark)) {
-      held += 1
-      await gate
-    }
-    await route.fulfill({ response, body })
-  })
-  return { release, held: () => held }
-}
-
 test('準備：「新增 › 榮譽」建三則草稿（表單按下才下載，存完提示在右下角）', async ({ page }) => {
   await asAdmin(page)
   for (const title of HONORS) {
@@ -105,7 +89,7 @@ for (const race of races) {
     try {
       await page.goto(PAGE())
       await button(race.first).click()
-      await expect.poll(chunk.held, { timeout: 10_000, message: '榮譽視窗的 chunk 沒有開始下載' }).toBeGreaterThan(0)
+      await chunk.waitHeld('榮譽視窗的 chunk 沒有開始下載')
       await button(race.second).click()
       chunk.release()
       const dialog = openDialog(page)
@@ -124,8 +108,7 @@ for (const race of races) {
       await expect(openDialog(page)).toHaveCount(0)
       await expect(button(race.shown)).toBeFocused()
     } finally {
-      chunk.release()
-      await page.unrouteAll({ behavior: 'wait' })
+      await chunk.dispose()
     }
   })
 }
@@ -134,33 +117,20 @@ test('榮譽列「編輯」讀資料期間寫「載入中…」並停用', async
   await asAdmin(page)
   await page.goto(PAGE())
   const title = HONORS[1]!
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let held = 0
-  await page.route(
-    (url) => url.pathname === '/dashboard/admin/showcase',
-    async (route: Route) => {
-      if (route.request().method() === 'POST' && route.request().headers()['next-action']) {
-        held += 1
-        await gate
-      }
-      await route.continue()
-    },
-  )
+  const action = await holdAction(page, '/dashboard/admin/showcase')
   try {
     await honorRow(page, title).getByRole('button', { name: `編輯：${title}` }).click()
-    await expect.poll(() => held, { timeout: 10_000, message: '讀資料的請求沒有送出' }).toBeGreaterThan(0)
+    await action.waitHeld('讀資料的請求沒有送出')
     const button = honorRow(page, title).getByRole('button', { name: `編輯：${title}` })
     await expect(button).toHaveText('載入中…')
     await expect(button).toBeDisabled()
-    release()
+    action.release()
     await expect(page.getByRole('dialog', { name: `編輯：${title}` })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(button).toHaveText('編輯')
     await expect(button).toBeEnabled()
   } finally {
-    release()
-    await page.unrouteAll({ behavior: 'wait' })
+    await action.dispose()
   }
 })
 
@@ -192,33 +162,20 @@ test('榮譽刪除送出中按 Esc 關窗：結果回來後右下角提示看得
   await expect(confirm).toBeVisible()
 
   // 卡住 Server Action（先讀版本、再刪除）：送出中先關窗。
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let held = 0
-  await page.route(
-    (url) => url.pathname === '/dashboard/admin/showcase',
-    async (route: Route) => {
-      if (route.request().method() === 'POST' && route.request().headers()['next-action']) {
-        held += 1
-        await gate
-      }
-      await route.continue()
-    },
-  )
+  const action = await holdAction(page, '/dashboard/admin/showcase')
   try {
     await confirm.getByRole('button', { name: '刪除', exact: true }).click()
-    await expect.poll(() => held, { timeout: 10_000, message: '刪除請求沒有送出' }).toBeGreaterThan(0)
+    await action.waitHeld('刪除請求沒有送出')
     await expect(confirm.getByRole('button', { name: '刪除中…' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(openDialog(page)).toHaveCount(0)
-    release()
+    action.release()
     // 先等那一列消失（列內的東西都卸載了），提示還要在。
     await expect(honorRow(page, title)).toHaveCount(0)
     await expect(page.getByRole('status').filter({ hasText: `「${title}」已刪除` })).toBeVisible()
     await expect(page.getByRole('button', { name: '新增', exact: true })).toBeFocused()
   } finally {
-    release()
-    await page.unrouteAll({ behavior: 'wait' })
+    await action.dispose()
   }
   const left = await pool.query('select 1 from managed_items where title = $1 and deleted_at is null', [title])
   expect(left.rowCount).toBe(0)
