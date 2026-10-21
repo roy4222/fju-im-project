@@ -53,6 +53,7 @@ import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { exactScore } from '@/shared/score'
+import { charLength } from '@/shared/text'
 import { RealClock, type Clock } from '@/shared/time'
 
 /**
@@ -158,7 +159,7 @@ export function normalizeComment(value: unknown): { ok: true; value: string | nu
   if (typeof value !== 'string') return err('VALIDATION_FAILED', '評語格式不對，請重新整理頁面再試。', { details: { field: 'comment' } })
   if (value.trim() === '') return { ok: true, value: null }
   // 用字元數（code point）比，跟資料庫的 char_length 一致：emoji 不會被算成兩個字。
-  if ([...value].length > MAX_COMMENT_LENGTH) {
+  if (charLength(value) > MAX_COMMENT_LENGTH) {
     return err('VALIDATION_FAILED', `評語最多 ${MAX_COMMENT_LENGTH} 字，請刪短一點再存。`, { details: { field: 'comment' } })
   }
   return { ok: true, value }

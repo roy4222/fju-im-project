@@ -4,6 +4,7 @@ import { IconX } from '@tabler/icons-react'
 import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
 import type { ProfileCard } from '@/application/accounts'
 import { cn } from '@/shared/cn'
+import { charLength } from '@/shared/text'
 
 /** 存名片的回饋（伺服器回的句子）。 */
 export type ProfileCardActionState = { ok: boolean; message: string } | undefined
@@ -32,7 +33,7 @@ const TRIGGER =
   'text-sm font-semibold text-foreground transition-colors hover:bg-muted'
 
 /** 跟伺服器同一套字數算法（code point），即時字數才不會跟送出結果對不上。 */
-const length = (value: string) => Array.from(value).length
+export const length = charLength // 匯出給單元測試（emoji 算一個字）
 
 /**
  * 「編輯我的名片」按鈕＋視窗（C3 設計方案 §4.3；票 C3-07）。「我的帳號」與找隊員分頁用同一個。
