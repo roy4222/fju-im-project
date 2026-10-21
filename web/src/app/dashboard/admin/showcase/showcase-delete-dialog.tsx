@@ -6,6 +6,7 @@ import type { ShowcaseEntryView } from './showcase-view'
 /**
  * 按「刪除」才載入；Server Function 與共用樣式由首載外殼傳入。
  * 送出到結果回來之前由 owner 保留視窗，失敗留在原表單；每次掛載產生新的 requestId。
+ * 送出中瀏覽器仍可能自己關窗（Chrome 連按兩次 Esc 不再問 cancel）：那時結果交給 owner 在右下角提示（CL-4）。
  */
 export function ShowcaseDeleteDialog({
   entry,
@@ -14,6 +15,7 @@ export function ShowcaseDeleteDialog({
   cancelClass,
   onCancel,
   onDeleted,
+  onFailedAfterClose,
   onPending,
 }: {
   entry: ShowcaseEntryView
@@ -22,19 +24,31 @@ export function ShowcaseDeleteDialog({
   cancelClass: string
   onCancel: () => void
   onDeleted: (message: string) => void
+  /** 送出中視窗被關掉、結果是失敗：owner 卸載視窗並提示這句。 */
+  onFailedAfterClose: (message: string) => void
   onPending: (pending: boolean) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [requestId] = useState(() => crypto.randomUUID())
+  const busy = useRef(false)
+  const closed = useRef(false)
   const [state, action, pending] = useActionState(async (previous: Awaited<ReturnType<typeof deleteEntryAction>>, form: FormData) => {
     try {
       const result = await deleteEntry(previous, form)
       if (result?.ok) {
+        closed.current = true
         dialog.current?.close()
         onDeleted(result.message)
+      } else if (closed.current && result) {
+        onFailedAfterClose(result.message)
       }
       return result
+    } catch (error) {
+      if (!closed.current) throw error
+      onFailedAfterClose('連線中斷；結果尚未確認，請重新整理頁面看狀態。')
+      return undefined
     } finally {
+      busy.current = false
       onPending(false)
     }
   }, undefined)
@@ -44,8 +58,13 @@ export function ShowcaseDeleteDialog({
     if (el && !el.open) el.showModal()
   }, [])
   return (
-    <dialog ref={dialog} aria-label="刪除作品" className={`${dialogClass} max-w-[28rem]`} onCancel={(e) => { e.preventDefault(); onCancel() }}>
-      <form action={action} onSubmit={() => onPending(true)} className="flex flex-col gap-4 px-6 py-5">
+    <dialog ref={dialog} aria-label="刪除作品" className={`${dialogClass} max-w-[28rem]`} onCancel={(e) => { e.preventDefault(); onCancel() }}
+      onClose={() => {
+        if (busy.current) closed.current = true
+        else if (!closed.current) onCancel()
+      }}
+    >
+      <form action={action} onSubmit={() => { busy.current = true; onPending(true) }} className="flex flex-col gap-4 px-6 py-5">
         <input type="hidden" name="requestId" value={requestId} />
         <input type="hidden" name="entryId" value={entry.entryId} />
         <input type="hidden" name="revision" value={entry.entryRevision} />
