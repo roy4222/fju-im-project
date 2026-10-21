@@ -378,15 +378,21 @@ export function EntryRowActions({ entry }: { entry: ShowcaseEntryView }) {
 /** 榮譽列的「編輯」「刪除」（CL-4：不再用公告分頁的 `RowActions`，視窗與提示都歸這一頁的 `ShowcaseDialogs`，列被刪掉提示也看得到）。 */
 export function HonorRowActions({ row }: { row: HonorRowFacts }) {
   const showDialog = useContext(DialogContext)!
+  // 讀那一筆的資料（Server Action）期間按鈕寫「載入中…」並停用（同公告分頁的 `RowActions`）。
+  const [loading, setLoading] = useState(false)
   return (
     <span className="flex flex-wrap items-center gap-1.5 md:justify-end">
       <button
         type="button"
         className={ROW_BTN}
         aria-label={`編輯：${row.title}`}
-        onClick={(e) => void showDialog({ mode: 'honor-edit', id: row.id, title: row.title }, e.currentTarget)}
+        disabled={loading}
+        onClick={(e) => {
+          setLoading(true)
+          void showDialog({ mode: 'honor-edit', id: row.id, title: row.title }, e.currentTarget).finally(() => setLoading(false))
+        }}
       >
-        編輯
+        {loading ? '載入中…' : '編輯'}
       </button>
       {row.deleteBlocked ? (
         <button type="button" className={cn(ROW_BTN, 'whitespace-normal')} disabled data-testid="delete-blocked">

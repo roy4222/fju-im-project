@@ -130,6 +130,40 @@ for (const race of races) {
   })
 }
 
+test('榮譽列「編輯」讀資料期間寫「載入中…」並停用', async ({ page }) => {
+  await asAdmin(page)
+  await page.goto(PAGE())
+  const title = HONORS[1]!
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let held = 0
+  await page.route(
+    (url) => url.pathname === '/dashboard/admin/showcase',
+    async (route: Route) => {
+      if (route.request().method() === 'POST' && route.request().headers()['next-action']) {
+        held += 1
+        await gate
+      }
+      await route.continue()
+    },
+  )
+  try {
+    await honorRow(page, title).getByRole('button', { name: `編輯：${title}` }).click()
+    await expect.poll(() => held, { timeout: 10_000, message: '讀資料的請求沒有送出' }).toBeGreaterThan(0)
+    const button = honorRow(page, title).getByRole('button', { name: `編輯：${title}` })
+    await expect(button).toHaveText('載入中…')
+    await expect(button).toBeDisabled()
+    release()
+    await expect(page.getByRole('dialog', { name: `編輯：${title}` })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(button).toHaveText('編輯')
+    await expect(button).toBeEnabled()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
 test('作品「編輯」與「新增 › 補登歷屆作品」：Esc 關窗後焦點回觸發鈕', async ({ page }) => {
   await asAdmin(page)
   await page.goto(PAGE())
@@ -178,9 +212,9 @@ test('榮譽刪除送出中按 Esc 關窗：結果回來後右下角提示看得
     await page.keyboard.press('Escape')
     await expect(openDialog(page)).toHaveCount(0)
     release()
-    await expect(page.getByTestId('showcase-toast')).toBeVisible()
-    await expect(page.getByTestId('showcase-toast')).not.toBeEmpty()
+    // 先等那一列消失（列內的東西都卸載了），提示還要在。
     await expect(honorRow(page, title)).toHaveCount(0)
+    await expect(page.getByRole('status').filter({ hasText: `「${title}」已刪除` })).toBeVisible()
     await expect(page.getByRole('button', { name: '新增', exact: true })).toBeFocused()
   } finally {
     release()

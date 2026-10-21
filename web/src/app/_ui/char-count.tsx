@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { cn } from '@/shared/cn'
 import { charLength } from '@/shared/text'
 
@@ -12,6 +12,17 @@ import { charLength } from '@/shared/text'
  * - 受控欄位傳 `value`；不受控欄位不傳，元件自己聽 `forId` 那一欄的 `input` 與所屬表單的 `reset`。
  * - 欄位加 `aria-describedby={charCountId(forId)}`，螢幕報讀唸得到字數。
  */
+/**
+ * 不受控欄位送出前先擋超過上限（CL-4）：React 19 的 `<form action>` 跑完一律重設表單，等伺服器回「最多 N 字」時打的字已被清空。
+ * 超過就 `preventDefault()`（action 不跑、表單不重設），回傳要顯示的訊息（跟伺服器同一句）；沒超過回 null。
+ */
+export function blockOverLimit(event: FormEvent<HTMLFormElement>, field: string, max: number, message: string): string | null {
+  const value = new FormData(event.currentTarget).get(field)
+  if (typeof value !== 'string' || charLength(value.trim()) <= max) return null
+  event.preventDefault()
+  return message
+}
+
 export function charCountId(forId: string): string {
   return `${forId}-count`
 }
