@@ -77,6 +77,7 @@ import { getPool } from '@/infrastructure/db/client'
 import { personAvatar } from '@/infrastructure/db/person-avatar'
 import { audienceUserIds, expandRecipients as expandAudience, memberUserIds, type ExpandedRecipients } from '@/infrastructure/items/recipients'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { readAdvisorVisibility, writeAdvisorVisibility } from '@/infrastructure/submissions/advisor-visibility-write'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { formatTaipeiMinute, isDeadlinePassed, RealClock, type Clock } from '@/shared/time'
@@ -428,6 +429,11 @@ export class PgItemCommand implements ItemCommand {
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
       const files = await this.#syncFiles(tx, itemId, userId, { attachments: [], cover: null }, draft)
       if (files) return files
+      // 新增時就勾了指導老師閱覽：同一個交易插設定（新項目還沒有人作答，生效版本是第 1 版）。
+      if (draft.advisorVisibility) {
+        const wrote = await this.#writeVisibility(tx, { id: itemId, cohort_id: draft.cohortId, current_schema_version_id: null }, true, userId, realAt, businessAt)
+        if (!wrote.ok) return wrote
+      }
 
       await this.#audit.append(tx, {
         actorKind: 'user',
@@ -515,6 +521,11 @@ export class PgItemCommand implements ItemCommand {
       // 換進規則 → 排到最後；換出規則 → 位置已清掉，其餘的補成連號（只動 `lockRuleSet` 已鎖的列）。
       if (setChanges) await renumberRules(tx, item.cohort_id)
       await this.#replaceAudienceGroups(tx, itemId, draft.groupIds)
+      // 指導老師閱覽跟草稿同一個交易存（`#writeHead` 已把 revision +1；拿舊 revision 存回去在上面就回 CONFLICT）。
+      if (draft.advisorVisibility !== null) {
+        const wrote = await this.#writeVisibility(tx, item, draft.advisorVisibility, userId, realAt, businessAt)
+        if (!wrote.ok) return wrote
+      }
 
       await this.#audit.append(tx, {
         actorKind: 'user',
@@ -793,8 +804,42 @@ export class PgItemCommand implements ItemCommand {
         draft.eventDate !== item.event_date ||
         draft.awardedOn !== item.awarded_on
       const settingsChanged = unitChanged || audienceChanged || stageChanged || competitionDatesChanged
-      if (!contentChanged && !schemaChanged && !settingsChanged && !deadlineChanged) {
+      // 指導老師閱覽（C 收尾 CL-13）：最新一列在項目鎖之下讀，跟舊的 `setAdvisorVisibility` 同鎖序。
+      const visibilityChanged =
+        draft.advisorVisibility !== null && draft.advisorVisibility !== (await readAdvisorVisibility(tx, itemId)).enabled
+      const itemChanged = contentChanged || schemaChanged || settingsChanged || deadlineChanged
+      if (!itemChanged && !visibilityChanged) {
         return err('VALIDATION_FAILED', '沒有任何修改。')
+      }
+      if (visibilityChanged) {
+        const wrote = await this.#writeVisibility(tx, item, draft.advisorVisibility === true, userId, realAt, businessAt)
+        if (!wrote.ok) return wrote
+      }
+      // 只改閱覽：不動內容與名單、不記發布紀錄、不發任何通知；只把 revision +1（拿舊表單存回去回 CONFLICT）。
+      if (!itemChanged) {
+        await tx.query('update managed_items set revision = revision + 1, updated_at = $2, updated_by_user_id = $3 where id = $1', [
+          itemId,
+          realAt,
+          userId,
+        ])
+        const receipt = {
+          itemId,
+          title: item.title,
+          revision: item.revision + 1,
+          changes: [] as UpdateChange[],
+          contentVersionNo: await this.#currentVersionNo(tx, 'item_versions', item.current_content_version_id),
+          schemaVersionNo: await this.#currentVersionNo(tx, 'form_schema_versions', item.current_schema_version_id),
+          dueAt: item.due_at?.toISOString() ?? null,
+          rosterAdded: 0,
+          rosterRemoved: 0,
+          notify: false,
+          notifiedCount: 0,
+          advisorVisibility: draft.advisorVisibility,
+          requestId,
+          serverTime: realAt.toISOString(),
+        }
+        await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId } })
+        return { ok: true as const, receipt }
       }
 
       // 有人作答後：收件單位鎖定，對象與欄位結構也不在這裡改（產品模組 04 §4.5；改結構與受眾變更在後面的票）。
@@ -1002,6 +1047,7 @@ export class PgItemCommand implements ItemCommand {
         rosterRemoved: rosterRemoved.length,
         notify,
         notifiedCount,
+        advisorVisibility: visibilityChanged ? draft.advisorVisibility : null,
         requestId,
         serverTime: realAt.toISOString(),
       }
@@ -1779,6 +1825,25 @@ export class PgItemCommand implements ItemCommand {
    * 已刪除的項目當作不存在（回 null＝「找不到」）；只有刪除自己用 `includeDeleted`，讓同一個 requestId 重送時
    * 先過帳本拿回原回執，之後才判已刪除。
    */
+  /** 指導老師閱覽寫入（共用模組；呼叫前已照 `#lock` 的鎖序拿好屆別與項目的鎖）。 */
+  async #writeVisibility(
+    tx: PoolClient,
+    item: Pick<ItemRow, 'id' | 'cohort_id' | 'current_schema_version_id'>,
+    enabled: boolean,
+    userId: string,
+    realAt: Date,
+    businessAt: Date,
+  ) {
+    const schemaVersionNo = item.current_schema_version_id
+      ? await this.#currentVersionNo(tx, 'form_schema_versions', item.current_schema_version_id)
+      : null
+    return writeAdvisorVisibility(
+      tx,
+      { audit: this.#audit, responses: this.#responses },
+      { itemId: item.id, cohortId: item.cohort_id, enabled, schemaVersionNo, userId, realAt, businessAt },
+    )
+  }
+
   async #lock(tx: PoolClient, itemId: string, options: { includeDeleted?: boolean } = {}): Promise<Locked | null> {
     const live = options.includeDeleted ? '' : ' and deleted_at is null'
     const head = await tx.query<{ cohort_id: string }>(`select cohort_id from managed_items where id = $1${live}`, [itemId])
@@ -2172,6 +2237,8 @@ export class PgItemQuery implements ItemQuery {
         registration_deadline_day: string | null
         event_date_day: string | null
         awarded_on_day: string | null
+        advisor_visibility_enabled: boolean | null
+        advisor_visibility_from: number | null
       }
     >(
       `select m.*, cv.version_no as content_no, sv.version_no as schema_no,
@@ -2179,8 +2246,13 @@ export class PgItemQuery implements ItemQuery {
               to_char(m.event_date, 'YYYY-MM-DD') as event_date_day,
               to_char(m.awarded_on, 'YYYY-MM-DD') as awarded_on_day,
               (select count(*) from response_rosters r where r.item_id = m.id and r.eligible_to_business_at is null and not r.exempt)
-                as roster_count
+                as roster_count,
+              av.enabled as advisor_visibility_enabled, av.effective_from_version_no as advisor_visibility_from
          from managed_items m
+         left join lateral (
+           select s.enabled, s.effective_from_version_no from advisor_visibility_settings s
+            where s.item_id = m.id order by s.set_at desc, s.id desc limit 1
+         ) av on true
          left join item_versions cv on cv.id = m.current_content_version_id
          left join form_schema_versions sv on sv.id = m.current_schema_version_id
         where m.id = $1 and m.deleted_at is null`,
@@ -2253,6 +2325,7 @@ export class PgItemQuery implements ItemQuery {
       rosterCount: Number(item.roster_count),
       updatedAt: item.updated_at,
       hasResponses: await this.#responses.hasAnyResponse(itemId),
+      advisorVisibility: { enabled: item.advisor_visibility_enabled === true, effectiveFromVersionNo: item.advisor_visibility_from },
       publications: publications.rows.map((p) => ({
         action: p.action,
         notify: p.notify,

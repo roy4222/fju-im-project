@@ -103,6 +103,24 @@ describe('normalizeItemInput：位置、對象、收件單位', () => {
   })
 })
 
+describe('normalizeItemInput：指導老師閱覽（C 收尾 CL-13）', () => {
+  const visibility = (patch: Partial<ItemInput>) => {
+    const result = normalizeItemInput(input(patch))
+    return result.ok ? result.value.advisorVisibility : result.field
+  }
+  it('個人一份照送來的值；不給或 null＝不動', () => {
+    expect(visibility({ receiverUnit: 'individual', advisorVisibility: true })).toBe(true)
+    expect(visibility({ receiverUnit: 'individual', advisorVisibility: false })).toBe(false)
+    expect(visibility({ receiverUnit: 'individual' })).toBeNull()
+    expect(visibility({ receiverUnit: 'individual', advisorVisibility: null })).toBeNull()
+  })
+  it('整組一份給 true 回錯，給 false 當不動；不收件的位置一律不動', () => {
+    expect(visibility({ receiverUnit: 'group', advisorVisibility: true })).toBe('advisorVisibility')
+    expect(visibility({ receiverUnit: 'group', advisorVisibility: false })).toBeNull()
+    expect(visibility({ placement: 'news', audienceKind: 'public', receiverUnit: 'none', advisorVisibility: true })).toBe('advisorVisibility')
+  })
+})
+
 describe('normalizeItemInput：榮譽榜（第三波 W1）', () => {
   const honor = (patch: Partial<ItemInput> = {}) =>
     input({ placement: 'honor', audienceKind: 'public', receiverUnit: 'none', stageId: null, dueAt: '', fields: [], ...patch })

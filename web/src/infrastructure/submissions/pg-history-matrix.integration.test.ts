@@ -421,7 +421,7 @@ describe('2. 附件下載授權（逐角色）', () => {
     expect(await advisor.item(teacherActor(outsider), onlyG2)).toBeNull()
     const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '個人意向', fields: PERSONAL_FIELDS })
     expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
-    await publish(personal.itemId, personal.revision)
+    await publish(personal.itemId, personal.revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
     expect(await advisor.item(teacherActor(outsider), personal.itemId)).toBeNull()
     expect((await advisor.item(teacherActor(t1), personal.itemId))!.entries.length).toBeGreaterThan(0)
   })
@@ -475,7 +475,7 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     const { cohortId, stageId, g1, itemId } = await groupScenario()
     const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '個人意向', fields: PERSONAL_FIELDS })
     expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
-    await publish(personal.itemId, personal.revision)
+    await publish(personal.itemId, personal.revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
     const before = (await advisor.matrix(teacherActor(t1)))!
     expect(before.groups.map((g) => g.groupId)).toContain(g1)
     expect(before.individualItems.map((i) => i.itemId)).toContain(personal.itemId)
@@ -745,7 +745,7 @@ describe('4. 個人回答：老師預設看不到；管理員開主指導閱覽�
     expect(opened).toMatchObject({ ok: true, receipt: { enabled: true, effectiveFromVersionNo: 1 } })
     const audit = await owner.sql(`select action, payload from audit_events where target_id = $1 and action like 'submission.advisor_visibility.%'`, [itemId])
     expect(audit.rows).toEqual([expect.objectContaining({ action: 'submission.advisor_visibility.enable' })])
-    await publish(itemId, revision)
+    await publish(itemId, revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
 
     expect((await query.myItem(s1.id, itemId))!.advisorCanView).toBe(true)
     await saveAndSubmit(s1, itemId, { wish: '請注意時程' })
@@ -849,7 +849,7 @@ describe('6. 老師名單也認得系辦開放的個別補交（W10b）', () => 
     const groupItem = await published(cohortId, stageId, { title: '補交整組' })
     const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '補交個人', fields: PERSONAL_FIELDS })
     expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
-    await publish(personal.itemId, personal.revision)
+    await publish(personal.itemId, personal.revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
 
     businessNow = AFTER
     try {

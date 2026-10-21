@@ -81,7 +81,7 @@ pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seco
 `budget.json`、`sql-expect.json` 是基底，**票不改它們**：要加、改、刪列，在 `budget.d/`、`sql-expect.d/` 放自己的 `<票號>.json`（`set` 新增、`override`／`delete` 要寫 `from`）。`perf:bundle`、`perf:sql --expect` 讀的是基底＋小檔合併後的結果，撞鍵或格式錯 exit 1。格式與規則看兩個資料夾的 `README.md`（e2e 指紋同理在 `e2e/fingerprints.d/`），全文在 `docs/plans/2026-10-19-c-總表/D-23-放寬.md` §1。
 
 ```sh
-pnpm -C web overlay check                 # 三個資料夾的小檔都合法（交件前跑，exit 0）
+pnpm -C web overlay check                 # 5 個資料夾的小檔都合法（e2e/fingerprints.d、budget.d、sql-expect.d、sql-expect.timeline-admin.d、sql-expect.timeline-teacher.d；交件前跑，exit 0）
 pnpm -C web overlay print budget          # 看合併後的預算（sql-expect、fingerprints 同理）
 pnpm -C web overlay fold budget           # 收尾才用：把小檔併回基底（沒有開著的 PR 動到小檔時）
 ```

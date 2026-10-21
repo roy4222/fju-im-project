@@ -2,13 +2,14 @@
 /**
  * overlay 小檔的工具（D-23 放寬，規則見 `merge.mjs` 與三個 `.d/README.md`）。
  *
- *   pnpm -C web overlay check                               三個資料夾都合併一次；有錯 exit 1，沒錯印小檔數與動到的鍵數
+ *   pnpm -C web overlay check                               每個小檔資料夾都合併一次（含 `sql-expect.timeline-*.d/`）；有錯 exit 1，沒錯印小檔數與動到的鍵數
  *   pnpm -C web overlay print <fingerprints|budget|sql-expect> [--base <檔>]   印合併結果（JSON）
  *   pnpm -C web overlay fold  <budget|sql-expect|fingerprints> [--base <檔>]   把小檔併進基底、刪掉小檔
  *
  * `fold` 只在沒有開著的 PR 動到小檔時，由主腦或收尾票跑。指紋的 fold 不改 TS 檔，印出字面值供貼回。
  * `--base` 讓 print／fold 對別的基底檔跑（測試用；小檔資料夾照同一規則找它旁邊的 `.d/`）。
  */
+import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { fingerprintsLiteral, foldBaseFile, kindOf, mergeFromBaseFile, mergeFromDir, overlayDirFor } from './merge.mjs'
@@ -18,6 +19,21 @@ const BASE_FILES = {
   fingerprints: path.join(WEB_ROOT, 'e2e', 'fingerprints.ts'),
   budget: path.join(WEB_ROOT, 'scripts', 'perf', 'budget.json'),
   'sql-expect': path.join(WEB_ROOT, 'scripts', 'perf', 'sql-expect.json'),
+}
+
+const PERF_DIR = path.join(WEB_ROOT, 'scripts', 'perf')
+
+/**
+ * `check` 要檢查的基底：三個固定的，加上 `scripts/perf/sql-expect*.json` 全部（時程頁的 `sql-expect.timeline-*.json`
+ * 也有自己的 `.d/`，CL-7 #823 第 6 條之前漏檢）。`test/overlay/check-coverage.test.ts` 會核對每個 `.d/` 都在輸出裡。
+ */
+function checkTargets() {
+  const sqlBases = fs
+    .readdirSync(PERF_DIR)
+    .filter((name) => /^sql-expect.*\.json$/.test(name))
+    .sort()
+    .map((name) => ['sql-expect', path.join(PERF_DIR, name)])
+  return [['fingerprints', BASE_FILES.fingerprints], ['budget', BASE_FILES.budget], ...sqlBases]
 }
 
 function usage() {
@@ -40,11 +56,11 @@ async function main() {
   const baseOverride = baseIdx >= 0 ? rest[baseIdx + 1] : null
   if (cmd === 'check') {
     let failed = false
-    for (const kind of Object.keys(BASE_FILES)) {
-      const dir = overlayDirFor(BASE_FILES[kind])
+    for (const [kind, baseFile] of checkTargets()) {
+      const dir = overlayDirFor(baseFile)
       try {
-        const r = await merge(kind, BASE_FILES[kind])
-        console.log(`${path.relative(WEB_ROOT, dir).padEnd(28)} 小檔 ${String(r.files.length).padStart(2)} 個，動到 ${String(r.changed.length + r.deleted.length).padStart(2)} 個鍵${r.deleted.length ? `（刪 ${r.deleted.length}）` : ''}`)
+        const r = await merge(kind, baseFile)
+        console.log(`${path.relative(WEB_ROOT, dir).padEnd(44)} 小檔 ${String(r.files.length).padStart(2)} 個，動到 ${String(r.changed.length + r.deleted.length).padStart(2)} 個鍵${r.deleted.length ? `（刪 ${r.deleted.length}）` : ''}`)
       } catch (e) {
         failed = true
         console.error(`✗ ${e.message}`)

@@ -8,7 +8,7 @@ import { assertTestDatabaseReachable, createIsolatedDatabase, poolAsRole, type I
 import { enableFaultInjection, failAt } from '../../../test/fault-injection'
 import { migratedSchema } from '../../../test/migrations'
 import type { ResolvedActor } from '@/application/accounts'
-import { competitionStatus, EMPTY_COLLECTION_MESSAGE, snapshotDueAt, type ItemInput } from '@/application/items'
+import { competitionStatus, describeUpdateReceipt, EMPTY_COLLECTION_MESSAGE, snapshotDueAt, type ItemInput } from '@/application/items'
 import { createAttachmentPolicy } from '@/infrastructure/items/attachment-policy'
 import { PgItemCommand, PgItemQuery } from '@/infrastructure/items/pg-items'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
@@ -3537,5 +3537,207 @@ describe('資源分類改名 renameResourceCategory（C 階段規格① §11.3 r
     const denied = await items.renameResourceCategory(teacherActor(), { from: '甲-衝突測試', to: '丙', requestId: randomUUID() })
     expect(denied.ok || denied.code).toBe('FORBIDDEN')
     expect(await itemRow(a.itemId)).toMatchObject({ category: '甲-衝突測試', revision: 1 })
+  })
+})
+
+describe('指導老師閱覽跟表單一起存（C 收尾 CL-13）', () => {
+  const submissionCommand = () =>
+    new PgSubmissionCommand({
+      audit: new PgAuditWriter(),
+      ledger: new PgOperationLedger(() => app),
+      businessClock,
+      files: storage,
+      events: new PgEventPublisher(),
+      pool: () => app,
+    })
+
+  async function visibilityRows(itemId: string) {
+    return (
+      await owner.sql(
+        `select enabled, effective_from_version_no from advisor_visibility_settings where item_id = $1 order by set_at, id`,
+        [itemId],
+      )
+    ).rows
+  }
+
+  it('新增與存草稿：同一個交易插設定、revision +1、寫閱覽稽核；讀出來的 ItemDetail 帶目前狀態', async () => {
+    const { cohortId } = await newCohort()
+    const created = await mustCreate(cohortId, { advisorVisibility: true })
+    expect(await visibilityRows(created.itemId)).toEqual([{ enabled: true, effective_from_version_no: 1 }])
+    expect((await query.get(created.itemId))?.advisorVisibility).toEqual({ enabled: true, effectiveFromVersionNo: 1 })
+
+    // 沒變（還是 true）不多插一列；改成 false 插一列關閉。
+    const same = await items.saveDraft(adminActor(), created.itemId, created.revision, input(cohortId, { advisorVisibility: true }), randomUUID())
+    if (!same.ok) throw new Error(`${same.code} ${same.message}`)
+    expect(await visibilityRows(created.itemId)).toHaveLength(1)
+    const off = await items.saveDraft(adminActor(), created.itemId, same.receipt.revision, input(cohortId, { advisorVisibility: false }), randomUUID())
+    if (!off.ok) throw new Error(`${off.code} ${off.message}`)
+    expect(off.receipt.revision).toBe(same.receipt.revision + 1)
+    expect(await visibilityRows(created.itemId)).toEqual([
+      { enabled: true, effective_from_version_no: 1 },
+      { enabled: false, effective_from_version_no: 1 },
+    ])
+    expect((await query.get(created.itemId))?.advisorVisibility.enabled).toBe(false)
+    expect(
+      await count(`select count(*) as n from audit_events where target_id = $1 and action like 'submission.advisor_visibility.%'`, [created.itemId]),
+    ).toBe(2)
+    // 不給（舊呼叫端、前台只改標題）＝不動。
+    const untouched = await items.saveDraft(adminActor(), created.itemId, off.receipt.revision, input(cohortId, { title: '改標題' }), randomUUID())
+    expect(untouched.ok).toBe(true)
+    expect(await visibilityRows(created.itemId)).toHaveLength(2)
+  })
+
+  it('已發布只改閱覽：存得進去、revision +1；不記發布紀錄、不發任何通知（就算勾了通知）', async () => {
+    const { cohortId } = await newCohort()
+    await newStudent(cohortId)
+    const item = await mustCreate(cohortId)
+    const published = await mustPublish(item.itemId, item.revision, false)
+    const publicationsBefore = await count('select count(*) as n from item_publications where item_id = $1', [item.itemId])
+    const eventsBefore = await count(`select count(*) as n from domain_events where source_type = 'item' and source_id = $1`, [item.itemId])
+
+    const updated = await items.updatePublished(
+      adminActor(),
+      item.itemId,
+      published.revision,
+      input(cohortId, { advisorVisibility: true }),
+      { notify: true },
+      randomUUID(),
+    )
+    if (!updated.ok) throw new Error(`${updated.code} ${updated.message}`)
+    expect(updated.receipt).toMatchObject({ revision: published.revision + 1, changes: [], notify: false, notifiedCount: 0, advisorVisibility: true })
+    expect((await itemRow(item.itemId)).revision).toBe(published.revision + 1)
+    expect(await visibilityRows(item.itemId)).toEqual([{ enabled: true, effective_from_version_no: 1 }])
+    expect(await count('select count(*) as n from item_publications where item_id = $1', [item.itemId])).toBe(publicationsBefore)
+    expect(await count(`select count(*) as n from domain_events where source_type = 'item' and source_id = $1`, [item.itemId])).toBe(eventsBefore)
+    expect(describeUpdateReceipt(updated.receipt)).toContain('開放指導老師閱覽')
+
+    // 再送一次一樣的值＝沒有任何修改。
+    const again = await items.updatePublished(adminActor(), item.itemId, updated.receipt.revision, input(cohortId, { advisorVisibility: true }), { notify: false }, randomUUID())
+    expect(again.ok || again.code).toBe('VALIDATION_FAILED')
+
+    // 跟內容一起改：changes 照舊、閱覽也存；通知只照內容那一段發。
+    const both = await items.updatePublished(
+      adminActor(),
+      item.itemId,
+      updated.receipt.revision,
+      input(cohortId, { title: '期中報告（更新）', advisorVisibility: false }),
+      { notify: false },
+      randomUUID(),
+    )
+    if (!both.ok) throw new Error(`${both.code} ${both.message}`)
+    expect(both.receipt).toMatchObject({ changes: ['content'], advisorVisibility: false })
+    expect((await visibilityRows(item.itemId)).map((r) => r.enabled)).toEqual([true, false])
+  })
+
+  it('兩條寫入路徑都 revision +1：舊的閱覽開關改過後，拿舊 revision 的表單存回去回 CONFLICT，不會默默蓋掉', async () => {
+    const { cohortId } = await newCohort()
+    await newStudent(cohortId)
+    const item = await mustCreate(cohortId)
+    const published = await mustPublish(item.itemId, item.revision, false)
+    const toggled = await submissionCommand().setAdvisorVisibility(adminActor(), item.itemId, true, randomUUID())
+    expect(toggled.ok).toBe(true)
+    expect((await itemRow(item.itemId)).revision).toBe(published.revision + 1)
+
+    const stale = await items.updatePublished(adminActor(), item.itemId, published.revision, input(cohortId, { advisorVisibility: false }), { notify: false }, randomUUID())
+    expect(stale.ok || stale.code).toBe('CONFLICT')
+    expect((await visibilityRows(item.itemId)).map((r) => r.enabled)).toEqual([true])
+
+    // 表單路徑改過後，再拿舊 revision 存也一樣 CONFLICT。
+    const fresh = await items.updatePublished(adminActor(), item.itemId, published.revision + 1, input(cohortId, { advisorVisibility: false }), { notify: false }, randomUUID())
+    expect(fresh.ok).toBe(true)
+    const staleAgain = await items.updatePublished(adminActor(), item.itemId, published.revision + 1, input(cohortId, { advisorVisibility: true }), { notify: false }, randomUUID())
+    expect(staleAgain.ok || staleAgain.code).toBe('CONFLICT')
+    expect((await visibilityRows(item.itemId)).map((r) => r.enabled)).toEqual([true, false])
+  })
+
+  it('已經有人作答不能開（ITEM_HAS_RESPONSES，什麼都不寫）；關閉隨時可以；整組一份給 true 回錯、給 false 當不動', async () => {
+    const { cohortId } = await newCohort()
+    const s = await newStudent(cohortId)
+    const fields: ItemInput['fields'] = [{ key: 'note', type: 'text', label: '備註', required: false }]
+    const answer = async (itemId: string) => {
+      const saved = await submissionCommand().saveDraft(studentActor(s), itemId, 0, { note: '想請老師注意' }, randomUUID())
+      if (!saved.ok) throw new Error(`${saved.code} ${saved.message}`)
+    }
+    const item = await mustCreate(cohortId, { fields })
+    const published = await mustPublish(item.itemId, item.revision, false)
+    await answer(item.itemId)
+
+    const refused = await items.updatePublished(adminActor(), item.itemId, published.revision, input(cohortId, { fields, advisorVisibility: true }), { notify: false }, randomUUID())
+    expect(refused.ok || refused.code).toBe('ITEM_HAS_RESPONSES')
+    expect(await visibilityRows(item.itemId)).toEqual([])
+    expect((await itemRow(item.itemId)).revision).toBe(published.revision)
+    expect((await query.get(item.itemId))?.hasResponses).toBe(true)
+
+    // 發布前就開好的，有人作答後照樣可以關。
+    const early = await mustCreate(cohortId, { fields, advisorVisibility: true })
+    const earlyPublished = await mustPublish(early.itemId, early.revision, false)
+    await answer(early.itemId)
+    const closed = await items.updatePublished(adminActor(), early.itemId, earlyPublished.revision, input(cohortId, { fields, advisorVisibility: false }), { notify: false }, randomUUID())
+    expect(closed.ok && closed.receipt.advisorVisibility).toBe(false)
+    expect((await visibilityRows(early.itemId)).map((r) => r.enabled)).toEqual([true, false])
+
+    const group = await mustCreate(cohortId, { receiverUnit: 'group', advisorVisibility: false })
+    expect(await visibilityRows(group.itemId)).toEqual([])
+    const groupOn = await items.saveDraft(adminActor(), group.itemId, group.revision, input(cohortId, { receiverUnit: 'group', advisorVisibility: true }), randomUUID())
+    expect(groupOn.ok || groupOn.code).toBe('VALIDATION_FAILED')
+    expect(await visibilityRows(group.itemId)).toEqual([])
+  })
+
+  it('權限不放寬：老師、學生送閱覽變更一律 FORBIDDEN，沒插任何設定', async () => {
+    const { cohortId } = await newCohort()
+    const s = await newStudent(cohortId)
+    const item = await mustCreate(cohortId)
+    const published = await mustPublish(item.itemId, item.revision, false)
+    for (const actor of [teacherActor(), studentActor(s)]) {
+      const created = await items.create(actor, input(cohortId, { advisorVisibility: true }), randomUUID())
+      expect(created.ok || created.code).toBe('FORBIDDEN')
+      const updated = await items.updatePublished(actor, item.itemId, published.revision, input(cohortId, { advisorVisibility: true }), { notify: false }, randomUUID())
+      expect(updated.ok || updated.code).toBe('FORBIDDEN')
+    }
+    expect(await visibilityRows(item.itemId)).toEqual([])
+    expect(await count('select count(*) as n from advisor_visibility_settings s join managed_items m on m.id = s.item_id where m.cohort_id = $1', [cohortId])).toBe(0)
+  })
+
+  it('並行：學生第一次作答的交易還沒結束時開閱覽，會排在後面、看到作答而被擋（同鎖序：屆別 FOR SHARE → 項目）', async () => {
+    const { cohortId } = await newCohort()
+    const s = await newStudent(cohortId)
+    const item = await mustCreate(cohortId)
+    const published = await mustPublish(item.itemId, item.revision, false)
+    const schemaVersionId = String((await itemRow(item.itemId)).current_schema_version_id)
+
+    // 模擬學生存草稿的交易：照 pg-submissions 的鎖序拿屆別與項目的共享鎖、寫入有內容的草稿，先不提交。
+    const student = await app.connect()
+    try {
+      await student.query('begin')
+      await student.query('select 1 from cohorts where id = $1 for share', [cohortId])
+      await student.query('select 1 from managed_items where id = $1 for share', [item.itemId])
+      await student.query(
+        `insert into submission_drafts (id, item_id, receiver_kind, receiver_id, schema_version_id, answers, created_by_kind, created_by_user_id, updated_by_user_id)
+         values (gen_random_uuid(), $1, 'user', $2, $3, '{"note":"x"}'::jsonb, 'user', $2, $2)`,
+        [item.itemId, s.id, schemaVersionId],
+      )
+      let settled = false
+      const opening = items
+        .updatePublished(adminActor(), item.itemId, published.revision, input(cohortId, { advisorVisibility: true }), { notify: false }, randomUUID())
+        .finally(() => {
+          settled = true
+        })
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(settled, '開閱覽要等學生的交易放掉項目鎖').toBe(false)
+      await student.query('commit')
+      const result = await opening
+      expect(result.ok || result.code).toBe('ITEM_HAS_RESPONSES')
+    } finally {
+      student.release()
+    }
+    expect(await visibilityRows(item.itemId)).toEqual([])
+
+    // 反過來：先開成功，學生之後作答照常（填寫頁會看到告知）。
+    const other = await mustCreate(cohortId)
+    const otherPublished = await mustPublish(other.itemId, other.revision, false)
+    const opened = await items.updatePublished(adminActor(), other.itemId, otherPublished.revision, input(cohortId, { advisorVisibility: true }), { notify: false }, randomUUID())
+    expect(opened.ok).toBe(true)
+    const answered = await submissionCommand().saveDraft(studentActor(s), other.itemId, 0, {}, randomUUID())
+    expect(answered.ok).toBe(true)
   })
 })
