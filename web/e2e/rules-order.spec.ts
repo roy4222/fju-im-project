@@ -260,6 +260,7 @@ test('CL-1：就地編輯沒改不擋離開；改了欄位或正文（含 Enter 
   const rulesUrl = page.url()
   const tabs = page.getByRole('navigation', { name: '公告與作業分頁' })
   const ask = page.getByRole('dialog', { name: '放棄未儲存的修改？' })
+  const board = page.getByTestId('rules-board')
   const unloadDialogs: string[] = []
   page.on('dialog', (dialog) => {
     unloadDialogs.push(dialog.type())
@@ -270,7 +271,7 @@ test('CL-1：就地編輯沒改不擋離開；改了欄位或正文（含 Enter 
   await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
   await formReady(row(page, FOUR, 2))
   await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources\?/)
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
   await expect(ask).toBeHidden()
 
   // 改了正文：只按 Enter（Tiptap 自己處理、不發 input 事件）也算改過 → 點站內連結先問，「繼續編輯」留在原頁。
@@ -282,24 +283,32 @@ test('CL-1：就地編輯沒改不擋離開；改了欄位或正文（含 Enter 
   await editor.click()
   await page.keyboard.press('Control+End')
   await page.keyboard.press('Enter')
+  await expect(board).toHaveAttribute('data-unsaved', '1')
   await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
   await expect(ask).toBeVisible()
   await expect(ask.getByRole('button', { name: '放棄並離開' })).toBeVisible()
   await ask.getByRole('button', { name: '繼續編輯' }).click()
   await expect(ask).toBeHidden()
   expect(page.url()).toBe(rulesUrl)
+  // 擋下的點擊不會讓換頁骨架卡著（骨架 150 ms 後才出現，等過那段再看）。
+  await page.waitForTimeout(400)
+  await expect(page.locator('html[data-nav-pending]')).toHaveCount(0)
 
   // 有未存改動時重新整理會跳瀏覽器的離開確認（`beforeunload`）；取消就留在原頁、改動還在。
-  await page.reload()
+  // 取消後導覽不會完成，reload 本身等不到 load：給上限、失敗吞掉，改看對話框有沒有跳。
+  const reloading = page.reload({ timeout: 5_000 }).catch(() => null)
   await expect.poll(() => unloadDialogs, { message: '有未存改動時重新整理要跳 beforeunload 確認', timeout: 5_000 }).toContain('beforeunload')
+  await reloading
+  expect(page.url()).toBe(rulesUrl)
   await expect(form).toBeVisible()
 
   // 改回原樣（Backspace 把剛剛的空段落刪掉）→ 不再擋。
   await editor.click()
   await page.keyboard.press('Control+End')
   await page.keyboard.press('Backspace')
+  await expect(board).not.toHaveAttribute('data-unsaved')
   await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources\?/)
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
   await expect(ask).toBeHidden()
 
   // 改了標題 → 問；「放棄並離開」→ 走到那一頁。
@@ -307,20 +316,22 @@ test('CL-1：就地編輯沒改不擋離開；改了欄位或正文（含 Enter 
   await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
   const again = await formReady(row(page, FOUR, 2))
   await again.getByLabel('標題', { exact: true }).fill(`${title(FOUR, 2)}（未存）`)
+  await expect(board).toHaveAttribute('data-unsaved', '1')
   await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
   await expect(ask).toBeVisible()
   await ask.getByRole('button', { name: '放棄並離開' }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources\?/)
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
 
   // 存好之後不再擋：改標題 → 儲存更新 → 點連結直接走。
   await page.goto(rulesUrl)
   await row(page, FOUR, 3).getByRole('button', { name: `編輯：${title(FOUR, 3)}` }).click()
   const saved = await formReady(row(page, FOUR, 3))
-  await saved.getByLabel('標題', { exact: true }).fill(title(FOUR, 3))
+  await saved.getByLabel('標題', { exact: true }).fill(`${title(FOUR, 3)}（存過）`)
   await saved.getByRole('button', { name: '儲存更新' }).click()
   await expect(page.getByTestId('pin-feedback')).toHaveText('已更新')
+  await expect(board).not.toHaveAttribute('data-unsaved')
   await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources\?/)
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
   await expect(ask).toBeHidden()
   expect(unloadDialogs).toEqual(['beforeunload'])
 })
@@ -344,14 +355,13 @@ test('CL-1：表單還在載入時連點兩章「編輯」→ 只展開後點的
   )
   await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
   await expect(row(page, FOUR, 2).getByText('表單載入中…')).toBeVisible()
-  await row(page, FOUR, 3).getByRole('button', { name: `編輯：${title(FOUR, 3)}` }).click()
+  await row(page, FOUR, 4).getByRole('button', { name: `編輯：${title(FOUR, 4)}` }).click()
   await expect(page.getByRole('dialog', { name: '放棄未儲存的修改？' })).toBeHidden()
   await expect.poll(() => held, { message: '表單資料載入的 POST 應該被卡住', timeout: 5_000 }).toBeGreaterThan(0)
   release()
-  await page.unroute(rulesPage)
-  await formReady(row(page, FOUR, 3))
+  await formReady(row(page, FOUR, 4))
   await expect(page.getByTestId('item-form')).toHaveCount(1)
   await expect(row(page, FOUR, 2).getByTestId('item-form')).toHaveCount(0)
   await page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '資源下載', exact: true }).click()
-  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources\?/)
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
 })

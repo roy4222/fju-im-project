@@ -17,7 +17,7 @@ import { cn } from '@/shared/cn'
  * - 上移／下移保留（鍵盤與手機用；`moveRuleAction`），回饋句寫在卡片頂端（`pin-feedback`，跟舊清單同一個位置）。
  * - 「編輯」在卡片內就地展開，一次只展開一章；前一章有未存的改動時先問一句「要放棄嗎」。
  * - 離開頁面也擋（CL-1）：有未存改動時才掛 `beforeunload`（重新整理、關分頁、打網址），站內連結在 capture 階段攔下、
- *   用同一個確認框問；存好、取消或放棄後就拿掉。
+ *   用同一個確認框問（攔在換頁骨架之前）；存好、取消或放棄後就拿掉。
  * - 「新增章節」在清單底部加一張展開的空卡（同一張表單，新增一章）。
  */
 
@@ -89,11 +89,12 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
       event.stopPropagation()
       setAsking({ kind: 'leave', href })
     }
+    // 掛在 window 的 capture：比根 layout 換頁骨架（`nav-pending.tsx`，document capture）先收到，擋下的點擊不會讓骨架卡著。
     window.addEventListener('beforeunload', onBeforeUnload)
-    document.addEventListener('click', onClick, true)
+    window.addEventListener('click', onClick, true)
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload)
-      document.removeEventListener('click', onClick, true)
+      window.removeEventListener('click', onClick, true)
     }
   }, [guarding])
 
@@ -180,7 +181,13 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
           {feedback.text}
         </p>
       ) : null}
-      <ol className="border-t border-border" aria-label="專題規則章節" data-testid="rules-board">
+      <ol
+        className="border-t border-border"
+        aria-label="專題規則章節"
+        data-testid="rules-board"
+        // 有未存改動、正在擋離開時標記（e2e 等這個再點連結）。
+        data-unsaved={guarding ? '1' : undefined}
+      >
         {order.map((card, index) => (
           <RuleCard
             key={card.id}
