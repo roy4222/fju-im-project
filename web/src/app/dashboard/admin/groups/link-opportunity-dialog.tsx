@@ -3,6 +3,7 @@ import { startTransition, useActionState, useEffect, useRef, useState, type Form
 import { linkOpportunityAction, searchLinkOptionsAction, unlinkGroupOpportunityAction } from './actions'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from './admin-group-forms'
 import { ALERT, BTN_ROW_GHOST as ROW_GHOST } from '@/app/_ui/dashboard/look'
+import { blockOverLimit, CharCount, charCountId } from '@/app/_ui/char-count'
 import type { LinkOption } from '@/application/groups'
 
 /**
@@ -25,20 +26,30 @@ export function UnlinkOpportunityButton({ linkId, code, requestId, reasonMaxLeng
   linkId: string | null; code: string; requestId: string; reasonMaxLength: number
 }) {
   const [state, action, pending] = useActionState(unlinkGroupOpportunityAction, undefined)
+  const [tooLong, setTooLong] = useState<string | null>(null)
   const dialog = useDialog()
   useCloseOnSuccess(state, dialog.close)
   if (!linkId) return <Feedback state={state?.ok ? state : undefined} />
+  const reasonId = `unlink-${linkId}`
   return <div>
     <button type="button" className={`${ROW_GHOST} pointer-coarse:min-h-11 pointer-coarse:min-w-11`} onClick={dialog.open}>解除合作案</button>
     <Feedback state={state?.ok ? state : undefined} />
     <dialog ref={dialog.ref} className={DIALOG} aria-label={`解除 ${code} 的合作案`}>
-      <form key={linkId} action={action} className="space-y-4 p-5">
+      <form
+        key={linkId}
+        action={action}
+        onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, `解除連結的理由最多 ${reasonMaxLength} 個字。`))}
+        className="space-y-4 p-5"
+      >
         <h2 className="text-lg font-bold">解除 {code} 的合作案</h2>
         <input type="hidden" name="linkId" value={linkId} />
         <input type="hidden" name="requestId" value={requestId} />
-        <label htmlFor={`unlink-${linkId}`} className={LABEL}>理由（可不填）</label>
-        <textarea id={`unlink-${linkId}`} name="reason" maxLength={reasonMaxLength} className={INPUT} />
-        <Feedback state={state?.ok ? undefined : state} />
+        <div>
+          <label htmlFor={reasonId} className={LABEL}>理由（可不填）</label>
+          <textarea id={reasonId} name="reason" aria-describedby={charCountId(reasonId)} className={INPUT} />
+          <CharCount forId={reasonId} max={reasonMaxLength} />
+        </div>
+        <Feedback state={tooLong ? { ok: false, message: tooLong } : state?.ok ? undefined : state} />
         <div className="flex justify-end gap-2">
           <button type="button" className={SECONDARY} onClick={dialog.close}>先不要</button>
           <button type="submit" className={PRIMARY} disabled={pending}>確定解除</button>
@@ -233,13 +244,13 @@ export function LinkOpportunityButton({
               id={ids.reason}
               name="reason"
               rows={3}
-              maxLength={reasonMaxLength}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              aria-describedby={`${ids.reason}-hint`}
+              aria-describedby={`${ids.reason}-hint ${charCountId(ids.reason)}`}
               placeholder={switching ? '例：業師更換' : ''}
               className={INPUT}
             />
+            <CharCount forId={ids.reason} max={reasonMaxLength} value={reason} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">

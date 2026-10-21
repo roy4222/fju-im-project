@@ -16,6 +16,7 @@ import type { NormalizedOpportunity } from '@/application/groups'
 import { IconEyeOff, IconPlus, IconTrash } from '@tabler/icons-react'
 import { ALERT, BTN_OUTLINE_TALL, BTN_ROW, BTN_ROW_GHOST, BTN_SUBMIT, DIALOG, DIALOG_TITLE, NOTE, TEXTAREA } from '@/app/_ui/dashboard/look'
 import { buttonVariants } from '@/app/_ui/ui/button'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 import { changeOpportunityStatusAction, deleteOpportunityAction, saveOpportunityAction, unlinkOpportunityAction } from './actions'
 import { OpportunityFormBody, type OpportunityFormLabels, type OwnerTeacherOption } from './front-edit/opportunity'
 
@@ -318,12 +319,13 @@ export function LinkedGroupsCell({
               id={`unlink-reason-${requestId}`}
               name="reason"
               rows={3}
-              maxLength={reasonMaxLength}
+              aria-describedby={charCountId(`unlink-reason-${requestId}`)}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="例：企業暫停這個題目"
               className={AREA}
             />
+            <CharCount forId={`unlink-reason-${requestId}`} max={reasonMaxLength} value={reason} />
           </div>
           <IndustryFeedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 pt-1">
