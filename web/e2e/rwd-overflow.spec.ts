@@ -107,13 +107,13 @@ async function signIn(page: Page, role: TestRole | null) {
 
 /**
  * 等這份文件 hydrate 完、主執行緒閒下來（同 nav-skeleton.spec）：`body` 由根 layout 渲染，被 React 接手後才有
- * `__reactFiber$`；再等兩次 `requestIdleCallback`，讓 hydration 後才掛的延遲特效與選單先排好版面。
+ * `__reactFiber$`；再等兩次 `requestIdleCallback`（上限 2 秒：CI 機器忙時不會一直等不到閒置），讓 hydration 後才掛的延遲特效與選單先排好版面。
  */
 async function hydrated(page: Page) {
   await expect
     .poll(() => page.evaluate(() => Object.keys(document.body).some((key) => key.startsWith('__reactFiber$'))))
     .toBe(true)
-  for (let i = 0; i < 2; i++) await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve())))
+  for (let i = 0; i < 2; i++) await page.evaluate(() => new Promise<void>((resolve) => requestIdleCallback(() => resolve(), { timeout: 2000 })))
 }
 
 /** 關掉三處遮罩後量整頁寬度；溢位時順便列出右緣最遠的幾個元素。 */
@@ -181,7 +181,7 @@ test.describe('AC-62：五種寬度關掉遮罩沒有真溢位', () => {
         const m = await measure(page)
         cells.push(`${m.scrollWidth}／${m.clientWidth}`)
         expect.soft(m.scrollWidth, `${target.name} @${width}：${m.culprits.join('、')}`).toBeLessThanOrEqual(m.clientWidth + 1)
-        await shot(page, `overflow-${width}-${target.name.replace(/[^a-z0-9]+/gi, '_')}`)
+        await shot(page, `overflow-${width}-${target.name.replace(/[^a-z0-9]+/gi, '_')}-${target.role ?? 'guest'}`)
       }
       table.push(`| ${target.name} | ${cells.join(' | ')} |`)
     })
