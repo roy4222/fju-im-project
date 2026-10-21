@@ -1336,13 +1336,22 @@ export class Chapter {
               else if (win) {
                 const cy = (e.top + e.bottom) / 2;
                 if (cy < full.top + topSafe || cy > full.bottom - bottomSafe || e.top < r.top || e.bottom > r.bottom) {
-                  // 照舊捲到畫面 42%；有東西蓋住上下邊時，夾在沒被蓋住的範圍裡（留 margin，放不下就頂端對齊）
+                  // 照舊捲到畫面 42%；有東西蓋住上下邊時，夾在沒被蓋住的範圍裡：放得下（含上下 margin）就整個放進去，
+                  // 放不下（元素比沒被蓋住的範圍還高）只把中心夾進去——點擊打在中心，中心一定要看得到
                   const half = e.height / 2;
                   let target = full.top + (full.bottom - full.top) * 0.42;
-                  if (ins.top > 0 || ins.bottom > 0) target = Math.max(r.top + half, Math.min(Math.max(target, r.top + half + margin), r.bottom - half - margin));
+                  if (ins.top > 0 || ins.bottom > 0) {
+                    target =
+                      e.height + 2 * margin <= h
+                        ? Math.min(Math.max(target, r.top + half + margin), r.bottom - half - margin)
+                        : Math.min(Math.max(target, r.top + margin), r.bottom - margin);
+                  }
                   dy = cy - target;
                 }
-              } else if (e.height > h - 2 * margin || e.top < r.top + margin) dy = e.top - (r.top + margin);
+              } else if (e.height > h - 2 * margin || e.top < r.top + margin) {
+                // 頂端對齊（留 margin）；元素高到這樣對齊後中心會跑出可見區時，改成中心對到可見區正中
+                dy = e.height / 2 + 2 * margin > h ? (e.top + e.bottom) / 2 - (r.top + h / 2) : e.top - (r.top + margin);
+              }
               else if (e.bottom > r.bottom - margin) dy = e.bottom - (r.bottom - margin);
             }
             if (pass > 0 && Math.abs(dx) < 1 && Math.abs(dy) < 1) break;

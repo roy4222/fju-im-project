@@ -174,3 +174,57 @@ test('t.click 扣掉黏住的表頭與黏頂列（#412）：整頁表格最後�
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// #807 Review：比「沒被蓋住的可見區」還高的元素，捲完中心一定要在可見區裡（點擊打在中心）。
+async function clickTall(html: string, before: (page: import('playwright').Page) => Promise<void>, chapter: string) {
+  const root = mkdtempSync(join(tmpdir(), 'tutorial-scroll-tall-'));
+  const browser = await launchTutorialBrowser();
+  try {
+    const page = await newTutorialPage(browser);
+    await page.setContent(html);
+    await before(page);
+    const t = await startChapter({ page, outDir: join(root, 'run'), chapter, tts: silentProvider(), slots: { dir: join(root, 'slots') }, ...CAPTURE_OPTS });
+    try {
+      await t.step({ caption: '點很高的元素' }, async () => {
+        await t.click(page.locator('#tall'), false);
+      });
+      assert.equal(await page.locator('#tall').textContent(), '已點', '很高的元素被點到');
+      await t.finish();
+    } finally {
+      await t.dispose();
+    }
+  } finally {
+    await browser.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('黏頂列＋比畫面還高的元素（整頁）：捲完中心在沒被蓋住的範圍裡，點得到', { timeout: 90_000 }, async () => {
+  await clickTall(
+    `<body style="margin:0;font-size:18px">
+<header style="position:sticky;top:0;height:56px;background:#333;color:#fff;z-index:50">黏頂列</header>
+<div style="height:900px"></div>
+<button id=tall style="display:block;width:400px;height:1300px" onclick="this.textContent='已點'">很高</button>
+<div style="height:1500px"></div>
+</body>`,
+    async () => {},
+    '測試｜整頁很高的元素',
+  );
+});
+
+test('容器裡黏住的表頭＋比容器可見區還高的元素：捲完中心在容器可見區裡，點得到', { timeout: 90_000 }, async () => {
+  const filler = Array.from({ length: 6 }, (_, i) => `<tr style="height:50px"><td>第 ${i + 3} 列</td></tr>`).join('');
+  await clickTall(
+    `<body style="margin:0;font-size:18px">
+<div id=wrap style="width:600px;height:300px;overflow:auto">
+  <table style="width:100%;border-collapse:collapse">
+    <thead style="position:sticky;top:0;background:#ccc;z-index:10"><tr style="height:60px"><th>名稱</th></tr></thead>
+    <tbody><tr style="height:50px"><td>第 1 列</td></tr><tr><td style="padding:0"><button id=tall style="display:block;width:300px;height:500px" onclick="this.textContent='已點'">很高</button></td></tr>${filler}</tbody>
+  </table>
+</div>
+<div style="height:1200px"></div>
+</body>`,
+    (page) => page.locator('#wrap').evaluate((el) => el.scrollTo(0, el.scrollHeight)),
+    '測試｜容器很高的元素',
+  );
+});
