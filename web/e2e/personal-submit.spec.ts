@@ -416,11 +416,14 @@ test('本人看得到每一次繳交（繳交歷史：已交時間、繳交人�
   await page.goto(openPath())
   await page.getByRole('link', { name: /繳交歷史（3）/ }).click()
   const history = page.getByRole('table', { name: '繳交歷史' })
-  await expect(history.getByTestId('history-row')).toHaveCount(3)
+  await expect(history.getByTestId('history-row')).toHaveCount(1)
   await expect(history.getByRole('columnheader')).toHaveText(['已交時間（臺灣時間）', '繳交人', '動作'])
   await expect(history.getByTestId('history-row').first()).toContainText(s1.name)
   await expect(history.getByTestId('history-row').first().locator('img')).toHaveAttribute('src', /^\/(avatars|api\/files)\//)
-  await expect(history.getByRole('link', { name: '查看' })).toHaveCount(3)
+  await expect(history.getByRole('link', { name: '查看' })).toHaveCount(1)
+  // 舊的兩次折在「之前的版本（2）」（C 收尾 CL-13）。
+  await page.getByTestId('older-versions').getByText('之前的版本（2）').click()
+  await expect(page.getByRole('table', { name: '之前的版本' }).getByRole('link', { name: '查看' })).toHaveCount(2)
   const rows = await versions(itemIds.open, s1.userId)
   // 繳交證明編號不印在歷史列表（W13b：預設收合），改在每一版的內容頁收合顯示；也沒有草稿列。
   await expect(history).not.toContainText(rows[0]!.request_id)

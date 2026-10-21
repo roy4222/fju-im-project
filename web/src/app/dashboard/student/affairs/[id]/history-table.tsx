@@ -15,10 +15,10 @@ export function HistoryTable({ versions, hrefOf }: { versions: readonly VersionS
     return <p className="py-8 text-center text-sm text-muted-foreground">還沒有繳交過。</p>
   }
   // 只露出最後一次送出，舊的收進「之前的版本（N）」（C 階段規格① §4.2；C 收尾 CL-13）。原生 <details>，不用 client JS。
-  const [latest, ...older] = versions
+  const older = versions.slice(1)
   return (
     <div>
-      <VersionRows label="繳交歷史" versions={[latest]} hrefOf={hrefOf} />
+      <VersionRows label="繳交歷史" versions={versions.slice(0, 1)} hrefOf={hrefOf} />
       {older.length > 0 ? (
         <details className="group mt-2 rounded-lg border border-border" data-testid="older-versions">
           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">

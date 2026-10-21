@@ -71,6 +71,7 @@ function detail(overrides: Partial<ItemDetail> = {}): ItemDetail {
     rosterCount: 2,
     updatedAt: new Date('2026-10-02T00:00:00Z'),
     hasResponses: false,
+    advisorVisibility: { enabled: false, effectiveFromVersionNo: null },
     publications: [
       {
         action: 'publish',
@@ -228,5 +229,28 @@ describe('有人交過的提示（AC-5）', () => {
     expect(lockedFieldsNotice(1, 'group')).toBe('已有 1 組交過，欄位結構不能改')
     expect(lockedFieldsNotice(3, 'individual')).toBe('已有 3 人交過，欄位結構不能改')
     expect(lockedFieldsNotice(null, 'group')).toBe('已經有人交過，欄位結構不能改')
+  })
+})
+
+describe('指導老師閱覽（C 收尾 CL-13：進階設定的開關，跟表單一起存）', () => {
+  const individual = (overrides: Partial<ItemDetail> = {}) => detail({ receiverUnit: 'individual', ...overrides })
+
+  it('初值取自 ItemDetail；個人一份才送出，整組一份、站內同意書、公告一律 null（＝不動）', () => {
+    const on = stateFromInitial(toInitial(individual({ advisorVisibility: { enabled: true, effectiveFromVersionNo: 2 } })))
+    expect(on.advisorVisibility).toBe(true)
+    expect(toPayload(on).advisorVisibility).toBe(true)
+    expect(toPayload({ ...on, advisorVisibility: false }).advisorVisibility).toBe(false)
+    expect(toPayload({ ...on, receiverUnit: 'group' }).advisorVisibility).toBeNull()
+    expect(toPayload({ ...on, consentMode: 'form', receiverUnit: 'group' }).advisorVisibility).toBeNull()
+    expect(toPayload({ ...on, placement: 'news' }).advisorVisibility).toBeNull()
+    const fresh = stateFromInitial(defaultItemDraft('submission', 'c1', { consentMode: 'upload' }))
+    expect([fresh.advisorVisibility, fresh.advisorVisibilityLocked, toPayload(fresh).advisorVisibility]).toEqual([false, false, false])
+  })
+
+  it('已經有人作答而且沒開：開關鎖住；已經開著的照樣可以關', () => {
+    expect(stateFromInitial(toInitial(individual({ hasResponses: true }))).advisorVisibilityLocked).toBe(true)
+    const opened = stateFromInitial(toInitial(individual({ hasResponses: true, advisorVisibility: { enabled: true, effectiveFromVersionNo: 1 } })))
+    expect(opened.advisorVisibilityLocked).toBe(false)
+    expect(toPayload({ ...opened, advisorVisibility: false }).advisorVisibility).toBe(false)
   })
 })

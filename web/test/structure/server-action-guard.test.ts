@@ -740,10 +740,10 @@ function mutate(file: string, from: string | RegExp, to: string): Sources {
 }
 
 describe('SEC-2：每個 Server Action 都經守門', () => {
-  it('盤點：src/app 的 use server 檔共 163 個 action（含 dispatch 子 op）全部登記', () => {
+  it('盤點：src/app 的 use server 檔共 162 個 action（含 dispatch 子 op）全部登記', () => {
     const helpers = Object.keys(REGISTRY).filter((k) => k.includes('>')).length
     expect(actions.length + helpers).toBe(Object.keys(REGISTRY).length)
-    expect(actions.length).toBe(163)
+    expect(actions.length).toBe(162)
     for (const e of Object.values(REGISTRY)) if (e.kind === 'allow') expect(e.reason.length).toBeGreaterThan(10)
   })
 
