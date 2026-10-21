@@ -345,7 +345,7 @@ export function analyzeRoster(
 }
 
 /**
- * 預覽時預設選哪一屆：CSV 屆別欄的建議 → 開放註冊中的屆別 → 預設工作屆別 → 不預選。
+ * 預覽時預設選哪一屆：CSV 屆別欄的建議 → 開放註冊中的屆別 → 不預選（讓系辦自己選，不退到預設工作屆別）。
  * 指定的屆別不存在時當作沒指定。
  */
 export function pickCohort(
@@ -355,7 +355,7 @@ export function pickCohort(
 ): string | null {
   if (requested && cohorts.some((c) => c.id === requested)) return requested
   if (suggested) return suggested
-  return cohorts.find((c) => c.isRegistrationOpen)?.id ?? cohorts.find((c) => c.isDefaultWorking)?.id ?? null
+  return cohorts.find((c) => c.isRegistrationOpen)?.id ?? null
 }
 
 // ── 授權 ────────────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@
  "files": [
   {
    "destination": "docs/product/🧩 功能模組/01 帳號與權限.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/01 帳號與權限.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/01 帳號與權限.md",
    "source_sha256": "03177bb0497eaaccf37f86ca5ef9048e422a8cd8dc7dda979a5412f2056a3fdc",
    "mirror_sha256": "03177bb0497eaaccf37f86ca5ef9048e422a8cd8dc7dda979a5412f2056a3fdc",
    "direction": "repo → Vault，再 Vault → repo",
@@ -26,7 +26,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/02 屆別與年度流程.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/02 屆別與年度流程.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/02 屆別與年度流程.md",
    "source_sha256": "29ff5b2c4ccb6dd73066fedf7ccb65007a42f257f72b2729d99d011a1db3e24a",
    "mirror_sha256": "29ff5b2c4ccb6dd73066fedf7ccb65007a42f257f72b2729d99d011a1db3e24a",
    "direction": "repo → Vault，再 Vault → repo",
@@ -37,7 +37,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/03 分組、指導與產學.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/03 分組、指導與產學.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/03 分組、指導與產學.md",
    "source_sha256": "dddeee263f7f2d823bce9d61d67835eea1775941b99e2c4de495f6eb0bbcfa39",
    "mirror_sha256": "69a73bcdcd3848b24cf90f736c198d4600ff393d01d1804379bfcd7208bc7ff0",
    "direction": "repo → Vault，再 Vault → repo",
@@ -48,7 +48,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/04 專題事務發布與編輯.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/04 專題事務發布與編輯.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/04 專題事務發布與編輯.md",
    "source_sha256": "e4874ce0a2a16cc0e5a9beb44a1591fc10d0dda6a8efd8a156fac8068f9783cf",
    "mirror_sha256": "e4874ce0a2a16cc0e5a9beb44a1591fc10d0dda6a8efd8a156fac8068f9783cf",
    "direction": "repo → Vault",
@@ -59,7 +59,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/05 個人與組別繳交.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/05 個人與組別繳交.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/05 個人與組別繳交.md",
    "source_sha256": "b85acdf270161f248ae98f2970eb686a36184fc32d1396b49684320f8bf14faa",
    "mirror_sha256": "b85acdf270161f248ae98f2970eb686a36184fc32d1396b49684320f8bf14faa",
    "direction": "repo → Vault",
@@ -70,7 +70,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/06 評分與成績.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/06 評分與成績.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/06 評分與成績.md",
    "source_sha256": "3608ec6f00f94e40c4a4141253d7d9861594dd37ee7f2ea204ee180146a4b6c9",
    "mirror_sha256": "3608ec6f00f94e40c4a4141253d7d9861594dd37ee7f2ea204ee180146a4b6c9",
    "direction": "repo → Vault",
@@ -81,7 +81,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/07 線上簽核.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/07 線上簽核.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/07 線上簽核.md",
    "source_sha256": "ccf544a3e5b94a9027adee2fc5abf663eeaf2e544792e94cefc8f203f074f500",
    "mirror_sha256": "0996b1fe005f1523ac6898f084837c5f2918f1f3349db71f9dfdaecb589fb943",
    "direction": "repo → Vault，再 Vault → repo",
@@ -92,7 +92,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/08 站內通知與日曆.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/08 站內通知與日曆.md",
    "source_sha256": "5b9f2b7658f786e46968861854bdca886adfae671c17472dd88940fa733fa4dd",
    "mirror_sha256": "5b9f2b7658f786e46968861854bdca886adfae671c17472dd88940fa733fa4dd",
    "direction": "repo → Vault",
@@ -103,7 +103,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/09 公開展示與共用介面.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/09 公開展示與共用介面.md",
    "source_sha256": "bcfbb22690b829f7183be9996e850a524ad7414a9ee1417e378f926ffca63d3f",
    "mirror_sha256": "bcfbb22690b829f7183be9996e850a524ad7414a9ee1417e378f926ffca63d3f",
    "direction": "repo → Vault",
@@ -114,7 +114,7 @@
   },
   {
    "destination": "docs/product/🧩 功能模組/10 檔案與服務維運需求.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/10 檔案與服務維運需求.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🧩 功能模組/10 檔案與服務維運需求.md",
    "source_sha256": "906ee96f1ada22a549e96dc891bb9635a80c5ab6053625e8a96eb6c5bf474e10",
    "mirror_sha256": "93ef914e0d69268c3a0fe848172428f8e71929644b3357f1ecd6fa0b6d9a4e4e",
    "direction": "repo → Vault，再 Vault → repo",
@@ -125,7 +125,7 @@
   },
   {
    "destination": "docs/product/📐 產品總規格.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📐 產品總規格.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/📐 產品總規格.md",
    "source_sha256": "1a0cb9027b9a1838a29441682e6a01d2cd7084968ec4ca80142b6b265bb620a0",
    "mirror_sha256": "185ebe24cebd80ea7393fe6edd14b6a3d3b16e0d042760fd2e4989bff6eac806",
    "direction": "repo → Vault，再 Vault → repo",
@@ -136,7 +136,7 @@
   },
   {
    "destination": "docs/product/✅ 接受條件/03 案例覆蓋矩陣.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/✅ 接受條件/03 案例覆蓋矩陣.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/✅ 接受條件/03 案例覆蓋矩陣.md",
    "source_sha256": "590394592ef21af278db04229daeedabf40d56ef6205f5328f0c981591e5024d",
    "mirror_sha256": "01f22e09d42a693d2d288cf3ea3f93938b6464df0617910f5a30d34679f3016d",
    "direction": "repo → Vault，再 Vault → repo",
@@ -147,7 +147,7 @@
   },
   {
    "destination": "docs/product/🗺️ 前台頁面清單.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
    "source_sha256": "3d3fa12676d4d2626bb34db1aca56c3afa3687e279bca0ec19ae575fa1d99960",
    "mirror_sha256": "4788efdb375f406181dcb683c7dd4324f36be221da8b8bd4c784cd1bc1197c36",
    "direction": "repo → Vault，再 Vault → repo",
@@ -158,7 +158,7 @@
   },
   {
    "destination": "docs/product/🗺️ 後台頁面清單.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
    "source_sha256": "4b6c1f6825b895362a8b179e026d53d8f0214acfaa5d024c7e43cea350adfed3",
    "mirror_sha256": "cb3e0f98655db594d2efa00d3ae136eec0c5dc75199daef7f479c356d3a50335",
    "direction": "repo → Vault，再 Vault → repo",
@@ -169,7 +169,7 @@
   },
   {
    "destination": "docs/product/CONTEXT.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
    "source_sha256": "b6af7d213e44cee29389d0bf9ace45f88ce850d0065d9020b0fe2644fabecdc3",
    "mirror_sha256": "b1ad124c7eab7637c70a1a4a07ca2d092b512075b6f179c24de09f924e1d129e",
    "direction": "repo → Vault",
@@ -180,7 +180,7 @@
   },
   {
    "destination": "CONTEXT.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/CONTEXT.md",
    "source_sha256": "b6af7d213e44cee29389d0bf9ace45f88ce850d0065d9020b0fe2644fabecdc3",
    "mirror_sha256": "498bc37582ce1d4a59cfe6494465b3cd9ac7e2314375d069d5d58d80949487c4",
    "direction": "repo → Vault",
@@ -191,7 +191,7 @@
   },
   {
    "destination": "docs/FRONTEND-PAGES.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 前台頁面清單.md",
    "source_sha256": "3d3fa12676d4d2626bb34db1aca56c3afa3687e279bca0ec19ae575fa1d99960",
    "mirror_sha256": "0f10f83bbb262e1459c46a6f86a638f813ed7496d847e20f52c64ed2094f659a",
    "direction": "repo → Vault",
@@ -202,7 +202,7 @@
   },
   {
    "destination": "docs/DASHBOARD-PAGES.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🎯 專案目標/🗺️ 後台頁面清單.md",
    "source_sha256": "4b6c1f6825b895362a8b179e026d53d8f0214acfaa5d024c7e43cea350adfed3",
    "mirror_sha256": "26fbd83307588a23dea8725d773c848e0737bc0f5aa444df2f4b277a3a0dec3e",
    "direction": "repo → Vault，再 Vault → repo",
@@ -213,7 +213,7 @@
   },
   {
    "destination": "docs/engineering/modules/03 分組、指導與產學.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/03 分組、指導與產學.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/03 分組、指導與產學.md",
    "source_sha256": "3baf21b3a36440c59dc43da230ed2b4469621cea4525766fb107e8489cae83a1",
    "mirror_sha256": "e0612a9c051b44509166f951ed360d422214ebdadd4ac8fbe99884eef659ecd5",
    "direction": "repo → Vault，再 Vault → repo",
@@ -224,7 +224,7 @@
   },
   {
    "destination": "docs/engineering/contracts/03 安全與隱私.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
    "source_sha256": "25a2703fd177d357d67c10365293efc4188526b1f37ce159c592955aa241de31",
    "mirror_sha256": "e62381766c8104f0498b9b948619143cb30e5cfdccd948fc5a24408b14e97523",
    "direction": "repo → Vault，再 Vault → repo",
@@ -235,7 +235,7 @@
   },
   {
    "destination": "docs/engineering/contracts/02 前後端介面與 UI 整合.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
    "source_sha256": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
    "mirror_sha256": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
    "direction": "repo → Vault",
@@ -246,7 +246,7 @@
   },
   {
    "destination": "docs/engineering/verification/scripts/B02 分組指導分支.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B02 分組指導分支.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/📖 操作與驗證/劇本/B02 分組指導分支.md",
    "source_sha256": "cd46c1241069729feba6e9a8ee318bf6a3fb9aef91dd8c95db6a601c9d826b9d",
    "mirror_sha256": "cd46c1241069729feba6e9a8ee318bf6a3fb9aef91dd8c95db6a601c9d826b9d",
    "direction": "repo → Vault",
@@ -261,13 +261,13 @@
   "docs/plans/**",
   "docs/status/**"
  ],
- "notes": "在 Mac mini 執行，實際 Vault 路徑 ~/Documents/roy422-online-md-only（manifest 的 source 維持 /Users/lubaiyu/… 邏輯路徑）。每個 Vault 檔：ours＝Vault 現行、base＝上次同步時的 repo 鏡像（c0f32bd；後台頁面清單與 DASHBOARD-PAGES 用 5bf588d、FRONTEND-PAGES 用 2dea682，因 10/12 第三波已先改 repo 未回寫）、theirs＝origin/main 4a9e770，base／theirs 先做連結反向轉換再 git merge-file。同文副本（根 CONTEXT.md、docs/FRONTEND-PAGES.md、docs/DASHBOARD-PAGES.md）依序再合併一次，副本才有的 10/12 段落一併寫入。8 處衝突都是雙方在同段加註（同文副本合併 4、契約 03 1、工程模組 03 1、產品模組 03 2），整合規則：保留 Vault 已定案的 9/25 對齊（例外組取消、人數設定）與 10/08 實況，接上 repo 的 Q52／Q73／Q77 新用詞；已逐行檢查 A 階段新增行中含「例外組／五人」的 3 行，全部是 base 原句沿用，沒有新寫入與 Vault 9/25 定案相反的條文。核對：沒有任何 A 階段新增行在合併結果裡遺失（逐行比對）；寫回後新增連結都能解析（既有的 5 種 basename wikilink 原本就靠 Obsidian 名稱解析，未改）。Vault 端 10/16 起無修改（各檔 mtime 最晚 10/12）。沒有執行期驗證。",
+ "notes": "在 Mac mini 執行，實際 Vault 路徑 ~/Documents/roy422-online-md-only（manifest 的 source 維持 Vault:… 邏輯路徑）。每個 Vault 檔：ours＝Vault 現行、base＝上次同步時的 repo 鏡像（c0f32bd；後台頁面清單與 DASHBOARD-PAGES 用 5bf588d、FRONTEND-PAGES 用 2dea682，因 10/12 第三波已先改 repo 未回寫）、theirs＝origin/main 4a9e770，base／theirs 先做連結反向轉換再 git merge-file。同文副本（根 CONTEXT.md、docs/FRONTEND-PAGES.md、docs/DASHBOARD-PAGES.md）依序再合併一次，副本才有的 10/12 段落一併寫入。8 處衝突都是雙方在同段加註（同文副本合併 4、契約 03 1、工程模組 03 1、產品模組 03 2），整合規則：保留 Vault 已定案的 9/25 對齊（例外組取消、人數設定）與 10/08 實況，接上 repo 的 Q52／Q73／Q77 新用詞；已逐行檢查 A 階段新增行中含「例外組／五人」的 3 行，全部是 base 原句沿用，沒有新寫入與 Vault 9/25 定案相反的條文。核對：沒有任何 A 階段新增行在合併結果裡遺失（逐行比對）；寫回後新增連結都能解析（既有的 5 種 basename wikilink 原本就靠 Obsidian 名稱解析，未改）。Vault 端 10/16 起無修改（各檔 mtime 最晚 10/12）。沒有執行期驗證。",
  "review_fix": {
   "pr": 504,
   "at": "2026-10-17T05:02:19.649839+00:00",
   "items": [
    "source_sha256_before 改為寫入前 Vault 實際雜湊（讀 /tmp/vsync/written.json）；舊 manifest 9/25 值移到 manifest_source_sha256_before",
-   "Vault 比鏡像新的 11 條（契約 03、工程模組 03、覆蓋矩陣、產品總規格、產品模組 01／02／03／07／10、前台／後台頁面清單）＋DASHBOARD-PAGES 副本句尾，從 Vault 現行全文轉回 repo；轉換只在與 Vault 內容不同的行套用 Vault→repo 連結規則（對應鏡像的改 repo 相對路徑、其餘改 /Users/lubaiyu/… 絕對路徑、wikilink 改 markdown），其餘行維持 repo 原字；轉換後再正向轉一次與 Vault 逐行比對（去掉連結格式後）0 行差異；新增 55 個連結全部可解析",
+   "Vault 比鏡像新的 11 條（契約 03、工程模組 03、覆蓋矩陣、產品總規格、產品模組 01／02／03／07／10、前台／後台頁面清單）＋DASHBOARD-PAGES 副本句尾，從 Vault 現行全文轉回 repo；轉換只在與 Vault 內容不同的行套用 Vault→repo 連結規則（對應鏡像的改 repo 相對路徑、其餘改 <home>/… 絕對路徑、wikilink 改 markdown），其餘行維持 repo 原字；轉換後再正向轉一次與 Vault 逐行比對（去掉連結格式後）0 行差異；新增 55 個連結全部可解析",
    "根 CONTEXT.md、FRONTEND-PAGES.md 經核對＝相容說明＋現行副本（相對連結改寫），不需改；說明句改成實況"
   ],
   "stale_note": "Vault 帶進 repo 的段落裡有「票 42，PR #328，待審」兩處，PR #328 已合併；屬狀態過時，不是畫面或行為不符，照規則不改 Vault、也不在鏡像自行改寫。"

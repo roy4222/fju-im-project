@@ -326,9 +326,9 @@ test('通知：參與學生收到「輪到你同意」，主指導沒有', async
   await signIn(page, s01)
   await expect(async () => {
     await page.goto('/dashboard/student/inbox')
-    await expect(page.getByText('G01「最終文件授權」第 1 版輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByText('G01「最終文件授權」同意書輪到你閱讀並同意')).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
-  await page.getByText('G01「最終文件授權」第 1 版輪到你閱讀並同意').click()
+  await page.getByText('G01「最終文件授權」同意書輪到你閱讀並同意').click()
   await expect(page).toHaveURL(/\/dashboard\/student\/signoff/)
 
   await signIn(page, teacher)

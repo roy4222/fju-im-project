@@ -470,7 +470,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         recipients,
         recipientBasis: { basis: 'signoff_previous_participants', versionId: previous?.version_id ?? null, groupId: group.id },
         payload: {
-          title: contentChangedTitle(group.code, PURPOSE_LABEL[pkg.purpose], versionNo),
+          title: contentChangedTitle(group.code, PURPOSE_LABEL[pkg.purpose]),
           groupId: group.id,
           code: group.code,
           purpose: pkg.purpose,
@@ -824,7 +824,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
           // 退回修正中的 cause：有理由就是理由原文（畫面照舊顯示）；沒填理由寫固定代碼 disagree／return（狀態列 CHECK 要非空）。
           [version.id, next, next === 'revision' ? reason.reason ?? result : null, next === 'complete' ? realAt : null, realAt, actor.userId],
         )
-        const label = `${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版`
+        // 學生、老師收的通知不寫版本號（AC-22）；只給系辦的作廢通知才寫。
+        const label = `${group.code}「${PURPOSE_LABEL[pkg.purpose]}」`
         const common = { scope: 'cohort' as const, cohortId: cohort.id, source, actor: actorRef, occurredRealAt: realAt, occurredBusinessAt: businessNow }
         if (next === 'teacher_pending') {
           await this.#events.publish(tx, {
@@ -844,7 +845,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: [...stillIn, participants!.advisor.userId],
             recipientBasis: { basis: 'signoff_participants_effective_at_completion', versionId: version.id },
             payload: {
-              title: `${label} 這一版同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
+              title: `${label}這一版同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -859,7 +860,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: voter === 'student' ? [...admins, participants!.advisor.userId] : admins,
             recipientBasis: { basis: voter === 'student' ? 'active_admins+snapshot_advisor' : 'active_admins', versionId: version.id },
             payload: {
-              title: `${label} 被${voter === 'student' ? '學生不同意' : '指導老師退回'}，回到修正中`,
+              title: `${label}同意書被${voter === 'student' ? '學生不同意' : '指導老師退回'}，回到修正中`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -1223,8 +1224,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
           // 學生還在同意中時只發給學生（網站問題 #4／TE-02：還沒輪到的老師不提醒，取代 Q38）；標題的括號句仍保留給學生看；輪到老師時維持原字。
           title:
             status.state === 'teacher_pending'
-              ? `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版還等你閱讀並回覆`
-              : `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版同意書還有人沒回覆（學生全員同意後才輪到老師表態）`,
+              ? `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」同意書還等你閱讀並回覆`
+              : `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」同意書還有人沒回覆（學生全員同意後才輪到老師表態）`,
           groupId: group.id,
           code: group.code,
           purpose: pkg.purpose,
@@ -1373,7 +1374,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       recipients: v.participants.students.map((s) => s.userId),
       recipientBasis: { basis: 'signoff_participants', versionId: v.versionId, groupId: v.group.id },
       payload: {
-        title: `${v.group.code}「${PURPOSE_LABEL[v.purpose]}」第 ${v.versionNo} 版輪到你閱讀並同意`,
+        title: `${v.group.code}「${PURPOSE_LABEL[v.purpose]}」同意書輪到你閱讀並同意`,
         groupId: v.group.id,
         code: v.group.code,
         purpose: v.purpose,

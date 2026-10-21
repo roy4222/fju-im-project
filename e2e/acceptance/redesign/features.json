@@ -310,7 +310,7 @@
         "檢查秘密：`ls ~/.fju-acceptance/` 是空的；`grep -rl \"$(cat ~/.fju-acceptance/*/secrets/night.pw 2>/dev/null)\" .out` 沒有東西（密碼檔已刪就自然沒有）；報告裡搜「password」「密碼：」沒有值。",
         "🖥️ 跑完恢復：`ssh fju-vm 'sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused'`。"
       ],
-      "verify": "V=\"/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧪 驗收報告/$(date +%F)\"; test -f \"$V/總覽.md\" && head -1 \"$V/總覽.md\" && grep -qE '擋上線' \"$V/總覽.md\" && test \"$(ls ~/.fju-acceptance/ 2>/dev/null | wc -l | tr -d ' ')\" = 0 && node -e \"const r=require(process.argv[1]);if(r.items.some(i=>i.status==='pending'))process.exit(1)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\"",
+      "verify": "V=\"$VAULT_DIR/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧪 驗收報告/$(date +%F)\"; test -f \"$V/總覽.md\" && head -1 \"$V/總覽.md\" && grep -qE '擋上線' \"$V/總覽.md\" && test \"$(ls ~/.fju-acceptance/ 2>/dev/null | wc -l | tr -d ' ')\" = 0 && node -e \"const r=require(process.argv[1]);if(r.items.some(i=>i.status==='pending'))process.exit(1)\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\"",
       "passes": false,
       "scope": "試跑（10/9 已跑完）"
     },
@@ -402,7 +402,7 @@
         "對照 Mac：`ls e2e/acceptance/.out/night-*/` 五章＋十位人設＋security-static 都有 report.md 或 progress.md；run.json 沒有 pending。",
         "路 A：`ssh fju-reset status` 顯示自動部署未暫停；路 B：🖥️ `sudo -u deploy rm /srv/fju/test/deploy/auto-deploy.paused`。"
       ],
-      "verify": "V=\"/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧪 驗收報告/$(node -e \"const r=require(process.argv[1]);console.log(r.startedAt.slice(0,10))\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\")\"; test -f \"$V/總覽.md\" && grep -q '| 資安 |' \"$V/總覽.md\" && grep -q '分數表' \"$V/總覽.md\" && test $(grep -c '^| story-' \"$V/總覽.md\") -ge 5 && test \"$(ls ~/.fju-acceptance/ 2>/dev/null | grep -v snapshots | wc -l | tr -d ' ')\" = 0",
+      "verify": "V=\"$VAULT_DIR/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧪 驗收報告/$(node -e \"const r=require(process.argv[1]);console.log(r.startedAt.slice(0,10))\" \"$(ls -t e2e/acceptance/.out/night-*/run.json | head -1)\")\"; test -f \"$V/總覽.md\" && grep -q '| 資安 |' \"$V/總覽.md\" && grep -q '分數表' \"$V/總覽.md\" && test $(grep -c '^| story-' \"$V/總覽.md\") -ge 5 && test \"$(ls ~/.fju-acceptance/ 2>/dev/null | grep -v snapshots | wc -l | tr -d ' ')\" = 0",
       "passes": false,
       "scope": "今晚全套"
     }

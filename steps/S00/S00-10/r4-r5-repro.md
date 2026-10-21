@@ -44,7 +44,7 @@ deploy_log：
 
 stderr：
   worker 起不來
-  部署失敗（start-failed），回滾到 /private/tmp/claude-501/-Users-lubaiyu-fju-project--claude-worktrees-ssh-connection-4ed37a/d70a4214-1ae5-4e86-b7ed-4a479588a173/scratchpad/repro/deploy-new/previous_tag 記的版本。
+  部署失敗（start-failed），回滾到 <tmp>/…/deploy-new/previous_tag 記的版本。
   已回滾到 ghcr.io/roy4222/fju-web:oldtag 且健康判定通過。
 ```
 

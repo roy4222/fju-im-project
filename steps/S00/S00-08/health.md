@@ -49,7 +49,7 @@ Transfer-Encoding: chunked
 
 ## 自動測試
 ```
- RUN  v3.2.4 /Users/lubaiyu/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
+ RUN  v3.2.4 <home>/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
 [90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
 [90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m

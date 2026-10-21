@@ -273,7 +273,11 @@ export type DeclineOpportunityInput = {
   readonly reason: string
 }
 
-export type LinkChange = 'linked' | 'switched' | 'unlinked' | 'requested' | 'declined'
+/**
+ * `request_confirmed`（CL-15，Roy 10/21）：組長選的合作案，負責老師正好就是這組現任指導老師 → 連結直接確認（active），
+ * 不必再等老師確認。
+ */
+export type LinkChange = 'linked' | 'switched' | 'unlinked' | 'requested' | 'request_confirmed' | 'declined'
 
 export type LinkReceipt = {
   readonly groupId: string
@@ -294,6 +298,8 @@ export function describeLinkReceipt(receipt: LinkReceipt): string {
       return `已解除 ${receipt.groupCode} 與「${receipt.opportunityName}」的連結；該組組員與案主會收到通知。`
     case 'requested':
       return `${receipt.groupCode} 已選「${receipt.opportunityName}」，等負責老師確認指導；確認後全組會收到通知。`
+    case 'request_confirmed':
+      return `${receipt.groupCode} 已選「${receipt.opportunityName}」；負責老師就是你們的指導老師，合作案已直接確認。`
     case 'declined':
       return `已婉拒 ${receipt.groupCode} 選的「${receipt.opportunityName}」；全組已收到通知，請他們重新選合作案。`
   }

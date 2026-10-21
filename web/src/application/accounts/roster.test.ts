@@ -161,11 +161,13 @@ describe('屆別欄（CSV 屆別對不到時讓管理員選既有屆別）', () 
     expect(a.counts.cohortMismatch).toBe(1)
   })
 
-  it('預設選哪一屆：指定的 → CSV 建議 → 開放註冊 → 預設工作屆別', () => {
+  it('預設選哪一屆：指定的 → CSV 建議 → 開放註冊 → 不預選', () => {
     expect(pickCohort('c114', 'c115', cohorts)).toBe('c114')
     expect(pickCohort('nope', null, cohorts)).toBe('c115')
     expect(pickCohort(null, 'c114', cohorts)).toBe('c114')
     expect(pickCohort(null, null, [C114])).toBeNull()
+    // 沒有開放註冊的屆別時，就算有預設工作屆別也不預選。
+    expect(pickCohort(null, null, [{ ...C115, isRegistrationOpen: false }, C114])).toBeNull()
   })
 })
 

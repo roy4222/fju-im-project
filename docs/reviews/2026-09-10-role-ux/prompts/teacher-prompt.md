@@ -8,18 +8,18 @@
 
 ## 工作範圍與讀取順序
 
-工作目錄：`/Users/lubaiyu/fju-project`。
+工作目錄：`~/work/fju-project`。
 公開入口：http://localhost:3100 。本次角色入口見下方。
 這次授權是測試、分析與交付報告，不直接修改產品程式、套件或既定需求。可保存報告、證據與標明「提案」的獨立草圖。
 
-開始先讀現行 AGENTS.md 及 `/Users/lubaiyu/fju-project/docs/README.md`，核對目前 HEAD、工作樹、網站是否在線，以及這次是 fixtures 原型還是真正有後端。不要重啟或重設正在使用的環境。網址若失效，先查現有啟動資訊；無法恢復則明確標出哪些工作被阻擋。
+開始先讀現行 AGENTS.md 及 `docs/README.md`，核對目前 HEAD、工作樹、網站是否在線，以及這次是 fixtures 原型還是真正有後端。不要重啟或重設正在使用的環境。網址若失效，先查現有啟動資訊；無法恢復則明確標出哪些工作被阻擋。
 
 先讀完以下材料再測試：
 
-1. `/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/📋 完整產品規格.md`。
+1. `Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🧭 設計與決策/📋 完整產品規格.md`。
 2. 同一專案的 `🗺️ 輔大資管系專題網站 MOC.md`，沿連結讀最新設計決策、前後台頁面清單、相關會議與開發紀錄。包含 0715 會議、0909 相關討論及 `📝 開發紀錄/2026-09-10 三角色分家與畫布評選.md`；主動找其後的新修訂，不把 9/10 當永遠最新。
 3. repo 的 `docs/DASHBOARD-PAGES.md`、`docs/FRONTEND-PAGES.md`、`docs/ANTI-PATTERNS.md`，與當下可用的產品／設計文件。
-4. `/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/README.md` 及本角色舊報告（見下方）。舊報告只是回歸清單，所有「仍存在／已修復」都要重新操作。
+4. `docs/reviews/2026-09-10-role-ux/README.md` 及本角色舊報告（見下方）。舊報告只是回歸清單，所有「仍存在／已修復」都要重新操作。
 
 用短表列出本角色的核心任務、對應需求來源與本輪成功條件。來源衝突時保留兩邊文字位置，說明最新明確決策與待釐清處；不要自作新規則。若某狀態無 fixture／測試帳號，列出缺少情境，不能臆測已測。
 
@@ -67,7 +67,7 @@
 
 ## 本次角色專屬任務
 
-角色入口：http://localhost:3100/dashboard/teacher 。舊報告：`/Users/lubaiyu/fju-project/docs/reviews/2026-09-10-role-ux/teacher.md`。
+角色入口：http://localhost:3100/dashboard/teacher 。舊報告：`docs/reviews/2026-09-10-role-ux/teacher.md`。
 
 你是一位時間有限、同時指導多組並受分配評分的老師。請分別測首次上手、連續評多組、做到一半離開再回來的情境。核心是準確、不中斷、不誤評組別且不丟失輸入。
 
