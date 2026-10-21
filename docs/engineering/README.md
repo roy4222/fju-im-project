@@ -25,21 +25,21 @@
 
      | 鍵（雜湊函式的輸入） | 雜湊函式 | 保護什麼 | 程式位置 |
      |---|---|---|---|
-     | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts:302,393,464,500` |
-     | `cohorts.<欄位>` | `hashtext` | 同時只有一屆帶 `is_default_working`／`is_registration_open`（設定新屆別時把舊的取消） | `pg-cohorts.ts:235` |
-     | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts:691`、`pg-group-import.ts:270` |
-     | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts:127`、`pg-group-import.ts:292` |
-     | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts:190` |
-     | `items.resource_category` | `hashtextextended`（seed 0） | 資源分類 | `pg-items.ts:1672` |
-     | `reminder:item:<id>`、`reminder:grading:<cohortId>` | `hashtext` | 催繳／評分提醒排隊 | `pg-reminders.ts:163,250,293`（取鎖函式在 498） |
-     | `submission_reopen:<itemId>:<receiverId>` | `hashtextextended`（seed 0） | 重新開放繳交 | `pg-submissions.ts:723` |
-     | `business_clock_overrides` | `hashtext` | 營運時鐘覆寫 | `pg-business-clock.ts:140` |
+     | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts` |
+     | `cohorts.<欄位>` | `hashtext` | 同時只有一屆帶 `is_default_working`／`is_registration_open`（設定新屆別時把舊的取消） | `pg-cohorts.ts` |
+     | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts`、`pg-group-import.ts` |
+     | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts`、`pg-group-import.ts` |
+     | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts` |
+     | `items.resource_category` | `hashtextextended`（seed 0） | 資源分類 | `pg-items.ts` |
+     | `reminder:item:<id>`、`reminder:grading:<cohortId>` | `hashtext` | 催繳／評分提醒排隊 | `pg-reminders.ts`（三個呼叫處共用取鎖函式 `lockKey`） |
+     | `submission_reopen:<itemId>:<receiverId>` | `hashtextextended`（seed 0） | 重新開放繳交 | `pg-submissions.ts` |
+     | `business_clock_overrides` | `hashtext` | 營運時鐘覆寫 | `pg-business-clock.ts` |
 
    - session 層級（`pg_try_advisory_lock`，綁在專用連線上，程序死掉自動放；也登記在這裡）：
 
      | 鍵 | 雜湊函式 | 保護什麼 | 程式位置 |
      |---|---|---|---|
-     | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts:10,28`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖在 46） |
+     | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖也在同檔） |
 3. **字數一律用 `charLength()`**（`web/src/shared/text.ts`，按字元算，一個表情符號算一個字）。不准用 `.length`（會把表情符號算成兩個字，和畫面計數不一致）。現有用法：`web/src/application/accounts/avatar.ts:84`、`application/cohorts/stages.ts:76`、`application/grading/scheme.ts:164`。
 4. **requestId 重播預設回原回執，屆別已封存也一樣**（2026-10-21，#814，主腦裁定）：白話：同一個 requestId 再送一次，等於「上次那件事」，系統只把上次的結果再回你一次，不會再寫資料；就算那一屆後來封存了也照回，因為那次操作在封存前真的成功過。所以寫入命令的順序是先看重播、後看封存（全站約 56 處，不改）。**例外只有 AC-56c 指定的 7 處，封存檢查排在重播之前，封存後重送回 `COHORT_ARCHIVED`**：
    - `pg-submissions.ts`：`saveDraft`（`:210`，封存檢查 `:230`）、`submit`（`:312`，`:330`）、`setAdvisorVisibility`（改閱覽設定，`:553`，`:581`）、`reopen`（開放補交，`:639`，`:680`）、`setExempt`（設免繳，`:802`，`:836`）。
@@ -59,6 +59,9 @@
 
    - 核對 7 處例外：`git grep -nE "archivedGuard\(|status === 'archived'|replayed<" -- web/src/infrastructure/submissions/pg-submissions.ts web/src/infrastructure/ops/file-storage.ts web/src/infrastructure/signoff/pg-consent-bridge.ts`，每個命令的封存檢查（`archivedGuard(` 或 `status === 'archived'`）行號要小於它自己的 `replayed<` 行號（上傳不走 requestId，只有封存檢查行）；測試見 `archived-readonly.integration.test.ts` 的 AC-56c。
 5. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
+6. **「已刪除」這類例外頁的可見判斷，沿用「項目還在時」同一段可見範圍查詢**（2026-10-22，CL-7 #823 第 9 條；來源 CL-14 #849）：白話：東西刪掉後，誰能看到「已刪除」提示、誰還是只看到「找不到」，要跟刪除前「誰看得到這個項目」完全一樣；不准另寫一套判斷，否則刪除後會多放人進來（洩漏「這裡曾經有東西」）或把原本看得到的人擋掉。
+   - 寫法：刪除後的判斷（例如 `PgSubmissionQuery.deletedItemSeenBy`）重用項目頁本來的可見範圍條件（老師照作業頁 `#scope`、學生照作業區），只把「項目還在」那個條件拿掉。
+   - **測試一定要用同一個身分比對刪除前後**：刪前對每個身分記下「看得到嗎」，刪除後用例外頁的判斷再問一次，斷言兩份結果相等。範本：`web/src/infrastructure/items/pg-items.integration.test.ts` 的 it「已刪除的作業（CL-14 Review r1）：同一個人「刪前看得到」⇔「刪後算看得到」……」（`expect(after).toEqual(before)`），以及同檔 it「已刪除的公告（CL-14）……」的刪除前後比對。新增別種「已刪除」頁時照這兩支寫，不另寫結構測試（主腦 10/22 裁定）。
 
 ## GitHub review 入口（2026-09-12）
 
