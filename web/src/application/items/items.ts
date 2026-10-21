@@ -234,6 +234,11 @@ export type ItemInput = {
   readonly eventDate?: string
   /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台退回發布日）。只有榮譽會留，其他位置一律清掉。 */
   readonly awardedOn?: string
+  /**
+   * 指導老師閱覽（C 收尾 CL-13，從繳交狀況頁的面板移進表單）：`true` 開、`false` 關；不給或 `null`＝不動。
+   * 只用在「個人一份」的作業；整組一份給 `true` 回錯，給 `false` 當不動。存檔跟表單其他欄位同一個交易。
+   */
+  readonly advisorVisibility?: boolean | null
   readonly fields: readonly unknown[]
 }
 
@@ -261,6 +266,8 @@ export type ItemDraft = {
   readonly eventDate: TaipeiDate | null
   /** 榮譽榜的得獎日期（臺灣日曆日）；不是榮譽一律 null。 */
   readonly awardedOn: TaipeiDate | null
+  /** 指導老師閱覽要改成什麼；`null`＝不動（不是個人一份的作業一律 null）。 */
+  readonly advisorVisibility: boolean | null
   readonly fields: readonly FormField[]
 }
 
@@ -434,6 +441,15 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
     }
   }
 
+  // 指導老師閱覽：只有個人一份的作業有；整組一份的正式版本本來就給目前的指導老師看。
+  let advisorVisibility: boolean | null = null
+  if (typeof input.advisorVisibility === 'boolean') {
+    if (receiverUnit === 'individual') advisorVisibility = input.advisorVisibility
+    else if (input.advisorVisibility) {
+      return invalid('指導老師閱覽只用在「個人一份」的作業；整組一份的正式版本本來就給目前的指導老師看。', 'advisorVisibility')
+    }
+  }
+
   const groups = uuidList(audienceKind === 'groups' ? input.groupIds : [], MAX_AUDIENCE_GROUPS, '指定組別', 'groupIds')
   if (!groups.ok) return groups
   const attachments = uuidList(input.attachmentFileIds, MAX_ATTACHMENTS, '附件', 'attachments')
@@ -509,6 +525,7 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
       registrationDeadline,
       eventDate,
       awardedOn,
+      advisorVisibility,
       fields,
     },
   }

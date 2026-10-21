@@ -57,6 +57,8 @@ function toItemInput(raw: unknown): ItemInput {
     registrationDeadline: str(r.registrationDeadline, 20),
     eventDate: str(r.eventDate, 20),
     awardedOn: str(r.awardedOn, 20),
+    // 指導老師閱覽（C 收尾 CL-13）：只收 true／false，其他一律當「不動」；能不能開由用例判。
+    advisorVisibility: typeof r.advisorVisibility === 'boolean' ? r.advisorVisibility : null,
     fields: Array.isArray(r.fields) ? r.fields.slice(0, 200) : [],
   }
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
-import { IconArrowLeft, IconFileText, IconUsersGroup } from '@tabler/icons-react'
+import { IconArrowLeft, IconChevronRight, IconFileText, IconUsersGroup } from '@tabler/icons-react'
 import type { AvatarUser } from '@/application/accounts'
 import type { FormField } from '@/application/items'
 import type { ItemWindow, MyVersionDetail, ReceiverDetail, ReopenEntry, RosterEntry } from '@/application/submissions'
@@ -298,6 +298,71 @@ export function FieldsPanel({ fields, schemaVersionNo }: { fields: readonly Form
   )
 }
 
+/** 某人／某組正式送出的版本表（窄螢幕保留 `min-w` 橫向捲動，首欄固定、右緣有捲動提示：④ C4-04 的 `TableScroll`；總表 V-9）。 */
+function VersionTable({
+  label,
+  versions,
+  latest,
+  base,
+  receiverId,
+}: {
+  label: string
+  versions: ReceiverDetail['versions']
+  /** 這張表是「以此版為準」的那一列。 */
+  latest: boolean
+  base: string
+  receiverId: string
+}) {
+  return (
+    <div className="mt-2">
+      <TableScroll stickyFirst>
+        <table className="w-full min-w-[36rem] text-sm" aria-label={label}>
+          <thead className="text-left text-xs text-muted-foreground">
+            <tr>
+              <th scope="col" className="py-2 font-medium">
+                第幾次
+              </th>
+              <th scope="col" className="py-2 font-medium">
+                送出時間（臺灣時間）
+              </th>
+              <th scope="col" className="py-2 font-medium">
+                送出者
+              </th>
+              <th scope="col" className="py-2 font-medium">
+                表單
+              </th>
+              <th scope="col" className="py-2">
+                <span className="sr-only">動作</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {versions.map((v) => (
+              <tr key={v.versionNo} className="border-t border-border/70 transition-colors hover:bg-accent/40">
+                <td className="py-3 font-semibold tabular-nums">
+                  第 {v.versionNo} 次
+                  {latest ? (
+                    <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
+                  ) : null}
+                  {v.late ? <LateBadge /> : null}
+                </td>
+                <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
+                <td className="py-3">{v.submittedByName}</td>
+                <td className="py-3 tabular-nums">第 {v.schemaVersionNo} 版</td>
+                <td className="py-1 text-right">
+                  <Link href={`${base}?person=${receiverId}&version=${v.versionNo}`} className={BTN_OUTLINE_SM}>
+                    看回答
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableScroll>
+    </div>
+  )
+}
+
 // ── 點一個人 ──────────────────────────────────────────────────────────────────
 
 export function ReceiverView({
@@ -358,56 +423,21 @@ export function ReceiverView({
         {detail.versions.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">還沒有正式送出過。</p>
         ) : (
-          // 窄螢幕保留 `min-w` 橫向捲動，首欄（第幾次）固定、右緣有捲動提示（④ C4-04 的 `TableScroll`；總表 V-9）。
-          <div className="mt-2">
-            <TableScroll stickyFirst>
-            <table className="w-full min-w-[36rem] text-sm" aria-label="正式送出的版本">
-              <thead className="text-left text-xs text-muted-foreground">
-                <tr>
-                  <th scope="col" className="py-2 font-medium">
-                    第幾次
-                  </th>
-                  <th scope="col" className="py-2 font-medium">
-                    送出時間（臺灣時間）
-                  </th>
-                  <th scope="col" className="py-2 font-medium">
-                    送出者
-                  </th>
-                  <th scope="col" className="py-2 font-medium">
-                    表單
-                  </th>
-                  <th scope="col" className="py-2">
-                    <span className="sr-only">動作</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.versions.map((v, index) => (
-                  <tr key={v.versionNo} className="border-t border-border/70 transition-colors hover:bg-accent/40">
-                    <td className="py-3 font-semibold tabular-nums">
-                      第 {v.versionNo} 次
-                      {index === 0 ? (
-                        <span className="ml-2 rounded-full bg-success-subtle px-2 py-0.5 text-[11px] text-success-on-subtle">以此版為準</span>
-                      ) : null}
-                      {v.late ? <LateBadge /> : null}
-                    </td>
-                    <td className="py-3 tabular-nums">{formatTaipeiSecond(v.receivedBusinessAt)}</td>
-                    <td className="py-3">{v.submittedByName}</td>
-                    <td className="py-3 tabular-nums">第 {v.schemaVersionNo} 版</td>
-                    <td className="py-1 text-right">
-                      <Link
-                        href={`${base}?person=${entry.receiverId}&version=${v.versionNo}`}
-                        className={BTN_OUTLINE_SM}
-                      >
-                        看回答
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </TableScroll>
-          </div>
+          // 只露出最後一次送出（以此版為準），舊的收進「之前的版本（N）」（C 階段規格① §4.2；C 收尾 CL-13）。原生 <details>。
+          <>
+            <VersionTable label="正式送出的版本" versions={detail.versions.slice(0, 1)} latest base={base} receiverId={entry.receiverId} />
+            {detail.versions.length > 1 ? (
+              <details className="group mt-2 rounded-lg border border-border" data-testid="older-versions">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                  <IconChevronRight aria-hidden className="size-4 transition-transform group-open:rotate-90" />
+                  之前的版本（{detail.versions.length - 1}）
+                </summary>
+                <div className="border-t border-border px-3">
+                  <VersionTable label="之前的版本" versions={detail.versions.slice(1)} latest={false} base={base} receiverId={entry.receiverId} />
+                </div>
+              </details>
+            ) : null}
+          </>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
           {detail.draftUpdatedAt

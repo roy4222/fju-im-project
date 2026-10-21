@@ -53,6 +53,7 @@ import {
 import { authorizeAdmin, badRequestId, inTransaction, replayed, type PoolSource } from '@/infrastructure/cohorts/shared'
 import { getPool } from '@/infrastructure/db/client'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
+import { writeAdvisorVisibility } from '@/infrastructure/submissions/advisor-visibility-write'
 import { PgResponsePresence } from '@/infrastructure/submissions/pg-response-presence'
 import { holderOf, VERSION_ACCESS_COLUMNS, viewerForUser, type VersionAccessRow } from '@/infrastructure/submissions/version-access'
 import { err, ok, type Err, type Result } from '@/shared/result'
@@ -594,42 +595,19 @@ export class PgSubmissionCommand implements SubmissionCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<VisibilityReceipt>(begun)
-      const latest = await tx.query<{ enabled: boolean; effective_from_version_no: number }>(
-        `select enabled, effective_from_version_no from advisor_visibility_settings
-          where item_id = $1 order by set_at desc, id desc limit 1`,
-        [itemId],
+      // 讀最新、看有沒有人作答、插設定、寫稽核都在共用模組（表單存檔也走它）；這條路徑另把項目的 revision +1，
+      // 讓表單拿舊 revision 存回去回 CONFLICT，不會默默蓋掉這裡剛改的開關（C 收尾 CL-13）。
+      const wrote = await writeAdvisorVisibility(
+        tx,
+        { audit: this.#audit, responses: new PgResponsePresence() },
+        { itemId, cohortId, enabled, schemaVersionNo: item.schema_version_no, userId, realAt, businessAt },
       )
-      const current = latest.rows[0] ?? null
-      if ((current?.enabled ?? false) === enabled) {
+      if (!wrote.ok) return wrote
+      if (!wrote.changed) {
         return err('VALIDATION_FAILED', enabled ? '這個作業已經開放指導老師閱覽了。' : '這個作業目前沒有開放指導老師閱覽。')
       }
-      if (enabled && (await new PgResponsePresence().hasAnyResponse(tx, itemId))) {
-        return err(
-          'ITEM_HAS_RESPONSES',
-          '已經有人作答，不能直接開放指導老師閱覽：那些同學填寫時沒看到「指導老師可查看」的告知，舊回答不能因此給老師看。' +
-            '需要老師看的話，請另建一個作業並在發布前開好（改表單版本的功能在後續版本）。',
-        )
-      }
-      // 生效版本＝目前的欄位版本（還沒發布過就是第 1 版）；關閉時沿用上一列的生效版本，只把開關關掉。
-      const effectiveFromVersionNo = enabled ? (item.schema_version_no ?? 1) : (current?.effective_from_version_no ?? 1)
-      await tx.query(
-        `insert into advisor_visibility_settings (id, item_id, enabled, effective_from_version_no, set_by_user_id, set_at)
-         values ($1, $2, $3, $4, $5, $6)`,
-        [uuidv7(), itemId, enabled, effectiveFromVersionNo, userId, realAt],
-      )
-      await this.#audit.append(tx, {
-        actorKind: 'user',
-        actorUserId: userId,
-        role: 'admin',
-        action: enabled ? 'submission.advisor_visibility.enable' : 'submission.advisor_visibility.disable',
-        targetType: SUBJECT_TYPE,
-        targetId: itemId,
-        scope: 'cohort',
-        cohortId,
-        realAt,
-        businessAt,
-        payload: { enabled, effectiveFromVersionNo, previous: current ? { enabled: current.enabled, effectiveFromVersionNo: current.effective_from_version_no } : null },
-      })
+      const effectiveFromVersionNo = wrote.effectiveFromVersionNo
+      await tx.query('update managed_items set revision = revision + 1, updated_at = $2, updated_by_user_id = $3 where id = $1', [itemId, realAt, userId])
       const receipt = { itemId, enabled, effectiveFromVersionNo, setAt: realAt.toISOString(), requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { itemId, enabled, effectiveFromVersionNo } })
       return { ok: true as const, receipt }

@@ -75,6 +75,10 @@ export type EditorState = {
   eventDate: string
   /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台用發布日）。 */
   awardedOn: string
+  /** 指導老師閱覽（個人一份的作業才送；C 收尾 CL-13 從繳交狀況頁移進進階設定，跟表單一起存）。 */
+  advisorVisibility: boolean
+  /** 只讀：已經有人作答、而且目前沒開 → 開關停用（那些人填寫時沒看到告知）。不送出。 */
+  advisorVisibilityLocked: boolean
   fields: FieldDraft[]
 }
 
@@ -127,7 +131,7 @@ export type ItemFormInitial = {
   readonly cover: FileChip | null
   /** 公告／資源發布時要不要逐人通知（「重要公告」）。不存資料庫，只是這一次發布的選擇。 */
   readonly important: boolean
-  /** 個人作業的主指導閱覽（設定在繳交狀況頁，這裡只顯示目前的值）。 */
+  /** 個人作業的指導老師閱覽目前的值（進階設定的開關；跟表單一起存）。 */
   readonly advisorVisible: boolean
   readonly consentMode: ConsentModeValue | null
   readonly consentPurpose: string
@@ -176,7 +180,7 @@ export function toInitial(detail: ItemDetail, responseCount: number | null = nul
     attachments: detail.attachments.map((a) => ({ ...a })),
     cover: detail.cover ? { ...detail.cover } : null,
     important: false,
-    advisorVisible: false,
+    advisorVisible: detail.advisorVisibility.enabled,
     consentMode: detail.consentMode,
     consentPurpose: detail.consentPurpose ?? '',
     registrationDeadline: detail.registrationDeadline ?? '',
@@ -275,6 +279,8 @@ export function stateFromInitial(initial: ItemFormInitial): EditorState {
     registrationDeadline: initial.registrationDeadline,
     eventDate: initial.eventDate,
     awardedOn: initial.awardedOn,
+    advisorVisibility: initial.advisorVisible,
+    advisorVisibilityLocked: initial.hasResponses && !initial.advisorVisible,
     fields: initial.fields.map((f) => ({ ...f, options: [...f.options], allowedTypes: [...f.allowedTypes] })),
   }
 }
@@ -374,6 +380,8 @@ export function toPayload(state: EditorState) {
     eventDate: state.placement === 'news' ? state.eventDate : '',
     // 得獎日期只有榮譽會留（伺服器再判一次）。
     awardedOn: state.placement === HONOR ? state.awardedOn : '',
+    // 指導老師閱覽只有個人一份的作業送（站內同意書固定整組）；其他一律 null＝不動。
+    advisorVisibility: collects && consentMode !== 'form' && state.receiverUnit === 'individual' ? state.advisorVisibility : null,
     fields:
       collects && consentMode !== 'form'
         ? state.fields.map((f) => ({

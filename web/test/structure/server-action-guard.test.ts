@@ -56,7 +56,7 @@ uc('getItemCommand', 'PgItemCommand', 'authorizeAdmin', [
   'create', 'saveDraft', 'review', 'publish', 'updatePublished', 'changeStatus', 'delete', 'setPinned', 'moveRule', 'startUpload',
   'renameResourceCategory', 'reorderRules',
 ])
-uc('getSubmissionCommand', 'PgSubmissionCommand', 'authorizeAdmin', ['setAdvisorVisibility', 'reopen', 'setExempt'])
+uc('getSubmissionCommand', 'PgSubmissionCommand', 'authorizeAdmin', ['reopen', 'setExempt'])
 uc('getSubmissionCommand', 'PgSubmissionCommand', 'authorizeReceiver', ['saveDraft', 'submit'])
 uc('getReminderCommand', 'PgReminders', 'authorizeAdmin', ['remindItem', 'remindOverdue', 'remindGrading'])
 uc('getBusinessClockCommand', 'PgBusinessClock', 'authorizeAdmin', ['set'])
@@ -182,7 +182,6 @@ const REGISTRY: Record<string, Entry> = {
   [`${AFF}#moveRuleAction`]: use('getItemCommand().moveRule'),
   [`${AFF}#startItemUploadAction`]: use('getItemCommand().startUpload'),
   'dashboard/admin/affairs/front-edit-context-action.ts#frontEditContextAction': self('frontEditActor'),
-  [`${AFF_ID}#setAdvisorVisibilityAction`]: use('getSubmissionCommand().setAdvisorVisibility'),
   [`${AFF_ID}#reopenAction`]: use('getSubmissionCommand().reopen'),
   [`${AFF_ID}#setExemptAction`]: use('getSubmissionCommand().setExempt'),
   [`${AFF_ID}#remindItemAction`]: use('getReminderCommand().remindItem'),

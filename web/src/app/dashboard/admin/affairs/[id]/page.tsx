@@ -10,7 +10,6 @@ import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { ConsentBoard } from '@/app/dashboard/admin/affairs/[id]/consent-board'
 import { RemindButton } from '@/app/dashboard/admin/affairs/[id]/remind-button'
 import { FieldsPanel, ReceiverView, RosterList, VersionView, type ListKey, type RosterPeople } from '@/app/dashboard/admin/affairs/[id]/roster-views'
-import { VisibilityPanel } from '@/app/dashboard/admin/affairs/[id]/visibility-panel'
 import { CompletionPanel } from '@/app/dashboard/_submissions/completion-panel'
 import type { AvatarUser } from '@/application/accounts'
 import type { RosterEntry } from '@/application/submissions'
@@ -179,33 +178,13 @@ export default async function RosterPage({
     )
   }
 
-  // 主指導閱覽（個人一份才有）：發布前就要能開好，所以「還沒發布」的畫面也放。
-  const visibility = individual ? await rosterQuery.advisorVisibility(actor, item.itemId) : null
-  const visibilityPanel = visibility ? (
-    <VisibilityPanel
-      itemId={item.itemId}
-      enabled={visibility.current?.enabled ?? false}
-      effectiveFromVersionNo={visibility.current?.effectiveFromVersionNo ?? null}
-      changedText={
-        visibility.current
-          ? `${visibility.current.setByName} 於 ${formatTaipeiMinute(visibility.current.setAt)} ${visibility.current.enabled ? '開放' : '關閉'}`
-          : null
-      }
-      hasResponses={visibility.hasResponses}
-      requestId={randomUUID()}
-    />
-  ) : null
-
   if (item.status === 'draft' && entries.length === 0) {
     return shell(
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <EmptyState
-          title="還沒發布，還沒有需要繳交的名單"
-          description="發布時才依「誰看得到」的設定建立需要繳交的名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
-          action={{ href: `/dashboard/admin/editor/${item.itemId}`, label: '回編輯器' }}
-        />
-        {visibilityPanel}
-      </div>,
+      <EmptyState
+        title="還沒發布，還沒有需要繳交的名單"
+        description="發布時才依「誰看得到」的設定建立需要繳交的名單；發布前可以在編輯器的發布檢查展開看會收到的人。"
+        action={{ href: `/dashboard/admin/editor/${item.itemId}`, label: '回編輯器' }}
+      />,
     )
   }
 
@@ -245,7 +224,6 @@ export default async function RosterPage({
       />
       <div className="flex flex-col gap-5">
         <CompletionPanel completion={completion} individual={individual} />
-        {visibilityPanel}
         <FieldsPanel fields={item.fields} schemaVersionNo={item.schemaVersionNo} />
       </div>
     </div>,

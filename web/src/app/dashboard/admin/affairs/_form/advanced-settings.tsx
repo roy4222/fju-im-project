@@ -7,7 +7,8 @@ import { formatTaipeiMinute } from '@/shared/time'
  * 進階設定（C 階段規格① §2.3；折疊，預設收）：照位置露出不常改的欄位。
  * - 公告：摘要、分類（競賽資訊多報名截止日與活動日）、封面、重要公告通知。
  * - 資源：摘要、分類、重要公告通知。
- * - 作業：摘要、對應的評分項目（唯讀，連到成績 › 評分規則）；站內同意書多「用途」（發布後鎖定）。
+ * - 作業：摘要、對應的評分項目（唯讀，連到成績 › 評分規則）；站內同意書多「用途」（發布後鎖定）；
+ *   個人一份多「指導老師閱覽」（C 收尾 CL-13：從繳交狀況頁的面板移來，跟表單一起存；已經有人作答就不能開）。
  * - 榮譽：得獎日期、封面。
  * 最下方是「發布紀錄」（舊編輯頁的 Panel 搬進來，操作者有頭像：總表 Y-4）。
  */
@@ -59,6 +60,7 @@ export function AdvancedSettings({
   const showSummary = placement !== HONOR && placement !== 'rules'
   const showCategory = placement === 'news' || placement === 'resource'
   const showCover = placement === 'news' || placement === HONOR
+  const showAdvisor = placement === 'submission' && !consentForm && state.receiverUnit === 'individual'
 
   return (
     <details
@@ -71,7 +73,7 @@ export function AdvancedSettings({
         <ChevronIcon aria-hidden className="size-4 transition-transform group-open:rotate-90" />
         進階設定
         <span className="text-xs font-normal text-muted-foreground">
-          {placement === 'submission' ? '摘要、評分項目' : placement === HONOR ? '得獎日期、封面' : placement === 'rules' ? '發布紀錄' : '摘要、分類、通知'}
+          {placement === 'submission' ? (showAdvisor ? '摘要、評分項目、指導老師閱覽' : '摘要、評分項目') : placement === HONOR ? '得獎日期、封面' : placement === 'rules' ? '發布紀錄' : '摘要、分類、通知'}
         </span>
       </summary>
       <div className="flex flex-col gap-4 border-t border-border px-4 pt-3 pb-4">
@@ -221,6 +223,29 @@ export function AdvancedSettings({
                 : state.consentPurpose === 'final_document'
                   ? '發布時每個對象組都要有成果展示草稿，否則擋發布。'
                   : '發布後就不能改。'}
+            </p>
+          </div>
+        ) : null}
+
+        {showAdvisor ? (
+          <div data-testid="advisor-visibility">
+            <label className="flex min-h-10 items-center gap-2 text-sm font-semibold">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={state.advisorVisibility}
+                disabled={state.advisorVisibilityLocked}
+                aria-describedby="ed-advisor-visibility-hint"
+                onChange={(e) => onChange({ advisorVisibility: e.target.checked })}
+              />
+              開放指導老師閱覽
+            </label>
+            <p id="ed-advisor-visibility-hint" className="mt-1 text-xs text-muted-foreground">
+              {state.advisorVisibilityLocked
+                ? '已經有人作答，不能再開放：那些同學填寫時沒看到「指導老師可查看」的告知。需要老師看，請另建一份作業並在發布前開好。'
+                : state.advisorVisibility
+                  ? '學生目前組別的指導老師看得到正式送出的回答（草稿不給）；學生填寫前會看到告知。關閉後要再開，必須還沒有人作答。'
+                  : '不開放：個人回答只有本人與系辦看得到。開放後學生填寫頁會先告知「指導老師可以查看正式送出的回答」。'}
             </p>
           </div>
         ) : null}
