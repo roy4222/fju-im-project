@@ -19,7 +19,8 @@ import { cn } from '@/shared/cn'
  *   這裡沒有任何「擔任／認領」入口：產學組由負責老師在產學組分頁確認，一般組由系辦指派。
  */
 
-export type ClaimActionState = { ok: boolean; conflict: boolean; message: string } | undefined
+/** `linkOnly`：這次只確認了合作案（系辦已指派別的老師，指導老師不變；CL-3）——成功畫面依它決定標題，不看卡片（卡片可能是指派前的舊資料）。 */
+export type ClaimActionState = { ok: boolean; conflict: boolean; linkOnly?: boolean; message: string } | undefined
 export type DeclineActionState = { ok: boolean; message: string } | undefined
 
 export type CardMember = { userId: string; name: string; isLeader: boolean; avatarPreset: number | null; avatarFileId: string | null }
@@ -33,6 +34,11 @@ export type PendingGroupCard = {
   linkState: 'pending' | 'active'
   leaderName: string | null
   members: readonly CardMember[]
+  /**
+   * 系辦已指派的指導老師（CL-3，Roy 10/21）：連結還在等確認、系辦先指派了別的老師時才有；
+   * 這時「確認」只確認合作案（指導老師不變），「婉拒」只結束連結。沒有指導老師是 null。
+   */
+  advisorName: string | null
 }
 
 export type GroupRow = {
@@ -109,9 +115,15 @@ export function PendingGroups({
               <p className="text-sm text-muted-foreground">
                 {c.members.length} 人{c.leaderName ? `・組長 ${c.leaderName}` : ''}
               </p>
+              {c.advisorName ? <p className="text-sm text-muted-foreground">指導老師：{c.advisorName}（系辦指派）</p> : null}
               <div className="mt-auto flex flex-wrap gap-2">
-                <button type="button" className={cn(OUTLINE_BUTTON_SM, 'border-primary/40 text-primary')} aria-label={`確認指導：${c.groupCode}`} onClick={() => open('claim', c)}>
-                  <IconCheck /> 確認指導
+                <button
+                  type="button"
+                  className={cn(OUTLINE_BUTTON_SM, 'border-primary/40 text-primary')}
+                  aria-label={`${c.advisorName ? '確認合作案' : '確認指導'}：${c.groupCode}`}
+                  onClick={() => open('claim', c)}
+                >
+                  <IconCheck /> {c.advisorName ? '確認合作案' : '確認指導'}
                 </button>
                 <button type="button" className={OUTLINE_BUTTON_SM} aria-label={`婉拒：${c.groupCode}`} onClick={() => open('decline', c)}>
                   婉拒
@@ -124,7 +136,15 @@ export function PendingGroups({
 
       <dialog
         ref={setDialog}
-        aria-label={picked ? (picked.kind === 'claim' ? `確認指導 ${picked.card.groupCode}？` : `婉拒 ${picked.card.groupCode}？`) : '確認指導'}
+        aria-label={
+          picked
+            ? picked.kind === 'claim'
+              ? picked.card.advisorName
+                ? `確認 ${picked.card.groupCode} 的合作案？`
+                : `確認指導 ${picked.card.groupCode}？`
+              : `婉拒 ${picked.card.groupCode}？`
+            : '確認指導'
+        }
         className={DIALOG}
       >
         {picked?.kind === 'claim' ? (
@@ -202,15 +222,19 @@ function ClaimForm({
   const [baseline] = useState(state)
   const result = state !== baseline && !pending ? state : undefined
 
+  const linkOnly = card.advisorName !== null
+
   if (result?.ok) {
     return (
       <div className="relative flex flex-col items-center gap-3 p-6 text-center">
         <CloseX onClose={onClose} />
         <StampMark>
           <IconCheck className="size-4" strokeWidth={3} />
-          你已是指導老師
+          {result.linkOnly ? '已確認合作案' : '你已是指導老師'}
         </StampMark>
-        <h2 className="text-lg font-extrabold text-foreground">{card.groupCode} 已指定為你的組別</h2>
+        <h2 className="text-lg font-extrabold text-foreground">
+          {result.linkOnly ? `${card.groupCode} 的合作案已確認` : `${card.groupCode} 已指定為你的組別`}
+        </h2>
         <p role="status" className="text-sm text-muted-foreground">
           {result.message}
         </p>
@@ -222,16 +246,18 @@ function ClaimForm({
     <form action={formAction} className="relative flex flex-col gap-4 p-6">
       <CloseX onClose={onClose} />
       <div className="pr-8">
-        <h2 className="text-lg font-extrabold text-foreground">確認指導 {card.groupCode}？</h2>
+        <h2 className="text-lg font-extrabold text-foreground">{linkOnly ? `確認 ${card.groupCode} 的合作案？` : `確認指導 ${card.groupCode}？`}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {card.members.length} 人{card.leaderName ? `・組長 ${card.leaderName}` : ''}，選了「{opportunityName}」。
-          確認後你就是這一組的指導老師，全組會收到通知。
+          {linkOnly
+            ? `系辦已指派 ${card.advisorName} 老師指導這一組；確認後合作案連結成立，指導老師維持 ${card.advisorName} 老師。`
+            : '確認後你就是這一組的指導老師，全組會收到通知。'}
         </p>
       </div>
       <input type="hidden" name="groupId" value={card.groupId} />
       <input type="hidden" name="requestId" value={requestId} />
       <button type="submit" disabled={pending} className={cn(PRIMARY_BUTTON, 'w-full')}>
-        {pending ? '處理中…' : '確認指導'}
+        {pending ? '處理中…' : linkOnly ? '確認合作案' : '確認指導'}
       </button>
     </form>
   )
@@ -278,7 +304,8 @@ function DeclineForm({
       <div className="pr-8">
         <h2 className="text-lg font-extrabold text-foreground">婉拒 {card.groupCode}？</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          婉拒後這一組與「{opportunityName}」的連結會結束，全組會收到通知、要重新選合作案。理由只有你與系辦看得到。
+          婉拒後這一組與「{opportunityName}」的連結會結束，全組會收到通知、要重新選合作案
+          {card.advisorName ? `（指導老師維持 ${card.advisorName} 老師）` : ''}。理由只有你與系辦看得到。
         </p>
       </div>
       <input type="hidden" name="groupId" value={card.groupId} />

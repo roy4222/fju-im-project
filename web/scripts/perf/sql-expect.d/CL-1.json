@@ -1,0 +1,12 @@
+{
+  "ticket": "CL-1",
+  "override": {
+    "/dashboard/admin/affairs/resources": { "from": "C1-07", "value": { "as": "admin", "baseline": 6, "max": 6, "identity": 0 } },
+    "/dashboard/admin/affairs/rules": { "from": "C1-08", "value": { "as": "admin", "baseline": 4, "max": 4, "identity": 0 } },
+    "/dashboard/student": { "from": "C5-15", "value": { "as": "student", "baseline": 14, "max": 14, "identity": 0 } },
+    "/dashboard/student/groups": { "from": "C5-15", "value": { "as": "student", "baseline": 16, "max": 16, "identity": 0 } },
+    "/dashboard/student/affairs": { "from": "C1-10", "value": { "as": "student", "baseline": 8, "max": 8, "identity": 0 } },
+    "/dashboard/teacher/affairs": { "from": "C1-10", "value": { "as": "teacher", "baseline": 8, "max": 8, "identity": 0 } },
+    "/dashboard/student/signoff": { "from": "C1-11", "value": { "as": "student", "baseline": 8, "max": 8, "identity": 0 } }
+  }
+}

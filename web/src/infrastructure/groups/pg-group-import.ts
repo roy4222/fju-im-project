@@ -138,8 +138,14 @@ export class PgGroupImportCommand implements GroupImportCommand {
     const adminId = actor.userId
 
     // 同一個請求編號已經做完：回第一次的結果（不重新分析——那時的新組現在都「已在這組」了）。
+    // CL-3（#819）：換了檔案或屆別卻沿用同一個請求編號 → 先回 REQUEST_MISMATCH，不回舊結果、也不去逐列建組加人。
+    // 指紋跟最後記帳本的那一筆同一個算法（`#load` 回來的檔案 id、屆別 id 就是輸入的這兩個值）。
+    const fingerprint = sha256(canonicalJson({ fileId: String(input?.fileId ?? ''), cohortId: String(input?.cohortId ?? '') }))
     const previous = await this.#ledger.get(adminId, 'group.import', requestId)
-    if (previous.outcome === 'replay') return replayed<GroupImportReceipt>(previous)
+    if (previous.outcome === 'replay') {
+      if ((await this.#recordedFingerprint(adminId, requestId)) !== fingerprint) return replayed<GroupImportReceipt>({ outcome: 'mismatch' })
+      return replayed<GroupImportReceipt>(previous)
+    }
 
     const loaded = await this.#load(adminId, input)
     if (!loaded.ok) return loaded
@@ -182,7 +188,7 @@ export class PgGroupImportCommand implements GroupImportCommand {
           actorUserId: adminId,
           operationKind: 'group.import',
           requestId,
-          fingerprint: sha256(canonicalJson({ fileId: loaded.fileId, cohortId: loaded.cohort.id })),
+          fingerprint,
           scope: 'cohort',
           cohortId: loaded.cohort.id,
         },
@@ -216,6 +222,20 @@ export class PgGroupImportCommand implements GroupImportCommand {
       return { ok: true as const, receipt: full }
     })
     return recorded
+  }
+
+  /** 帳本裡這個請求編號（本人、`group.import`）當初記下的內容指紋；帳本的 `get` 不回指紋，這裡自己讀。 */
+  async #recordedFingerprint(adminId: string, requestId: string): Promise<string | null> {
+    const db = await this.#pool().connect()
+    try {
+      const rows = await db.query<{ fingerprint: string }>(
+        `select fingerprint from operation_records where actor_user_id = $1 and operation_kind = 'group.import' and request_id = $2`,
+        [adminId, requestId],
+      )
+      return rows.rows[0]?.fingerprint ?? null
+    } finally {
+      db.release()
+    }
   }
 
   /** 加一位到既有組：當下的版本號、既有 `addMember`（每列自己的交易與請求編號）。 */

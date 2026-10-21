@@ -895,6 +895,8 @@ describe('0024（C3-06，③-2）：已套 0023、有資料的庫升到 0024：�
       // 0023 時：全天活動 ends_at 是 NULL；排定中的不能標刪除。
       const oldAllDay = await insert('2026-12-19T16:00:00Z', null, true)
       const oldTimed = await insert('2026-12-20T06:00:00Z', null, false)
+      // CL-3（#819）：0023 的 CHECK 允許 ends_at = starts_at；全天活動這樣存的也要補成次日 00:00，否則 0024 加 CHECK 會失敗。
+      const sameAllDay = await insert('2026-12-21T16:00:00Z', '2026-12-21T16:00:00Z', true)
       await expect(remove(oldTimed)).rejects.toThrow(/project_events_deleted_check/)
 
       await applyMigration(db, '0024_c3_events_span')
@@ -904,6 +906,7 @@ describe('0024（C3-06，③-2）：已套 0023、有資料的庫升到 0024：�
       expect(rows.rows.map((r) => [r.id, (r.ends_at as Date | null)?.toISOString() ?? null])).toEqual([
         [oldAllDay, '2026-12-20T16:00:00.000Z'],
         [oldTimed, null],
+        [sameAllDay, '2026-12-22T16:00:00.000Z'],
       ])
       expect((await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)).rows).toEqual([{ n: 0 }])
 
