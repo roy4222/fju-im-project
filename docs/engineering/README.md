@@ -12,6 +12,27 @@
 
 - spec 基準 `f974bce`（母 spec v3.6）通過後進入拆票；v0.2 全套 158 張經 Codex 集中 review（F01–F15）後修為 v0.3，再依 Codex 局部 review R01–R08 修為 **v0.3.1：166 張（10 張直接 BLOCKED，待 Roy 產品決策；D-10 已改工程確認）**；修訂腳本從備份還原後連跑兩次零位元差異，重複段落／表格切斷／舊上限殘留檢查 0。入口：[`slices/🎫 票草稿/00 總索引.md`](<slices/🎫 票草稿/00 總索引.md>)、[`01 修訂差異、決策表與覆蓋表 v0.3.md`](<slices/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md>)（每項修訂位置、三類決策表、有效依賴圖、行為子項覆蓋表）＋每切片一份。spec 局部回寫：母 spec v3.7、契約 01 v2.5、契約 05 v2.4、模組 02／05／07／08／09／10 v2.4、切片總圖 v2.4、SOP 05 步驟 2（只回寫 review 導出的資料契約與 port，不重開需求）。待 Codex 集中核對局部差異與 Roy 回覆決策；通過後一次開齊 GitHub backlog（可開始票＋明確 BLOCKED 票），開票不等於開工。正式上票前最後核對（Codex 三項局部修正已修）：契約 01 §4.7 表格完整、模組 05 `syncRoster` 只限核准、受阻統計含切片 gate；`slices/🎫 票草稿/正文/SNN 正式正文.md` 是每張票的可讀正文層（白話目標、做到哪裡、Roy 操作→預期表、誰確認、原型圖），GitHub 實作票正文由此＋技術九欄組成。同步 receipt：`../vault-sync-receipt-2026-09-13-round11.json`。
 
+## 寫入規則（2026-10-21，C ⑤-11；#411 第一組）
+
+白話：好幾段程式同時改同一批資料時，大家要照同一個順序去「鎖」，才不會你等我、我等你卡死；字數也只用一種算法，畫面和後端才不會對不上。這節是規則，不是新程式；碰到下列情況，寫法要照做，Review 也照此檢查。
+
+1. **鎖的順序一律固定**（交易內先鎖前面的，再鎖後面的，不准反過來）：
+   - 檔案：先 `stored_files`，再 `file_references`。程式位置：`web/src/infrastructure/accounts/avatar-store.ts:47-59` 的 `softDeleteAvatarFile`（先更新 `stored_files` 標刪、再釋放 `file_references`），呼叫處 `avatar-store.ts:154`、`avatar-store.ts:200`；帳號操作的整串順序（管理員 → `users` → `user_profiles` → 檔案）寫在 `avatar-store.ts:28-32` 與 `avatar-store.ts:194`。
+   - 屆別、組、成員：先屆別，再組，最後成員。程式位置：`web/src/infrastructure/groups/pg-groups.ts:1387`（屆別 `FOR SHARE` → 組別 `FOR UPDATE`）；註冊自動開通的整串順序 `cohorts → users → registration_applications → student_identities` 見 `web/src/infrastructure/accounts/registration-command.ts:376`。「組 → 成員」目前只是規則，程式裡沒有集中的一處可指，新寫入照此做。
+2. **worker 與網站（兩個程序）會同時寫的資料，用 `pg_advisory_xact_lock`**，並且鎖的鍵要在同一張表列舉，避免兩邊各取各的名字：
+   - 交易層級（`pg_advisory_xact_lock`）：交易結束自動放，不會漏放；各處的鍵名現況，例如 `groups.code:<cohortId>`、`groups.student:<id>`、`items.rules:<cohortId>`、`business_clock_overrides`（散在 `web/src/infrastructure/**`，用 `git grep pg_advisory_xact_lock` 可全部列出）。目前還沒有集中登記的那張表，所以**新增鍵名時，要把它加進本節這張表**：
+
+     | 鍵（hashtext／hashtextextended 的輸入） | 保護什麼 | 程式位置 |
+     |---|---|---|
+     | `groups.code:<cohortId>` | 同屆組別代碼不重複 | `pg-groups.ts:691`、`pg-group-import.ts:270` |
+     | `groups.student:<studentId>` | 同一學生同時只能被一個組操作 | `pg-groups.ts:127`、`pg-group-import.ts:292` |
+     | `items.rules:<cohortId>` | 同屆規則集合 | `pg-items.ts:190` |
+     | `business_clock_overrides` | 營運時鐘覆寫 | `pg-business-clock.ts:140` |
+
+   - 整個程序層級的單一實例鎖（`pg_try_advisory_lock`，綁在專用連線上，程序死掉自動放）：worker 只准一個在跑，見 `web/src/infrastructure/notifications/worker-runtime.ts:10-24`（`WORKER_LOCK_NAME`、`acquireWorkerLock`）。
+3. **字數一律用 `charLength()`**（`web/src/shared/text.ts`，按字元算，一個表情符號算一個字）。不准用 `.length`（會把表情符號算成兩個字，和畫面計數不一致）。現有用法：`web/src/application/accounts/avatar.ts:84`、`application/cohorts/stages.ts:76`、`application/grading/scheme.ts:164`。
+4. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
+
 ## GitHub review 入口（2026-09-12）
 
 - 文件 PR：[#7](https://github.com/roy4222/fju-im-project/pull/7)（`docs/engineering-spec-2026-09-12` → `main`；第三輪 commit `2dea682`，最新 head 見 PR；issue 全文與連結釘在第六輪 commit）。
