@@ -16,11 +16,27 @@ import { cn } from '@/shared/cn'
  *   伺服器擋下（例如別人剛新增或刪了一章）就換回原順序並寫原因。
  * - 上移／下移保留（鍵盤與手機用；`moveRuleAction`），回饋句寫在卡片頂端（`pin-feedback`，跟舊清單同一個位置）。
  * - 「編輯」在卡片內就地展開，一次只展開一章；前一章有未存的改動時先問一句「要放棄嗎」。
+ * - 離開頁面也擋（CL-1）：有未存改動時才掛 `beforeunload`（重新整理、關分頁、打網址），站內連結在 capture 階段攔下、
+ *   用同一個確認框問；存好、取消或放棄後就拿掉。
  * - 「新增章節」在清單底部加一張展開的空卡（同一張表單，新增一章）。
  */
 
 type Feedback = { ok: boolean; text: string }
 const NEW = 'new'
+
+/** 確認框在問什麼：換展開另一章（`open`），或離開這一頁到 `href`（`leave`）。 */
+type Asking = { kind: 'open'; target: string } | { kind: 'leave'; href: string }
+
+/** 這次點擊是不是「在同一個分頁換頁」的站內連結（新分頁、下載、修飾鍵都不算）。 */
+function leavingHref(event: MouseEvent): string | null {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null
+  const link = event.target instanceof Element ? event.target.closest('a[href]') : null
+  if (!(link instanceof HTMLAnchorElement) || (link.target && link.target !== '_self') || link.hasAttribute('download')) return null
+  const url = new URL(link.href, window.location.href)
+  if (url.origin !== window.location.origin) return null
+  if (url.pathname === window.location.pathname && url.search === window.location.search) return null
+  return url.pathname + url.search + url.hash
+}
 
 /** 把 `from` 移到 `to` 原本的位置（往下拖放在它後面、往上拖放在它前面）。 */
 function moveTo(ids: readonly string[], from: string, to: string): string[] {
@@ -40,7 +56,7 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
-  const [asking, setAsking] = useState<string | null>(null)
+  const [asking, setAsking] = useState<Asking | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   const confirmDialog = useRef<HTMLDialogElement>(null)
@@ -58,6 +74,29 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
     if (!asking && dialog.open) dialog.close()
   }, [asking])
 
+  // 只有真的有未存改動時才擋離開；存好、取消、放棄（`open` 把 dirty 歸零）就拿掉。
+  const guarding = dirty && expanded !== null
+  useEffect(() => {
+    if (!guarding) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    const onClick = (event: MouseEvent) => {
+      const href = leavingHref(event)
+      if (!href) return
+      event.preventDefault()
+      event.stopPropagation()
+      setAsking({ kind: 'leave', href })
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('click', onClick, true)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('click', onClick, true)
+    }
+  }, [guarding])
+
   function open(target: string | null) {
     setExpanded(target)
     setDirty(false)
@@ -66,7 +105,7 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
 
   /** 換展開的那一章：前一章有未存改動就先問。 */
   function requestOpen(target: string) {
-    if (expanded !== null && expanded !== target && dirty) setAsking(target)
+    if (expanded !== null && expanded !== target && dirty) setAsking({ kind: 'open', target })
     else open(target)
   }
 
@@ -120,7 +159,7 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
     <InlineRuleForm
       cohortId={cohortId}
       itemId={itemId}
-      onDirty={() => setDirty(true)}
+      onDirtyChange={setDirty}
       onDone={done}
       onCancel={() => open(null)}
     />
@@ -223,8 +262,16 @@ export function RulesBoard({ cohortId, cards }: { cohortId: string; cards: reado
               <button type="button" className={SECONDARY} onClick={() => setAsking(null)}>
                 繼續編輯
               </button>
-              <button type="button" className={cn(PRIMARY, 'bg-destructive hover:bg-destructive/90')} onClick={() => open(asking)}>
-                放棄修改
+              <button
+                type="button"
+                className={cn(PRIMARY, 'bg-destructive hover:bg-destructive/90')}
+                onClick={() => {
+                  if (asking.kind === 'open') return open(asking.target)
+                  open(null)
+                  router.push(asking.href)
+                }}
+              >
+                {asking.kind === 'leave' ? '放棄並離開' : '放棄修改'}
               </button>
             </div>
           </div>

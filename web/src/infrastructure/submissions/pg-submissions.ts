@@ -1262,77 +1262,22 @@ export class PgSubmissionQuery implements SubmissionQuery {
     this.#lateFlags = lateFlags
   }
 
+  /**
+   * 名單上的作業，加上等這位主指導同意的站內同意書（C 階段規格① §3.2）：作業發布中、`consent_mode='form'`，包的**目前版本**
+   * 狀態是 `teacher_pending`、而且那一版參與者快照的主指導就是本人（換老師會建新版，舊老師的快照不再是目前版本）。一組一列。
+   * 兩段用 `union all` 一句查完（CL-1：學生頁不再為了永遠是空的「等你同意」多查一句）；同意書列的 `package_id` 不是 null。
+   */
   async myItems(userId: string): Promise<MyItemRow[]> {
     if (!isUuid(userId)) return []
-    const [rostered, awaiting] = await Promise.all([this.#rosterItems(userId), this.#awaitingAdvisorConsent(userId)])
-    // 沒有等同意的（學生、多數老師）就是名單查詢原本的順序；有才併進來、照截止再標題排。
-    if (awaiting.length === 0) return rostered
-    return [...rostered, ...awaiting].sort(
-      (a, b) =>
-        (a.dueAt?.getTime() ?? Number.POSITIVE_INFINITY) - (b.dueAt?.getTime() ?? Number.POSITIVE_INFINITY) ||
-        a.title.localeCompare(b.title),
-    )
-  }
-
-  /**
-   * 等這位主指導同意的站內同意書（C 階段規格① §3.2）：作業發布中、`consent_mode='form'`，包的**目前版本**狀態是
-   * `teacher_pending`、而且那一版參與者快照的主指導就是本人（換老師會建新版，舊老師的快照不再是目前版本）。一組一列。
-   */
-  async #awaitingAdvisorConsent(userId: string): Promise<MyItemRow[]> {
-    const rows = await this.#reader().query<{
-      id: string
-      title: string
-      cohort_id: string
-      opens_at: Date | null
-      due_at: Date | null
-      attachment_count: string
-      group_id: string
-      group_code: string
-      package_id: string
-      version_id: string
-    }>(
-      `select m.id, m.title, m.cohort_id, m.opens_at, m.due_at,
-              (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
-              g.id as group_id, g.code as group_code, p.id as package_id, pv.id as version_id
-         from signoff_packages p
-         join managed_items m on m.id = p.item_id
-         join groups g on g.id = p.group_id
-         join signoff_package_versions pv on pv.id = p.current_version_id
-         join signoff_version_status st on st.version_id = pv.id
-        where m.status = 'published' and m.deleted_at is null and m.consent_mode = 'form'
-          and st.state = 'teacher_pending'
-          and pv.participants -> 'advisor' ->> 'userId' = $1::text`,
-      [userId],
-    )
-    return rows.rows.map((r) => ({
-      itemId: r.id,
-      title: r.title,
-      kind: 'consent_form' as const,
-      formType: 'form' as const,
-      stageName: null,
-      cohortId: r.cohort_id,
-      stageSeq: null,
-      opensAt: r.opens_at,
-      dueAt: r.due_at,
-      attachmentCount: Number(r.attachment_count),
-      exempt: false,
-      hasDraft: false,
-      latestVersionNo: null,
-      latestReceivedAt: null,
-      receiverUnit: 'group' as const,
-      groupCode: r.group_code,
-      reopenUntil: null,
-      consent: { state: 'teacher_pending' as const, groupId: r.group_id, packageId: r.package_id, versionId: r.version_id },
-    }))
-  }
-
-  async #rosterItems(userId: string): Promise<MyItemRow[]> {
-    const rows = await this.#reader().query<ListRow>(
+    const rows = await this.#reader().query<
+      ListRow & { group_id: string | null; package_id: string | null; version_id: string | null }
+    >(
       `select m.id, m.title, m.consent_mode, sv.schema, s.name as stage_name, m.cohort_id, s.seq as stage_seq, m.opens_at, m.due_at,
               r.exempt, m.receiver_unit, g.code as group_code,
               (select count(*) from item_attachments a where a.item_id = m.id) as attachment_count,
               facts.has_draft, latest.version_no as latest_version_no, latest.received_business_at as latest_received_at,
-              ${REOPEN_UNTIL}
+              ${REOPEN_UNTIL},
+              null::uuid as group_id, null::uuid as package_id, null::uuid as version_id
          from response_rosters r
          join managed_items m on m.id = r.item_id
          left join groups g on r.receiver_kind = 'group' and g.id = r.receiver_id
@@ -1340,28 +1285,72 @@ export class PgSubmissionQuery implements SubmissionQuery {
          left join form_schema_versions sv on sv.id = m.current_schema_version_id
          ${receiverFactsJoin('m.id', 'r.receiver_kind', 'r.receiver_id')}
         where ${MY_ROSTER_ROW}
-        order by m.due_at nulls last, m.title`,
+       union all
+       select m.id, m.title, m.consent_mode, null, null, m.cohort_id, null, m.opens_at, m.due_at,
+              false, m.receiver_unit, g.code,
+              (select count(*) from item_attachments a where a.item_id = m.id),
+              false, null, null, null,
+              g.id, p.id, pv.id
+         from signoff_packages p
+         join managed_items m on m.id = p.item_id
+         join groups g on g.id = p.group_id
+         join signoff_package_versions pv on pv.id = p.current_version_id
+         join signoff_version_status st on st.version_id = pv.id
+        where m.status = 'published' and m.deleted_at is null and m.consent_mode = 'form'
+          and st.state = 'teacher_pending'
+          and pv.participants -> 'advisor' ->> 'userId' = $1::uuid::text
+        order by due_at nulls last, title`,
       [userId],
     )
-    return rows.rows.map((r) => ({
-      itemId: r.id,
-      title: r.title,
-      kind: itemKindOf(r.consent_mode),
-      formType: formTypeOf(r.schema?.fields ?? []),
-      stageName: r.stage_name,
-      cohortId: r.cohort_id,
-      stageSeq: r.stage_seq,
-      opensAt: r.opens_at,
-      dueAt: r.due_at,
-      attachmentCount: Number(r.attachment_count),
-      exempt: r.exempt,
-      hasDraft: r.has_draft,
-      latestVersionNo: r.latest_version_no,
-      latestReceivedAt: r.latest_received_at,
-      receiverUnit: r.receiver_unit,
-      groupCode: r.group_code,
-      reopenUntil: r.reopen_until,
-    }))
+    const items: MyItemRow[] = rows.rows.map((r) =>
+      r.package_id !== null && r.group_id !== null && r.version_id !== null
+        ? {
+            itemId: r.id,
+            title: r.title,
+            kind: 'consent_form' as const,
+            formType: 'form' as const,
+            stageName: null,
+            cohortId: r.cohort_id,
+            stageSeq: null,
+            opensAt: r.opens_at,
+            dueAt: r.due_at,
+            attachmentCount: Number(r.attachment_count),
+            exempt: false,
+            hasDraft: false,
+            latestVersionNo: null,
+            latestReceivedAt: null,
+            receiverUnit: 'group' as const,
+            groupCode: r.group_code,
+            reopenUntil: null,
+            consent: { state: 'teacher_pending' as const, groupId: r.group_id, packageId: r.package_id, versionId: r.version_id },
+          }
+        : {
+            itemId: r.id,
+            title: r.title,
+            kind: itemKindOf(r.consent_mode),
+            formType: formTypeOf(r.schema?.fields ?? []),
+            stageName: r.stage_name,
+            cohortId: r.cohort_id,
+            stageSeq: r.stage_seq,
+            opensAt: r.opens_at,
+            dueAt: r.due_at,
+            attachmentCount: Number(r.attachment_count),
+            exempt: r.exempt,
+            hasDraft: r.has_draft,
+            latestVersionNo: r.latest_version_no,
+            latestReceivedAt: r.latest_received_at,
+            receiverUnit: r.receiver_unit,
+            groupCode: r.group_code,
+            reopenUntil: r.reopen_until,
+          },
+    )
+    // 沒有等同意的（學生、多數老師）就是查詢原本的順序；有才照截止再標題重排（跟名單列同一個比較法）。
+    if (!items.some((i) => i.consent)) return items
+    return items.sort(
+      (a, b) =>
+        (a.dueAt?.getTime() ?? Number.POSITIVE_INFINITY) - (b.dueAt?.getTime() ?? Number.POSITIVE_INFINITY) ||
+        a.title.localeCompare(b.title),
+    )
   }
 
   async myItem(userId: string, itemId: string): Promise<MyItemDetail | null> {

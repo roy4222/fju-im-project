@@ -229,6 +229,18 @@ export type ItemListRow = {
   readonly rosterCount: number
 }
 
+/**
+ * 清單列加上分頁要顯示的內容（CL-1）：資源頁的分類與附件數、規則頁的正文摘要，一句查完，不逐份 `get`。
+ * `registrationDeadline` 是競賽資訊的報名截止日（臺灣日曆日），其他是 null。
+ */
+export type ItemListRowWithContent = ItemListRow & {
+  readonly category: string | null
+  readonly attachmentCount: number
+  readonly registrationDeadline: string | null
+  /** 正文：**已經過 `renderBodyHtml` 清理**。 */
+  readonly bodyHtml: string
+}
+
 export type ItemDetail = {
   readonly id: string
   readonly cohortId: string
@@ -319,6 +331,8 @@ export type RecipientQueryInput = {
 export interface ItemQuery {
   /** 專題事務工作台：一屆的全部項目（不含已刪除），新的在前（呼叫端守門）。 */
   list(cohortId: string): Promise<ItemListRow[]>
+  /** 同 `list`，只列指定位置，並帶分類、附件數、報名截止日與正文（資源、規則分頁；呼叫端守門）。 */
+  listWithContent(cohortId: string, placements: readonly Placement[]): Promise<ItemListRowWithContent[]>
   /** 編輯器要的一筆（呼叫端守門）。找不到或已刪除回 null。 */
   get(itemId: string): Promise<ItemDetail | null>
   /** 編輯器的選項：這一屆的階段與有效組別。 */

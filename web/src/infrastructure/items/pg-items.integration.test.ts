@@ -1197,6 +1197,66 @@ describe('查詢', () => {
     expect((await query.get(collect.itemId))?.rosterCount).toBe(1)
     expect(c.id).toBeTruthy()
   })
+
+  it('資源、規則分頁一句查完（CL-1）：只列指定位置，帶分類、附件數、報名截止日與正文；不逐份 get', async () => {
+    const { cohortId } = await newCohort()
+    const [f1, f2] = [await uploadPdf(adminId, cohortId), await uploadPdf(adminId, cohortId)]
+    const resource = await mustCreate(cohortId, {
+      placement: 'resource',
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      category: '範本',
+      dueAt: '',
+      fields: [],
+      attachmentFileIds: [f1, f2],
+    })
+    const rule = await mustCreate(cohortId, {
+      placement: 'rules',
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      body: '<p>第一章</p>',
+      dueAt: '',
+      fields: [],
+    })
+    const contest = await mustCreate(cohortId, {
+      placement: 'news',
+      audienceKind: 'public',
+      receiverUnit: 'none',
+      category: '競賽資訊',
+      dueAt: '',
+      fields: [],
+      registrationDeadline: '2026-10-03',
+    })
+
+    const resources = await query.listWithContent(cohortId, ['resource'])
+    expect(resources.map((r) => r.id)).toEqual([resource.itemId])
+    expect(resources[0]).toMatchObject({ placement: 'resource', category: '範本', attachmentCount: 2, registrationDeadline: null, status: 'draft' })
+    const rules = await query.listWithContent(cohortId, ['rules'])
+    expect(rules.map((r) => r.id)).toEqual([rule.itemId])
+    expect(rules[0]).toMatchObject({ category: null, attachmentCount: 0, bodyHtml: '<p>第一章</p>' })
+    expect((await query.listWithContent(cohortId, ['news']))[0]).toMatchObject({ id: contest.itemId, registrationDeadline: '2026-10-03' })
+    // 跟 `list` 同一份清單列欄位。
+    const plain = (await query.list(cohortId)).find((r) => r.id === resource.itemId)!
+    expect(resources[0]).toMatchObject(plain)
+    expect(await query.listWithContent(cohortId, [])).toEqual([])
+    expect(await query.listWithContent('not-a-uuid', ['resource'])).toEqual([])
+  })
+
+  it('讀出正文時再淨化一次（CL-1）：資料庫被直接塞了 script／事件屬性，get 與 listWithContent 都只給清理過的', async () => {
+    const { cohortId } = await newCohort()
+    const rule = await mustCreate(cohortId, { placement: 'rules', audienceKind: 'public', receiverUnit: 'none', dueAt: '', fields: [] })
+    // 繞過寫入時的 `sanitizeBody`，直接改頭列。
+    await owner.sql(`update managed_items set body_html = $2 where id = $1`, [
+      rule.itemId,
+      '<p onclick="steal()">規則</p><script>alert(1)</script><img src="x" onerror="steal()">',
+    ])
+    expect((await itemRow(rule.itemId)).body_html).toContain('<script>')
+    const detail = await query.get(rule.itemId)
+    expect(detail?.bodyHtml).not.toMatch(/script|onclick|onerror/)
+    expect(detail?.bodyHtml).toContain('<p>規則</p>')
+    const [row] = await query.listWithContent(cohortId, ['rules'])
+    expect(row?.bodyHtml).toBe(detail?.bodyHtml)
+  })
 })
 
 // ── 票 16 ──────────────────────────────────────────────────────────────────────
@@ -3085,6 +3145,21 @@ describe('站內同意書作業（C 階段規格① §1.2、AC-21、AC-21a）', 
     ])
     expect(await events(created.receipt.itemId, 'item.published')).toHaveLength(0)
     expect((await itemRow(created.receipt.itemId)).status).toBe('published')
+  })
+
+  it('交給 hook 的正文讀出時再淨化一次（CL-1）：資料庫被直接塞了 script，簽核包拿到的是清理過的', async () => {
+    const { cohortId } = await newCohort()
+    const s1 = await newStudent(cohortId)
+    const g1 = await newGroup(cohortId, [s1], 'G01')
+    await assignAdvisor(g1, teacherId)
+    const fake = fakeConsentHook()
+    const command = itemsWith(fake.hook)
+    const created = await command.create(adminActor(), input(cohortId, consent({ consentPurpose: 'result_confirmation' })), randomUUID())
+    if (!created.ok) throw new Error(created.message)
+    await owner.sql(`update managed_items set body_html = $2 where id = $1`, [created.receipt.itemId, '<p onclick="x()">本組同意。</p><script>alert(1)</script>'])
+    const published = await command.publish(adminActor(), created.receipt.itemId, 1, { notify: true }, randomUUID())
+    if (!published.ok) throw new Error(published.message)
+    expect(fake.calls.map((c) => c.bodyHtml)).toEqual(['<p>本組同意。</p>'])
   })
 
   it('hook 回錯（例如有組沒有成果展示草稿）：整筆回滾，作業仍是草稿、沒有名單與事件', async () => {
