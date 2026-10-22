@@ -1,4 +1,5 @@
 import { err, type Err } from '@/shared/result'
+import { charLength } from '@/shared/text'
 import type { Participants, SignoffState, SupersedeCause } from '@/application/signoff/version'
 import { describeCause } from '@/application/signoff/version'
 
@@ -8,8 +9,8 @@ import { describeCause } from '@/application/signoff/version'
  *
  * - **每人只有自己一票**：投票的人永遠是登入者本人（用例只收 actor，沒有「替誰投」的欄位）；
  *   角色看這一版的參與者快照——快照裡的學生只能同意／不同意，快照裡的主指導只能同意／退回。
- * - 全部學生同意才輪到主指導；任何一人不同意或主指導退回 → 退回修正中（理由必填）。
- * - 重開（Roy 2026-09-25 定案取代舊 D-01）＝**建立新版本**，舊版留歷史；重置同理。兩者都要填理由。
+ * - 全部學生同意才輪到主指導；任何一人不同意或主指導退回 → 退回修正中（理由選填，C 階段規格① §1.4 X2）。
+ * - 重開（Roy 2026-09-25 定案取代舊 D-01）＝**建立新版本**，舊版留歷史；重置同理。理由都選填。
  * - 表態綁在「這一版＋這份內容」：頁面帶來的內容核對碼要等於版本的 checksum，舊頁送出一律被拒。
  */
 
@@ -44,7 +45,7 @@ export const MAX_REASON_CHARS = 500
 /** 理由：去頭尾空白；要理由的動作沒給就拒絕，太長也拒絕。 */
 export function normalizeReason(raw: unknown, required: boolean, what: string): { ok: true; reason: string | null } | Err {
   const reason = typeof raw === 'string' ? raw.trim() : ''
-  if (reason.length > MAX_REASON_CHARS) {
+  if (charLength(reason) > MAX_REASON_CHARS) {
     return err('VALIDATION_FAILED', `${what}的理由最多 ${MAX_REASON_CHARS} 字。`, { details: { field: 'reason' } })
   }
   if (required && reason === '') return err('VALIDATION_FAILED', `請填寫${what}的理由。`, { details: { field: 'reason' } })
@@ -197,7 +198,7 @@ export function buildProgress(
  * 管理員「以這一版的內容建新版本重新收集」的兩個入口（Roy 2026-09-25：重開＝建新版本）：
  * - 重置：還在收集、等老師、或已完成的版本（已完成的留作歷史完成紀錄，不改狀態）。
  * - 重開：退回修正中、已失效（組員或老師變更）、已作廢的版本。
- * 兩個都要理由、都建新版、都讓參與者依**此刻**的組員與主指導重新快照。
+ * 兩個都建新版、都讓參與者依**此刻**的組員與主指導重新快照；理由選填（C 階段規格① §1.4）。
  */
 export type RestartKind = 'reset' | 'reopen'
 

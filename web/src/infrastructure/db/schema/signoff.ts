@@ -1,10 +1,23 @@
 import 'server-only'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, pgTable, text, timestamp, unique, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core'
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+  type AnyPgColumn,
+} from 'drizzle-orm/pg-core'
 import { users } from '@/infrastructure/db/schema/auth'
 import { cohorts, domainEvents } from '@/infrastructure/db/schema/base'
 import { storedFiles } from '@/infrastructure/db/schema/files'
 import { groups } from '@/infrastructure/db/schema/groups'
+import { managedItems } from '@/infrastructure/db/schema/items'
 
 /**
  * 模組 07 線上簽核的五張表（模組實作設計 07 附錄 A；第十一支 migration，票 25／切片 S11）。
@@ -27,7 +40,7 @@ import { groups } from '@/infrastructure/db/schema/groups'
  * - 版本狀態：新建只能是 collecting；`void` 是終點，`superseded` 只能再作廢、失效原因不能改；指向的版本不能改；不能刪（手寫 trigger）。
  *   其他轉換（collecting → teacher_pending → complete、退回）由用例判——附錄 A「由 domain 驗證，DB 只擋非法值」。
  * - 一人一票：`approvals` 唯一 `(version_id, user_id)`；學生只有同意／不同意、主指導只有同意／退回；
- *   不同意與退回一定有理由；老師沒有學號。
+ *   不同意與退回的理由 0021 起選填（長度上限留在用例）；老師沒有學號。
  */
 
 const tz = { withTimezone: true } as const
@@ -39,7 +52,11 @@ const PURPOSES = sql.raw(`('final_document','result_confirmation')`)
 /** 版本狀態（附錄 A `signoff_version_status.state`）。 */
 const STATES = sql.raw(`('collecting','teacher_pending','complete','revision','superseded','void')`)
 
-/** 一組一個用途一個簽核包（頭列）；`current_version_id` 指目前這一版。 */
+/**
+ * 簽核包（頭列）；`current_version_id` 指目前這一版。
+ *
+ * 0021（C1-01）起同意書是一種作業：連到作業的包一組一份作業一包（`item_id`）；沒連作業的舊包維持一組一用途一包。
+ */
 export const signoffPackages = pgTable(
   'signoff_packages',
   {
@@ -51,6 +68,8 @@ export const signoffPackages = pgTable(
       .notNull()
       .references(() => cohorts.id, restrict),
     purpose: text('purpose').notNull(),
+    /** 對應的同意書作業（0021；`consent_mode='form'`）。NULL＝舊資料或舊 API 建的包；只在 insert 寫，不回填。 */
+    itemId: uuid('item_id').references(() => managedItems.id, restrict),
     /** 目前這一版；建版時切換。 */
     currentVersionId: uuid('current_version_id').references((): AnyPgColumn => signoffPackageVersions.id, restrict),
     revision: integer('revision').notNull().default(1),
@@ -62,7 +81,14 @@ export const signoffPackages = pgTable(
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, restrict),
   },
   (t) => [
-    unique('signoff_packages_group_purpose_unique').on(t.groupId, t.purpose),
+    // 同一組可以有多份同用途的同意書作業（改版重發、下學期再發），所以唯一鍵分兩條（0021）。
+    uniqueIndex('signoff_packages_group_item_unique')
+      .on(t.groupId, t.itemId)
+      .where(sql`${t.itemId} is not null`),
+    uniqueIndex('signoff_packages_legacy_group_purpose_unique')
+      .on(t.groupId, t.purpose)
+      .where(sql`${t.itemId} is null`),
+    index('signoff_packages_item_idx').on(t.itemId),
     index('signoff_packages_cohort_idx').on(t.cohortId),
     check('signoff_packages_purpose_check', sql`${t.purpose} in ${PURPOSES}`),
     check('signoff_packages_revision_check', sql`${t.revision} >= 1`),
@@ -190,10 +216,6 @@ export const signoffApprovals = pgTable(
       'approvals_result_check',
       sql`(${t.role} = 'student' and ${t.result} in ('agree','disagree'))
           or (${t.role} = 'advisor' and ${t.result} in ('agree','return'))`,
-    ),
-    check(
-      'approvals_reason_check',
-      sql`${t.result} = 'agree' or length(btrim(coalesce(${t.reason}, ''))) > 0`,
     ),
     check('approvals_student_no_check', sql`${t.role} = 'student' or ${t.studentNoAt} is null`),
     check('approvals_login_method_check', sql`${t.loginMethod} in ('google','password')`),

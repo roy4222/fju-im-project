@@ -152,12 +152,20 @@ function expectNoPii(c: Capture, forbidden: string[]) {
   }
 }
 
-/** 每個 page_view 的位置是來源＋路由名稱、referrer 空、標題是路由名稱；沒有 user_id。 */
-function expectDeidentifiedPageViews(c: Capture) {
+/**
+ * 每個 page_view 的位置是來源＋路由名稱、referrer 空、標題是路由名稱；沒有 user_id。
+ * 先等到至少一筆 page_view 才比對（GA 分批送，離開頁面後還可能晚到）；
+ * 其他事件的位置只驗沒有 email／學號樣式，不靠 GA 編碼與送出的順序。
+ */
+async function expectDeidentifiedPageViews(c: Capture) {
+  await expect.poll(() => events(c, 'page_view').length, { timeout: 15_000 }).toBeGreaterThan(0)
   for (const hit of c.hits) {
     expect(hit.uid, '不送 user_id').toBeUndefined()
     expect(hit['ep.user_id']).toBeUndefined()
-    if (hit.dl !== undefined) expect(hit.dl).toMatch(new RegExp(`^${GA_URL.replace(/[.:/]/g, '\\$&')}/[a-z0-9/:()-]*$`))
+    if (hit.dl !== undefined) {
+      expect(hit.dl.startsWith(`${GA_URL}/`), hit.dl).toBe(true)
+      expect(hit.dl, '位置不帶 email／學號').not.toMatch(/@|%40|\d{6,}/)
+    }
     if (hit.dr !== undefined) expect(hit.dr).toBe('')
   }
   for (const hit of events(c, 'page_view')) {
@@ -201,7 +209,7 @@ test('AC-VI-68 訪客：設了 ID 才載入；page_view 只送路由名稱、角
   expect(c.hits.length).toBeGreaterThan(0)
   for (const hit of c.hits.filter((h) => h['up.role'] !== undefined)) expect(hit['up.role']).toBe('guest')
   expect(c.hits.some((hit) => hit['up.role'] === 'guest'), '至少一個請求帶角色').toBe(true)
-  expectDeidentifiedPageViews(c)
+  await expectDeidentifiedPageViews(c)
   expectNoPii(c, ['TESTTOKEN123', 'token=', '?q=', entryId, TITLE])
   expect(cspErrors).toEqual([])
   await context.close()
@@ -244,7 +252,7 @@ test('AC-VI-68、AC-VI-78 學生：搜尋字不外流、角色 student；作品�
 
   for (const hit of c.hits.filter((h) => h['up.role'] !== undefined)) expect(hit['up.role']).toBe('student')
   expect(c.hits.some((hit) => hit['up.role'] === 'student')).toBe(true)
-  expectDeidentifiedPageViews(c)
+  await expectDeidentifiedPageViews(c)
   expectNoPii(c, ['王小明', 'wang@example.com', '?q=', stamp, entryId, 'dQw4w9WgXcQ', student.email])
   expect(cspErrors).toEqual([])
   await context.close()

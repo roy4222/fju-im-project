@@ -1,0 +1,5 @@
+{
+  "ticket": "C2-22-fix1",
+  "override": { "/d": { "from": "C1-13", "value": { "baseline": 2, "limit": 3 } } },
+  "delete": [{ "key": "/c", "from": "base" }]
+}

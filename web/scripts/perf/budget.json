@@ -41,6 +41,18 @@
     "baseline": 246,
     "limit": 250
   },
+  "/dashboard/admin/accounts/disabled": {
+    "baseline": 223.5,
+    "limit": 250
+  },
+  "/dashboard/admin/accounts/pending": {
+    "baseline": 223.5,
+    "limit": 250
+  },
+  "/dashboard/admin/accounts/roster": {
+    "baseline": 223.5,
+    "limit": 250
+  },
   "/dashboard/admin/affairs": {
     "baseline": 237.7,
     "limit": 250
@@ -48,6 +60,18 @@
   "/dashboard/admin/affairs/[id]": {
     "baseline": 225.8,
     "limit": 249
+  },
+  "/dashboard/admin/affairs/assignments": {
+    "baseline": 240,
+    "limit": 250
+  },
+  "/dashboard/admin/affairs/resources": {
+    "baseline": 240,
+    "limit": 250
+  },
+  "/dashboard/admin/affairs/rules": {
+    "baseline": 240,
+    "limit": 250
   },
   "/dashboard/admin/audit": {
     "baseline": 222,
@@ -97,8 +121,16 @@
     "baseline": 241.4,
     "limit": 250
   },
+  "/dashboard/admin/grading/teachers": {
+    "baseline": 223.5,
+    "limit": 250
+  },
   "/dashboard/admin/groups": {
     "baseline": 237.8,
+    "limit": 250
+  },
+  "/dashboard/admin/groups/unassigned": {
+    "baseline": 223.5,
     "limit": 250
   },
   "/dashboard/admin/home-settings": {
@@ -240,6 +272,26 @@
   "/news/[id]": {
     "baseline": 222,
     "limit": 245
+  },
+  "/office-edit": {
+    "baseline": 227.7,
+    "limit": 250
+  },
+  "/office-edit/files": {
+    "baseline": 227.7,
+    "limit": 250
+  },
+  "/office-edit/industry": {
+    "baseline": 227.9,
+    "limit": 250
+  },
+  "/office-edit/privacy": {
+    "baseline": 227.7,
+    "limit": 250
+  },
+  "/office-edit/rules": {
+    "baseline": 227.7,
+    "limit": 250
   },
   "/privacy": {
     "baseline": 222,

@@ -426,18 +426,13 @@ describe('系辦審核', () => {
     expect(stale).toMatchObject({ ok: false, code: 'CONFLICT', details: { currentRevision: 2 } })
     expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'pending' })
 
-    // 核實方式必選。
-    const noMethod = await command.approve(admin(), {
-      applicationId: row.applicationId, revision: 2, verificationMethod: '', verificationNote: '', reason: '', cohortId: null, requestId: requestId(),
-    })
-    expect(noMethod).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'verificationMethod' } })
-
     const id = requestId()
     const input = {
-      applicationId: row.applicationId, revision: 2, verificationMethod: 'id_document', verificationNote: '9/24 櫃台核對學生證', reason: '', cohortId: null, requestId: id,
+      applicationId: row.applicationId, revision: 2, verificationMethod: '', verificationNote: '', reason: '', cohortId: null, requestId: id,
     }
+    // 不帶核實方式也能核准（C2-10；AC-C2-15）：寫入固定值 office_review。
     const approved = await command.approve(admin(), input)
-    expect(approved).toMatchObject({ ok: true, receipt: { decision: 'approved', cohortName: '115 學年度專題', verificationMethod: 'id_document' } })
+    expect(approved).toMatchObject({ ok: true, receipt: { decision: 'approved', cohortName: '115 學年度專題', verificationMethod: 'office_review' } })
 
     expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'active' })
     expect(await one(`select role, granted_by_user_id from role_assignments where user_id = $1`, [userId])).toEqual({ role: 'student', granted_by_user_id: adminId })
@@ -446,7 +441,7 @@ describe('系辦審核', () => {
       display_name: '林小華', cohort_id: cohort115, phone: '0955-555-555', department_class: '資管二乙',
     })
     expect(await one(`select from_status, to_status, verification_method, actor_user_id from user_status_events where user_id = $1`, [userId])).toEqual({
-      from_status: 'pending', to_status: 'active', verification_method: 'id_document', actor_user_id: adminId,
+      from_status: 'pending', to_status: 'active', verification_method: 'office_review', actor_user_id: adminId,
     })
     const decided = await one<Record<string, unknown>>(
       `select state, decided_by_user_id, verification_method, verification_note, assigned_cohort_id, roster_version_id is not null as has_version, revision
@@ -454,17 +449,17 @@ describe('系辦審核', () => {
       [row.applicationId],
     )
     expect(decided).toEqual({
-      state: 'approved', decided_by_user_id: adminId, verification_method: 'id_document', verification_note: '9/24 櫃台核對學生證',
+      state: 'approved', decided_by_user_id: adminId, verification_method: 'office_review', verification_note: null,
       assigned_cohort_id: cohort115, has_version: true, revision: 2,
     })
     expect(await one(`select verification_method, cohort_id from audit_events where action = 'account.approve' and target_id = $1`, [row.applicationId])).toEqual({
-      verification_method: 'id_document', cohort_id: cohort115,
+      verification_method: 'office_review', cohort_id: cohort115,
     })
 
     // 同一個請求編號重送：回同一份回執，不重做；內容不同就拒絕。
     const replay = await command.approve(admin(), input)
     expect(replay).toMatchObject({ ok: true, receipt: { decidedAt: (approved as { receipt: { decidedAt: string } }).receipt.decidedAt } })
-    expect(await command.approve(admin(), { ...input, verificationMethod: 'other', verificationNote: '改了' })).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
+    expect(await command.approve(admin(), { ...input, reason: '改了' })).toMatchObject({ ok: false, code: 'REQUEST_MISMATCH' })
     // 新的請求編號：已經處理過了。
     expect(await command.approve(admin(), { ...input, requestId: requestId() })).toMatchObject({ ok: false, code: 'CONFLICT' })
   })
@@ -577,6 +572,11 @@ describe('系辦審核', () => {
     expect(resubmitted).toMatchObject({ ok: true, receipt: { revision: 1 } })
     expect((resubmitted as { receipt: { applicationId: string } }).receipt.applicationId).not.toBe(rowSecond.applicationId)
     expect(await command.viewMine(pendingActor(second))).toMatchObject({ ok: true, receipt: { state: 'pending', rejection: null } })
+    // AC-C2-20：待審清單用「先前被退回過」標已重送（新申請的版本是 1，不能靠版本判斷）；沒被退回過的不標。
+    const relisted = await command.listPending(admin())
+    if (!relisted.ok) throw new Error(relisted.message)
+    expect(relisted.receipt.applications.find((a) => a.userId === second)).toMatchObject({ revision: 1, previouslyRejected: true })
+    expect(relisted.receipt.applications.find((a) => a.userId === first)?.previouslyRejected ?? false).toBe(false)
     expect(
       await command.approve(admin(), {
         applicationId: rowSecond.applicationId, revision: 1, verificationMethod: 'id_document', verificationNote: '', reason: '', cohortId: null, requestId: requestId(),
@@ -999,6 +999,8 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
   let rosterVersion: string
   const googleActor = (userId: string): ResolvedActor => ({ ...pendingActor(userId), loginMethod: 'google' }) as ResolvedActor
 
+  const passwordActor = (userId: string): ResolvedActor => ({ ...pendingActor(userId), loginMethod: 'password' }) as ResolvedActor
+
   /** 115 屆最新一版名單多一列（學號、姓名、名單 Email）。 */
   const rosterRow = async (studentNo: string, name: string, email: string | null) =>
     db.sql(
@@ -1055,6 +1057,7 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
          from registration_applications where user_id = $1`,
       [userId],
     )
+    console.info('[AC-C2-28 google row]', JSON.stringify({ state: application.state, verification_method: application.verification_method, assigned_cohort_id: application.assigned_cohort_id }))
     expect(application).toMatchObject({
       state: 'approved',
       verification_method: 'google_email_match',
@@ -1105,8 +1108,7 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
     expect(listed.ok && listed.receipt.applications.some((a) => a.userId === userId)).toBe(false)
   })
 
-  it('AC-VI-56：密碼註冊 Email 相同、Email 不同、學號已被占用、姓名不同、+suffix、全形字 → 六種都照舊待審、不報錯', async () => {
-    await rosterRow('411401010', '李小華', 'g10@example.com') // (a)
+  it('AC-VI-56：Email 不同、學號已被占用、姓名不同、+suffix、全形字 → 五種都照舊待審、不報錯', async () => {
     await rosterRow('411401011', '李小華', 'g11@example.com') // (b)
     await rosterRow('411401012', '李小華', 'g12@example.com') // (c)
     await rosterRow('411401013', '李小華', 'g13@example.com') // (d)
@@ -1128,8 +1130,7 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
     expect(await command.autoApprovedMine(activeActor(holder, ['student']))).toBe(false)
     expect(await command.autoApprovedMine(ANON)).toBe(false)
 
-    const cases: { tag: string; email: string; studentNo: string; name: string; password?: true }[] = [
-      { tag: '(a) 密碼註冊', email: 'g10@example.com', studentNo: '411401010', name: '李小華', password: true },
+    const cases: { tag: string; email: string; studentNo: string; name: string }[] = [
       { tag: '(b) Email 不同', email: 'g11x@example.com', studentNo: '411401011', name: '李小華' },
       { tag: '(c) 學號已被占用', email: 'g12@example.com', studentNo: '411401012', name: '李小華' },
       { tag: '(d) 姓名不同', email: 'g13@example.com', studentNo: '411401013', name: '李小花' },
@@ -1137,15 +1138,59 @@ describe('Q42 自動開通（VB-6，AC-VI-55、56）', () => {
       { tag: '(f) 全形 g', email: 'ｇ15@example.com', studentNo: '411401015', name: '李小華' },
     ]
     for (const c of cases) {
-      const userId = await pendingUser(c.email, !c.password)
-      const actor = c.password ? ({ ...pendingActor(userId), loginMethod: 'password' } as ResolvedActor) : googleActor(userId)
-      const result = await command.reviseMine(actor, fieldsOf(c.name, c.studentNo, c.email), null)
+      const userId = await pendingUser(c.email)
+      const result = await command.reviseMine(googleActor(userId), fieldsOf(c.name, c.studentNo, c.email), null)
       expect(result, c.tag).toMatchObject({ ok: true, receipt: { revision: 1 } })
       expect(result.ok && result.receipt.autoApproved, c.tag).toBeFalsy()
       expect(await stateOf(userId), c.tag).toEqual({ state: 'pending', verification_method: null, status: 'pending' })
       expect(await one(`select count(*)::int as n from student_identities where user_id = $1`, [userId]), c.tag).toEqual({ n: 0 })
     }
     expect(await one(`select count(*)::int as n from audit_events where action = 'registration.auto_approve' and payload->>'userId' = $1`, [holder])).toEqual({ n: 0 })
+  })
+
+  it('AC-C2-28：Email 密碼註冊、已驗證、名單同一列 → 直接開通，核實方式 email_roster_match', async () => {
+    await rosterRow('411401050', '林小華', 'g50@example.com')
+    const userId = await pendingUser('g50@example.com', false)
+    const result = await command.reviseMine(passwordActor(userId), fieldsOf('林小華', '411401050', 'g50@example.com'), null)
+    expect(result).toMatchObject({ ok: true, receipt: { revision: 1, autoApproved: true } })
+    const application = await one<{ id: string }>(`select id from registration_applications where user_id = $1`, [userId])
+    // 證據：registration_applications 一列（PR 說明引用）。
+    const row = await one(
+      `select state, verification_method, assigned_cohort_id, decided_by_user_id from registration_applications where user_id = $1`,
+      [userId],
+    )
+    console.info('[AC-C2-28 registration_applications]', JSON.stringify(row))
+    expect(row).toEqual({ state: 'approved', verification_method: 'email_roster_match', assigned_cohort_id: cohort115, decided_by_user_id: null })
+    expect(await one(`select status from users where id = $1`, [userId])).toEqual({ status: 'active' })
+    expect(await one(`select cohort_id, student_no from student_identities where user_id = $1`, [userId])).toEqual({
+      cohort_id: cohort115,
+      student_no: '411401050',
+    })
+    expect(await one(`select cohort_id from user_profiles where user_id = $1`, [userId])).toEqual({ cohort_id: cohort115 })
+    expect(
+      await one(`select actor_kind, verification_method from user_status_events where user_id = $1`, [userId]),
+    ).toEqual({ actor_kind: 'system', verification_method: 'email_roster_match' })
+    expect(
+      await one(`select verification_method, reason from audit_events where target_id = $1 and action = 'registration.auto_approve'`, [application.id]),
+    ).toEqual({ verification_method: 'email_roster_match', reason: 'Email 註冊已驗證，Email、學號、姓名與名單同一列，自動開通' })
+    expect(await command.autoApprovedMine(activeActor(userId, ['student']))).toBe(true)
+  })
+
+  it('AC-C2-29：Email 註冊、姓名不同 → 待審；Email 沒驗證 → 擋下、不新增申請與學號占用', async () => {
+    await rosterRow('411401051', '林小華', 'g51@example.com')
+    const named = await pendingUser('g51@example.com', false)
+    const r1 = await command.reviseMine(passwordActor(named), fieldsOf('林大華', '411401051', 'g51@example.com'), null)
+    expect(r1).toMatchObject({ ok: true, receipt: { revision: 1 } })
+    expect(r1.ok && r1.receipt.autoApproved).toBeFalsy()
+    expect(await stateOf(named)).toEqual({ state: 'pending', verification_method: null, status: 'pending' })
+
+    await rosterRow('411401052', '林小華', 'g52@example.com')
+    const unverified = await pendingUser('g52@example.com', false)
+    await db.sql(`update users set email_verified = false where id = $1`, [unverified])
+    const r2 = await command.reviseMine(passwordActor(unverified), fieldsOf('林小華', '411401052', 'g52@example.com'), null)
+    expect(r2).toMatchObject({ ok: false, code: 'FORBIDDEN', message: '請先完成 Email 驗證。' })
+    expect(await one(`select count(*)::int as n from registration_applications where user_id = $1`, [unverified])).toEqual({ n: 0 })
+    expect(await one(`select count(*)::int as n from student_identities where student_no = '411401052'`)).toEqual({ n: 0 })
   })
 
   it('被退回後重送：就算資料完全符合也不自動開通（系辦的決定不由系統推翻）', async () => {

@@ -13,24 +13,25 @@
  * manifest 的路由沒有預算列 → exit 1，不輸出假零值。超過 → exit 1 並列最大 5 個 chunk。
  *
  * `--write-baseline`：用同一算法覆寫每列 `baseline`，`limit = min(ceil(baseline × 1.1), 250)`；
- * baseline 已超過 250 時 `limit = ceil(baseline × 1.1)`（Q106）。`$shared` 的 limit 固定 230、`$rules` 保留。
+ * baseline 已超過 250 時 `limit = ceil(baseline × 1.1)`（Q106，算法在 `limits.mjs`）。`$shared` 的 limit 固定 230、`$rules` 保留。
+ *
+ * 預算讀的是「基底 `budget.json` ＋ `budget.d/` 小檔」合併後的結果（D-23 放寬，`scripts/overlay/merge.mjs`）；
+ * 小檔撞鍵 → exit 1。`budget.d/` 有小檔時 `--write-baseline` 拒絕執行（先 `pnpm -C web overlay fold budget`）。
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { pathToFileURL } from 'node:url'
 import { WEB_ROOT, fail, parseArgs } from './db.mjs'
+import { SHARED_LIMIT_KB, limitFor } from './limits.mjs'
+import { OverlayError, hasOverlayFiles, mergeFromBaseFile } from '../overlay/merge.mjs'
 
 const STATS = path.join('.next', 'diagnostics', 'route-bundle-stats.json')
 const HOME_ROUTES = ['/dashboard/student', '/dashboard/teacher', '/dashboard/admin']
-const HARD_CAP_KB = 250
-const SHARED_LIMIT_KB = 230
 const DEFAULT_RULES = { homeRoutesMustNotContain: ['recharts'] }
 
-export function limitFor(baselineKb) {
-  const grown = Math.ceil(baselineKb * 1.1)
-  return baselineKb > HARD_CAP_KB ? grown : Math.min(grown, HARD_CAP_KB)
-}
+// 相容既有 import：算法搬到 limits.mjs（overlay 合併器也要用，不能經這支把 pg 拉進 e2e）。
+export { limitFor }
 
 const kb = (bytes) => Math.round((bytes / 1024) * 10) / 10
 
@@ -53,7 +54,8 @@ export function measure(webDir) {
   }
   const routes = new Map()
   for (const row of rows) {
-    if (row.route.startsWith('/_')) continue // /_not-found、/_global-error 不是使用者會開的頁
+    // /_global-error 不是使用者會開的頁；/_not-found 是 404 頁（打錯網址、notFound()），要守預算（規格④ §6，C4-05）。
+    if (row.route.startsWith('/_') && row.route !== '/_not-found') continue
     const chunks = [...new Set(row.firstLoadChunkPaths ?? [])]
     if (chunks.length === 0) fail(`${row.route} 沒有 firstLoadChunkPaths。`)
     routes.set(row.route, { gz: chunks.reduce((sum, c) => sum + gz(c), 0), chunks })
@@ -78,14 +80,27 @@ function writeBaseline(budgetFile, result) {
   console.log(`已寫入 ${budgetFile}（${result.routes.size} 個路由）。`)
 }
 
+/** 小檔撞鍵、格式錯 → 印訊息、exit 1（不噴 stack）。 */
+function overlayOrFail(fn) {
+  try {
+    return fn()
+  } catch (e) {
+    if (e instanceof OverlayError) fail(e.message)
+    throw e
+  }
+}
+
 function main() {
   const opts = parseArgs(process.argv.slice(2))
   const webDir = path.resolve(opts.dir ?? WEB_ROOT)
   const budgetFile = path.resolve(opts.budget ?? path.join(import.meta.dirname, 'budget.json'))
+  if (opts['write-baseline'] && overlayOrFail(() => hasOverlayFiles(budgetFile))) {
+    fail(`${path.basename(budgetFile, '.json')}.d/ 還有小檔，--write-baseline 會重寫基底、跟小檔撞鍵。先 pnpm -C web overlay fold budget 再跑。`)
+  }
   const result = measure(webDir)
   if (opts['write-baseline']) writeBaseline(budgetFile, result)
   if (!fs.existsSync(budgetFile)) fail(`找不到預算檔 ${budgetFile}。`)
-  const budget = JSON.parse(fs.readFileSync(budgetFile, 'utf8'))
+  const budget = overlayOrFail(() => mergeFromBaseFile(budgetFile, 'budget').merged)
 
   const problems = []
   const lines = []

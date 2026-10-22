@@ -160,14 +160,12 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
 
   await page.getByLabel('誰看得到').selectOption('groups')
   await page.getByRole('checkbox', { name: new RegExp(GROUP) }).check()
-  await page.getByLabel('所屬階段').selectOption({ index: 1 })
   await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(new Date(Date.now() + 20 * DAY)))
 
+  // C1-06：沒有所屬階段；一頁式表單按「發布」直接發（名單在右欄預覽），成功回清單。
+  await expect(page.getByTestId('recipient-preview')).toContainText('需要繳交的名單：1 組')
   await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
 
   const item = await pool.query<{ id: string; receiver_unit: string; draft_schema: { fields: { key: string; label: string; required: boolean }[] } }>(
     `select id, receiver_unit, draft_schema from managed_items where cohort_id = $1 and title = $2`,
@@ -189,8 +187,8 @@ test('系辦建收件：按「套用專題需求表欄位」出現 7 個欄位�
 
 test('組長：五個必填任一欄留空送出都被拒並指出是哪一欄；填妥五欄、兩個選填留空可以送出', async ({ page }) => {
   await signIn(page, leader)
-  await page.goto(`/dashboard/student/affairs/${itemId}`)
-  const submit = page.getByRole('button', { name: '代表全組正式送出' })
+  await page.goto(`/dashboard/student/affairs/${itemId}?tab=history&write=1`)
+  const submit = page.getByRole('button', { name: '繳交作業' })
 
   for (const blank of REQUIRED) {
     for (const label of REQUIRED) await answerBox(page, label).fill(label === blank ? '' : ANSWER[label])

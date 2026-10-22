@@ -102,6 +102,42 @@ const SCROLL_ANIMATE_JS = `(sc, left, top, speed) => new Promise((resolve) => {
   requestAnimationFrame(f);
 })`;
 
+/**
+ * 可見區 r（viewport 座標）四邊被固定元素蓋掉多少 CSS px（以字串傳進頁面；t.click 捲動用，#412）：
+ * position 是 sticky 或 fixed、對應那一邊有設偏移（top／bottom／left／right 不是 auto）、貼著那一邊（多個疊起來的
+ * 也算，例如黏頂列下面再黏表頭）、而且跟 el 同一欄（上下邊）或同一列（左右邊）。el 自己、它的祖先與子孫、
+ * pointer-events: none 或看不見的、比可見區一半還大的（對話框遮罩之類）都不算。
+ */
+export const STICKY_INSETS_JS = `(el, r) => {
+  const e = el.getBoundingClientRect();
+  const w = r.right - r.left, h = r.bottom - r.top;
+  const spans = { top: [], bottom: [], left: [], right: [] };
+  for (const s of document.querySelectorAll('body *')) {
+    const cs = getComputedStyle(s);
+    if (cs.position !== 'sticky' && cs.position !== 'fixed') continue;
+    if (s.contains(el) || el.contains(s)) continue;
+    if (cs.visibility !== 'visible' || cs.pointerEvents === 'none' || Number(cs.opacity) === 0) continue;
+    const b = s.getBoundingClientRect();
+    if (b.width < 1 || b.height < 1 || b.right <= r.left || b.left >= r.right || b.bottom <= r.top || b.top >= r.bottom) continue;
+    const sameCol = b.left < e.right && b.right > e.left;
+    const sameRow = b.top < e.bottom && b.bottom > e.top;
+    if (sameCol && b.height < h / 2) {
+      if (cs.top !== 'auto') spans.top.push([b.top - r.top, b.bottom - r.top]);
+      if (cs.bottom !== 'auto') spans.bottom.push([r.bottom - b.bottom, r.bottom - b.top]);
+    }
+    if (sameRow && b.width < w / 2) {
+      if (cs.left !== 'auto') spans.left.push([b.left - r.left, b.right - r.left]);
+      if (cs.right !== 'auto') spans.right.push([r.right - b.right, r.right - b.left]);
+    }
+  }
+  const inset = (list) => {
+    let d = 0;
+    for (const [from, to] of list.sort((a, b) => a[0] - b[0])) if (from <= d + 2) d = Math.max(d, to);
+    return d;
+  };
+  return { top: inset(spans.top), bottom: inset(spans.bottom), left: inset(spans.left), right: inset(spans.right) };
+}`;
+
 function loadSample(): LoadSample {
   const [l1, l5] = loadavg();
   return { at: Date.now(), loadavg1: Math.round(l1 * 100) / 100, loadavg5: Math.round(l5 * 100) / 100, freeMemMB: Math.round(freemem() / 1048576) };
@@ -1248,14 +1284,18 @@ export class Chapter {
    * 把元素捲進畫面：從最裡面的捲動容器往外，每一層（含整頁）各自平滑捲動，全部記成一個 scroll 事件（影片像素）。
    * - center（t.click 用）：只在元素沒有完整可見時捲——每層算讓元素落在可見區內的最小位移（留 24 px 邊）；
    *   整頁直向另外照安全區：元素中心不在「網址列下 40px ～ 底邊上 24px」之間就捲到畫面 42%。
+   *   「可見區」扣掉蓋在邊上的 sticky／fixed 元素（黏頂列、黏住的表頭、固定的首欄，見 STICKY_INSETS_JS，#412）；
+   *   捲完再量一次，捲動中才黏住的表頭還蓋著就再補一段，最多兩段。
    * - third（t.scroll(locator) 用）：**一律**把元素頂端對到可見區上方三分之一（整頁與每一層容器都是），
    *   已經看得到也一樣——劇本用它把某一區帶到畫面上方給觀眾看；橫向只在被切到時做最小位移。
    */
   private async scrollIntoView(locator: Locator, mode: 'center' | 'third'): Promise<void> {
     const startMs = this.now();
     const moved = await locator.evaluate(
-      async (el, { topSafe, bottomSafe, margin, mode, speed, animateJs }) => {
+      async (el, { topSafe, bottomSafe, margin, mode, speed, animateJs, insetsJs }) => {
         const animate = new Function(`return ${animateJs}`)() as (sc: Element, left: number, top: number, speed: number) => Promise<{ dx: number; dy: number }>;
+        type Box = { left: number; top: number; right: number; bottom: number };
+        const insetsOf = new Function(`return ${insetsJs}`)() as (el: Element, r: Box) => Box;
         const scrollable = (a: Element) => {
           const cs = getComputedStyle(a);
           const x = /(auto|scroll|overlay)/.test(cs.overflowX) && a.scrollWidth > a.clientWidth + 1;
@@ -1272,34 +1312,56 @@ export class Chapter {
         chain.push({ sc: root, x: root.scrollWidth > innerWidth + 1, y: root.scrollHeight > innerHeight + 1, win: true });
         let total = { dx: 0, dy: 0 };
         for (const { sc, x, y, win } of chain) {
-          const e = el.getBoundingClientRect();
-          const r = win
-            ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
-            : (() => {
-                const b = sc.getBoundingClientRect();
-                return { left: b.left + sc.clientLeft, top: b.top + sc.clientTop, right: b.left + sc.clientLeft + sc.clientWidth, bottom: b.top + sc.clientTop + sc.clientHeight };
-              })();
-          let dx = 0;
-          let dy = 0;
-          if (x) {
-            if (e.width > r.right - r.left - 2 * margin || e.left < r.left + margin) dx = e.left - (r.left + margin);
-            else if (e.right > r.right - margin) dx = e.right - (r.right - margin);
+          // center：第二段只在第一段捲完後還被蓋住時才會動（例如表頭捲動中才黏到頂端）
+          for (let pass = 0; pass < (mode === 'center' ? 2 : 1); pass++) {
+            const e = el.getBoundingClientRect();
+            const full: Box = win
+              ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
+              : (() => {
+                  const b = sc.getBoundingClientRect();
+                  return { left: b.left + sc.clientLeft, top: b.top + sc.clientTop, right: b.left + sc.clientLeft + sc.clientWidth, bottom: b.top + sc.clientTop + sc.clientHeight };
+                })();
+            // third 照舊對齊整個可見區；center 扣掉蓋在邊上的固定元素
+            const ins = mode === 'center' ? insetsOf(el, full) : { left: 0, top: 0, right: 0, bottom: 0 };
+            const r: Box = { left: full.left + ins.left, top: full.top + ins.top, right: full.right - ins.right, bottom: full.bottom - ins.bottom };
+            let dx = 0;
+            let dy = 0;
+            if (x) {
+              if (e.width > r.right - r.left - 2 * margin || e.left < r.left + margin) dx = e.left - (r.left + margin);
+              else if (e.right > r.right - margin) dx = e.right - (r.right - margin);
+            }
+            if (y) {
+              const h = r.bottom - r.top;
+              if (mode === 'third') dy = e.top - (r.top + h * 0.3);
+              else if (win) {
+                const cy = (e.top + e.bottom) / 2;
+                if (cy < full.top + topSafe || cy > full.bottom - bottomSafe || e.top < r.top || e.bottom > r.bottom) {
+                  // 照舊捲到畫面 42%；有東西蓋住上下邊時，夾在沒被蓋住的範圍裡：放得下（含上下 margin）就整個放進去，
+                  // 放不下（元素比沒被蓋住的範圍還高）只把中心夾進去——點擊打在中心，中心一定要看得到
+                  const half = e.height / 2;
+                  let target = full.top + (full.bottom - full.top) * 0.42;
+                  if (ins.top > 0 || ins.bottom > 0) {
+                    target =
+                      e.height + 2 * margin <= h
+                        ? Math.min(Math.max(target, r.top + half + margin), r.bottom - half - margin)
+                        : Math.min(Math.max(target, r.top + margin), r.bottom - margin);
+                  }
+                  dy = cy - target;
+                }
+              } else if (e.height > h - 2 * margin || e.top < r.top + margin) {
+                // 頂端對齊（留 margin）；元素高到這樣對齊後中心會跑出可見區時，改成中心對到可見區正中
+                dy = e.height / 2 + 2 * margin > h ? (e.top + e.bottom) / 2 - (r.top + h / 2) : e.top - (r.top + margin);
+              }
+              else if (e.bottom > r.bottom - margin) dy = e.bottom - (r.bottom - margin);
+            }
+            if (pass > 0 && Math.abs(dx) < 1 && Math.abs(dy) < 1) break;
+            const m = await animate(sc, sc.scrollLeft + dx, sc.scrollTop + dy, speed);
+            total = { dx: total.dx + m.dx, dy: total.dy + m.dy };
           }
-          if (y) {
-            const h = r.bottom - r.top;
-            if (mode === 'third') dy = e.top - (r.top + h * 0.3);
-            else if (win) {
-              const cy = (e.top + e.bottom) / 2;
-              if (cy < r.top + topSafe || cy > r.bottom - bottomSafe || e.top < r.top || e.bottom > r.bottom) dy = cy - (r.top + h * 0.42);
-            } else if (e.height > h - 2 * margin || e.top < r.top + margin) dy = e.top - (r.top + margin);
-            else if (e.bottom > r.bottom - margin) dy = e.bottom - (r.bottom - margin);
-          }
-          const m = await animate(sc, sc.scrollLeft + dx, sc.scrollTop + dy, speed);
-          total = { dx: total.dx + m.dx, dy: total.dy + m.dy };
         }
         return total;
       },
-      { topSafe: 40 / this.zoom, bottomSafe: 24 / this.zoom, margin: 24, mode, speed: this.zoom * 0.9, animateJs: SCROLL_ANIMATE_JS },
+      { topSafe: 40 / this.zoom, bottomSafe: 24 / this.zoom, margin: 24, mode, speed: this.zoom * 0.9, animateJs: SCROLL_ANIMATE_JS, insetsJs: STICKY_INSETS_JS },
     );
     await this.pushScroll(startMs, moved);
   }

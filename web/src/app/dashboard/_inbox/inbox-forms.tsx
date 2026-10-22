@@ -1,11 +1,12 @@
 'use client'
 import { useActionState } from 'react'
-import { markAllReadAction, markReadAction } from './actions'
+import { useFormStatus } from 'react-dom'
+import { markAllReadAction, markReadAction, openNotificationAction } from './actions'
 import { BTN_OUTLINE } from '@/app/_ui/dashboard-kit'
 import { cn } from '@/shared/cn'
 
 /**
- * 通知匣的兩顆按鈕（票 12）。都是真的 `<form>` 送 Server Action：沒有 JavaScript 也按得動，
+ * 通知匣的按鈕（票 12；C2-15 加「點開」）。都是真的 `<form>` 送 Server Action：沒有 JavaScript 也按得動，
  * 有 JavaScript 時顯示「處理中…」與伺服器回的一句話。
  */
 
@@ -57,6 +58,39 @@ export function MarkReadButton({ notificationId, title }: { notificationId: stri
         {pending ? '處理中…' : '標為已讀'}
       </button>
       {state && !state.ok ? <Feedback state={state} /> : null}
+    </form>
+  )
+}
+
+function OpenSubmit({ title, className }: { title: string; className: string }) {
+  const { pending } = useFormStatus()
+  return (
+    <button type="submit" disabled={pending} className={cn('block max-w-full cursor-pointer text-left disabled:opacity-60', className)}>
+      {title}
+    </button>
+  )
+}
+
+/**
+ * 有來源頁的通知標題（C2-15）：樣子像連結，其實是送 `openNotificationAction` 的按鈕——
+ * 點了才標已讀並導去來源頁。`inbox` 是失敗時要回去的本人收件匣。
+ */
+export function OpenNotificationButton({
+  notificationId,
+  title,
+  inbox,
+  className,
+}: {
+  notificationId: string
+  title: string
+  inbox: string
+  className: string
+}) {
+  return (
+    <form action={openNotificationAction} className="min-w-0">
+      <input type="hidden" name="notificationId" value={notificationId} />
+      <input type="hidden" name="inbox" value={inbox} />
+      <OpenSubmit title={title} className={className} />
     </form>
   )
 }

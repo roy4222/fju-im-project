@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
-import { expect, request as playwrightRequest, test, type APIResponse } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
@@ -14,6 +14,17 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的 request context 每個測試結束就 dispose（#816）；回應要在測試裡讀 body，所以不在抓完就關。 */
+const openRequests: APIRequestContext[] = []
+function track(context: APIRequestContext): APIRequestContext {
+  openRequests.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openRequests.splice(0).map((context) => context.dispose()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const FIXTURE = new URL('../test/fixtures/exif.jpg', import.meta.url)
 
@@ -72,7 +83,7 @@ async function setAvatar(userId: string, fileId: string | null, preset: number |
 }
 
 async function fetchAvatar(as: TestSession | null, id: string, headers: Record<string, string> = {}): Promise<APIResponse> {
-  const context = await playwrightRequest.newContext({ baseURL: BASE_URL })
+  const context = track(await playwrightRequest.newContext({ baseURL: BASE_URL }))
   const response = await context.get(`/api/files/${id}`, { headers: as ? { ...headers, cookie: as.cookie } : headers, maxRedirects: 0 })
   await response.body().catch(() => undefined)
   return response
@@ -126,7 +137,8 @@ test('上傳 EXIF JPEG → WebP；三種登入者 200（private, no-cache＋ETag
 
 test('瀏覽器暖快取後換圖：選單換成新圖；舊網址帶舊 ETag 回來問拿到 404（不是 304）', async ({ page }) => {
   await page.context().addCookies([toPlaywrightCookie(student.cookie, BASE_URL)])
-  await page.goto('/')
+  // 帳號選單只在後台（前台沒有，C2-14）。
+  await page.goto('/dashboard/student')
   const menuAvatar = page.getByRole('button', { name: '帳號選單' }).locator('img')
   await expect(menuAvatar).toHaveAttribute('src', `/api/files/${first}`)
   await expect.poll(() => menuAvatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBe(256)
@@ -146,7 +158,7 @@ test('瀏覽器暖快取後換圖：選單換成新圖；舊網址帶舊 ETag �
   const document = await fetchAvatar(student, first, { 'sec-fetch-dest': 'document' })
   expect(document.status()).toBe(404)
   expect(document.headers()['location']).toBeUndefined()
-  const json = await (await playwrightRequest.newContext({ baseURL: BASE_URL })).get(`/api/files/${first}`, { headers: { cookie: admin.cookie } })
+  const json = await track(await playwrightRequest.newContext({ baseURL: BASE_URL })).get(`/api/files/${first}`, { headers: { cookie: admin.cookie } })
   expect(json.status()).toBe(404)
   expect(await json.json()).toMatchObject({ ok: false, code: 'FILE_GONE' })
 

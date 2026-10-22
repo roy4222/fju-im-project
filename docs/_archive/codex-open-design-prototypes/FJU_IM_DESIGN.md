@@ -93,7 +93,7 @@ Sampled from the public [FJU Department of Information Management site](https://
 
 ## Product references
 
-- Canonical spec: `/Users/lubaiyu/Documents/roy422的人生online/🗺️ 輔大資管系專題網站重構 MOC.md`
+- Canonical spec: `Vault:🗺️ 輔大資管系專題網站重構 MOC.md`
 - Current department site: https://www.im.fju.edu.tw/
 - Old project site: https://project.im.fju.edu.tw/Home
 - shadcn/ui: https://ui.shadcn.com/docs/components

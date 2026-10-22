@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node --test --test-concurrency=1 engine/test/*.test.ts",
-    "typecheck": "tsc -p engine/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
     "sample": "node engine/samples/visitor-sample.ts",
     "render": "node engine/cli.ts render",
     "assemble": "node engine/cli.ts assemble"

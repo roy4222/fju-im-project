@@ -37,7 +37,7 @@ export function TodoPanels({
       {empty ? (
         <p className="dash-card px-5 py-4 text-sm text-muted-foreground">目前沒有待辦</p>
       ) : (
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 sm:grid-cols-2 xl:grid-cols-4 [&_h2]:overflow-visible [&_h2]:text-clip [&_h2]:whitespace-normal">
           {toGrade.length > 0 ? (
             <Panel title="待評分" icon={<IconChecklist />} action={<Pill tone="brand">{toGrade.length} 組</Pill>} testId="todo-grading" className="h-full">
               <ul className="pb-2">

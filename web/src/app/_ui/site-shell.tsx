@@ -9,18 +9,20 @@ import { homeFor, renderActor, shellViewer } from '@/app/_ui/guard'
 import { InboxBell } from '@/app/_ui/inbox-bell'
 import { SiteHeader, type NavItem as HeaderNavItem } from '@/app/_ui/site-header'
 import { SignOutForm } from '@/app/_ui/sign-out'
+import { feItem, frontEditScope } from '@/app/_ui/front-edit/mark'
 import { badgeMap, roleOfBase } from '@/app/_ui/nav-badge-rules'
-import { otherWorkbenches, roleSwitchLinks } from '@/app/_ui/role-switch'
+import { roleSwitchLinks } from '@/app/_ui/role-switch'
 import { navBadgeCounts } from '@/app/_ui/nav-badges'
 import { SIDEBAR_COOKIE_NAME, sidebarOpenFromCookie } from '@/app/_ui/sidebar-cookie'
-import { SITE_CONTACT } from '@/app/_ui/site-contact'
+import { resolveSiteContact, type SiteContact } from '@/app/_ui/site-contact'
 import { checkStatus, isRegistrationOpen } from '@/composition/accounts'
+import { loadSiteTexts } from '@/composition/site'
 import { cn } from '@/shared/cn'
 
 /**
  * 前台主導覽（產品模組 09 §9.2「首頁 hero 與導覽」；順序照原型 `components/public/site-header.tsx`）：
  * - 訪客：最新公告（下拉：公告列表／競賽資訊）、專題規則、優秀專題、榮譽榜——優秀專題與榮譽榜提到頂層。
- * - 登入後：最新公告（同上）、專題規則、歷屆專題（下拉：歷屆專題一覽／優秀專題／榮譽榜）、產學合作、檔案下載。
+ * - 登入後：最新公告（同上）、專題規則、專題時程（C3 §9.6）、歷屆專題（下拉：歷屆專題一覽／優秀專題／榮譽榜）、產學合作、檔案下載。
  */
 const NEWS_NAV: HeaderNavItem = {
   href: '/news',
@@ -43,6 +45,7 @@ const GUEST_NAV: readonly HeaderNavItem[] = [
 const MEMBER_NAV: readonly HeaderNavItem[] = [
   NEWS_NAV,
   RULES_NAV,
+  { href: '/timeline', label: '專題時程' },
   {
     href: '/projects',
     label: '歷屆專題',
@@ -77,7 +80,7 @@ function footerLinks(nav: readonly HeaderNavItem[]): FooterLink[] {
 const SIGN_OUT_FORM_ID = 'site-sign-out'
 
 /**
- * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的我的工作、歷屆專題、我的入口）：
+ * 看得到「登入後」前台內容的人（導覽的產學、檔案，首頁的歷屆專題、我的入口）：
  * 已開通、進得了自己後台的人：過得了 business 狀態閘門（臨時密碼還沒改的不算），而且有角色。
  * 待審核、必須先改密碼的人雖然登入了，跟訪客一樣（那些頁他還打不開）。
  * 導覽與首頁共用這一個判斷。
@@ -86,24 +89,14 @@ export function isMember(actor: ResolvedActor): boolean {
   return actor.kind === 'authenticated' && checkStatus(actor, 'business') === null && homeFor(actor).startsWith('/dashboard/')
 }
 
-/** 右上角要顯示的身分與「回後台」入口（原型 `workbenchLabel`）。 */
-const WORKBENCH: Record<string, { roleLabel: string; label: string }> = {
-  '/dashboard/admin': { roleLabel: '系辦', label: '我的後台' },
-  '/dashboard/teacher': { roleLabel: '老師', label: '我的後台' },
-  '/dashboard/student': { roleLabel: '學生', label: '我的後台' },
-}
+/** 右上角的「回後台」入口：三個角色都叫「我的後台」，去 `homeFor` 那個後台（兼任的人在後台頭像選單切換）。 */
+const WORKBENCHES: ReadonlySet<string> = new Set(['/dashboard/admin', '/dashboard/teacher', '/dashboard/student'])
 
-type Viewer = {
-  roleLabel: string
-  name?: string
-  workbench: { href: string; label: string }
-  /** 兼任角色的其他後台（票 41）：「回後台」按鈕去預設那個，這裡是其餘的；單一角色是空的。 */
-  otherWorkbenches: { href: string; label: string }[]
-}
+type Viewer = { workbench: { href: string; label: string } }
 
 /**
- * 帳號選單的頭像（SH-8）。頭像欄由身分解析同一句讀出來，不另查；三個外框都是 client，
- * 所以在這裡（server）render 好，當 `ReactNode` 穿過 `SiteHeader`／`DashboardFrame` 交給 `AccountMenu`。
+ * 後台帳號選單的頭像（SH-8）。頭像欄由身分解析同一句讀出來，不另查；外框是 client，
+ * 所以在這裡（server）render 好，當 `ReactNode` 穿過 `DashboardFrame` 交給 `AccountMenu`。
  * 旁邊已經寫姓名，所以 `decorative`（`alt=""`）。
  */
 function accountAvatar(actor: ResolvedActor): ReactNode {
@@ -125,35 +118,62 @@ function accountAvatar(actor: ResolvedActor): ReactNode {
 function viewerOf(actor: ResolvedActor): Viewer | null {
   if (actor.kind !== 'authenticated') return null
   const href = homeFor(actor)
-  const name = actor.displayName
-  const known = WORKBENCH[href]
-  if (!known) return { roleLabel: '待審核', name, workbench: { href, label: '申請進度' }, otherWorkbenches: [] }
-  // 臨時密碼還沒改：後台會被導去改密碼，右上角就直接給「更改密碼」（身分照角色標）。
+  if (!WORKBENCHES.has(href)) return { workbench: { href, label: '申請進度' } }
+  // 臨時密碼還沒改：後台會被導去改密碼，右上角就直接給「更改密碼」。
   if (checkStatus(actor, 'business') === 'PASSWORD_CHANGE_REQUIRED') {
-    return { roleLabel: known.roleLabel, name, workbench: { href: '/account/change-password', label: '更改密碼' }, otherWorkbenches: [] }
+    return { workbench: { href: '/account/change-password', label: '更改密碼' } }
   }
-  // 兼任多個角色時三個後台都叫「我的後台」，後面加身分才分得出來。
-  const others = otherWorkbenches(actor.roles, roleOfBase(href)).map((w) => {
-    const other = WORKBENCH[w.href]
-    return { href: w.href, label: other ? `${other.label}（${other.roleLabel}）` : w.name }
-  })
-  const label = others.length > 0 ? `${known.label}（${known.roleLabel}）` : known.label
-  return { roleLabel: known.roleLabel, name, workbench: { href, label }, otherWorkbenches: others }
+  return { workbench: { href, label: '我的後台' } }
 }
 
 /**
  * 公開頁與登入前頁面的外殼（原型 `(public)/layout.tsx`）：頂部導覽列、內容、深藍頁尾。
  *
- * 右上角看登入狀態：沒登入給橘色「登入」，登入了給「回後台」按鈕與頭像下拉。
+ * 右上角看登入狀態：沒登入給橘色「登入」，登入了只給「我的後台」按鈕（沒有頭像下拉，C2-14）。
  * `current` 是目前所在的前台區塊，導覽會標出來。
  * `bare`：內容自己決定寬度與留白（首頁、登入卡片）；預設是置中的內容欄。
+ * `staticFooter`：頁尾用程式內預設的聯絡資料、不讀 `site_texts`、也不掛前台編輯標記。給根層 `not-found`
+ * 用——它在根 layout 裡每次請求都會渲染，讀 DB 會讓全站每條路由都多一句查詢（C2-17 Review）。
+ * `footer={false}`：不畫頁尾、也不讀頁尾資料（登入／註冊群組，規格④ §4.1）。
  */
-export async function SiteShell({ children, current, bare = false }: { children: ReactNode; current?: string; bare?: boolean }) {
+export async function SiteShell({
+  children,
+  current,
+  bare = false,
+  staticFooter = false,
+  footer = true,
+}: {
+  children: ReactNode
+  current?: string
+  bare?: boolean
+  staticFooter?: boolean
+  footer?: boolean
+}) {
   const actor = await shellViewer()
   const viewer = viewerOf(actor)
   const nav: readonly HeaderNavItem[] = isMember(actor) ? MEMBER_NAV : GUEST_NAV
   // 註冊關閉時（設計方案 §5），手機選單與頁尾都不列「註冊」。
   const registrationOpen = isRegistrationOpen()
+  // 頁尾聯絡資料（C2-17）：系辦在前台改過就讀 `site_texts.footer_contact`，沒有就是程式內預設；同一次 render 跟首頁、隱私權頁共用一份查詢。
+  const footerRow = staticFooter || !footer ? null : (await loadSiteTexts()).footer_contact
+  const contact = resolveSiteContact(footerRow?.value)
+  // 前台編輯標記（C2-16）：頁尾聯絡資料一則、只能改不能刪；只有系辦經 /office-edit 改寫進來才有。表單預填八欄＋目前版本。
+  const contactMarks = feItem(staticFooter || !footer ? null : await frontEditScope(), {
+    kind: 'footer_contact',
+    id: 'footer_contact',
+    rev: footerRow?.revision ?? 0,
+    fields: {
+      title: '頁尾聯絡資料',
+      department: contact.department,
+      address: contact.address,
+      phone: contact.phone,
+      siteLabel: contact.siteLabel,
+      siteHref: contact.siteHref,
+      slogan: contact.slogan,
+      officeNote: contact.officeNote,
+      industryNote: contact.industryNote,
+    },
+  })
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <SiteHeader
@@ -162,11 +182,12 @@ export async function SiteShell({ children, current, bare = false }: { children:
         viewer={viewer}
         signOutFormId={SIGN_OUT_FORM_ID}
         registrationOpen={registrationOpen}
-        avatar={accountAvatar(actor)}
       />
       {viewer ? <SignOutForm id={SIGN_OUT_FORM_ID} /> : null}
       <main className={cn('flex-1 overflow-x-clip', bare ? '' : 'mx-auto w-full max-w-6xl px-5 py-10')}>{children}</main>
-      <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} />
+      {footer ? (
+        <SiteFooter viewer={viewer} nav={nav} registrationOpen={registrationOpen} contact={contact} contactMarks={contactMarks} />
+      ) : null}
     </div>
   )
 }
@@ -176,10 +197,14 @@ function SiteFooter({
   viewer,
   nav,
   registrationOpen,
+  contact,
+  contactMarks,
 }: {
   viewer: ReturnType<typeof viewerOf>
   nav: readonly HeaderNavItem[]
   registrationOpen: boolean
+  contact: SiteContact
+  contactMarks: ReturnType<typeof feItem>
 }) {
   const columns = [
     { title: '內容', links: footerLinks(nav) },
@@ -187,7 +212,6 @@ function SiteFooter({
       title: '使用',
       links: viewer
         ? [
-            { href: '/account', label: '我的帳號' },
             { href: viewer.workbench.href, label: viewer.workbench.label },
             { href: '/privacy', label: '隱私權政策' },
           ]
@@ -202,26 +226,31 @@ function SiteFooter({
   return (
     <footer className="bg-ink text-ink-foreground">
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 md:grid-cols-[1.6fr_1fr_1fr]">
-        <div>
-          <p className="text-lg font-bold">{SITE_CONTACT.department}</p>
+        <div {...contactMarks} data-testid="site-footer-contact">
+          <p className="text-lg font-bold">{contact.department}</p>
           <p className="mt-3 text-[13px] leading-loose opacity-85">
-            {SITE_CONTACT.address}
+            {contact.address}
             <br />
             電話{' '}
-            <a href={SITE_CONTACT.phoneHref} className="hover:underline">
-              {SITE_CONTACT.phone}
+            <a href={contact.phoneHref} className="hover:underline">
+              {contact.phone}
             </a>
-            <br />
-            系網{' '}
-            <a href={SITE_CONTACT.siteHref} className="hover:underline">
-              {SITE_CONTACT.siteLabel}
-            </a>
-            <br />
-            {SITE_CONTACT.slogan}
-            <br />
-            {SITE_CONTACT.officeNote}
-            <br />
-            {SITE_CONTACT.industryNote}
+            {contact.siteLabel ? (
+              <>
+                <br />
+                系網{' '}
+                <a href={contact.siteHref} className="hover:underline">
+                  {contact.siteLabel}
+                </a>
+              </>
+            ) : null}
+            {[contact.slogan, contact.officeNote, contact.industryNote]
+              .filter((line) => line !== '')
+              .map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
           </p>
         </div>
         {columns.map((col) => (

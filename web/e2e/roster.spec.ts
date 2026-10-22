@@ -188,16 +188,16 @@ const affairsBadge = (page: Page) => page.getByTestId('nav-badge-/dashboard/stud
 
 test('名單頁三類分開；完成率＝已正式送出／應交數（免填與已移出不算）', async ({ page }) => {
   await signIn(page, admin)
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  // 工作台的「收件名單」欄是應交數（不含免填與已移出，跟名單頁「目前名單」、完成率分母同一個口徑），點得進名單頁。
-  await page.getByTestId('affair-row').filter({ hasText: TITLE }).getByRole('link', { name: /需要繳交 2 位/ }).click()
+  await page.goto(`/dashboard/admin/affairs/assignments?cohort=${cohortId}`)
+  // 作業清單的「繳交進度」（C1-07：「0／2 人已交」）分母是應交數（不含免填與已移出，跟名單頁「目前名單」、完成率分母同一個口徑），點得進名單頁。
+  await page.getByTestId('affair-row').filter({ hasText: TITLE }).getByRole('link', { name: /0／2 人已交/ }).click()
   await expect(page).toHaveURL(new RegExp(`${rosterPath()}$`))
   await expect(page.getByRole('heading', { name: TITLE })).toBeVisible()
 
   const tabs = page.getByRole('navigation', { name: '名單分類' })
   await expect(tabs.getByRole('link', { name: /目前名單\s*2/ })).toBeVisible()
   await expect(tabs.getByRole('link', { name: /免繳\s*1/ })).toBeVisible()
-  await expect(tabs.getByRole('link', { name: /已不需要繳交（原名單移除）\s*1/ })).toBeVisible()
+  await expect(tabs.getByRole('link', { name: /已移出名單\s*1/ })).toBeVisible()
   await expect(page.getByTestId('completion-rate')).toHaveText('0／2')
 
   const current = page.getByTestId('roster-current')
@@ -210,7 +210,7 @@ test('名單頁三類分開；完成率＝已正式送出／應交數（免填�
   await tabs.getByRole('link', { name: /免繳/ }).click()
   await expect(page.getByTestId('roster-exempt')).toContainText(exempted.name)
   await expect(page.getByTestId('roster-exempt')).toContainText('休學中')
-  await tabs.getByRole('link', { name: /已不需要繳交（原名單移除）/ }).click()
+  await tabs.getByRole('link', { name: /已移出名單/ }).click()
   await expect(page.getByTestId('roster-removed')).toContainText(removed.name)
   await expect(page.getByTestId('roster-removed')).toContainText('轉到別屆')
   // 分母不因切換分頁改變。
@@ -225,10 +225,10 @@ test('學生首頁待繳數＝作業區待繳；送出後首頁少一件、名�
   await page.goto('/dashboard/student/affairs')
   await expect(page.getByRole('navigation', { name: '篩選作業' }).getByRole('link', { name: /待交\s*1/ })).toBeVisible()
 
-  await page.goto(`/dashboard/student/affairs/${itemId}`)
+  await page.goto(`/dashboard/student/affairs/${itemId}?tab=history&write=1`)
   await page.getByLabel('想做的題目').fill('校園導覽 App')
   await page.getByLabel('一般專題').check()
-  await page.getByRole('button', { name: '正式送出' }).click()
+  await page.getByRole('button', { name: '繳交作業' }).click()
   await expect(page.getByTestId('receipt')).toContainText('第 1 次')
   await page.getByRole('button', { name: '關閉' }).click()
 
@@ -291,7 +291,8 @@ test('學生通知匣：收件通知點得進作業區那一份', async ({ page 
   await signIn(page, waiter)
   await page.goto('/dashboard/student/inbox')
   const item = page.getByTestId('inbox-item').filter({ hasText: TITLE })
-  await expect(item.getByRole('link')).toHaveAttribute('href', `/dashboard/student/affairs/${itemId}`)
+  await item.getByRole('button', { name: `新的收件：${TITLE}`, exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/dashboard/student/affairs/${itemId}$`))
 })
 
 // ── B 階段 A-08：設免繳／恢復（AC-A-21～24）────────────────────────────────────
@@ -347,7 +348,7 @@ async function exemptAudits(action: string): Promise<number> {
   return Number(r.rows[0]!.n)
 }
 
-test('AC-A-21／23：對 S1 按「設免繳」——理由留空提示「請填理由」不送出；填了理由就移到「免繳」、分頁數免繳 1、分母少 1、留稽核', async ({ page }) => {
+test('AC-A-21：對 S1 按「設免繳」——理由選填（C1-07 AC-11；留空送出見 affairs-remind.spec）；填了理由就移到「免繳」、分頁數免繳 1、分母少 1、留稽核', async ({ page }) => {
   exemptItemId = await closedItem()
   await signIn(page, admin)
   await page.goto(exemptPath())
@@ -361,22 +362,11 @@ test('AC-A-21／23：對 S1 按「設免繳」——理由留空提示「請填�
   const dialog = page.getByRole('dialog', { name: `設 ${waiter.name} 免繳` })
   await expect(dialog).toBeVisible()
   // 理由欄的標示照實說誰看得到（開放老師閱覽時主指導讀得到名單列的理由；Review 第 1 輪）。
-  await expect(dialog.getByLabel('理由（200 字內；開放老師閱覽時，主指導也看得到）')).toBeVisible()
+  await expect(dialog.getByLabel('理由（選填；200 字內；開放老師閱覽時，主指導也看得到）')).toBeVisible()
   await expect(dialog).not.toContainText('只有系辦看得到')
-
-  // AC-A-23：留空（只打空白）按確定——畫面提示、不發請求。
-  const posts: string[] = []
-  page.on('request', (r) => {
-    if (r.method() === 'POST') posts.push(r.url())
-  })
-  await dialog.getByLabel(/理由/).fill('   ')
-  await dialog.getByRole('button', { name: '確定' }).click()
-  await expect(dialog.getByTestId('exempt-reason-error')).toHaveText('請填理由')
-  expect(posts).toEqual([])
   expect(await exemptAudits('submission.exempt_set')).toBe(0)
 
   await dialog.getByLabel(/理由/).fill('已在校外實習單位繳交紙本')
-  await expect(dialog.getByTestId('exempt-reason-error')).toHaveCount(0)
   await dialog.getByRole('button', { name: '確定' }).click()
 
   await expect(tabs.getByRole('link', { name: /免繳\s*1/ })).toBeVisible()

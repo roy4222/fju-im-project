@@ -18,6 +18,7 @@ import {
 import { users } from '@/infrastructure/db/schema/auth'
 import { cohorts } from '@/infrastructure/db/schema/base'
 import { groups } from '@/infrastructure/db/schema/groups'
+import { managedItems } from '@/infrastructure/db/schema/items'
 
 /**
  * 模組 06 評分與成績的九張表（模組實作設計 06 附錄 A；第十支 migration，票 23／切片 S10）。
@@ -155,7 +156,7 @@ export const evaluatorAssignments = pgTable(
     validTo: timestamp('valid_to', tz),
     /** 移除時管理員選的採計方式：保留已完成評分／替換重評／明確新增（產品 7.4 Q-GRP01）。 */
     removalChoice: text('removal_choice'),
-    /** 移除理由。 */
+    /** 移除理由（0021 起選填；有填才記）。 */
     reason: text('reason'),
     assignedByUserId: uuid('assigned_by_user_id')
       .notNull()
@@ -182,7 +183,6 @@ export const evaluatorAssignments = pgTable(
     check(
       'evaluator_assignments_ended_check',
       sql`(${t.validTo} is null) = (${t.endedRealAt} is null)
-          and (${t.validTo} is null or length(btrim(coalesce(${t.reason}, ''))) > 0)
           and (${t.removalChoice} is null or ${t.validTo} is not null)`,
     ),
     check('evaluator_assignments_revision_check', sql`${t.revision} >= 1`),
@@ -290,7 +290,8 @@ export const gradeOverrides = pgTable(
     newValue: numeric('new_value', { precision: 10, scale: 4 }).notNull(),
     /** 採計分數集合的 hash；之後算出來不一樣就進「待復核」。 */
     basisHash: text('basis_hash').notNull(),
-    reason: text('reason').notNull(),
+    /** 更正理由（0021 起選填）。 */
+    reason: text('reason'),
     actorUserId: uuid('actor_user_id')
       .notNull()
       .references(() => users.id, restrict),
@@ -298,7 +299,7 @@ export const gradeOverrides = pgTable(
   },
   (t) => [
     index('grade_overrides_group_idx').on(t.groupId, t.realAt),
-    check('grade_overrides_reason_check', sql`length(btrim(${t.reason})) > 0`),
+    check('grade_overrides_reason_check', sql`${t.reason} is null or length(btrim(${t.reason})) > 0`),
   ],
 )
 
@@ -338,7 +339,8 @@ export const gradeSettlements = pgTable(
     settledByUserId: uuid('settled_by_user_id')
       .notNull()
       .references(() => users.id, restrict),
-    reason: text('reason').notNull(),
+    /** 結算理由（0021 起選填）。 */
+    reason: text('reason'),
     /** 結算當下該屆該階段的採計份數。 */
     countedEvaluations: integer('counted_evaluations').notNull(),
     releasedAt: timestamp('released_at', tz),
@@ -352,7 +354,10 @@ export const gradeSettlements = pgTable(
       .on(t.cohortId, t.stageKey)
       .where(sql`${t.releasedAt} is null`),
     index('grade_settlements_cohort_idx').on(t.cohortId, t.settledAt.desc()),
-    check('grade_settlements_reason_check', sql`char_length(${t.reason}) between 1 and 500`),
+    check(
+      'grade_settlements_reason_check',
+      sql`${t.reason} is null or char_length(${t.reason}) between 1 and 500`,
+    ),
     check('grade_settlements_counted_check', sql`${t.countedEvaluations} >= 0`),
     check(
       'grade_settlements_release_reason_check',
@@ -360,7 +365,52 @@ export const gradeSettlements = pgTable(
     ),
     check(
       'grade_settlements_released_check',
-      sql`(${t.releasedAt} is null) = (${t.releasedByUserId} is null) and (${t.releasedAt} is null) = (${t.releaseReason} is null)`,
+      // 0021 起解除理由選填：只綁解除時間與解除者。
+      sql`(${t.releasedAt} is null) = (${t.releasedByUserId} is null) and (${t.releaseReason} is null or ${t.releasedAt} is not null)`,
+    ),
+  ],
+)
+
+/**
+ * 評分項目的側表（C 階段 C1-01；遷移 0021、切片 C1；設計方案① §1.3）：一屆一個評分項目（`stage_key`）一列，
+ * 記「對應哪份作業」「給老師看的說明」「評審組」。這三樣都**不影響分數**，系辦學期中隨時要能改，
+ * 所以不放進不可變的方案版本 `stages` jsonb：改了不建版、不鎖、不重算。
+ *
+ * - `item_id`：老師批改時看哪份作業的繳交；NULL＝沒有對應作業（例如「態度」，只看說明直接填分）。
+ *   同屆、收件、整組、非草稿、不是同意書由用例檢查。
+ * - `panel_key`：同一屆相同（非 NULL）的評分項目共用同一組評審，指派由用例在同一交易對整組項目一起做。
+ * - 讀的時候只認目前已發布版本 `stages` 裡有的 key；發布新版同交易刪掉不在新版的列。三欄都清空＝刪列。
+ */
+export const gradingStageSettings = pgTable(
+  'grading_stage_settings',
+  {
+    cohortId: uuid('cohort_id')
+      .notNull()
+      .references(() => cohorts.id, restrict),
+    stageKey: text('stage_key').notNull(),
+    itemId: uuid('item_id').references(() => managedItems.id, restrict),
+    description: text('description'),
+    panelKey: text('panel_key'),
+    updatedByUserId: uuid('updated_by_user_id')
+      .notNull()
+      .references(() => users.id, restrict),
+    updatedAt: timestamp('updated_at', tz).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'grading_stage_settings_pk', columns: [t.cohortId, t.stageKey] }),
+    check('grading_stage_settings_stage_key_check', sql`length(${t.stageKey}) between 1 and 40`),
+    check(
+      'grading_stage_settings_description_check',
+      sql`${t.description} is null or char_length(${t.description}) between 1 and 500`,
+    ),
+    check(
+      'grading_stage_settings_panel_key_check',
+      sql`${t.panelKey} is null or char_length(${t.panelKey}) between 1 and 40`,
+    ),
+    // 三欄都空就不該有列（清空＝刪列）。
+    check(
+      'grading_stage_settings_not_empty_check',
+      sql`${t.itemId} is not null or ${t.description} is not null or ${t.panelKey} is not null`,
     ),
   ],
 )

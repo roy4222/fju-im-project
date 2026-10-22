@@ -8,6 +8,9 @@ import type {
   GradingSettlementCommand,
   GradingSettlementQuery,
   GradingSnapshotQuery,
+  GradingStageSettingCommand,
+  GradingStageSettingQuery,
+  PublicGradingQuery,
 } from '@/application/grading'
 import { getBusinessClock } from '@/composition/cohorts'
 import { getEventPublisher } from '@/composition/notifications'
@@ -18,6 +21,8 @@ import { PgGradingSettlementCommand, PgGradingSettlementQuery } from '@/infrastr
 import { MAX_COMMENT_LENGTH, MAX_REQUIRED_COUNT, PgGradingCommand, PgGradingQuery } from '@/infrastructure/grading/pg-grading'
 import { PgGradebookQuery, PgGradingResultsCommand } from '@/infrastructure/grading/pg-grading-results'
 import { PgGradingSnapshotQuery } from '@/infrastructure/grading/pg-grading-snapshot'
+import { PgPublicGradingQuery } from '@/infrastructure/grading/pg-public-grading'
+import { PgGradingStageSettingCommand, PgGradingStageSettingQuery } from '@/infrastructure/grading/pg-stage-settings'
 
 /**
  * 模組 06 評分的實例組裝（票 23：評分方案、要求份數、指派、老師暫存與正式送出）。
@@ -103,6 +108,32 @@ export function getGradingSnapshotQuery(): GradingSnapshotQuery {
   return snapshotQuery
 }
 
+let stageSettingCommand: GradingStageSettingCommand | undefined
+let stageSettingQuery: GradingStageSettingQuery | undefined
+let publicGradingQuery: PublicGradingQuery | undefined
+
+/** C 階段 C1-04：系辦設定評分項目的對應作業、說明、評審組（側表；不建新版、不鎖）。 */
+export function getGradingStageSettingCommand(): GradingStageSettingCommand {
+  stageSettingCommand ??= new PgGradingStageSettingCommand({
+    audit: getAuditWriter(),
+    ledger: getOperationLedger(),
+    businessClock: getBusinessClock(),
+  })
+  return stageSettingCommand
+}
+
+/** C 階段 C1-04：系辦讀一屆的側表（評分規則分頁）。 */
+export function getGradingStageSettingQuery(): GradingStageSettingQuery {
+  stageSettingQuery ??= new PgGradingStageSettingQuery()
+  return stageSettingQuery
+}
+
+/** C 階段 C1-04（X7）：前台 /rules「評分方式」區塊；訪客可讀，不帶任何分數。 */
+export function getPublicGradingQuery(): PublicGradingQuery {
+  publicGradingQuery ??= new PgPublicGradingQuery()
+  return publicGradingQuery
+}
+
 export { MAX_COMMENT_LENGTH, MAX_REQUIRED_COUNT }
 
 /** app 對 application 只能帶型別；畫面要用的標籤與回饋句子經這裡拿（母 spec §4.3）。 */
@@ -124,7 +155,10 @@ export {
   OVERRIDE_STATE_LABEL,
   REMOVAL_CHOICE_LABEL,
   selectExportGroups,
+  unassignedSlotDetails,
   unassignedSlots,
+  MAX_PANEL_KEY_LENGTH,
+  MAX_STAGE_DESCRIPTION_LENGTH,
   describeDraftReceipt,
   describeFinalReceipt,
   describeFormula,

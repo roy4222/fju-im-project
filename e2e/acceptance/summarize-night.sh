@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 整夜驗收彙整：把一個 run 目錄拼成一頁總覽 summary.md（設計方案 §3.5），可選擇複製進 Vault（§3.6）。
-# 同時在 run 目錄寫 summary.json（給開發者後台讀：run 基本資料、各項目步驟列與問題清單、人設分數；不進 Vault）。
+# 同時在 run 目錄寫 summary.json（給程式讀的機器格式：run 基本資料、各項目步驟列與問題清單、人設分數；不進 Vault）。
 #
 #   e2e/acceptance/summarize-night.sh <RUN_DIR>                         # 只寫 <RUN_DIR>/summary.md
 #   e2e/acceptance/summarize-night.sh <RUN_DIR> --vault                 # 另寫進預設 Vault 的 🧪 驗收報告/<日期>/
@@ -35,7 +35,8 @@
 # 日期預設取 run.json 的 startedAt（整夜跨午夜仍算開始那天），沒有就取 runId／今天。
 set -euo pipefail
 
-DEFAULT_VAULT_BASE="/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發"
+# Vault 根目錄由環境變數 VAULT_DIR 指定（各機器位置記在私人設定，不寫死在 repo）。
+DEFAULT_VAULT_BASE="${VAULT_DIR:-}${VAULT_DIR:+/}專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發"
 
 usage() { echo "用法：$0 <RUN_DIR> [--vault [<工程開發目錄>]] [--date <YYYY-MM-DD[-標籤]>] [--polish]" >&2; exit 2; }
 
@@ -50,7 +51,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --vault)
       if [ $# -ge 2 ] && [ "${2#--}" = "$2" ]; then VAULT_BASE="$2"; shift 2
-      else VAULT_BASE="$DEFAULT_VAULT_BASE"; shift; fi ;;
+      else
+        [ -n "${VAULT_DIR:-}" ] || { echo "沒有指定 Vault：請設環境變數 VAULT_DIR（Vault 根目錄），或在 --vault 後面給工程開發目錄。" >&2; exit 2; }
+        VAULT_BASE="$DEFAULT_VAULT_BASE"; shift
+      fi ;;
     --date)
       [ $# -ge 2 ] || usage
       DATE_LABEL="$2"; shift 2 ;;
@@ -654,7 +658,7 @@ if vault_base:
             copied += 1
     print(f'Vault：{dest}（{len(written) - 1} 份文件、{copied} 張截圖）')
 
-# ---------- summary.json（給開發者後台讀；只寫 run 目錄，不進 Vault）----------
+# ---------- summary.json（給程式讀的機器格式；只寫 run 目錄，不進 Vault）----------
 # 內容從「已遮蔽」的報告重新解析；整份字串寫出前再經 write() 的 scrub()，最後一樣跑 residual()。
 STEP_COLS = ['步驟', '角色', '結果', '看到什麼', '截圖']
 COUNT_KEY = re.compile(r'(不通過|通過|做不到|環境|問題|擋上線|要修|建議|待 Roy 決定|套件|自訂規則待分類)\s*(\d+)')

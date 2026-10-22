@@ -1,0 +1,94 @@
+'use client'
+import { useActionState, useEffect, useRef, useState } from 'react'
+import type { deleteEntryAction } from './actions'
+import type { ShowcaseEntryView } from './showcase-view'
+
+/**
+ * 按「刪除」才載入；Server Function 與共用樣式由首載外殼傳入。
+ * 送出到結果回來之前由 owner 保留視窗，失敗留在原表單；每次掛載產生新的 requestId。
+ * 送出中瀏覽器仍可能自己關窗（Chrome 連按兩次 Esc 不再問 cancel）：那時結果交給 owner 在右下角提示（CL-4）。
+ */
+export function ShowcaseDeleteDialog({
+  entry,
+  deleteEntry,
+  dialogClass,
+  cancelClass,
+  onCancel,
+  onDeleted,
+  onFailedAfterClose,
+  onPending,
+}: {
+  entry: ShowcaseEntryView
+  deleteEntry: typeof deleteEntryAction
+  dialogClass: string
+  cancelClass: string
+  onCancel: () => void
+  onDeleted: (message: string) => void
+  /** 送出中視窗被關掉、結果是失敗：owner 卸載視窗並提示這句。 */
+  onFailedAfterClose: (message: string) => void
+  onPending: (pending: boolean) => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const [requestId] = useState(() => crypto.randomUUID())
+  const busy = useRef(false)
+  const closed = useRef(false)
+  const [state, action, pending] = useActionState(async (previous: Awaited<ReturnType<typeof deleteEntryAction>>, form: FormData) => {
+    try {
+      const result = await deleteEntry(previous, form)
+      if (result?.ok) {
+        closed.current = true
+        dialog.current?.close()
+        onDeleted(result.message)
+      } else if (closed.current && result) {
+        onFailedAfterClose(result.message)
+      }
+      return result
+    } catch (error) {
+      if (!closed.current) throw error
+      onFailedAfterClose('連線中斷；結果尚未確認，請重新整理頁面看狀態。')
+      return undefined
+    } finally {
+      busy.current = false
+      onPending(false)
+    }
+  }, undefined)
+
+  useEffect(() => {
+    const el = dialog.current
+    if (el && !el.open) el.showModal()
+  }, [])
+  return (
+    <dialog ref={dialog} aria-label="刪除作品" className={`${dialogClass} max-w-[28rem]`} onCancel={(e) => { e.preventDefault(); onCancel() }}
+      onClose={() => {
+        if (busy.current) closed.current = true
+        else if (!closed.current) onCancel()
+      }}
+    >
+      <form action={action} onSubmit={() => { busy.current = true; onPending(true) }} className="flex flex-col gap-4 px-6 py-5">
+        <input type="hidden" name="requestId" value={requestId} />
+        <input type="hidden" name="entryId" value={entry.entryId} />
+        <input type="hidden" name="revision" value={entry.entryRevision} />
+        <p className="text-base font-bold break-words">
+          確定刪除 {entry.groupLabel}「{entry.title || '（未填題目）'}」？草稿與發布過的版本一起刪掉，前台與作品網址都不再出現，不能恢復。
+        </p>
+        {state && !state.ok ? (
+          <p role="alert" className="rounded-lg bg-destructive-subtle px-3 py-2 text-sm font-semibold text-destructive-on-subtle">
+            {state.message}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={cancelClass} onClick={onCancel} disabled={pending}>
+            取消
+          </button>
+          <button
+            type="submit"
+            className="press inline-flex h-10 items-center rounded-lg bg-destructive px-4 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={pending}
+          >
+            {pending ? '刪除中…' : '刪除這件作品'}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  )
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 把教學環境重置成乾淨的示範資料：刪掉這個實例的資料庫（fju_tutorial 或 fju_tutorial_<n>）重建 → migration → seed-demo → 教學帳號。
-# 錄完一段、要錄下一段之前跑。上傳過的檔案（$FILES_ROOT）也清掉，seed-demo 會把示範封面與附件放回去。
+# 錄完一段、要錄下一段之前跑。上傳過的檔案（${FILES_ROOT}）也清掉，seed-demo 會把示範封面與附件放回去。
 #
 #   [INSTANCE=n] tools/tutorial/env/reset.sh     只重置實例 n（沒設＝0），別的實例不受影響
 #

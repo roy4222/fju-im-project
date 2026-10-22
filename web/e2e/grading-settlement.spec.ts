@@ -163,7 +163,7 @@ test('成績分頁多一個「結算」；結算頁每階段一列：未結算�
   await asAdmin(page)
   await page.goto(`/dashboard/admin/grading?cohort=${cohortId}`)
   const tabs = page.getByRole('navigation', { name: '成績分頁' })
-  await expect(tabs.getByRole('link')).toHaveText(['成績管理', '結算', '同意書'])
+  await expect(tabs.getByRole('link')).toHaveText(['成績表', '評分規則', '評分老師', '結算'])
   await tabs.getByRole('link', { name: '結算' }).click()
   await expect(page).toHaveURL(/\/dashboard\/admin\/grading\/settle/)
 
@@ -181,10 +181,8 @@ test('AC-A-5：對「期中」按「結算」填理由 → 已結算 {時間}・
   await page.goto(`/dashboard/admin/grading/settle?cohort=${cohortId}`)
   await settleRow(page, 'mid').getByRole('button', { name: '結算「期中」' }).click()
   const dialog = page.getByRole('dialog', { name: '結算「期中」' })
-  // 理由必填：空白送不出去。
-  await dialog.getByRole('button', { name: '確認結算' }).click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByLabel('結算理由（必填）').fill('期中成績送教務處')
+  // C1-13：理由選填（留空也能結算，見 grading-stage-settings.spec 的 AC-31）；這裡填理由，驗理由會記下來。
+  await dialog.getByLabel('結算理由（選填）').fill('期中成績送教務處')
   await dialog.getByRole('button', { name: '確認結算' }).click()
 
   const status = settleRow(page, 'mid').getByTestId('settle-status')
@@ -226,7 +224,7 @@ test('AC-A-8／AC-TE-38：按「解除結算」填理由 → 列回到「未結�
   await page.goto(`/dashboard/admin/grading/settle?cohort=${cohortId}`)
   await settleRow(page, 'mid').getByRole('button', { name: '解除「期中」的結算' }).click()
   const dialog = page.getByRole('dialog', { name: '解除「期中」的結算' })
-  await dialog.getByLabel('解除理由（必填）').fill('老師要補評語')
+  await dialog.getByLabel('解除理由（選填）').fill('老師要補評語')
   await dialog.getByRole('button', { name: '確認解除' }).click()
 
   await expect(settleRow(page, 'mid').getByTestId('settle-status')).toHaveText('未結算')
@@ -246,7 +244,7 @@ test('AC-A-8／AC-TE-38：按「解除結算」填理由 → 列回到「未結�
   // 再結算一次：結算紀錄新的在前（現行那筆在上、已解除的在下）。
   await settleRow(page, 'mid').getByRole('button', { name: '結算「期中」' }).click()
   const again = page.getByRole('dialog', { name: '結算「期中」' })
-  await again.getByLabel('結算理由（必填）').fill('補完再結')
+  await again.getByLabel('結算理由（選填）').fill('補完再結')
   await again.getByRole('button', { name: '確認結算' }).click()
   await expect(history).toHaveCount(2)
   await expect(history.nth(0).getByTestId('released')).toHaveText('結算中')
@@ -254,7 +252,7 @@ test('AC-A-8／AC-TE-38：按「解除結算」填理由 → 列回到「未結�
   // 解除給後面的退回案例：再解除一次。
   await settleRow(page, 'mid').getByRole('button', { name: '解除「期中」的結算' }).click()
   const release2 = page.getByRole('dialog', { name: '解除「期中」的結算' })
-  await release2.getByLabel('解除理由（必填）').fill('改走退回')
+  await release2.getByLabel('解除理由（選填）').fill('改走退回')
   await release2.getByRole('button', { name: '確認解除' }).click()
   await expect(settleRow(page, 'mid').getByTestId('settle-status')).toHaveText('未結算')
 
@@ -274,5 +272,5 @@ test('AC-A-10（畫面半）：已封存屆別的結算頁只讀，不顯示「�
   await page.goto(`/dashboard/admin/grading/settle?cohort=${archivedCohortId}`)
   await expect(page.getByTestId('cohort-archived')).toContainText('已封存')
   await expect(settleRow(page, 'mid').getByTestId('settle-status')).toHaveText('未結算')
-  await expect(page.getByRole('table', { name: '各階段結算' }).getByRole('button')).toHaveCount(0)
+  await expect(page.getByRole('table', { name: '各評分項目結算' }).getByRole('button')).toHaveCount(0)
 })

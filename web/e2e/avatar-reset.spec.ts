@@ -1,15 +1,25 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
  * AD-B2：系辦在帳號列表「更多」重設頭像（AC-AD-B8、AC-AD-B9）。
  *
- * 對話框顯示目前頭像、理由必填（空的先擋）；重設後兩欄清空、稽核 `account.avatar_reset` 帶理由；
+ * 對話框顯示目前頭像、理由選填；重設後兩欄清空、稽核 `account.avatar_reset` 帶理由；
  * 已去識別化的列沒有「更多」，也就沒有「重設頭像」。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU；測試中途失敗也會關）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
 const ownerUrl = process.env.DATABASE_URL_OWNER
 const SHOTS = process.env.AVATAR_RESET_SHOTS
 
@@ -46,7 +56,7 @@ test.afterAll(async () => {
 })
 
 test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理由先擋、重設後頭像回預設並留稽核理由', async ({ browser }) => {
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
@@ -55,22 +65,21 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('menuitem', { name: `重設頭像 ${name}` })).toBeVisible()
-  // 放在「危險操作」群組之前。
+  // 放在最後一項「刪除個人資料」之前。
   const items = await menu.getByRole('menuitem').allInnerTexts()
-  expect(items.indexOf('重設頭像')).toBeLessThan(items.indexOf('停用'))
+  expect(items.indexOf('重設頭像')).toBeLessThan(items.indexOf('刪除個人資料'))
   await menu.getByRole('menuitem', { name: `重設頭像 ${name}` }).click()
 
   const dialog = page.getByRole('dialog', { name: `重設 ${name} 的頭像` })
   await expect(dialog.locator('img')).toHaveAttribute('src', `/avatars/${String(PRESET).padStart(3, '0')}.webp`)
   await expect(dialog.locator('img')).toHaveAttribute('width', '64')
-  const reason = dialog.getByLabel('理由（必填，對方看不到）')
+  const reason = dialog.getByLabel('理由（選填，會留在操作紀錄）')
   await expect(reason).toBeVisible()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/avatar-reset-dialog.png` })
 
-  // 空理由（含只有空白）先擋，不打伺服器。
+  // 理由選填（C2 X2）：空的不擋（留空送出的情形見 AC-C2-11 的 SQL 證據）；只填不送，什麼都沒改。
   await reason.fill('   ')
-  await dialog.getByRole('button', { name: '重設', exact: true }).click()
-  await expect(dialog.getByRole('alert')).toContainText('請填理由')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
   expect((await pool.query('select avatar_preset from user_profiles where user_id = $1', [target.userId])).rows[0]).toEqual({ avatar_preset: PRESET })
 
   // 取消不改。
@@ -81,7 +90,7 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
   await page.getByRole('menuitem', { name: `重設頭像 ${name}` }).click()
   // 字數用同一把尺（非 BMP 字算一個字）：𠮷 ×201 前端擋下、什麼都沒寫；×200 可送。
-  const fill = dialog.getByLabel('理由（必填，對方看不到）')
+  const fill = dialog.getByLabel('理由（選填，會留在操作紀錄）')
   await fill.fill('𠮷'.repeat(201))
   await dialog.getByRole('button', { name: '重設', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('200 字以內')
@@ -117,7 +126,7 @@ test('AC-AD-B8：選單一項、對話框顯示目前頭像與理由欄、空理
 test('AC-AD-B9：已去識別化的列沒有「更多」，也就沒有「重設頭像」', async ({ browser }) => {
   // 已去識別化：直接改資料（流程本身由 deidentify.spec 測）。
   await pool.query(`update users set deidentified_at = now(), status = 'disabled' where id = $1`, [target.userId])
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])

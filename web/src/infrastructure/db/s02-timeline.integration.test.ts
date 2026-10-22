@@ -209,23 +209,34 @@ describe('約束反例', () => {
     })
   })
 
-  it('project_events：結束不能早於開始、受眾與狀態只收白名單', async () => {
+  it('project_events：結束不能早於開始（全天要晚於開始且必填，0024）、受眾與狀態只收白名單、刪除標記兩欄成對', async () => {
     await withIsolatedDatabase({ label: 'activity-checks', setup: migratedSchema }, async (db) => {
-      const { cohortId } = await seeded(db)
-      const insert = (endsAt: string | null, audience = 'cohort_students', status = 'scheduled') =>
+      const { userId, cohortId } = await seeded(db)
+      const insert = (
+        endsAt: string | null,
+        { audience = 'cohort_students', status = 'scheduled', allDay = false, deletedBy = null as string | null, deletedAt = null as string | null } = {},
+      ) =>
         db.sql(
-          `insert into project_events (id, cohort_id, title, starts_at, ends_at, audience_kind, status, created_by_kind)
-           values (gen_random_uuid(), $1, 't', '2026-12-20T06:00:00Z', $2, $3, $4, 'system')`,
-          [cohortId, endsAt, audience, status],
+          `insert into project_events (id, cohort_id, title, starts_at, ends_at, all_day, audience_kind, status, created_by_kind,
+                                       deleted_at, deleted_by_user_id)
+           values (gen_random_uuid(), $1, 't', '2026-12-20T06:00:00Z', $2, $3, $4, $5, 'system', $6, $7)`,
+          [cohortId, endsAt, allDay, audience, status, deletedAt, deletedBy],
         )
       await expect(insert('2026-12-20T05:00:00Z')).rejects.toThrow(/project_events_ends_after_starts_check/)
-      await expect(insert(null, 'everyone')).rejects.toThrow(/project_events_audience_kind_check/)
-      await expect(insert(null, 'cohort_students', 'deleted')).rejects.toThrow(/project_events_status_check/)
+      await expect(insert('2026-12-20T06:00:00Z', { allDay: true })).rejects.toThrow(/project_events_ends_after_starts_check/)
+      await expect(insert(null, { allDay: true })).rejects.toThrow(/project_events_all_day_end_check/)
+      await expect(insert(null, { audience: 'everyone' })).rejects.toThrow(/project_events_audience_kind_check/)
+      await expect(insert(null, { status: 'deleted' })).rejects.toThrow(/project_events_status_check/)
+      await expect(insert(null, { deletedAt: '2026-12-21T00:00:00Z' })).rejects.toThrow(/project_events_deleted_check/)
       await expect(insert('2026-12-20T08:00:00Z')).resolves.toBeTruthy()
+      await expect(insert('2026-12-20T06:00:00Z')).resolves.toBeTruthy()
+      await expect(insert('2026-12-23T16:00:00Z', { allDay: true })).resolves.toBeTruthy()
+      // 0024 起排定中的也能直接打刪除標記（不必先取消）。
+      await expect(insert(null, { deletedAt: '2026-12-21T00:00:00Z', deletedBy: userId })).resolves.toBeTruthy()
     })
   })
 
-  it('cohort_status_events：進出「已封存」一定要有理由；轉進行中可以沒有', async () => {
+  it('cohort_status_events：封存／解封理由選填（0020）；轉進行中也可以沒有', async () => {
     await withIsolatedDatabase({ label: 'status-reason', setup: migratedSchema }, async (db) => {
       const { userId, cohortId } = await seeded(db)
       const insert = (from: string | null, to: string, reason: string | null) =>
@@ -234,8 +245,8 @@ describe('約束反例', () => {
            values (gen_random_uuid(), $1, $2, $3, $4, $5, now(), now())`,
           [cohortId, from, to, reason, userId],
         )
-      await expect(insert('active', 'archived', null)).rejects.toThrow(/cohort_status_events_archive_reason_check/)
-      await expect(insert('archived', 'active', null)).rejects.toThrow(/cohort_status_events_archive_reason_check/)
+      await expect(insert('active', 'archived', null)).resolves.toBeTruthy()
+      await expect(insert('archived', 'active', null)).resolves.toBeTruthy()
       await expect(insert('active', 'archived', '年度結束')).resolves.toBeTruthy()
       await expect(insert('preparing', 'active', null)).resolves.toBeTruthy()
       await expect(insert(null, 'preparing', null)).resolves.toBeTruthy()

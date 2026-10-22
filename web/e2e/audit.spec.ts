@@ -1,18 +1,28 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 
 /**
  * 票 36：系辦「操作紀錄」頁（原型 `/dashboard/admin/audit`；模組 10「依角色篩選，每筆有時間、人、動作、對象、理由；不可修改」）。
  *
- * 1. 管理員做一件會留紀錄的事（新增屆別），操作紀錄最上面看得到：動作「新增屆別」、對象是那一屆、操作者有名字。
+ * 1. 管理員做一件會留紀錄的事（新增屆別），操作紀錄最上面看得到：動作「新增屆別」、對象是那一屆、操作者有名字與頭像（C3-17）。
  * 2. 依角色分頁：「管理員」分頁看得到、「學生」分頁沒有這一筆；網址帶著分頁，重新整理不會丟。
  * 3. 頁面沒有任何修改入口（只讀）。
- * 4. 核准一個學生後，最上面那列看得到學生姓名、核實方式與核實說明；各分頁數字加起來等於「全部」（2026-10-08 系2、系3）。
+ * 4. 核准一個學生後，最上面那列看得到學生姓名與核實方式（系辦審核）；各分頁數字加起來等於「全部」（2026-10-08 系2、系3）。
  * 非管理員被擋在 `pages.spec` 逐條驗 `PROTECTED_ROUTES`（這一頁已登記）。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU；測試中途失敗也會關）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
 const stamp = Date.now().toString(36).toUpperCase()
 const CODE = `E2E-AU-${stamp}`
 
@@ -43,9 +53,12 @@ async function signIn(page: Page, role: TestRole) {
 test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址篩選；頁面只讀', async ({ page }) => {
   await signIn(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  await page.getByLabel('代碼').fill(CODE)
-  await page.getByLabel('名稱').fill(`${CODE} 操作紀錄測試`)
+  // C2-06：「新增屆別」開視窗填。
   await page.getByRole('button', { name: '新增屆別' }).click()
+  const create = page.getByRole('dialog', { name: '新增屆別' })
+  await create.getByLabel('代碼').fill(CODE)
+  await create.getByLabel('名稱').fill(`${CODE} 操作紀錄測試`)
+  await create.getByRole('button', { name: '確定新增' }).click()
   await expect(page.getByRole('main').getByRole('status')).toContainText(CODE)
 
   await page.goto('/dashboard/admin/audit')
@@ -54,6 +67,12 @@ test('管理員新增屆別後，操作紀錄看得到；角色分頁照網址�
   const entry = page.getByTestId('audit-entry').filter({ hasText: CODE })
   await expect(entry).toHaveCount(1)
   await expect(entry).toContainText('新增屆別')
+  // C3-17（AC-C3-01 操作紀錄那一處）：操作者是找得到的帳號，名字旁有 24px 頭像（旁邊已寫姓名，alt 留空），沒有首字圓圈。
+  const avatar = entry.locator('img')
+  await expect(avatar).toHaveCount(1)
+  await expect(avatar).toHaveAttribute('width', '24')
+  await expect(avatar).toHaveAttribute('alt', '')
+  await expect(avatar).toHaveAttribute('src', /^\/(avatars\/\d{3}\.webp|api\/files\/)/)
 
   const tabs = page.getByRole('navigation', { name: '依角色篩選' })
   await tabs.getByRole('link', { name: /^管理員/ }).click()
@@ -90,7 +109,6 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   const prefix = String(Date.now()).slice(-5)
   const student = { name: `紀錄生${prefix}`, studentNo: `5${prefix}001`, email: `audit-s-${stamp.toLowerCase()}@example.com` }
   const password = 'Student-Password-2026'
-  const note = `E2E 櫃台核對學生證 ${prefix}`
 
   // 屆別畫面有自己的 e2e；這裡直接種，只測「核准 → 操作紀錄」。
   const pool = new Pool({ connectionString: ownerUrl, max: 1 })
@@ -104,7 +122,7 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   }
 
   // 學生用自己的來源 IP 註冊（跟 registration.spec 一樣，避免跟別的檔搶同一個註冊限速桶）。
-  const studentContext = await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': `10.250.${Number(prefix) % 250}.7` } })
+  const studentContext = track(await browser.newContext({ extraHTTPHeaders: { 'x-real-ip': `10.250.${Number(prefix) % 250}.7` } }))
   const reg = await studentContext.newPage()
   await reg.goto('/register')
   await reg.getByLabel('Email', { exact: true }).fill(student.email)
@@ -123,24 +141,22 @@ test('核准學生後，操作紀錄最上面那列看得到學生姓名與核�
   await expect(reg).toHaveURL(/\/register\/pending$/)
   await studentContext.close()
 
-  const adminContext = await browser.newContext()
+  const adminContext = track(await browser.newContext())
   const page = await adminContext.newPage()
   await signIn(page, 'admin')
-  await page.goto('/dashboard/admin/accounts')
-  await page.getByRole('button', { name: `審核 ${student.name}` }).click()
-  const dialog = page.getByRole('dialog', { name: `審核 ${student.name}` })
+  await page.goto('/dashboard/admin/accounts/pending')
+  // 學生不在名單上：核准開小視窗，只選屆別。
+  await page.getByRole('button', { name: `核准 ${student.name}` }).click()
+  const dialog = page.getByRole('dialog', { name: `核准 ${student.name}` })
   await dialog.getByLabel('核准進哪一屆').selectOption({ label: `${cohortName}（${cohortCode}）` })
-  await dialog.getByLabel('當面核對學生證或其他身分證件').check()
-  await dialog.getByLabel(/^怎麼確認的說明/).fill(note)
-  await dialog.getByRole('button', { name: '核准' }).click()
+  await dialog.getByRole('button', { name: '核准', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText('已核准')
 
   await page.goto('/dashboard/admin/audit')
   // e2e 平行跑，別的檔可能剛好插進新紀錄，所以用學生姓名找那一列，不假設它在第一列。
   const top = page.getByTestId('audit-entry').filter({ hasText: '核准註冊' }).filter({ hasText: student.name })
   await expect(top).toHaveCount(1)
-  await expect(top).toContainText('當面核對')
-  await expect(top).toContainText(note)
+  await expect(top).toContainText('系辦審核')
 
   // 學生送出申請那筆沒有角色，落在「本人申請」。
   await page.goto('/dashboard/admin/audit?role=other')

@@ -42,17 +42,17 @@ type Crumb = { href?: string; label: string }
 export function Crumbs({ items }: { items: readonly Crumb[] }) {
   return (
     <nav aria-label="麵包屑" className="text-[13px] text-muted-foreground">
-      <ol className="flex flex-wrap items-center gap-1.5">
+      <ol className="flex flex-wrap items-center gap-1.5 pointer-coarse:gap-3">
         <li>
-          <Link href="/" className="hover:text-foreground">
+          <Link href="/" className="relative hover:text-foreground pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2.5 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']">
             首頁
           </Link>
         </li>
         {items.map((c) => (
-          <li key={c.label} className="flex min-w-0 items-center gap-1.5">
+          <li key={c.label} className="flex min-w-0 items-center gap-1.5 pointer-coarse:gap-3">
             <span aria-hidden>›</span>
             {c.href ? (
-              <Link href={c.href} className="hover:text-foreground">
+              <Link href={c.href} className="relative hover:text-foreground pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center pointer-coarse:after:absolute pointer-coarse:after:-inset-x-2.5 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']">
                 {c.label}
               </Link>
             ) : (
@@ -171,7 +171,7 @@ export function PillLink({
       scroll={false}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'press inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition-[background-color,border-color,color] duration-200',
+        'press inline-flex h-9 items-center rounded-full pointer-coarse:h-11 border px-4 text-sm font-semibold transition-[background-color,border-color,color] duration-200',
         active ? `${on} shadow-[0_2px_8px_rgba(0,51,102,0.18)]` : off,
       )}
     >
@@ -304,7 +304,7 @@ export function coverSrc(card: Pick<PublicItemCard, 'id' | 'cover'>): string {
 export function ListItem({ href, title, meta }: { href: string; title: string; meta: ReactNode }) {
   return (
     <li className="fju-list-item flex flex-col gap-1.5 py-1.5">
-      <Link href={href} className="link-ink text-[17px] leading-snug font-bold">
+      <Link href={href} className="text-[17px] leading-snug font-bold text-foreground transition-colors pointer-coarse:inline-block pointer-coarse:min-h-11 pointer-coarse:py-2.5 hover:text-primary focus-visible:text-primary">
         {title}
       </Link>
       <div className="flex flex-wrap items-center gap-2.5">{meta}</div>
@@ -400,23 +400,28 @@ export function CodeNotice({
 }
 
 /**
- * 已下架／已撤回（產品 04 §4.5、09 SHW-06、08「來源已撤回」）：不是 404，告訴他發生什麼事、接下來可以去哪裡。
- * 不帶原本的標題與內容。
+ * 已下架／已撤回／已刪除（產品 04 §4.5、09 SHW-06、08「來源已撤回」；已刪除是 CL-14）：不是 404，告訴他發生什麼事、
+ * 接下來可以去哪裡。不帶原本的標題與內容。只給原本就看得到的人（看不到的人頁面照舊 404，不透露項目存在過）。
+ * `unit` 是量詞（公告「這則」、作業「這份」）。
  */
 export function GoneNotice({
   kind,
   what,
+  unit = '則',
   back,
 }: {
-  kind: 'archived' | 'withdrawn'
+  kind: 'archived' | 'withdrawn' | 'deleted'
   what: string
+  unit?: string
   back: { href: string; label: string }
 }) {
-  const title = kind === 'archived' ? `這則${what}已下架` : `這則${what}已撤回`
+  const title = `這${unit}${what}${kind === 'archived' ? '已下架' : kind === 'withdrawn' ? '已撤回' : '已刪除'}`
   const detail =
     kind === 'archived'
       ? '系辦已經把它下架，內容不再公開。可能已經過期，或被新的公告取代。'
-      : '系辦暫時把它收回修改，改好後會在原本的網址重新發布。'
+      : kind === 'withdrawn'
+        ? '系辦暫時把它收回修改，改好後會在原本的網址重新發布。'
+        : '系辦已經把它刪除，內容不會再出現，也不能恢復。舊的通知或信件裡的連結會帶到這裡。'
   return (
     <div className="mx-auto flex min-h-[420px] max-w-xl flex-col items-center justify-center gap-3 px-5 py-16 text-center" data-testid="gone-notice">
       <IconSearchOff className="size-9 text-muted-foreground/60" aria-hidden />

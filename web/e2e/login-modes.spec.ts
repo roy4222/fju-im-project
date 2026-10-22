@@ -82,9 +82,9 @@ test('AC-VI-58 登入模式 → 忘記密碼模式 → 返回登入：同一張�
   const page = await newGuestPage(browser)
   await page.goto('/login')
 
-  // 左圖右卡：≥1024 有校園照、沒有 canvas。
-  await expect(page.locator('aside img[src="/placeholder/campus.jpg"]')).toBeVisible()
-  await expect(page.locator('canvas')).toHaveCount(0)
+  // 規格④ §4.1：照片拿掉、整頁 LetterGlitch 背景（canvas 1 個）。
+  await expect(page.locator('main img')).toHaveCount(0)
+  await expect(page.locator('[data-testid=letter-glitch] canvas')).toHaveCount(1)
   await expect(card(page)).toHaveAttribute('data-mode', 'login')
   await expect(card(page).getByRole('button', { name: '使用 Google 帳號登入' })).toBeVisible()
   await expect(card(page).getByLabel('Email')).toBeVisible()
@@ -149,14 +149,15 @@ test('AC-VI-79 登入頁提示句（R11）', async ({ browser }) => {
 })
 
 for (const state of ['forgot', 'sent'] as const) {
-  for (const where of ['header', 'footer'] as const) {
-    test(`Review #587：${state} 模式點${where === 'header' ? '頂部' : '頁尾'}「登入」→ 網址 /login、回到登入表單`, async ({ browser }) => {
+  // 登入頁沒有頁尾了（規格④ §4.1）：改從頂部與卡片內的「返回登入」進。
+  for (const where of ['header', '[data-testid=login-card]'] as const) {
+    test(`Review #587：${state} 模式點${where === 'header' ? '頂部' : '卡片內'}「登入」→ 網址 /login、回到登入表單`, async ({ browser }) => {
       const page = await newGuestPage(browser)
       await page.goto('/login')
       await card(page).locator('a[href="/forgot-password"]').click()
       await expect(card(page)).toHaveAttribute('data-mode', 'forgot')
       if (state === 'sent') {
-        await card(page).getByLabel('Email').fill(`nav-${where}-${run}@example.com`)
+        await card(page).getByLabel('Email').fill(`nav-${where === 'header' ? 'header' : 'card'}-${run}@example.com`)
         await card(page).getByRole('button', { name: '寄重設連結' }).click()
         await expect(card(page)).toHaveAttribute('data-mode', 'sent')
       }

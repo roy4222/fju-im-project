@@ -1,11 +1,13 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { Pool } from 'pg'
+import { createItemInDialog, formReady } from './create-item'
 import { sharedTestSession, toPlaywrightCookie } from './session'
 
 /**
  * A-14（Q198）：規則章節上下移。驗收 AC-A-38、39、40（前台半段）、50。
+ * C1-08（C 階段規格① §4.4）：一頁章節卡＋原生拖曳整批排序＋就地展開編輯（AC-13）；上移／下移保留，上面的案例照舊。
  *
- * 系辦在「公告與作業」選「專題規則」篩選：列依章節位置排，每列多「上移」「下移」（首尾停用）；按完前台 `/rules`
+ * 系辦在「公告與作業」的「專題規則」分頁：列依章節位置排，每列多「上移」「下移」（首尾停用）；按完前台 `/rules`
  * 的目錄跟著換。草稿章節在系辦清單裡佔位置、前台看不到，所以跟草稿交換時前台順序不變。
  *
  * 兩組資料各用自己的屆別：`FIVE` 五章（第 3 章草稿，AC-A-50、39、40）、`FOUR` 四章都發布（AC-A-38）。
@@ -54,34 +56,19 @@ async function asAdmin(page: Page) {
   await page.context().addCookies([toPlaywrightCookie((await sharedTestSession(page.request, 'admin')).cookie, BASE_URL)])
 }
 
-/** 三步驟快速建立一章公開的規則：發布，或在第 3 步「先存成草稿」。 */
+/** 清單「新增公告」→ 選「專題規則」→ 一頁式表單建立一章公開的規則：發布，或「儲存（先不發布）」（C1-06 共用表單）。 */
 async function quickRule(page: Page, code: string, n: number, publish: boolean) {
   await page.goto(`/dashboard/admin/affairs?cohort=${cohorts[code]}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
-  await dialog.getByRole('radio', { name: /專題規則/ }).check()
-  await dialog.getByLabel('標題').fill(title(code, n))
-  await dialog.getByLabel('誰看得到').selectOption('public')
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill(`第 ${n} 章的規則內容。`)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  if (publish) {
-    await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
-    await dialog.getByRole('button', { name: '發布', exact: true }).click()
-    await expect(dialog.getByRole('status')).toContainText(`「${title(code, n)}」已發布`)
-  } else {
-    await dialog.getByRole('button', { name: '先存成草稿' }).click()
-    await expect(dialog).toBeHidden()
-  }
+  await createItemInDialog(page, { kind: /專題規則/, title: title(code, n), body: `第 ${n} 章的規則內容。`, publish })
 }
 
 async function openRulesFilter(page: Page, code: string) {
+  // 舊網址 `?placement=rules` 轉到「專題規則」分頁（C 階段規格② §8），屆別照帶。
   await page.goto(`/dashboard/admin/affairs?cohort=${cohorts[code]}&placement=rules`)
-  await expect(page.getByRole('navigation', { name: '種類' }).getByRole('link', { name: '專題規則', exact: true })).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(page).toHaveURL(new RegExp(`/dashboard/admin/affairs/rules\\?cohort=${cohorts[code]}$`))
+  await expect(
+    page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '專題規則', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
 }
 
 /** 系辦「規則」篩選的列順序（只取「第 N 章」）。 */
@@ -187,4 +174,221 @@ test('AC-A-38：四章都已發布，第 3 章下移 → 系辦與前台第 3、
   await expect(row(page, FOUR, 4).getByRole('button', { name: `下移「${title(FOUR, 4)}」` })).toBeEnabled()
   await page.screenshot({ path: test.info().outputPath('rules-admin-after.png'), fullPage: true })
   expect(await publicOrder(page, FOUR)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+})
+
+/** 第 `n` 章的拖柄拖到第 `m` 章那張卡上（原生 HTML5 drag）。 */
+async function dragOnto(page: Page, code: string, n: number, m: number) {
+  await row(page, code, n).getByTestId('rule-drag-handle').dragTo(row(page, code, m))
+}
+
+test('AC-13：把第 3 張卡拖到第 1 → 卡片順序即時變、重新整理仍是新順序、前台跟著變', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  expect(await adminOrder(page, FOUR)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+  expect(await publicOrder(page, FOUR)).toEqual(['第1章', '第2章', '第4章', '第3章'])
+  await page.screenshot({ path: test.info().outputPath('rules-public-before-drag.png'), fullPage: true })
+
+  await openRulesFilter(page, FOUR)
+  await dragOnto(page, FOUR, 4, 1)
+  // 放下那一刻畫面就換（不等伺服器）；之後伺服器回一句話。
+  expect(await adminOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+  await expect(page.getByTestId('pin-feedback')).toHaveText('已更新章節順序，前台專題規則的順序同步更新。')
+  // 上下移的停用跟著新順序。
+  await expect(row(page, FOUR, 4).getByRole('button', { name: `上移「${title(FOUR, 4)}」` })).toBeDisabled()
+  await expect(row(page, FOUR, 1).getByRole('button', { name: `上移「${title(FOUR, 1)}」` })).toBeEnabled()
+
+  await page.reload()
+  expect(await adminOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+  const positions = await pool.query<{ title: string; rules_position: number }>(
+    `select title, rules_position from managed_items where cohort_id = $1 and deleted_at is null order by rules_position`,
+    [cohorts[FOUR]],
+  )
+  expect(positions.rows.map((r) => [r.title.replace(`${FOUR} `, ''), r.rules_position])).toEqual([
+    ['第4章', 1],
+    ['第1章', 2],
+    ['第2章', 3],
+    ['第3章', 4],
+  ])
+  await page.screenshot({ path: test.info().outputPath('rules-admin-after-drag.png'), fullPage: true })
+  expect(await publicOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+  await page.screenshot({ path: test.info().outputPath('rules-public-after-drag.png'), fullPage: true })
+})
+
+test('AC-13：第 2 張卡「編輯」就地展開、改章名「儲存更新」→ 前台章名跟著變；展開另一章時前一章有未存改動會問一句', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  expect(await adminOrder(page, FOUR)).toEqual(['第4章', '第1章', '第2章', '第3章'])
+
+  // 沒改東西時換章不問。
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  await formReady(row(page, FOUR, 2))
+  await row(page, FOUR, 3).getByRole('button', { name: `編輯：${title(FOUR, 3)}` }).click()
+  await expect(page.getByRole('dialog', { name: '放棄未儲存的修改？' })).toBeHidden()
+  await formReady(row(page, FOUR, 3))
+  // 一次只展開一章。
+  await expect(page.getByTestId('item-form')).toHaveCount(1)
+
+  // 第 2 張卡（第 1 章）：就地展開，沒有右欄預覽、沒有對象欄。
+  await row(page, FOUR, 1).getByRole('button', { name: `編輯：${title(FOUR, 1)}` }).click()
+  const card = row(page, FOUR, 1)
+  const form = await formReady(card)
+  await expect(form).toHaveAttribute('data-layout', 'inline')
+  await expect(form.getByLabel('對象（誰看得到）')).toHaveCount(0)
+  const renamed = `${FOUR} 第1章改名`
+  await form.getByLabel('標題', { exact: true }).fill(renamed)
+
+  // 有未存改動 → 展開別章前先問；「繼續編輯」留在原章、改的字還在。
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  const ask = page.getByRole('dialog', { name: '放棄未儲存的修改？' })
+  await expect(ask).toBeVisible()
+  await expect(ask).toContainText(`「${title(FOUR, 1)}」還有沒儲存的修改，要放棄嗎？`)
+  await ask.getByRole('button', { name: '繼續編輯' }).click()
+  await expect(ask).toBeHidden()
+  await expect(form.getByLabel('標題', { exact: true })).toHaveValue(renamed)
+
+  await form.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page.getByTestId('pin-feedback')).toHaveText('已更新')
+  await expect(page.getByTestId('item-form')).toHaveCount(0)
+  await expect.poll(() => adminOrder(page, FOUR)).toEqual(['第4章', '第1章改名', '第2章', '第3章'])
+  expect(await publicOrder(page, FOUR)).toEqual(['第4章', '第1章改名', '第2章', '第3章'])
+  await page.screenshot({ path: test.info().outputPath('rules-public-after-edit.png'), fullPage: true })
+})
+
+test('CL-1：就地編輯沒改不擋離開；改了欄位或正文（含 Enter 這種不發 input 的操作）才擋，改回原樣、存好就不再擋', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  const rulesUrl = page.url()
+  const tabs = page.getByRole('navigation', { name: '公告與作業分頁' })
+  const ask = page.getByRole('dialog', { name: '放棄未儲存的修改？' })
+  const board = page.getByTestId('rules-board')
+  const unloadDialogs: string[] = []
+  page.on('dialog', (dialog) => {
+    unloadDialogs.push(dialog.type())
+    void dialog.dismiss()
+  })
+
+  // 沒改：點分頁列的「資源下載」直接走，不問。
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  await formReady(row(page, FOUR, 2))
+  await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
+  await expect(ask).toBeHidden()
+
+  // 改了正文：只按 Enter（Tiptap 自己處理、不發 input 事件）也算改過 → 點站內連結先問，「繼續編輯」留在原頁。
+  await page.goto(rulesUrl)
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  const form = await formReady(row(page, FOUR, 2))
+  const editor = form.locator('#ed-body[contenteditable="true"]')
+  await expect(editor).toBeVisible()
+  await editor.click()
+  await editor.press('Control+End')
+  await editor.press('Enter')
+  await expect(board).toHaveAttribute('data-unsaved', '1')
+  await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
+  await expect(ask).toBeVisible()
+  await expect(ask.getByRole('button', { name: '放棄並離開' })).toBeVisible()
+  await ask.getByRole('button', { name: '繼續編輯' }).click()
+  await expect(ask).toBeHidden()
+  expect(page.url()).toBe(rulesUrl)
+  // 擋下的點擊不會讓換頁骨架卡著（骨架 150 ms 後才出現，等過那段再看）。
+  await page.waitForTimeout(400)
+  await expect(page.locator('html[data-nav-pending]')).toHaveCount(0)
+
+  // 有未存改動時重新整理會跳瀏覽器的離開確認（`beforeunload`）；取消就留在原頁、改動還在。
+  // 取消後導覽不會完成，reload 本身等不到 load：給上限、失敗吞掉，改看對話框有沒有跳。
+  const reloading = page.reload({ timeout: 5_000 }).catch(() => null)
+  await expect.poll(() => unloadDialogs, { message: '有未存改動時重新整理要跳 beforeunload 確認', timeout: 5_000 }).toContain('beforeunload')
+  await reloading
+  expect(page.url()).toBe(rulesUrl)
+  await expect(form).toBeVisible()
+
+  // 改回原樣（編輯器的復原把剛剛的空段落拿掉）→ 不再擋。
+  await editor.press('Control+z')
+  await expect(board).not.toHaveAttribute('data-unsaved')
+  await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
+  await expect(ask).toBeHidden()
+
+  // 改了標題 → 問；「放棄並離開」→ 走到那一頁。
+  await page.goto(rulesUrl)
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  const again = await formReady(row(page, FOUR, 2))
+  await again.getByLabel('標題', { exact: true }).fill(`${title(FOUR, 2)}（未存）`)
+  await expect(board).toHaveAttribute('data-unsaved', '1')
+  await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
+  await expect(ask).toBeVisible()
+  await ask.getByRole('button', { name: '放棄並離開' }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
+
+  // 存好之後不再擋：改標題 → 儲存更新 → 點連結直接走。
+  await page.goto(rulesUrl)
+  await row(page, FOUR, 3).getByRole('button', { name: `編輯：${title(FOUR, 3)}` }).click()
+  const saved = await formReady(row(page, FOUR, 3))
+  await saved.getByLabel('標題', { exact: true }).fill(`${title(FOUR, 3)}（存過）`)
+  await saved.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page.getByTestId('pin-feedback')).toHaveText('已更新')
+  await expect(board).not.toHaveAttribute('data-unsaved')
+  await tabs.getByRole('link', { name: '資源下載', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
+  await expect(ask).toBeHidden()
+  expect(unloadDialogs).toEqual(['beforeunload'])
+})
+
+test('CL-1：表單還在載入時連點兩章「編輯」→ 只展開後點的那一章；沒改東西時離開不擋', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  // 卡住就地表單的資料載入（Server Function 是對本頁的 POST），期間連點兩章。
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  let held = 0
+  const rulesPage = (url: URL) => url.pathname === '/dashboard/admin/affairs/rules'
+  await page.route(
+    rulesPage,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      held += 1
+      await gate
+      await route.continue()
+    },
+  )
+  await row(page, FOUR, 2).getByRole('button', { name: `編輯：${title(FOUR, 2)}` }).click()
+  await expect(row(page, FOUR, 2).getByText('表單載入中…')).toBeVisible()
+  await row(page, FOUR, 4).getByRole('button', { name: `編輯：${title(FOUR, 4)}` }).click()
+  await expect(page.getByRole('dialog', { name: '放棄未儲存的修改？' })).toBeHidden()
+  await expect.poll(() => held, { message: '表單資料載入的 POST 應該被卡住', timeout: 5_000 }).toBeGreaterThan(0)
+  release()
+  await formReady(row(page, FOUR, 4))
+  await expect(page.getByTestId('item-form')).toHaveCount(1)
+  await expect(row(page, FOUR, 2).getByTestId('item-form')).toHaveCount(0)
+  await page.getByRole('navigation', { name: '公告與作業分頁' }).getByRole('link', { name: '資源下載', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\/resources(\?|$)/)
+})
+
+test('CL-1：有未存修改時點附件名稱 → 不跳確認框、直接下載，修改還在（/api/ 底下不算換頁）', async ({ page }) => {
+  await asAdmin(page)
+  await openRulesFilter(page, FOUR)
+  const board = page.getByTestId('rules-board')
+  const name = `cl1-${stamp}.pdf`
+  // 先幫第 4 章存一個附件。
+  await row(page, FOUR, 4).getByRole('button', { name: `編輯：${title(FOUR, 4)}` }).click()
+  const first = await formReady(row(page, FOUR, 4))
+  await first.getByLabel('加入附件').setInputFiles({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% e2e CL-1 附件\n') })
+  await expect(first.getByRole('list', { name: '附件' }).getByRole('link', { name })).toBeVisible()
+  await first.getByRole('button', { name: '儲存更新' }).click()
+  await expect(page.getByTestId('pin-feedback')).toHaveText('已更新')
+
+  // 再展開、改標題（有未存修改），點附件名稱。
+  await row(page, FOUR, 4).getByRole('button', { name: `編輯：${title(FOUR, 4)}` }).click()
+  const form = await formReady(row(page, FOUR, 4))
+  const changed = `${title(FOUR, 4)}（附件測試未存）`
+  await form.getByLabel('標題', { exact: true }).fill(changed)
+  await expect(board).toHaveAttribute('data-unsaved', '1')
+  const url = page.url()
+  const download = page.waitForEvent('download', { timeout: 10_000 })
+  await form.getByRole('list', { name: '附件' }).getByRole('link', { name }).click()
+  expect((await download).suggestedFilename()).toBe(name)
+  await expect(page.getByRole('dialog', { name: '放棄未儲存的修改？' })).toBeHidden()
+  expect(page.url()).toBe(url)
+  await expect(form.getByLabel('標題', { exact: true })).toHaveValue(changed)
+  await expect(board).toHaveAttribute('data-unsaved', '1')
 })

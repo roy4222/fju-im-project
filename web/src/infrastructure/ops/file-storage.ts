@@ -8,18 +8,23 @@ import type { Pool, PoolClient } from 'pg'
 import { uuidv7 } from 'uuidv7'
 import { ANONYMOUS as ANONYMOUS_ACTOR, statusGate, type ResolvedActor } from '@/application/accounts'
 import {
+  canonicalJson,
   checkDeclaredUpload,
   createContentInspector,
   effectiveMaxBytes,
   extensionOf,
   FILE_TYPES,
+  fileInUseMessage,
   formatBytes,
   isUuid,
   sanitizeDisplayName,
   storageKeyFor,
   tempKeyFor,
   type AttachExpectation,
+  type AuditWriter,
   type DeclaredUpload,
+  type FileAdminCommand,
+  type FileDeleteReceipt,
   type DownloadPolicies,
   type FileDownload,
   type FileFacts,
@@ -27,13 +32,15 @@ import {
   type FileRef,
   type FileStorage,
   type GeneratedFile,
+  type OperationLedger,
   type StoredFileContent,
   type StoredFileReceipt,
   type UploadRules,
   type UploadTicket,
 } from '@/application/ops'
-import { err, ok, type Result } from '@/shared/result'
+import { err, ok, type Receipt, type Result } from '@/shared/result'
 import { RealClock, type Clock } from '@/shared/time'
+import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { issueTicket, verifyTicket } from '@/infrastructure/ops/upload-ticket'
 
 /**
@@ -170,7 +177,14 @@ export class FsFileStorage implements FileStorage<PoolClient> {
 
     const expiresAt = now.getTime() + (this.#options.ticketTtlMs ?? 15 * 60 * 1000)
     const ticket = issueTicket(
-      { fileId, userId: ownerUserId, type: checked.type, maxBytes, expiresAt },
+      {
+        fileId,
+        userId: ownerUserId,
+        type: checked.type,
+        maxBytes,
+        expiresAt,
+        ...(rules.rejectWhenCohortArchived && rules.scope.kind === 'cohort' ? { rejectWhenCohortArchived: true } : {}),
+      },
       this.#options.ticketSecret(),
     )
     return ok({ ticket, fileId, maxBytes, expiresAt: new Date(expiresAt).toISOString() }, meta(now))
@@ -198,6 +212,12 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     // 同一張 ticket 只能用一次：傳完之後列就不是 uploading 了。
     if (!row || row.owner_user_id !== uploaderUserId || row.status !== 'uploading') {
       return err('FORBIDDEN', '上傳憑證無效或已使用過，請重新選擇檔案。')
+    }
+    // 拿 ticket 之後屆別才封存（AC-55）：寫暫存檔之前擋，檔案列維持 uploading，之後由逾時回收收掉。
+    // 只有發 ticket 時標了記號才查，其他上傳路徑的查詢數不變。
+    if (claims.rejectWhenCohortArchived && row.scope === 'cohort' && row.cohort_id) {
+      const cohort = await this.#options.db().query<{ status: string }>('select status from cohorts where id = $1', [row.cohort_id])
+      if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再上傳檔案。')
     }
 
     const limit = claims.maxBytes
@@ -286,15 +306,23 @@ export class FsFileStorage implements FileStorage<PoolClient> {
     try {
       await fs.mkdir(path.dirname(finalPath), { recursive: true })
       await fs.rename(tempPath, finalPath)
+      // 傳輸途中屆別才封存（#824）：標 stored 同一句先對屆別 FOR SHARE 再查一次，跟封存交易的 FOR UPDATE 排隊；
+      // 鎖序照寫入規則先屆別、後檔案。沒標記號（榮譽附件等）的 $6 是 null，不碰屆別。
+      const archivedGuard = claims.rejectWhenCohortArchived && row.scope === 'cohort' ? row.cohort_id : null
       const updated = await this.#options.db().query(
-        `update stored_files
+        `with live as (select 1 from cohorts where id = $6::uuid and status <> 'archived' for share)
+         update stored_files
             set status = 'stored', size_bytes = $2, checksum = $3, mime_detected = $4,
                 finalized_at = $5, revision = revision + 1, updated_at = $5
-          where id = $1 and status = 'uploading'`,
-        [row.id, sizeBytes, checksum, mimeDetected, this.#clock.now()],
+          where id = $1 and status = 'uploading' and ($6::uuid is null or exists (select 1 from live))`,
+        [row.id, sizeBytes, checksum, mimeDetected, this.#clock.now(), archivedGuard],
       )
       if (updated.rowCount !== 1) {
         await fs.rm(finalPath, { force: true })
+        if (archivedGuard) {
+          const cohort = await this.#options.db().query<{ status: string }>('select status from cohorts where id = $1', [archivedGuard])
+          if (cohort.rows[0]?.status === 'archived') return err('COHORT_ARCHIVED', '這一屆已經封存，不能再上傳檔案。')
+        }
         return err('CONFLICT', '這個檔案的狀態已經改變，請重新上傳。')
       }
     } catch (error) {
@@ -557,4 +585,107 @@ export async function reclaimableFiles(
     [cutoff],
   )
   return rows.rows.map((r) => ({ id: r.id, status: r.status, ownerUserId: r.owner_user_id }))
+}
+
+export type FileAdminCommandOptions = {
+  /** 交易要借連線；測試會指到自己的隔離 schema。 */
+  readonly db: () => Pick<Pool, 'connect'>
+  readonly audit: AuditWriter<PoolClient>
+  readonly ledger: OperationLedger<PoolClient>
+  /** 業務時間（稽核的 `business_at`）；在開交易**之前**讀，業務鐘自己也借連線。 */
+  readonly businessClock: { now(): Promise<Date> }
+  readonly clock?: Clock
+}
+
+/**
+ * 系辦在檔案分頁刪掉沒人用的檔（C1-16；①設計方案 §1.6）。規則見 `FileAdminCommand`。
+ *
+ * 鎖序跟 `attach` 與回收工作一樣（契約 01 §6）：先 `FOR UPDATE` 鎖檔案列，再查引用。
+ * 同時有人把這個檔附到別的地方：`attach` 也要先拿這把鎖，所以不是先附上（這裡看到引用、回 `CONFLICT`），
+ * 就是先刪掉（`attach` 看到不是 `stored`、回 `FILE_NOT_READY`）。
+ */
+export class PgFileAdminCommand implements FileAdminCommand {
+  readonly #options: FileAdminCommandOptions
+  readonly #clock: Clock
+
+  constructor(options: FileAdminCommandOptions) {
+    this.#options = options
+    this.#clock = options.clock ?? new RealClock()
+  }
+
+  async deleteUnreferenced(actor: ResolvedActor, fileId: string, requestId: string): Promise<Result<FileDeleteReceipt>> {
+    const blocked = statusGate(actor, 'business')
+    if (blocked) return err(blocked, '請先登入並完成帳號設定。')
+    if (actor.kind !== 'authenticated' || !actor.roles.includes('admin')) return err('FORBIDDEN', '只有系辦可以刪除檔案。')
+    if (!isUuid(requestId)) return err('VALIDATION_FAILED', '這次送出缺少請求編號，請重新整理頁面再試。')
+    if (!isUuid(fileId)) return err('VALIDATION_FAILED', '找不到這個檔案，請重新整理頁面。')
+    const userId = actor.userId
+    const businessAt = await this.#options.businessClock.now()
+
+    const client = await this.#options.db().connect()
+    try {
+      await client.query('begin')
+      const result = await this.#delete(client, userId, fileId, requestId, businessAt)
+      await client.query(result.ok ? 'commit' : 'rollback')
+      return result
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined)
+      console.error('[file.delete] 寫入失敗', error)
+      return err('INTERNAL', '系統暫時無法處理，請稍後再試。')
+    } finally {
+      client.release()
+    }
+  }
+
+  async #delete(tx: PoolClient, userId: string, fileId: string, requestId: string, businessAt: Date): Promise<Result<FileDeleteReceipt>> {
+    const realAt = this.#clock.now()
+    const begun = await this.#options.ledger.begin(
+      tx,
+      { actorUserId: userId, operationKind: 'file.delete', requestId, fingerprint: sha256(canonicalJson({ fileId })), scope: 'global' },
+      realAt,
+    )
+    if (begun.outcome === 'mismatch') return err('REQUEST_MISMATCH', '這個請求編號已經用在別的內容上，請重新整理頁面再送一次。')
+    if (begun.outcome !== 'fresh') {
+      if (begun.receiptExpired) return err('RECEIPT_EXPIRED', '這個動作之前已經處理過了。')
+      return { ok: true, receipt: begun.receipt as Receipt<FileDeleteReceipt> }
+    }
+
+    const found = await tx.query<{ status: string; original_name: string; purpose: FilePurpose; scope: 'cohort' | 'global'; cohort_id: string | null }>(
+      `select status, original_name, purpose, scope, cohort_id from stored_files where id = $1 for update`,
+      [fileId],
+    )
+    const row = found.rows[0]
+    if (!row || row.status !== 'stored') return err('VALIDATION_FAILED', '這個檔案已經刪除或還沒上傳完成，請重新整理頁面。')
+
+    // 首頁大圖不寫 `file_references`（`pg-home-settings.ts`），由 `home_settings.hero_file_id` 指著；它也算一處在用。
+    const refs = await tx.query<{ n: number }>(
+      `select (select count(*)::int from file_references where file_id = $1 and released_at is null)
+            + (select count(*)::int from home_settings where hero_file_id = $1) as n`,
+      [fileId],
+    )
+    const inUse = refs.rows[0]?.n ?? 0
+    if (inUse > 0) return err('CONFLICT', fileInUseMessage(inUse))
+
+    await tx.query(
+      `update stored_files set status = 'soft_deleted', soft_deleted_at = $2, revision = revision + 1, updated_at = $2
+        where id = $1`,
+      [fileId, realAt],
+    )
+    await this.#options.audit.append(tx, {
+      actorKind: 'user',
+      actorUserId: userId,
+      role: 'admin',
+      action: 'file.delete',
+      targetType: 'stored_file',
+      targetId: fileId,
+      scope: row.scope,
+      cohortId: row.cohort_id,
+      realAt,
+      businessAt,
+      payload: { name: row.original_name, purpose: row.purpose },
+    })
+    const receipt = { fileId, name: row.original_name, requestId, serverTime: realAt.toISOString() }
+    await this.#options.ledger.commit(tx, begun.recordId, { receipt, resultRef: { fileId } })
+    return { ok: true, receipt }
+  }
 }

@@ -2,18 +2,24 @@
 import { useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/shared/cn'
+import { charLength } from '@/shared/text'
 import { resetAvatarAction } from './actions'
 import type { DialogOpener } from './role-dialogs'
 
 /**
  * 系辦重設某人的頭像（AD-B2；B 設計方案 §2.3）。
  *
- * 顯示目前頭像、寫理由（去頭尾空白後 1～200 字，空的先擋）、按「重設」。
+ * 顯示目前頭像、寫理由（選填；去頭尾空白後最多 200 字）、按「重設」。
  * 重設後對方回到依帳號 id 固定的預設圖；理由只寫進稽核，對方看不到。規則在用例，這裡的擋是為了少跑一趟。
  */
 
 /** 同 `REASON_MAX`（app 對 application 只能帶型別，值在這裡寫一次；用例會再判）。 */
 const REASON_MAX = 200
+
+/** 去頭尾空白後超過上限（以字計，emoji 算一個字；同用例的 `charLength`）。 */
+export function reasonTooLong(trimmed: string): boolean {
+  return charLength(trimmed) > REASON_MAX
+}
 
 const BUTTON =
   'press inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4'
@@ -57,11 +63,7 @@ export function AvatarResetDialog({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     const trimmed = reason.trim()
-    if (trimmed.length === 0) {
-      setError('請填理由。')
-      return
-    }
-    if (Array.from(trimmed).length > REASON_MAX) {
+    if (reasonTooLong(trimmed)) {
       setError(`理由請在 ${REASON_MAX} 字以內。`)
       return
     }
@@ -100,7 +102,7 @@ export function AvatarResetDialog({
               </p>
             </div>
             <label className="block text-sm font-medium text-foreground">
-              理由（必填，對方看不到）
+              理由（選填，會留在操作紀錄）
               <textarea
                 rows={3}
                 value={reason}

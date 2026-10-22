@@ -112,12 +112,16 @@ const SOURCE_RESOLVERS: Record<string, (ref: SourceRef, context: SourceContext) 
   item: resolveItem,
   // 合作案（票 20）：換案、解除的通知點進合作案頁；那一頁自己依登入身分與合作案狀態決定看得到什麼。
   industry_opportunity: (ref) => ({ state: 'ok', href: `/industry/${ref.id}` }),
+  // 專題時程（C3-13；來源＝屆別）：階段日期改了，點進前台 `/timeline` 看新的階段寬度（那一頁自己依登入身分查）。
+  timeline: () => ({ state: 'ok', href: '/timeline' }),
   // 評分指派（票 23 指派、票 24 退回、票 43 移出）：那一組還在本人評分清單上 → 點進評分清單；
   // 已不在清單（被移出、改派走了）→ 不給連結，只留標題上的本人異動說明（產品 08「舊通知與失權」）。
   grading_assignment: (ref, context) =>
     ref.roles.includes('teacher')
       ? { state: 'ok', href: context.grading_group_listed === true ? '/dashboard/teacher/grading' : null }
       : { state: 'forbidden' },
+  // 評分催繳（C1-05；來源＝屆別）：老師點進自己的評分清單；其他身分不給看。
+  grading_cohort: (ref) => (ref.roles.includes('teacher') ? { state: 'ok', href: '/dashboard/teacher/grading' } : { state: 'forbidden' }),
   // 成績更正待復核（票 24）：只有管理員點得進評分頁（那一頁的「待復核」清單就是管理待辦）。
   grade_override: (ref) => (ref.roles.includes('admin') ? { state: 'ok', href: '/dashboard/admin/grading' } : { state: 'forbidden' }),
   // 簽核版本（票 25、26）：學生點進自己的簽核頁（那一頁依本人此刻所在組別查目前版本，失效的版本會標示原因）；
@@ -203,6 +207,39 @@ function toItem(row: Row, roles: readonly Role[]): InboxItem {
   }
 }
 
+/**
+ * 通知列＋解析來源要的「當下」事實（`$1` 是本人）。列表與點開共用同一段，連結的算法只有一份。
+ */
+const ROW_SELECT = `select n.id, n.kind, n.title, n.scope, n.cohort_id, c.code as cohort_code, c.name as cohort_name, c.status as cohort_status,
+        n.source_ref, n.created_at, n.read_at,
+        mi.placement as item_placement, mi.status as item_status, mi.receiver_unit as item_receiver_unit,
+        mi.deleted_at is not null as item_deleted,
+        exists (select 1 from response_rosters rr
+                 where rr.item_id = mi.id and rr.eligible_to_business_at is null
+                   and ((rr.receiver_kind = 'user' and rr.receiver_id = $1)
+                     or (rr.receiver_kind = 'group' and exists (
+                           select 1 from group_memberships gm join groups g on g.id = gm.group_id
+                            where gm.group_id = rr.receiver_id and gm.user_id = $1 and gm.valid_to is null
+                              and g.status = 'active')))) as item_on_roster,
+        case when n.source_ref->>'type' = 'signoff_version'
+                  and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+             then ${signoffVersionReadableSql(`v.id = (n.source_ref->>'id')::uuid`, '$1')} end as signoff_readable,
+        case when n.source_ref->>'type' = 'grading_assignment'
+                  and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+             then exists (
+                    select 1 from evaluator_assignments src
+                      join evaluator_assignments mine on mine.group_id = src.group_id
+                      join groups g on g.id = mine.group_id and g.status = 'active'
+                      join cohorts gc on gc.id = g.cohort_id and gc.status <> 'archived'
+                     where src.id = (n.source_ref->>'id')::uuid
+                       and mine.teacher_user_id = $1 and mine.valid_to is null) end as grading_group_listed
+   from notifications n
+   left join cohorts c on c.id = n.cohort_id
+   left join managed_items mi
+     on n.source_ref->>'type' = 'item'
+    and mi.id = case when n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                     then (n.source_ref->>'id')::uuid end`
+
 export class PgInbox implements InboxQuery, InboxCommand {
   readonly #db: () => Pick<Pool, 'query'>
   readonly #realClock: Clock
@@ -228,35 +265,7 @@ export class PgInbox implements InboxQuery, InboxCommand {
     values.push(INBOX_PAGE_SIZE + 1)
 
     const rows = await this.#db().query<Row>(
-      `select n.id, n.kind, n.title, n.scope, n.cohort_id, c.code as cohort_code, c.name as cohort_name, c.status as cohort_status,
-              n.source_ref, n.created_at, n.read_at,
-              mi.placement as item_placement, mi.status as item_status, mi.receiver_unit as item_receiver_unit,
-              mi.deleted_at is not null as item_deleted,
-              exists (select 1 from response_rosters rr
-                       where rr.item_id = mi.id and rr.eligible_to_business_at is null
-                         and ((rr.receiver_kind = 'user' and rr.receiver_id = $1)
-                           or (rr.receiver_kind = 'group' and exists (
-                                 select 1 from group_memberships gm join groups g on g.id = gm.group_id
-                                  where gm.group_id = rr.receiver_id and gm.user_id = $1 and gm.valid_to is null
-                                    and g.status = 'active')))) as item_on_roster,
-              case when n.source_ref->>'type' = 'signoff_version'
-                        and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                   then ${signoffVersionReadableSql(`v.id = (n.source_ref->>'id')::uuid`, '$1')} end as signoff_readable,
-              case when n.source_ref->>'type' = 'grading_assignment'
-                        and n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                   then exists (
-                          select 1 from evaluator_assignments src
-                            join evaluator_assignments mine on mine.group_id = src.group_id
-                            join groups g on g.id = mine.group_id and g.status = 'active'
-                            join cohorts gc on gc.id = g.cohort_id and gc.status <> 'archived'
-                           where src.id = (n.source_ref->>'id')::uuid
-                             and mine.teacher_user_id = $1 and mine.valid_to is null) end as grading_group_listed
-         from notifications n
-         left join cohorts c on c.id = n.cohort_id
-         left join managed_items mi
-           on n.source_ref->>'type' = 'item'
-          and mi.id = case when n.source_ref->>'id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                           then (n.source_ref->>'id')::uuid end
+      `${ROW_SELECT}
         where n.recipient_user_id = $1 ${cursorSql} ${f.sql}
         order by n.created_at desc, n.id desc
         limit $${values.length}`,
@@ -312,6 +321,28 @@ export class PgInbox implements InboxQuery, InboxCommand {
     const row = updated.rows[0]
     if (!row) return cannotAccess()
     return { ok: true, receipt: { changed: row.was_unread ? 1 : 0, requestId: notificationId, serverTime: now.toISOString() } }
+  }
+
+  async open(actor: ResolvedActor, notificationId: string): ReturnType<InboxCommand['open']> {
+    const userId = reader(actor)
+    if (!userId) return err('UNAUTHENTICATED', '請先登入。')
+    if (!UUID.test(notificationId)) return cannotAccess()
+
+    // 連結不信畫面送來的，回來源用「現在」的事實重新解析（跟列表同一段 SQL、同一個 resolveSource）。
+    const found = await this.#db().query<Row>(`${ROW_SELECT} where n.recipient_user_id = $1 and n.id = $2`, [userId, notificationId])
+    const row = found.rows[0]
+    if (!row) return cannotAccess()
+    const source = resolveSource(row, actor.kind === 'authenticated' ? actor.roles : [])
+    const href = source.state === 'ok' || source.state === 'archived' ? source.href : null
+
+    // 已讀過的不改時間（第一次讀的時間才有意義）。
+    const now = this.#realClock.now()
+    await this.#db().query(`update notifications set read_at = coalesce(read_at, $3) where id = $1 and recipient_user_id = $2`, [
+      notificationId,
+      userId,
+      now,
+    ])
+    return { ok: true, receipt: { href, requestId: notificationId, serverTime: now.toISOString() } }
   }
 
   async markAllRead(actor: ResolvedActor, filter: InboxFilter): Promise<Result<MarkReadReceipt>> {

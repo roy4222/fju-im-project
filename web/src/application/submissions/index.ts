@@ -20,11 +20,14 @@ export {
   describeIssues,
   describeReceipt,
   fileAnswers,
+  formTypeOf,
   isAnswerField,
   isFileField,
+  itemKindOf,
   LINE_MAX_LENGTH,
   MIB,
   normalizeAnswers,
+  normalizeOptionalReason,
   phaseOf,
   statusOf,
   submitIssues,
@@ -32,8 +35,8 @@ export {
 } from '@/application/submissions/submissions'
 export type { Completion, ItemWindow, ReceiverFacts, RosterCategory } from '@/application/submissions/roster'
 export { awaitsSubmission, categoryOf, completionOf, overdueReceiverIds, pendingCount, receiverStatus } from '@/application/submissions/roster'
-export type { AdvisorVisibility, SubmissionHolder, SubmissionViewer } from '@/application/submissions/access'
-export { advisorMayReadIndividual, canReadSubmission } from '@/application/submissions/access'
+export type { AdvisorVisibility, ReceiverCandidate, SubmissionHolder, SubmissionViewer } from '@/application/submissions/access'
+export { advisorMayReadIndividual, canReadSubmission, mayFillAsReceiver } from '@/application/submissions/access'
 export type {
   AdvisedGroup,
   AdvisorIndividualItem,
@@ -60,6 +63,8 @@ export type {
   RosterQuery,
   RosterSpan,
   MyItemDetail,
+  MyItemFormType,
+  MyItemKind,
   MyItemRow,
   MyRecordDetail,
   MyRecordRow,

@@ -8,7 +8,7 @@
 | `perf:sql` | 每頁送出幾句 SQL、分身分／徽章／頁面三類 | 量測庫＋指向它的 `next start` |
 | `perf:bundle` | 每路由 First Load JS（gzip）對 `budget.json` | `pnpm -C web build`（預設 Turbopack） |
 | `perf:lab` | LCP／INP／CLS／TTFB 的 p75（CPU×4） | 量測庫＋app；Playwright Chromium |
-| `perf:trail` | Pixel Trail 的主執行緒占用與長任務 | 同上 |
+| `perf:trail` | 「現在」橫幅 Pixel Card（規格④ C4-02 取代 Pixel Trail）的主執行緒占用與長任務 | 同上 |
 
 ## 1. 建隔離量測庫（可重建）
 
@@ -55,7 +55,7 @@ node --test 'scripts/perf/*.test.mjs'   # 判定邏輯的單元測試（scripts/
 pnpm -C web build && pnpm -C web perf:bundle [--write-baseline] [--budget …] [--dir <web 目錄>]
 ```
 
-讀 `.next/diagnostics/route-bundle-stats.json`（Next 16.3.8 只在 Turbopack 建置時寫），每路由 `firstLoadChunkPaths` 去重、逐檔 gzip（level 9）加總。缺 manifest、缺 chunk、預算列的路由不在 manifest、manifest 的路由沒有預算列 → exit 1，不印假的 0。超過 `limit` → exit 1 並列最大 5 個 chunk。也檢查 `$shared`（每路由都載入的 chunk）與三角色首頁不含 `$rules.homeRoutesMustNotContain`。
+讀 `.next/diagnostics/route-bundle-stats.json`（Next 16.3.8 只在 Turbopack 建置時寫），每路由 `firstLoadChunkPaths` 去重、逐檔 gzip（level 9）加總。`/_` 開頭的內部路由只算 `/_not-found`（404 頁，規格④ C4-05），`/_global-error` 不算。缺 manifest、缺 chunk、預算列的路由不在 manifest、manifest 的路由沒有預算列 → exit 1，不印假的 0。超過 `limit` → exit 1 並列最大 5 個 chunk。也檢查 `$shared`（每路由都載入的 chunk）與三角色首頁不含 `$rules.homeRoutesMustNotContain`。
 
 `--write-baseline` 覆寫每列 `baseline`，`limit = min(ceil(baseline × 1.1), 250)`（baseline 已超過 250 時不封頂）。
 
@@ -67,10 +67,23 @@ pnpm -C web perf:trail --base http://localhost:3399 --as student|teacher [--seco
 ```
 
 - `perf:lab`：量 `lab-routes.json` 中 `as` 相同的路由；每路由暖機 1 次再量 N 次（新 context、CPU×4），印 p75。INP 有兩個數：click 事件時長（Event Timing，短於 16 ms 沒有紀錄時取 `first-input`）與「點下去到新頁 `main h1` 出現」。量不到的格 `N/A`、exit 1。✓／✗ 只是和 §7.2 目標對照。
-- `perf:trail`：首頁 `section.hero` 上以固定 8 字路徑掃 N 秒，Trail 開與對照組（`reducedMotion: reduce`）各一次；判定 §7.5（Trail 開 `scriptPct ≤ 20`、`longTasks === 0`；對照組 `scriptPct ≤ 2`），首頁沒掛 Trail 也算失敗。
+- `perf:trail`：首頁 `section.hero` 上以固定 8 字路徑掃 N 秒，Pixel 開與對照組（`reducedMotion: reduce`）各一次；判定 §7.5（Pixel 開 `scriptPct ≤ 20`、`longTasks === 0`；對照組 `scriptPct ≤ 2`）。Pixel 開那組要找得到 `section.hero [data-testid=hero-pixel]` 而且 `data-running=1`（常駐閃在跑；規格④ §2.3 不准關常駐閃達標），否則算失敗。
+  選擇器是 `section.hero [data-testid=hero-pixel]`（後台「現在」橫幅，`dashboard/_stage.tsx` 掛的 `HeroPixel`）；前台首頁橫幅的 `home-hero-pixel`（C4-08）是另一層，不在這支量。
 - 兩者的數字跟機器與當下負載有關，不同機器不能直接比；`perf:sql`、`perf:bundle` 的數字則與機器無關。
 
 ## 5. 基準檔
 
 - `budget.json` 的 `baseline` 是在 `c0f32bd` 用本工具量的（normal 資料集）。`sql-expect.json`、`sql-expect.timeline-*.json` 在 SH-B1 全表重基準（stage-b＋SH-B1，normal 資料集、快取開著）。`c0f32bd` 之後才有的路由，baseline 是加列當下的 main 量的（PR 說明裡註明）。
-- 角色規格新增路由：在 `budget.json`、`sql-expect.json`、`lab-routes.json` 加自己的列，不改既有列。
+- 角色規格新增路由：在 `budget.d/`、`sql-expect.d/` 放自己的小檔（見 §6），`lab-routes.json` 照舊加自己的列；不改既有列。
+
+## 6. 每票一個小檔（overlay，D-23 放寬）
+
+`budget.json`、`sql-expect.json` 是基底，**票不改它們**：要加、改、刪列，在 `budget.d/`、`sql-expect.d/` 放自己的 `<票號>.json`（`set` 新增、`override`／`delete` 要寫 `from`）。`perf:bundle`、`perf:sql --expect` 讀的是基底＋小檔合併後的結果，撞鍵或格式錯 exit 1。格式與規則看兩個資料夾的 `README.md`（e2e 指紋同理在 `e2e/fingerprints.d/`），全文在 `docs/plans/2026-10-19-c-總表/D-23-放寬.md` §1。
+
+```sh
+pnpm -C web overlay check                 # 5 個資料夾的小檔都合法（e2e/fingerprints.d、budget.d、sql-expect.d、sql-expect.timeline-admin.d、sql-expect.timeline-teacher.d；交件前跑，exit 0）
+pnpm -C web overlay print budget          # 看合併後的預算（sql-expect、fingerprints 同理）
+pnpm -C web overlay fold budget           # 收尾才用：把小檔併回基底（沒有開著的 PR 動到小檔時）
+```
+
+- 預算列的 `limit` 必須等於 `limitFor(baseline)`（`limits.mjs`）；`budget.d/` 有小檔時 `--write-baseline` 拒絕執行。

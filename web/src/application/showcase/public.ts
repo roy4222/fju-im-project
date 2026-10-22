@@ -6,13 +6,13 @@ type AwardOption = { readonly value: ShowcaseAward | ''; readonly label: string 
 /**
  * 前台精選列表的排序與篩選（純規則；照原型）。
  *
- * - 優秀專題（公開）：系辦指定順序（＝首頁輪播的順序，預設）、屆別（新到舊）；獎項改用篩選（Q51）。
+ * - 優秀專題（公開）：預設排序（＝首頁輪播的順序，預設）、屆別（新到舊）；獎項改用篩選（Q51）。
  * - 歷屆一覽（登入後）：屆別（新到舊）、得獎優先、題目（原型 `ProjectBrowser`）。
  *
  * 每組的第一個選項是該頁預設。獎項等級在 0011（票 39）才有欄位（`showcase_entries.award_level`）。
  */
 export const FEATURED_SORT_OPTIONS: readonly SortOption[] = [
-  { value: 'home', label: '系辦指定順序' },
+  { value: 'home', label: '預設排序' },
   { value: 'cohort', label: '屆別（新到舊）' },
 ]
 

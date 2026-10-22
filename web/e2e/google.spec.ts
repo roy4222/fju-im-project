@@ -14,6 +14,17 @@ import { createTestSession, toPlaywrightCookie } from './session'
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 
 /** 攔下往 Google 的導向，回一頁假的，並把網址交出來。 */
@@ -120,7 +131,7 @@ test.describe('帳號頁', () => {
   let session: { cookie: string; email: string; userId: string }
 
   test.beforeEach(async ({ browser }) => {
-    const context = await browser.newContext()
+    const context = track(await browser.newContext())
     page = await context.newPage()
     session = await createTestSession(page.request, 'student')
     await context.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
@@ -169,11 +180,12 @@ test.describe('帳號頁', () => {
     }
     await page.goto('/account')
     await page.getByLabel('手機').fill('0987-654-321')
-    await page.getByLabel('聯絡 Email').fill('e2e-contact@example.com')
+    const basic = page.getByRole('region', { name: '基本資料' })
+    await basic.getByLabel('聯絡 Email').fill('e2e-contact@example.com')
     await page.getByRole('button', { name: '儲存變更' }).click()
     await expect(page.getByTestId('account-notice')).toHaveText('聯絡資料已更新。')
     await expect(page.getByLabel('手機')).toHaveValue('0987-654-321')
-    await expect(page.getByLabel('聯絡 Email')).toHaveValue('e2e-contact@example.com')
+    await expect(basic.getByLabel('聯絡 Email')).toHaveValue('e2e-contact@example.com')
     await expect(page.getByTestId('login-email')).toContainText(session.email)
   })
 })

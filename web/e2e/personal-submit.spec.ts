@@ -6,9 +6,9 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  * 票 17（#228）：個人填報與送出。「做完的樣子」逐條走：
  *
  * 1. 作業區列自己該交的項目與狀態（尚未開放／進行中／已截止／已繳 vN）；打開內容頁看到要填的欄位。
- * 2. 儲存草稿後重新登入還在；兩邊同時改會被要求重新載入，不會無聲覆蓋。
- * 3. 正式送出前驗必填；送出後拿到收件章回執；截止前可重送，連點只算一次，斷線後回來能查回執。
- * 4. 本人看得到自己每一次正式送出的版本。
+ * 2. C 階段規格① §5.2：「寫作業」開表單、只有「繳交作業」（沒有「儲存草稿」）；兩邊同時繳交會被要求重新載入，不會無聲覆蓋。
+ * 3. 繳交前驗必填；繳交後拿到回執；截止前可重送，連點只算一次，斷線後回來能查回執。
+ * 4. 本人看得到自己每一次繳交（繳交歷史：已交時間、繳交人頭像＋姓名、查看）。
  * 另外：有人作答後，管理員編輯器裡的收件單位真的鎖住（票 15 的接點）。
  *
  * 收件項目用 owner 連線直接建成「已發布」的樣子（發布流程本身由 affairs.spec 走過）；學生這邊全程用真的畫面操作，
@@ -17,7 +17,6 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
 const ownerUrl = process.env.DATABASE_URL_OWNER
-const PASSWORD = 'E2e-Password-Correct-9'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -246,16 +245,24 @@ async function signIn(page: Page, session: TestSession) {
 }
 
 const openPath = () => `/dashboard/student/affairs/${itemIds.open}`
+/** 「寫作業」打開的表單區（C 階段規格① §5.2：繳交歷史分頁頂部的「寫作業」）。 */
+const writePath = () => `${openPath()}?tab=history&write=1`
+/** 這一頁的 Server Action（存草稿、繳交）都 POST 到目前網址（帶查詢字串）。 */
+const isOpenPage = (url: URL) => url.pathname === openPath()
 
-test('作業區只列自己名單上的個人收件，狀態分成尚未開放／進行中／逾期未繳', async ({ page }) => {
+test('作業區只列自己名單上的個人收件，狀態分成尚未開放／進行中／逾期未繳；欄有形式、沒有成績（AC-16）', async ({ page }) => {
   await signIn(page, s1)
   await page.goto('/dashboard/student')
   await page.getByRole('navigation').getByRole('link', { name: '交作業', exact: true }).click()
   await expect(page.getByRole('heading', { name: '交作業', exact: true })).toBeVisible()
 
-  const list = page.getByRole('list', { name: '作業列表' })
+  const list = page.getByRole('table', { name: '作業列表' })
   await expect(list.getByRole('link', { name: new RegExp(`${CODE} 分組意向登記`) })).toBeVisible()
+  await expect(list.getByRole('columnheader')).toHaveText(['名稱', '形式', '狀態', '截止', '動作'])
+  await expect(list).not.toContainText('成績')
   await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText(/待交|快到期/)
+  await expect(page.getByTestId(`affair-${itemIds.open}`).getByTestId('affair-form')).toHaveText('表單')
+  await expect(page.getByTestId(`affair-${itemIds.open}`).getByRole('link', { name: '交作業' })).toHaveAttribute('href', openPath())
   await expect(page.getByTestId(`affair-${itemIds.later}`)).toContainText('尚未開放')
   // 逾期的不在預設的「待交」篩選，在「逾期」。
   await expect(page.getByTestId(`affair-${itemIds.overdue}`)).toHaveCount(0)
@@ -268,163 +275,180 @@ test('作業區只列自己名單上的個人收件，狀態分成尚未開放�
   await expect(page.getByTestId(`affair-${itemIds.open}`)).toHaveCount(0)
 })
 
-test('不在名單上的學生打不開別人的收件；尚未開放與已截止的內容頁是唯讀', async ({ page }) => {
+test('不在名單上的學生打不開別人的收件；尚未開放與已截止不能寫作業', async ({ page }) => {
   await signIn(page, outsider)
   const response = await page.goto(openPath())
   expect(response?.status()).toBe(404)
 
   await signIn(page, s1)
-  await page.goto(`/dashboard/student/affairs/${itemIds.later}`)
-  await expect(page.getByText(/還沒開放：.*開放後才能填寫與送出/)).toBeVisible()
-  await expect(page.getByRole('button', { name: '正式送出' })).toHaveCount(0)
-  await expect(page.getByLabel('想做的題目')).toBeDisabled()
+  await page.goto(`/dashboard/student/affairs/${itemIds.later}?tab=history&write=1`)
+  await expect(page.getByText(/開放後才能寫作業/)).toBeVisible()
+  await expect(page.getByTestId('write-button')).toHaveText('尚未開放')
+  await expect(page.getByTestId('write-button')).toBeDisabled()
+  await expect(page.getByRole('button', { name: '繳交作業' })).toHaveCount(0)
+  await expect(page.getByLabel('想做的題目')).toHaveCount(0)
 
-  await page.goto(`/dashboard/student/affairs/${itemIds.overdue}`)
+  await page.goto(`/dashboard/student/affairs/${itemIds.overdue}?tab=history&write=1`)
   await expect(page.getByTestId('affair-banner')).toContainText('逾期未繳')
-  await expect(page.getByText('已截止・唯讀', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('write-button')).toHaveText('已截止')
+  await expect(page.getByTestId('write-button')).toBeDisabled()
   await expect(page.getByRole('main')).toContainText('可向系辦申請補交')
+  await expect(page.getByRole('button', { name: '繳交作業' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
 })
 
-test('打開內容頁看到欄位；存草稿後重新登入還在', async ({ page, browser }) => {
+test('作業內容看說明與繳交欄位；按「寫作業」開表單：只有「繳交作業」、沒有「儲存草稿」；離開再回來文字欄是空的（AC-18）', async ({ page }) => {
   await signIn(page, s1)
   await page.goto(openPath())
   await expect(page.getByRole('heading', { name: `${CODE} 分組意向登記` })).toBeVisible()
   await expect(page.getByText('請在截止前填好。')).toBeVisible()
-  await expect(page.getByRole('heading', { name: '基本資料' })).toBeVisible()
-  await expect(page.getByLabel('想做的題目')).toBeVisible()
-  await expect(page.getByRole('group', { name: /專題類型/ })).toBeVisible()
+  await expect(page.getByTestId('fields-brief')).toContainText('想做的題目')
+  await expect(page.getByTestId('fields-brief')).toContainText('必填')
+  // 作業內容分頁不能填。
+  await expect(page.getByLabel('想做的題目')).toHaveCount(0)
 
-  await page.getByLabel('想做的題目').fill('校園導覽 App')
-  await page.getByRole('radio', { name: '產學合作' }).check()
-  await expect(page.getByTestId('save-status')).toHaveText('有未儲存的修改')
-  await page.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(page.getByTestId('save-status')).toContainText('已儲存')
-  expect(await draftOf(itemIds.open, s1.userId)).toMatchObject({ revision: 1, answers: { topic: '校園導覽 App', kind: '產學合作' } })
+  await page.getByRole('link', { name: '寫作業' }).click()
+  await expect(page).toHaveURL(new RegExp(`${openPath()}\\?tab=history&write=1$`))
+  const form = page.getByRole('form', { name: '寫作業' })
+  await expect(form.getByRole('heading', { name: '基本資料' })).toBeVisible()
+  await expect(form.getByLabel('想做的題目')).toBeVisible()
+  await expect(form.getByRole('group', { name: /專題類型/ })).toBeVisible()
+  await expect(form.getByRole('button')).toHaveText(['繳交作業'])
+  await expect(page.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
 
-  // 重新登入：全新的瀏覽器環境，用帳號密碼登入（不帶任何舊 cookie 或瀏覽器暫存）。
-  const fresh = await browser.newContext({ baseURL: BASE_URL })
-  const again = await fresh.newPage()
-  await again.goto(`/login?next=${encodeURIComponent(openPath())}`)
-  await again.getByLabel('Email').fill(s1.email)
-  await again.getByLabel('密碼', { exact: true }).fill(PASSWORD)
-  await again.getByRole('button', { name: '登入', exact: true }).click()
-  await again.waitForURL((url) => url.pathname === openPath())
-  await expect(again.getByLabel('想做的題目')).toHaveValue('校園導覽 App')
-  await expect(again.getByRole('radio', { name: '產學合作' })).toBeChecked()
-  await expect(again.getByTestId('save-status')).toContainText('已儲存')
-  await fresh.close()
+  await form.getByLabel('想做的題目').fill('校園導覽 App')
+  await page.getByRole('link', { name: '作業內容' }).click()
+  // 等真的離開表單頁再點：表單頁自己就有「寫作業」（指向目前網址），還沒換完就點等於點回原頁、導覽被取消。
+  await expect(page).not.toHaveURL(/write=1/)
+  await page.getByRole('link', { name: '寫作業' }).click()
+  await expect(page.getByRole('form', { name: '寫作業' }).getByLabel('想做的題目')).toHaveValue('')
+  expect(await versions(itemIds.open, s1.userId)).toHaveLength(0)
 })
 
-test('兩個分頁同時改：後存的那邊被要求重新載入，先存的內容沒有被蓋掉', async ({ page, context }) => {
+test('兩個分頁同時寫：先繳交的成功，後繳交的那邊被要求重新載入，不會無聲覆蓋', async ({ page, context }) => {
   await signIn(page, s1)
-  await page.goto(openPath())
+  await page.goto(writePath())
   const other = await context.newPage()
-  await other.goto(openPath())
+  await other.goto(writePath())
 
   await other.getByLabel('想做的題目').fill('分頁 B 的題目')
-  await other.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(other.getByTestId('save-status')).toContainText('已儲存')
+  await other.getByRole('radio', { name: '一般專題' }).check()
+  await other.getByRole('button', { name: '繳交作業' }).click()
+  await expect(other.getByTestId('receipt')).toContainText('已送出第 1 次')
 
   await page.getByLabel('想做的題目').fill('分頁 A 的舊題目')
-  await page.getByRole('button', { name: '儲存草稿' }).click()
+  await page.getByRole('radio', { name: '產學合作' }).check()
+  await page.getByRole('button', { name: '繳交作業' }).click()
   await expect(page.getByRole('alert').filter({ hasText: '別的分頁或裝置上存過了' })).toBeVisible()
+  const rows = await versions(itemIds.open, s1.userId)
+  expect(rows).toHaveLength(1)
+  expect(rows[0]!.answers).toMatchObject({ topic: '分頁 B 的題目' })
   expect((await draftOf(itemIds.open, s1.userId))?.answers.topic).toBe('分頁 B 的題目')
-
-  await page.getByRole('button', { name: '重新載入' }).click()
-  await expect(page.getByLabel('想做的題目')).toHaveValue('分頁 B 的題目')
   await other.close()
 })
 
-test('正式送出前驗必填；送出拿到收件章；連點只算一次', async ({ page }) => {
+test('繳交前驗必填；繳交拿到回執；連點只算一次', async ({ page }) => {
   await signIn(page, s1)
-  await page.goto(openPath())
-  await page.getByLabel('想做的題目').fill('')
-  await page.getByRole('button', { name: '正式送出' }).click()
+  await page.goto(writePath())
+  await page.getByRole('button', { name: '繳交作業' }).click()
   await expect(page.getByRole('alert').filter({ hasText: '請填寫「想做的題目」' })).toBeVisible()
   await expect(page.getByLabel('想做的題目')).toHaveAttribute('aria-invalid', 'true')
-  expect(await versions(itemIds.open, s1.userId)).toHaveLength(0)
+  expect(await versions(itemIds.open, s1.userId)).toHaveLength(1)
 
   await page.getByLabel('想做的題目').fill('校園導覽 App')
   await page.getByLabel('聯絡信箱').fill('s1@example.com')
-  await page.getByRole('button', { name: '正式送出' }).dblclick()
+  await page.getByRole('radio', { name: '產學合作' }).check()
+  await page.getByRole('button', { name: '繳交作業' }).dblclick()
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toBeVisible()
-  await expect(receipt).toContainText('已送出')
-  await expect(receipt).toContainText('第 1 次')
+  await expect(receipt).toContainText('已送出第 2 次')
   await expect(receipt).toContainText(s1.name)
   await expect(receipt).toContainText('臺灣時間')
 
   const rows = await versions(itemIds.open, s1.userId)
-  expect(rows, '連點只能有一個版本').toHaveLength(1)
-  expect(rows[0]!.answers).toMatchObject({ topic: '校園導覽 App', mail: 's1@example.com', kind: '產學合作' })
-  await expect(receipt).toContainText(rows[0]!.request_id)
+  expect(rows, '連點只能多一個版本').toHaveLength(2)
+  expect(rows[1]!.answers).toMatchObject({ topic: '校園導覽 App', mail: 's1@example.com', kind: '產學合作' })
+  await expect(receipt).toContainText(rows[1]!.request_id)
 
   await page.getByRole('button', { name: '關閉' }).click()
-  await expect(page.getByTestId('affair-banner')).toContainText('已繳第 1 次')
-  await expect(page.getByRole('button', { name: '重新送出' })).toBeVisible()
+  // 關掉回執回到繳交歷史（表單收起來）；頂部「寫作業」仍可按（未截止）。
+  await expect(page).toHaveURL(new RegExp(`${openPath()}\\?tab=history$`))
+  await expect(page.getByTestId('affair-banner')).toContainText('已繳第 2 次')
+  await expect(page.getByRole('link', { name: '寫作業' })).toBeVisible()
 })
 
-test('截止前重送；送出途中斷線顯示結果尚未確認，查得到回執，再送一次也不會多一版', async ({ page }) => {
+test('截止前重送；繳交途中斷線顯示結果尚未確認，查得到回執，再送一次也不會多一版', async ({ page }) => {
   await signIn(page, s1)
-  await page.goto(openPath())
+  await page.goto(writePath())
   await page.getByLabel('想做的題目').fill('校園導覽 App（第二版）')
-  await page.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(page.getByTestId('save-status')).toContainText('已儲存')
+  await page.getByRole('radio', { name: '產學合作' }).check()
 
-  // 模擬斷線：請求真的送到伺服器，但回應在路上掉了。
+  // 模擬斷線：「繳交作業」先存草稿（第 1 個 POST）、再送出（第 2 個）；送出那個真的送到伺服器，但回應在路上掉了。
+  let posts = 0
   let dropped = 0
-  await page.route(openPath(), async (route) => {
-    if (route.request().method() === 'POST' && dropped === 0) {
-      dropped += 1
-      await route.fetch()
-      await route.abort('failed')
-      return
+  await page.route(isOpenPage, async (route) => {
+    if (route.request().method() === 'POST') {
+      posts += 1
+      if (posts === 2) {
+        dropped += 1
+        await route.fetch()
+        await route.abort('failed')
+        return
+      }
     }
     await route.continue()
   })
-  await page.getByRole('button', { name: '重新送出' }).click()
+  await page.getByRole('button', { name: '繳交作業' }).click()
   await expect(page.getByText('連線中斷；結果尚未確認。')).toBeVisible()
   expect(dropped).toBe(1)
-  expect(await versions(itemIds.open, s1.userId), '伺服器其實收到了').toHaveLength(2)
+  expect(await versions(itemIds.open, s1.userId), '伺服器其實收到了').toHaveLength(3)
 
-  // 再送一次（同一個請求編號）：拿回第 2 次的回執，不會變成第 3 次。
+  // 再送一次（同一個請求編號、同一版草稿）：拿回第 3 次的回執，不會變成第 4 次。
   await page.getByRole('button', { name: '再送一次' }).click()
-  await expect(page.getByTestId('receipt')).toContainText('第 2 次')
-  expect(await versions(itemIds.open, s1.userId)).toHaveLength(2)
+  await expect(page.getByTestId('receipt')).toContainText('第 3 次')
+  expect(await versions(itemIds.open, s1.userId)).toHaveLength(3)
   await page.getByRole('button', { name: '關閉' }).click()
-  await page.unroute(openPath())
+  await page.unroute(isOpenPage)
 })
 
-test('本人看得到每一次正式送出的版本（繳交歷史、當時的內容唯讀）', async ({ page }) => {
+test('本人看得到每一次繳交（繳交歷史：已交時間、繳交人頭像＋姓名、查看；當時的內容唯讀）', async ({ page }) => {
   await signIn(page, s1)
   await page.goto(openPath())
-  await page.getByRole('link', { name: /繳交歷史（2）/ }).click()
-  const history = page.getByRole('list', { name: '繳交歷史' })
-  await expect(history.getByRole('listitem')).toHaveCount(2)
+  await page.getByRole('link', { name: /繳交歷史（3）/ }).click()
+  const history = page.getByRole('table', { name: '繳交歷史' })
+  await expect(history.getByTestId('history-row')).toHaveCount(1)
+  await expect(history.getByRole('columnheader')).toHaveText(['已交時間（臺灣時間）', '繳交人', '動作'])
+  await expect(history.getByTestId('history-row').first()).toContainText(s1.name)
+  await expect(history.getByTestId('history-row').first().locator('img')).toHaveAttribute('src', /^\/(avatars|api\/files)\//)
+  await expect(history.getByRole('link', { name: '查看' })).toHaveCount(1)
+  // 舊的兩次折在「之前的版本（2）」（C 收尾 CL-13）。
+  await page.getByTestId('older-versions').getByText('之前的版本（2）').click()
+  await expect(page.getByRole('table', { name: '之前的版本' }).getByRole('link', { name: '查看' })).toHaveCount(2)
   const rows = await versions(itemIds.open, s1.userId)
-  // 繳交證明編號不再印在歷史列表（W13b：預設收合），改在每一版的內容頁收合顯示。
+  // 繳交證明編號不印在歷史列表（W13b：預設收合），改在每一版的內容頁收合顯示；也沒有草稿列。
   await expect(history).not.toContainText(rows[0]!.request_id)
+  await expect(history).not.toContainText('草稿')
 
-  await page.goto(`${openPath()}?tab=history&version=1`)
-  await expect(page.getByTestId('version-view').getByTestId('receipt-no')).toContainText(rows[0]!.request_id)
+  await page.goto(`${openPath()}?tab=history&version=2`)
+  await expect(page.getByTestId('version-view').getByTestId('receipt-no')).toContainText(rows[1]!.request_id)
   await expect(page.getByTestId('version-view')).toContainText('校園導覽 App')
   await expect(page.getByTestId('version-view')).not.toContainText('第二版')
-  await expect(page.getByTestId('version-view')).toContainText('已被後來的版本取代')
-  await page.goto(`${openPath()}?tab=history&version=2`)
+  await expect(page.getByTestId('version-view')).toContainText('已被後來的繳交取代')
+  await page.goto(`${openPath()}?tab=history&version=3`)
   await expect(page.getByTestId('version-view')).toContainText('校園導覽 App（第二版）')
 
   // 別人看不到我的版本（同屆同學也一樣）。
   await signIn(page, s2)
   await page.goto(`${openPath()}?tab=history&version=1`)
   await expect(page.getByTestId('version-view')).toHaveCount(0)
-  await expect(page.getByText('還沒有正式送出過。')).toBeVisible()
+  await expect(page.getByText('還沒有繳交過。')).toBeVisible()
 
-  // 作業區狀態跟著變。
+  // 作業區狀態跟著變；已交的按鈕是「查看」。
   await signIn(page, s1)
   await page.goto('/dashboard/student/affairs?tab=done')
   await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已交')
-  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已交第 2 次')
+  await expect(page.getByTestId(`affair-${itemIds.open}`)).toContainText('已交第 3 次')
+  await expect(page.getByTestId(`affair-${itemIds.open}`).getByRole('link', { name: '查看' })).toBeVisible()
 })
 
 test('有人作答後，管理員編輯器裡的收件單位鎖住；沒人作答的仍可切換', async ({ page }) => {

@@ -15,7 +15,7 @@
  "files": [
   {
    "destination": "docs/engineering/contracts/03 安全與隱私.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/03 安全與隱私.md",
    "source_sha256_before": "25a2703fd177d357d67c10365293efc4188526b1f37ce159c592955aa241de31",
    "mirror_sha256_before": "e62381766c8104f0498b9b948619143cb30e5cfdccd948fc5a24408b14e97523",
    "source_sha256": "d16ac9781402e2f2c8acec53bbd0749e8a94a4022d4bc3a27ccb0b3766175c74",
@@ -24,7 +24,7 @@
   },
   {
    "destination": "docs/engineering/contracts/02 前後端介面與 UI 整合.md",
-   "source": "/Users/lubaiyu/Documents/roy422的人生online/專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
+   "source": "Vault:專案/🌐 網站與互動/📁 輔大資管系專題網站/🛠️ 工程開發/🧩 模組實作設計/00 共用契約/02 前後端介面與 UI 整合.md",
    "source_sha256_before": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
    "mirror_sha256_before": "d3fb9bbad506c69aecfd30b20997de568c06b495f828df29298f9bdd1d7d8944",
    "source_sha256": "7a62b6168878b5be25ecb14b7868f81023972677cad79bd2da94a8eedff6dd98",

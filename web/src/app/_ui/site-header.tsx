@@ -1,11 +1,15 @@
 'use client'
 import Link from 'next/link'
-import { useState, type ReactNode } from 'react'
-import { IconChevronDown, IconMenu2 } from '@tabler/icons-react'
-import { AccountMenu } from '@/app/_ui/account-menu'
-import { Button } from '@/app/_ui/ui/button'
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/app/_ui/ui/sheet'
+import { IconChevronDown } from '@tabler/icons-react'
+import { usePathname } from 'next/navigation'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { loadFx } from '@/app/_ui/dash-theme'
+import * as eggRules from '@/app/_ui/easter-egg-rules'
+import { useBrokenFx } from '@/app/_ui/fx/fuzzy-text'
 import { cn } from '@/shared/cn'
+
+const loadBrokenFx = () => loadFx().then((m) => m.loadBrokenFx())
+const loadFlyingButton = () => loadFx().then((m) => m.loadFlyingButton())
 
 /**
  * 一個導覽項目。`children` 是下拉（原型：最新公告 → 公告列表／競賽資訊；歷屆專題 → 一覽／優秀專題／榮譽榜）；
@@ -24,9 +28,81 @@ function isActive(item: NavItem, current: string | undefined): boolean {
 }
 
 /**
+ * 首頁橫幅 Pixel（C4-08）：頁面有 `[data-home-pixel]` 記號、裝置有滑鼠或觸控而且沒開減少動態，才下載引擎並插入像素層。
+ * 掛在頁首而不是首頁：首頁有自己的前端元件時，打包工具會把頁首共用程式重複打包一份給首頁（約 1.6 KB）。
+ */
+function useHomePixel(pathname: string) {
+  useEffect(() => {
+    const marker = document.querySelector('[data-home-pixel]')
+    if (!marker) return
+    let stop: (() => void) | undefined
+    let dead = false
+    void loadFx().then(async (loaders) => {
+      const media = await loaders.loadPixelMedia()
+      if (!dead) stop = media.observeHomePixel(marker, loaders.loadHomePixel)
+    })
+    return () => {
+      dead = true
+      stop?.()
+    }
+  }, [pathname])
+}
+
+type MenuPanel = ComponentType<{ open: boolean; onClose: () => void; children: ReactNode }>
+
+/**
+ * 手機選單的觸發鈕（< 1024；登入後到 1280，設計方案 §8 原因 C：1024～1279 放不下「我的後台」）。
+ * 面板（`staggered-menu.tsx`＋CSS）第一次點開才下載，首載只有這顆按鈕（主腦裁定 C4-09 ESCALATE 1）；載過就留著，之後開關不再下載。
+ */
+function MenuTrigger({ wide, children }: { wide: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const [Panel, setPanel] = useState<{ C: MenuPanel } | null>(null)
+  // 面板晚到時焦點可能已經被 Tab 移走，原生 dialog 會把焦點還給那裡；關閉時明確還給觸發鈕（#773 Review r1）。
+  const trigger = useRef<HTMLButtonElement>(null)
+
+  function onClick() {
+    if (Panel) return setOpen(true)
+    void loadFx().then((m) => m.loadStaggeredMenu()).then((m) => {
+      setPanel({ C: m.StaggeredMenu })
+      setOpen(true)
+    })
+  }
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        onClick={onClick}
+        aria-expanded={open}
+        aria-label={open ? '關閉選單' : '開啟選單'}
+        className={`sm-trigger inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[15px] font-semibold pointer-coarse:min-h-11 hover:bg-accent ${wide ? 'xl:hidden' : 'lg:hidden'}`}
+      >
+        選單
+        <span aria-hidden className={`text-lg leading-none transition-transform duration-300 ${open ? 'rotate-45' : ''}`}>
+          +
+        </span>
+      </button>
+      {Panel ? (
+        <Panel.C
+          open={open}
+          onClose={() => {
+            setOpen(false)
+            trigger.current?.focus()
+          }}
+        >
+          {children}
+        </Panel.C>
+      ) : null}
+    </>
+  )
+}
+
+/**
  * 前台導覽列（原型 `components/public/site-header.tsx`）：
- * 左 logo＋「專題管理平台」，選單靠右（hover 橘線），最右一顆橘色主要按鈕；
- * 登入後多一個頭像下拉（我的帳號、後台、登出）。窄螢幕收成右側抽屜。
+ * 左 logo＋「專題管理平台」，選單靠右（hover 橘線），最右一顆橘色主要按鈕。
+ * 登入後那顆按鈕是「我的後台」，沒有頭像下拉：前台對每個人都一樣，我的帳號、切換後台、登出都在後台（C2-14）。
+ * 窄螢幕（< 1024）收成 Staggered Menu（`MenuTrigger`＋點開才下載的 `staggered-menu.tsx`）；首頁 logo 連點 10 次有彩蛋（`easter-egg.tsx`，點了才下載）。
  */
 export function SiteHeader({
   nav,
@@ -34,30 +110,43 @@ export function SiteHeader({
   viewer,
   signOutFormId,
   registrationOpen,
-  avatar,
 }: {
   nav: readonly NavItem[]
   current?: string
-  /** 沒登入是 null；登入了帶角色名與後台入口。 */
-  viewer: {
-    roleLabel: string
-    name?: string
-    workbench: { href: string; label: string }
-    /** 兼任角色的其他後台（票 41）；單一角色是空的。 */
-    otherWorkbenches?: readonly { href: string; label: string }[]
-  } | null
+  /** 沒登入是 null；登入了帶後台入口（待審核是申請進度、臨時密碼沒改是更改密碼）。 */
+  viewer: { workbench: { href: string; label: string } } | null
   signOutFormId: string
   /** 註冊關閉時（設計方案 §5）手機選單不列「註冊」；值由伺服器端的 `SiteShell` 決定。 */
   registrationOpen: boolean
-  /** 帳號選單的頭像（伺服器外殼 render 的 `UserAvatar`）；沒登入是 null。 */
-  avatar?: ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  // 404／403 壞掉頁的特效（C4-05）：頁面有 `[data-broken-fx]` 才載引擎。
+  useBrokenFx(loadBrokenFx)
+  const pathname = usePathname()
+  useHomePixel(pathname)
+  // 彩蛋模組載過才有；換頁時叫它收掉訊息與起飛（#773 Review r1）。
+  const egg = useRef<typeof import('@/app/_ui/easter-egg') | null>(null)
+  useEffect(() => () => egg.current?.eggLeave(), [pathname])
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background">
       <div className="mx-auto flex h-20 w-full max-w-[1600px] items-center gap-6 px-5 md:px-8 xl:px-12">
-        <Link href="/" className="flex shrink-0 items-center gap-3.5">
+        {/* logo 彩蛋（`easter-egg.tsx`）：首頁的滑鼠／觸控點擊不導向、交給點了才下載的計數；`key` 讓換頁就歸零。 */}
+        <Link
+          key={pathname}
+          href="/"
+          data-egg-count="0"
+          onClick={(e) => {
+            if (!eggRules.shouldCountClick(pathname, e)) return
+            e.preventDefault()
+            const logo = e.currentTarget
+            const at = Date.now()
+            void loadFx().then((m) => m.loadEasterEgg()).then((m) => {
+              egg.current = m
+              m.eggLogoClick(logo, at, eggRules, loadFlyingButton)
+            })
+          }}
+          className="flex shrink-0 items-center gap-3.5"
+        >
           {/* 系網 logo 是靜態 PNG；不走 next/image（它會輸出 style 屬性，被正式站 CSP 擋）。 */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/fju-im-logo.png" alt="輔仁大學資訊管理學系" width={180} height={44} className="h-11 w-auto" />
@@ -102,96 +191,60 @@ export function SiteHeader({
 
         <div className="ml-auto flex shrink-0 items-center gap-3 lg:ml-4 xl:ml-6">
           {viewer ? (
-            // 登入後的「回後台」＋頭像要到 lg 才放得下（跟主導覽同一個斷點）；更窄時都收在右側抽屜裡，
-            // 不然 640–1023px 三樣擠在一起會把漢堡推出畫面（#277 審查建議 1）。
-            <>
-              <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap lg:inline-flex">
-                {viewer.workbench.label}
-              </Link>
-              <span className="hidden lg:inline-flex">
-                <AccountMenu
-                  roleLabel={viewer.roleLabel}
-                  name={viewer.name}
-                  avatar={avatar}
-                  signOutFormId={signOutFormId}
-                  links={[
-                    { href: '/account', label: '我的帳號', icon: 'account' },
-                    { href: viewer.workbench.href, label: viewer.workbench.label, icon: 'workbench' },
-                    ...(viewer.otherWorkbenches ?? []).map((w) => ({ href: w.href, label: w.label, icon: 'workbench' as const })),
-                  ]}
-                />
-              </span>
-            </>
+            // 1280 起才放頂列：1024 登入後放不下（設計方案 §8 原因 C），1024～1279 收在選單裡；訪客的主導覽在 1024 照常展開。
+            <Link href={viewer.workbench.href} className="btn-fju hidden h-10.5 px-5 text-[15px] whitespace-nowrap xl:inline-flex">
+              {viewer.workbench.label}
+            </Link>
           ) : (
             <Link href="/login" className="btn-fju hidden h-10.5 px-5.5 text-[15px] sm:inline-flex">
               登入
             </Link>
           )}
 
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger
-              render={
-                <Button variant="ghost" size="icon-lg" className="lg:hidden" aria-label="開啟選單">
-                  <IconMenu2 className="size-5" />
-                </Button>
-              }
-            />
-            <SheetContent side="right" className="w-80">
-              <SheetTitle className="px-4 pt-4 text-base">選單</SheetTitle>
-              <nav className="mt-2 flex flex-col p-2" aria-label="主導覽（手機）">
-                {nav.flatMap((item) => [
+          <MenuTrigger wide={viewer !== null}>
+            <nav className="mt-2 flex flex-col p-2" aria-label="主導覽（手機）">
+              {nav.flatMap((item) => [
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  aria-current={isActive(item, current) ? 'page' : undefined}
+                  className="rounded-lg px-3 py-3 text-[15px] font-semibold hover:bg-accent aria-[current=page]:text-primary"
+                >
+                  {item.label}
+                </Link>,
+                ...(item.children ?? []).map((c) => (
                   <Link
-                    key={item.label}
-                    href={item.href}
-                    onClick={() => setOpen(false)}
-                    aria-current={isActive(item, current) ? 'page' : undefined}
-                    className="rounded-lg px-3 py-3 text-[15px] font-semibold hover:bg-accent aria-[current=page]:text-primary"
+                    key={`${item.label}-${c.href}`}
+                    href={c.href}
+                    className="rounded-lg py-2.5 pr-3 pl-7 text-sm text-muted-foreground hover:bg-accent"
                   >
-                    {item.label}
-                  </Link>,
-                  ...(item.children ?? []).map((c) => (
-                    <Link
-                      key={`${item.label}-${c.href}`}
-                      href={c.href}
-                      onClick={() => setOpen(false)}
-                      className="rounded-lg py-2.5 pr-3 pl-7 text-sm text-muted-foreground hover:bg-accent"
-                    >
-                      {c.label}
+                    {c.label}
+                  </Link>
+                )),
+              ])}
+              {viewer ? (
+                <>
+                  <Link href={viewer.workbench.href} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
+                    {viewer.workbench.label}
+                  </Link>
+                  <button type="submit" form={signOutFormId} className="rounded-lg px-3 py-3 text-left text-[15px] text-muted-foreground">
+                    登出
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
+                    登入
+                  </Link>
+                  {registrationOpen ? (
+                    <Link href="/register" className="rounded-lg px-3 py-3 text-[15px]">
+                      註冊
                     </Link>
-                  )),
-                ])}
-                {viewer ? (
-                  <>
-                    <Link href={viewer.workbench.href} onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
-                      {viewer.workbench.label}
-                    </Link>
-                    {(viewer.otherWorkbenches ?? []).map((w) => (
-                      <Link key={w.href} href={w.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
-                        {w.label}
-                      </Link>
-                    ))}
-                    <Link href="/account" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
-                      我的帳號
-                    </Link>
-                    <button type="submit" form={signOutFormId} className="rounded-lg px-3 py-3 text-left text-[15px] text-muted-foreground">
-                      登出
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/login" onClick={() => setOpen(false)} className="mt-2 rounded-lg px-3 py-3 text-[15px] font-semibold text-primary">
-                      登入
-                    </Link>
-                    {registrationOpen ? (
-                      <Link href="/register" onClick={() => setOpen(false)} className="rounded-lg px-3 py-3 text-[15px]">
-                        註冊
-                      </Link>
-                    ) : null}
-                  </>
-                )}
+                  ) : null}
+                </>
+              )}
               </nav>
-            </SheetContent>
-          </Sheet>
+          </MenuTrigger>
         </div>
       </div>
     </header>

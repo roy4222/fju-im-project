@@ -31,8 +31,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - run: pnpm install --frozen-lockfile --filter @fju/web...
+      - run: pnpm install --frozen-lockfile --filter @fju/web... --filter @fju/tutorial...
       - run: pnpm -C web typecheck
+      # 教學影片工具（劇本與引擎）的型別檢查，劇本寫錯型別時這一步會紅。
+      - run: pnpm -C tools/tutorial typecheck
 
   lint:
     runs-on: ubuntu-latest
@@ -68,24 +70,23 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16.10-alpine
-        env:
-          POSTGRES_USER: fju_owner
-          POSTGRES_PASSWORD: fju_ci
-          POSTGRES_DB: fju
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U fju_owner -d fju"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 20
     env:
       TEST_DATABASE_URL: postgres://fju_owner:fju_ci@127.0.0.1:5432/fju
       DATABASE_URL_OWNER: postgres://fju_owner:fju_ci@127.0.0.1:5432/fju
     steps:
+      # services 只能帶 docker create 的選項、帶不了 server 參數，所以改用 docker run 自己起 postgres，
+      # 加 max_locks_per_transaction=256（預設 64 在整合測試清 schema 時偶發 out of shared memory）。
+      - name: 啟動 PostgreSQL（max_locks_per_transaction=256）
+        run: |
+          docker run -d --name fju-pg -p 5432:5432 \
+            -e POSTGRES_USER=fju_owner -e POSTGRES_PASSWORD=fju_ci -e POSTGRES_DB=fju \
+            postgres:16.10-alpine -c max_locks_per_transaction=256
+          for i in $(seq 1 40); do
+            docker exec fju-pg pg_isready -U fju_owner -d fju && break
+            sleep 3
+          done
+          docker exec fju-pg pg_isready -U fju_owner -d fju
+          docker exec fju-pg psql -U fju_owner -d fju -c 'SHOW max_locks_per_transaction'
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
@@ -151,20 +152,6 @@ jobs:
 
   e2e-smoke:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16.10-alpine
-        env:
-          POSTGRES_USER: fju_owner
-          POSTGRES_PASSWORD: fju_ci
-          POSTGRES_DB: fju
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U fju_owner -d fju"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 20
     env:
       DATABASE_URL_OWNER: postgres://fju_owner:fju_ci@127.0.0.1:5432/fju
       DATABASE_URL: postgres://fju_app:fju_ci_app@127.0.0.1:5432/fju
@@ -191,6 +178,19 @@ jobs:
       IDENTITY_CACHE_TTL_SECONDS: '0'
       UPLOAD_RATE_MAX: '1000'
     steps:
+      # services 只能帶 docker create 的選項、帶不了 server 參數，所以改用 docker run 自己起 postgres，
+      # 加 max_locks_per_transaction=256（預設 64 在整合測試清 schema 時偶發 out of shared memory）。
+      - name: 啟動 PostgreSQL（max_locks_per_transaction=256）
+        run: |
+          docker run -d --name fju-pg -p 5432:5432 \
+            -e POSTGRES_USER=fju_owner -e POSTGRES_PASSWORD=fju_ci -e POSTGRES_DB=fju \
+            postgres:16.10-alpine -c max_locks_per_transaction=256
+          for i in $(seq 1 40); do
+            docker exec fju-pg pg_isready -U fju_owner -d fju && break
+            sleep 3
+          done
+          docker exec fju-pg pg_isready -U fju_owner -d fju
+          docker exec fju-pg psql -U fju_owner -d fju -c 'SHOW max_locks_per_transaction'
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:

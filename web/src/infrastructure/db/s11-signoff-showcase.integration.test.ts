@@ -186,7 +186,7 @@ describe('逐欄對照附錄 A', () => {
   const EXPECTED: Record<string, Record<string, 'YES' | 'NO'>> = {
     signoff_packages: {
       id: 'NO', group_id: 'NO', cohort_id: 'NO', purpose: 'NO', current_version_id: 'YES', revision: 'NO',
-      created_at: 'NO', created_by_user_id: 'NO', updated_at: 'NO', updated_by_user_id: 'YES',
+      created_at: 'NO', created_by_user_id: 'NO', updated_at: 'NO', updated_by_user_id: 'YES', item_id: 'YES',
     },
     signoff_package_versions: {
       id: 'NO', package_id: 'NO', version_no: 'NO', content_text: 'NO', content_checksum: 'NO',
@@ -258,7 +258,7 @@ describe('資料庫守的「只有一個」', () => {
       const g = await seedGroup(db)
       const packageId = await insertPackage(db, g, 'result_confirmation')
       await insertPackage(db, g, 'final_document')
-      await expect(insertPackage(db, g, 'result_confirmation')).rejects.toThrow(/signoff_packages_group_purpose_unique/)
+      await expect(insertPackage(db, g, 'result_confirmation')).rejects.toThrow(/signoff_packages_legacy_group_purpose_unique/)
       await db.sql(
         `insert into signoff_package_versions
            (id, package_id, version_no, content_text, content_checksum, participants, created_by_user_id, created_real_at, created_business_at)
@@ -276,7 +276,7 @@ describe('資料庫守的「只有一個」', () => {
     })
   })
 
-  it('一人一票；學生只能同意／不同意、主指導只能同意／退回；不同意與退回一定有理由；老師沒有學號', async () => {
+  it('一人一票；學生只能同意／不同意、主指導只能同意／退回；不同意與退回的理由選填（0021）；老師沒有學號', async () => {
     await withIsolatedDatabase({ label: 'one-vote', setup: migratedSchema }, async (db) => {
       const g = await seedGroup(db)
       const versionId = await insertVersion(db, await insertPackage(db, g, 'result_confirmation'), g.teacherId)
@@ -295,9 +295,9 @@ describe('資料庫守的「只有一個」', () => {
       await vote(g.studentId, 'student', 'agree', null, '411000001')
       await expect(vote(g.studentId, 'student', 'agree', null, '411000001')).rejects.toThrow(/approvals_one_vote/)
       await expect(vote(g.teacherId, 'advisor', 'disagree', '理由', null)).rejects.toThrow(/approvals_result_check/)
-      await expect(vote(g.teacherId, 'advisor', 'return', '  ', null)).rejects.toThrow(/approvals_reason_check/)
       await expect(vote(g.teacherId, 'advisor', 'agree', null, '411000002')).rejects.toThrow(/approvals_student_no_check/)
-      await vote(g.teacherId, 'advisor', 'return', '請補附件', null)
+      // 0021（X2）：退回理由選填；DB 不再擋空理由。
+      await expect(vote(g.teacherId, 'advisor', 'return', null, null)).resolves.toBeTruthy()
     })
   })
 

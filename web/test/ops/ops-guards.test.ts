@@ -46,10 +46,11 @@ afterEach(() => {
 function run(
   script: string,
   args: string[],
-  opts: { user?: string; locale?: string; bash?: string } = {},
+  opts: { user?: string; locale?: string; bash?: string; env?: Record<string, string> } = {},
 ) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...opts.env,
     PATH: `${path.join(dir, 'bin')}:${process.env.PATH ?? ''}`,
     FJU_ROOT: fjuRoot,
     FJU_SECRETS_DIR: path.join(fjuRoot, 'secrets'),
@@ -88,6 +89,7 @@ const GUARDED: Array<[string, string[]]> = [
   ['seed-demo.sh', ['test']],
   ['seed-demo.sh', ['test', '--remove']],
   ['auto-deploy.sh', []],
+  ['backup-daily.sh', []],
   ['site.sh', ['test', 'check']],
   ['fault-drill.sh', ['--site', 'test', 'restart', '--execute']],
 ]
@@ -118,6 +120,13 @@ describe('身分守門：不是 deploy 就什麼都不做', () => {
 })
 
 describe('seed-demo.sh（票 32）：只准測試站', () => {
+  it('⑤-18：docker compose run 以名稱轉交 SEED_DEMO_PASSWORD（不帶值，值不進指令列）', () => {
+    const script = fs.readFileSync(ops('seed-demo.sh'), 'utf8')
+    const run = script.split('\n').find((line) => line.startsWith('docker compose run'))!
+    expect(run).toMatch(/ -e SEED_DEMO_PASSWORD /)
+    expect(script).not.toMatch(/SEED_DEMO_PASSWORD=/)
+  })
+
   it.each([['prod'], ['prod', '--remove'], ['staging']])('%s %s：就算是 deploy 身分，也在動任何東西之前拒絕', (...args) => {
     const r = run('seed-demo.sh', args.filter(Boolean), { user: me })
     expect(r.code).not.toBe(0)
@@ -185,20 +194,307 @@ describe('restore-drill.sh 的參數與目錄檢查', () => {
   })
 })
 
-describe('中文語系：$VAR 後面緊貼中文字', () => {
-  const scripts = [
-    ...fs.readdirSync(path.join(repoRoot, 'ops')).filter((f) => f.endsWith('.sh')),
-    ...fs.readdirSync(path.join(repoRoot, 'ops/lib')).filter((f) => f.endsWith('.sh')).map((f) => `lib/${f}`),
-  ]
+describe('Healthchecks.io 打卡（⑤-06）：有 url 檔才呼叫 curl', () => {
+  // 假網址；測試與 repo 都不放真網址。
+  const FAKE_URL = 'https://hc.example/ping/fake'
+  const secrets = () => path.join(fjuRoot, 'secrets')
+  const curlCalls = (calls: string[]) => calls.filter((c) => c.startsWith('curl '))
+  /** 假 curl 收到的 stdin（curl 設定檔 `-K -`）：網址只能從這裡進去，不能出現在指令列。 */
+  const curlStdin = () => {
+    const file = path.join(dir, 'curl-stdin.log')
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean) : []
+  }
+  /** 斷言：每次 curl 的參數都沒有網址，stdin 依序是這些網址。 */
+  function expectUrlsOnStdinOnly(calls: string[], urls: string[]) {
+    for (const c of curlCalls(calls)) {
+      expect(c).not.toContain('hc.example')
+      expect(c).toContain('-K -')
+    }
+    expect(curlStdin()).toEqual(urls.map((u) => `url = "${u}"`))
+  }
 
-  it('ops/*.sh、ops/lib/*.sh 沒有任何 `$變數` 緊接非 ASCII 字元（要寫成 ${變數}）', () => {
+  function fakeCommand(name: string, body: string) {
+    const file = path.join(dir, 'bin', name)
+    fs.writeFileSync(file, `#!/usr/bin/env bash\necho "${name} $*" >> "$CALLS_LOG"\n${body}\n`)
+    fs.chmodSync(file, 0o755)
+  }
+
+  function writeUrlFile(name: string) {
+    fs.mkdirSync(secrets(), { recursive: true })
+    fs.writeFileSync(path.join(secrets(), name), `${FAKE_URL}\n`, { mode: 0o600 })
+  }
+
+  beforeEach(() => {
+    fakeCommand('curl', `cat >> "${path.join(dir, 'curl-stdin.log')}"; exit 0`)
+  })
+
+  /** auto-deploy 走到「拿鎖」那一步：token 檔在、手動部署過一次。假 flock 失敗＝上一輪還在跑（exit 0）。 */
+  function prepareAutoDeploy() {
+    fs.mkdirSync(secrets(), { recursive: true })
+    fs.writeFileSync(path.join(secrets(), 'doppler-test.token'), 'not-a-real-token', { mode: 0o600 })
+    const deployDir = path.join(fjuRoot, 'test', 'deploy')
+    fs.mkdirSync(deployDir, { recursive: true })
+    fs.writeFileSync(path.join(deployDir, 'deploy_log'), `2026-10-21T00:00:00Z\tdeployed\t${'0'.repeat(40)}\tfull\n`)
+  }
+
+  it('auto-deploy：有 url 檔 → 檢查完畢（exit 0）呼叫假 curl 一次，打成功網址、body 是這輪的說明', () => {
+    prepareAutoDeploy()
+    writeUrlFile('healthchecks-deploy.url')
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('上一輪還在跑')
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(1)
+    expect(curls[0]).toContain('-fsS -m 10 --retry 3 -o /dev/null')
+    expect(curls[0]).toContain('--data-raw 上一輪還在跑')
+    expectUrlsOnStdinOnly(r.calls, [FAKE_URL])
+    expect(r.stdout).toContain('[healthchecks] ping 已送（成功）')
+    expect(r.stdout).not.toContain('hc.example')
+  })
+
+  it('auto-deploy：沒有 url 檔 → 行為不變、不呼叫 curl（AC-35）', () => {
+    prepareAutoDeploy()
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('上一輪還在跑')
+    expect(curlCalls(r.calls)).toEqual([])
+    expect(r.stdout).not.toContain('[healthchecks]')
+  })
+
+  it('auto-deploy：這輪失敗（拉不到映像，exit 1）→ 打 /fail，exit code 不變', () => {
+    prepareAutoDeploy()
+    writeUrlFile('healthchecks-deploy.url')
+    fakeCommand('flock', 'exit 0')
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(1)
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(1)
+    expect(curls[0]).toContain('--data-raw exit 1：拉不到')
+    expectUrlsOnStdinOnly(r.calls, [`${FAKE_URL}/fail`])
+  })
+
+  it('auto-deploy：curl 失敗只印一行，不改這輪的 exit code', () => {
+    prepareAutoDeploy()
+    writeUrlFile('healthchecks-deploy.url')
+    fakeCommand('curl', `cat >> "${path.join(dir, 'curl-stdin.log')}"; exit 7`)
+    const r = run('auto-deploy.sh', [], { user: me })
+    expect(r.code).toBe(0)
+    expect(curlCalls(r.calls)).toHaveLength(1)
+    expect(r.stdout).toContain('ping 沒送出')
+  })
+
+  it('backup-daily：沒有正式站容器 → 印「正式站不存在，略過」、送 /start 與成功、exit 0（AC-38）', () => {
+    writeUrlFile('healthchecks-backup.url')
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '42' } })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('正式站不存在，略過')
+    expect(r.calls).toContain('docker inspect fju-prod-postgres')
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(2)
+    expect(curls[1]).toContain('磁碟 42%')
+    expectUrlsOnStdinOnly(r.calls, [`${FAKE_URL}/start`, FAKE_URL])
+    // 正式站不存在就不跑 backup.sh、不建異地目錄。
+    expect(r.written).toEqual(['secrets', path.join('secrets', 'healthchecks-backup.url')])
+  })
+
+  it('backup-daily：磁碟 ≥ 80% → 送 /fail，body 含「磁碟 NN%」（AC-39）', () => {
+    writeUrlFile('healthchecks-backup.url')
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '85' } })
+    expect(r.code).toBe(0)
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(2)
+    expect(curls[1]).toContain('--data-raw 磁碟 85%')
+    expectUrlsOnStdinOnly(r.calls, [`${FAKE_URL}/start`, `${FAKE_URL}/fail`])
+  })
+
+  it('backup-daily：正式站在但 backup.sh 失敗（這裡是取不到 Doppler 秘密）→ 送 /fail、非 0 結束、不同步異地', () => {
+    writeUrlFile('healthchecks-backup.url')
+    fakeCommand('docker', 'exit 0')
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '42' } })
+    expect(r.code).not.toBe(0)
+    expect(r.stdout).toContain('正式站備份失敗')
+    const curls = curlCalls(r.calls)
+    expect(curls).toHaveLength(2)
+    expect(curls[1]).toContain('--data-raw 正式站備份失敗')
+    expectUrlsOnStdinOnly(r.calls, [`${FAKE_URL}/start`, `${FAKE_URL}/fail`])
+    expect(fs.existsSync(path.join(fjuRoot, 'offsite'))).toBe(false)
+  })
+
+  it('hc_ping：網址含 " 或 \\ 時照 curl 設定檔規則跳脫，指令列仍不出現網址', () => {
+    const file = path.join(dir, 'odd.url')
+    fs.writeFileSync(file, 'https://hc.example/ping/a"b\\c\n')
+    const r = spawnSync('bash', ['-c', `. "${ops('lib/healthchecks.sh')}"; hc_ping "$1" fail`, '_', file], {
+      env: { ...process.env, PATH: `${path.join(dir, 'bin')}:${process.env.PATH ?? ''}`, CALLS_LOG: callsLog },
+      encoding: 'utf8',
+    })
+    expect(r.status).toBe(0)
+    const calls = fs.readFileSync(callsLog, 'utf8').split('\n').filter(Boolean)
+    expect(curlCalls(calls)).toHaveLength(1)
+    expect(curlCalls(calls)[0]).not.toContain('hc.example')
+    expect(curlStdin()).toEqual(['url = "https://hc.example/ping/a\\"b\\\\c/fail"'])
+  })
+
+  it('backup-daily：沒有 url 檔 → 照樣跑完、不呼叫 curl', () => {
+    const r = run('backup-daily.sh', [], { user: me, env: { BACKUP_DISK_USED_PCT: '85' } })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('正式站不存在，略過')
+    expect(r.stdout).toContain('磁碟 85%')
+    expect(curlCalls(r.calls)).toEqual([])
+  })
+})
+
+describe('cloudflare-origin-lock.sh（⑤-04）：只讓 Cloudflare 連進來', () => {
+  const lock = ops('cloudflare-origin-lock.sh')
+  const CHAIN = 'FJU-CF-ORIGIN'
+  const READONLY = /^(iptables|ip6tables) (-V|-S)/
+
+  function runLock(args: string[], fakeRoot: boolean, opts: { brokenIp?: boolean; iface?: string } = {}) {
+    const bin = path.join(dir, 'bin')
+    const log = path.join(dir, 'fw.log')
+    fs.writeFileSync(log, '')
+    const fakes: Record<string, string> = {
+      iptables: '[ "$1" = -V ] && echo "iptables v1.8.10 (nf_tables)"',
+      ip6tables: '',
+      systemctl: '',
+      id: fakeRoot ? 'echo 0' : 'echo 1000',
+      ...(opts.brokenIp ? { ip: 'exit 127' } : {}),
+    }
+    for (const [name, body] of Object.entries(fakes)) {
+      const f = path.join(bin, name)
+      fs.writeFileSync(f, `#!/usr/bin/env bash\n${name === 'id' ? '' : `echo "${name} $*" >> "$FW_LOG"`}\n${body}\nexit 0\n`)
+      fs.chmodSync(f, 0o755)
+    }
+    const unitDir = path.join(dir, 'units')
+    const r = spawnSync('bash', [lock, ...args], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        FW_LOG: log,
+        FJU_CF_UNIT_DIR: unitDir,
+        ...(opts.iface === undefined ? { FJU_CF_IFACE: 'eth0' } : opts.iface ? { FJU_CF_IFACE: opts.iface } : {}),
+      },
+      encoding: 'utf8',
+      timeout: 20_000,
+    })
+    return {
+      code: r.status,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      calls: fs.readFileSync(log, 'utf8').split('\n').filter(Boolean),
+      unitDir,
+    }
+  }
+
+  // 防火牆指令（iptables／ip6tables／systemctl）的序列，不含偵測用的唯讀呼叫。
+  const sequence = (lines: string[]) =>
+    lines
+      .map((l) => l.replace(/^\s*\+ /, ''))
+      .filter((l) => /^(iptables|ip6tables|systemctl) /.test(l))
+      .filter((l) => !READONLY.test(l))
+
+  it('不是 root、不帶 --execute：只印偵測結果與完整指令序列，沒有呼叫任何改規則的命令、沒寫單元', () => {
+    const r = runLock([], false)
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('偵測結果')
+    expect(r.stdout).toContain('iptables v1.8.10 (nf_tables)')
+    expect(r.stdout).toContain('這是預覽，什麼都沒有執行')
+    const printed = sequence(r.stdout.split('\n'))
+    expect(printed).toContain(`iptables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain(`ip6tables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain('systemctl enable fju-cf-origin-lock.service')
+    // 只有唯讀的偵測呼叫（-V、-S）；沒有任何一次真的改規則或碰 systemctl。
+    expect(r.calls.filter((c) => !READONLY.test(c))).toEqual([])
+    expect(fs.existsSync(r.unitDir)).toBe(false)
+    // 非 root 帶 --execute 也只印。
+    const x = runLock(['--execute'], false)
+    expect(x.code).toBe(0)
+    expect(x.stdout).toContain('不是 root：只印不做')
+    expect(x.calls.filter((c) => !READONLY.test(c))).toEqual([])
+    expect(fs.existsSync(x.unitDir)).toBe(false)
+  })
+
+  it('--execute（假 root、假 iptables／ip6tables／systemctl）：清鏈 → 建鏈 → 加規則 → jump → 寫單元 → enable', () => {
+    const r = runLock(['--execute'], true)
+    expect(r.code).toBe(0)
+    const done = sequence(r.calls)
+    for (const ipt of ['iptables', 'ip6tables']) {
+      const mine = done.filter((l) => l.startsWith(`${ipt} `))
+      const idx = (re: RegExp) => mine.findIndex((l) => re.test(l))
+      const flush = idx(new RegExp(`-F ${CHAIN}$`))
+      const create = idx(new RegExp(`-N ${CHAIN}$`))
+      const firstRule = idx(new RegExp(`-A ${CHAIN} `))
+      const drop = idx(new RegExp(`-A ${CHAIN} -j DROP$`))
+      const jump = idx(new RegExp(`-I DOCKER-USER 1 -j ${CHAIN}$`))
+      expect(flush, ipt).toBeGreaterThanOrEqual(0)
+      expect(create, ipt).toBeGreaterThan(flush)
+      expect(firstRule, ipt).toBeGreaterThan(create)
+      expect(drop, ipt).toBeGreaterThan(firstRule)
+      expect(jump, ipt).toBe(mine.length - 1)
+      // 只套外網介面、80／443、新連線；Cloudflare 範圍放行。
+      expect(mine).toContain(`${ipt} -A ${CHAIN} ! -i eth0 -j RETURN`)
+      expect(mine).toContain(`${ipt} -A ${CHAIN} -p tcp -m multiport ! --dports 80,443 -j RETURN`)
+      expect(mine).toContain(`${ipt} -A ${CHAIN} -m conntrack ! --ctstate NEW -j RETURN`)
+    }
+    expect(done).toContain(`iptables -A ${CHAIN} -s 173.245.48.0/20 -j RETURN`)
+    expect(done).toContain(`ip6tables -A ${CHAIN} -s 2400:cb00::/32 -j RETURN`)
+    // 規則全部做完才寫單元、enable。
+    const unitFile = path.join(r.unitDir, 'fju-cf-origin-lock.service')
+    expect(fs.existsSync(unitFile)).toBe(true)
+    const unitText = fs.readFileSync(unitFile, 'utf8')
+    expect(unitText).toContain('After=docker.service')
+    expect(unitText).toMatch(/ExecStart=.*cloudflare-origin-lock\.sh --execute/)
+    expect(done.slice(-2)).toEqual(['systemctl daemon-reload', 'systemctl enable fju-cf-origin-lock.service'])
+    const lastFw = Math.max(...done.map((l, i) => (/^ip6?tables /.test(l) ? i : -1)))
+    expect(lastFw).toBeLessThan(done.length - 2)
+  })
+
+  it('沒有可用的 ip 指令（例如 Mac）：dry-run 仍 exit 0 並印完整序列；--execute 沒有介面就報錯退出、不碰 iptables', () => {
+    const d = runLock([], false, { brokenIp: true })
+    expect(d.code).toBe(0)
+    expect(d.stdout).toContain('這是預覽，什麼都沒有執行')
+    const printed = sequence(d.stdout.split('\n'))
+    expect(printed).toContain(`iptables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain(`ip6tables -I DOCKER-USER 1 -j ${CHAIN}`)
+    expect(printed).toContain('systemctl enable fju-cf-origin-lock.service')
+    // 沒指定介面時也一樣印得完（介面顯示佔位字）。
+    const d2 = runLock([], false, { brokenIp: true, iface: '' })
+    expect(d2.code).toBe(0)
+    expect(sequence(d2.stdout.split('\n'))).toContain(`iptables -I DOCKER-USER 1 -j ${CHAIN}`)
+    const x = runLock(['--execute'], true, { brokenIp: true, iface: '' })
+    expect(x.code).not.toBe(0)
+    expect(x.stderr).toContain('找不到外網介面')
+    expect(sequence(x.calls)).toEqual([])
+    expect(fs.existsSync(x.unitDir)).toBe(false)
+  })
+
+  it('Caddyfile.vm 的 trusted_proxies 與腳本的 Cloudflare 範圍是同一份', () => {
+    const script = fs.readFileSync(lock, 'utf8')
+    const lists = [...script.matchAll(/^CF_V[46]=\(([^)]*)\)/gm)].map((m) => m[1]).join(' ')
+    const fromScript = [...lists.matchAll(/\b[0-9a-f:.]+\/\d+\b/g)].map((m) => m[0]).sort()
+    const caddy = fs.readFileSync(ops('Caddyfile.vm'), 'utf8')
+    const line = caddy.split('\n').find((l) => l.includes('trusted_proxies static'))!
+    const fromCaddy = line.replace(/^.*static\s+/, '').trim().split(/\s+/).sort()
+    expect(fromCaddy.length).toBeGreaterThan(10)
+    expect(fromScript).toEqual(fromCaddy)
+  })
+})
+
+describe('中文語系：$VAR 後面緊貼中文字', () => {
+  // repo 根目錄起算的相對路徑；教學影片工具的 env 腳本也在 zh_TW 終端機跑，一起掃（#410）。
+  const shellsIn = (d: string) =>
+    fs.readdirSync(path.join(repoRoot, d)).filter((f) => f.endsWith('.sh')).map((f) => `${d}/${f}`)
+  const scripts = [...shellsIn('ops'), ...shellsIn('ops/lib'), ...shellsIn('tools/tutorial/env')]
+
+  it('ops/*.sh、ops/lib/*.sh、tools/tutorial/env/*.sh 沒有任何 `$變數` 緊接非 ASCII 字元（要寫成 ${變數}）', () => {
+    expect(scripts).toContain('tools/tutorial/env/lib.sh')
     const hits: string[] = []
     for (const f of scripts) {
-      fs.readFileSync(ops(f), 'utf8')
+      fs.readFileSync(path.join(repoRoot, f), 'utf8')
         .split('\n')
         .forEach((line, i) => {
           for (const m of line.matchAll(/\$[A-Za-z_][A-Za-z0-9_]*(?=[\u0080-\u{10FFFF}])/gu)) {
-            hits.push(`ops/${f}:${i + 1}: ${m[0]}`)
+            hits.push(`${f}:${i + 1}: ${m[0]}`)
           }
         })
     }
@@ -221,6 +517,7 @@ describe('中文語系：$VAR 後面緊貼中文字', () => {
     ['restore-drill.sh', ['--site', 'test', '--backup', 'latest'], 'self'],
     ['backup.sh', ['--site', 'test', '--status'], 'self'],
     ['auto-deploy.sh', [], undefined],
+    ['backup-daily.sh', [], undefined],
   ]
 
   for (const shell of shells) {

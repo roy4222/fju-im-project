@@ -9,6 +9,7 @@ import {
   auditActionLabel,
   auditActionTitle,
   hasAuditActionLabel,
+  auditActorAvatar,
   auditWhoOf,
   describeAuditTarget,
   normalizeAuditWho,
@@ -78,6 +79,7 @@ const ALSO_LABELED: readonly string[] = [
  * 用明確清單而不是掃描：掃描樣式抓得寬，刪掉一個對照時可能被「事件型別」或「不是稽核」的排除吃掉。
  */
 const WRITTEN_AUDIT_ACTIONS: readonly string[] = [
+  'file.delete',
   'account.approve',
   'account.bind_google_preauthorized',
   'account.bulk_disable',
@@ -328,6 +330,11 @@ describe('操作紀錄的顯示規則（票 36）', () => {
     expect(missing).toEqual([])
   })
 
+  it('系辦刪檔（C1-16）：動作「刪除檔案」、對象類型「檔案」', () => {
+    expect(auditActionLabel('file.delete')).toBe('刪除檔案')
+    expect(describeAuditTarget({ targetType: 'stored_file', targetName: null, cohortCode: null })).toBe('檔案')
+  })
+
   it('對象：類型＋名字＋屆別代碼；屆別本身不重複寫', () => {
     expect(
       describeAuditTarget({
@@ -391,5 +398,28 @@ describe('操作紀錄的顯示規則（票 36）', () => {
         cohortName: '115 學年',
       }),
     ).toBe('屆別・115 學年（115）')
+  })
+})
+
+describe('操作者頭像（C3 §2.3）', () => {
+  const base = { actorName: '王小明', actorAvatarPreset: 7, actorAvatarFileId: null }
+  const id = '11111111-1111-4111-8111-111111111111'
+
+  it('找得到帳號的使用者：帶出 id、姓名與頭像兩欄', () => {
+    expect(auditActorAvatar({ ...base, actorKind: 'user', actorUserId: id })).toEqual({
+      id,
+      name: '王小明',
+      avatarPreset: 7,
+      avatarFileId: null,
+    })
+    expect(
+      auditActorAvatar({ ...base, actorKind: 'user', actorUserId: id, actorAvatarPreset: null, actorAvatarFileId: 'f1' }),
+    ).toMatchObject({ avatarPreset: null, avatarFileId: 'f1' })
+  })
+
+  it('系統、背景工作、找不到帳號：沒有頭像（畫面維持純文字）', () => {
+    expect(auditActorAvatar({ ...base, actorKind: 'system', actorUserId: null })).toBeNull()
+    expect(auditActorAvatar({ ...base, actorKind: 'worker', actorUserId: null })).toBeNull()
+    expect(auditActorAvatar({ ...base, actorKind: 'user', actorUserId: null, actorName: null })).toBeNull()
   })
 })

@@ -124,7 +124,7 @@ export const auditEvents = pgTable(
     check('audit_events_scope_cohort_check', sql`(${t.scope} = 'cohort') = (${t.cohortId} is not null)`),
     check(
       'audit_events_verification_method_check',
-      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match')`,
+      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match','office_review','email_roster_match')`,
     ),
     index('audit_events_target_idx').on(t.targetType, t.targetId),
     index('audit_events_cohort_real_at_idx').on(t.cohortId, t.realAt),

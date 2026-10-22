@@ -2,6 +2,8 @@ import type { ResolvedActor } from '@/application/accounts'
 import type {
   AudienceKind,
   CompetitionStatus,
+  ConsentMode,
+  ConsentPurpose,
   FormField,
   ItemFileKind,
   ItemInput,
@@ -40,6 +42,11 @@ export type PublishReceipt = {
   readonly rosterCount: number
   /** 這次的事件寫給幾個人（通知由背景工作投影）。 */
   readonly notifiedCount: number
+  /**
+   * 站內同意書（`consent_mode='form'`）才有：建了幾個簽核包、哪幾組沒建（沒有主指導或沒有組員，繳交狀況頁顯示「尚未建立」）。
+   * 站內同意書不發「新作業」通知（`item.published`），通知由簽核包的「輪到你同意」發。其他作業是 null。
+   */
+  readonly consent: { readonly created: number; readonly skipped: readonly { readonly groupId: string; readonly reason: 'no_advisor' | 'no_members' }[] } | null
 }
 
 export type UpdateChange = 'content' | 'schema' | 'settings' | 'deadline'
@@ -56,6 +63,8 @@ export type UpdateReceipt = {
   readonly rosterRemoved: number
   readonly notify: boolean
   readonly notifiedCount: number
+  /** 這次把指導老師閱覽改成什麼（C 收尾 CL-13）；沒改是 null。只改閱覽時 `changes` 是空的、不發通知、不記發布紀錄。 */
+  readonly advisorVisibility: boolean | null
 }
 
 /** 置頂／取消置頂的回執（第 1 批 V1）：`pinned` 是做完之後的狀態。 */
@@ -64,8 +73,16 @@ export type PinReceipt = { readonly itemId: string; readonly title: string; read
 /** 規則章節上移／下移的回執（A-14）：`position` 是移完之後的位置（同屆規則從 1 起算）。 */
 export type RuleOrderReceipt = { readonly itemId: string; readonly title: string; readonly position: number }
 
+/** 規則章節整批排序的回執（C 階段規格① §3.1）：`count` 是這一屆排了幾章。 */
+export type RulesReorderReceipt = { readonly cohortId: string; readonly count: number }
+
+/** 資源分類改名的回執（C 階段規格① §11.3 `resource_category`）：`count` 是改到幾筆資源（跨屆）。 */
+export type RenameCategoryReceipt = { readonly from: string; readonly to: string; readonly count: number }
+
 export type StartItemUploadInput = {
   readonly cohortId: string
+  /** 檔案要用在哪個位置的項目：屆別封存後只有榮譽還能上傳（同存草稿的封存規則）；不認得的值當成非榮譽。 */
+  readonly placement: string
   readonly kind: ItemFileKind
   readonly fileName: string
   readonly declaredMime: string
@@ -144,6 +161,24 @@ export interface ItemCommand {
    * 跟置頂一樣是展示動作，不動 `revision`、`updated_at`，不切版本、不發事件。
    */
   moveRule(actor: ResolvedActor, itemId: string, direction: 'up' | 'down', requestId: string): Promise<Result<RuleOrderReceipt>>
+  /**
+   * 專題規則整批排序（C 階段規格① §3.1，拖曳排序用；`moveRule` 保留給上下移）。`orderedIds` 必須正好等於這一屆
+   * 全部未刪除規則（含草稿、已下架）的集合、不重複，否則 `VALIDATION_FAILED`；照順序寫成 1..n。
+   * 跟 `moveRule` 一樣是展示動作：鎖序同 `lockRuleSet`、不動 `revision`、不切版本、不發事件，稽核沿用 `item.rule_moved`（payload `kind:'reorder'`）。
+   * 順序跟現在一樣也回 ok（不寫稽核）。
+   */
+  reorderRules(actor: ResolvedActor, cohortId: string, orderedIds: readonly string[], requestId: string): Promise<Result<RulesReorderReceipt>>
+  /**
+   * 資源分類改名（C 階段規格① §11.3 `resource_category`；前台 `/files` 依名稱合併跨屆資源，所以範圍是**所有屆別**）：
+   * `placement='resource'`、未刪除、`category=from` 的每一列改成 `to`、`revision+1`；一筆交易。
+   * 新名稱已經是別的資源分類 → `VALIDATION_FAILED`「已有這個分類」；沒有任何資源用 `from` → `VALIDATION_FAILED`。
+   * 跟置頂一樣不產生內容版本、不寫發布紀錄、不發事件；稽核 `item.category_renamed`（`{from,to,count}`）。`requestId` 冪等。
+   * 封存屆別的資源也一起改（分類名是跨屆共用的標籤，不是那一屆的內容）。
+   */
+  renameResourceCategory(
+    actor: ResolvedActor,
+    input: { readonly from: string; readonly to: string; readonly requestId: string },
+  ): Promise<Result<RenameCategoryReceipt>>
 }
 
 export type ItemReview = {
@@ -180,6 +215,8 @@ export type ItemListRow = {
   readonly audienceKind: AudienceKind
   readonly audienceGroupCodes: readonly string[]
   readonly receiverUnit: ReceiverUnit
+  /** 同意書模式（C 階段規格① §1.1）；不是同意書是 null。 */
+  readonly consentMode: ConsentMode | null
   readonly dueAt: Date | null
   readonly actualOpenedAt: Date | null
   /** 置頂時間（第 1 批 V1）；沒置頂是 null。 */
@@ -192,6 +229,18 @@ export type ItemListRow = {
    * （`application/submissions/roster.ts`）；不是收件就是 0。
    */
   readonly rosterCount: number
+}
+
+/**
+ * 清單列加上分頁要顯示的內容（CL-1）：資源頁的分類與附件數、規則頁的正文摘要，一句查完，不逐份 `get`。
+ * `registrationDeadline` 是競賽資訊的報名截止日（臺灣日曆日），其他是 null。
+ */
+export type ItemListRowWithContent = ItemListRow & {
+  readonly category: string | null
+  readonly attachmentCount: number
+  readonly registrationDeadline: string | null
+  /** 正文：**已經過 `renderBodyHtml` 清理**。 */
+  readonly bodyHtml: string
 }
 
 export type ItemDetail = {
@@ -209,6 +258,9 @@ export type ItemDetail = {
   readonly groupIds: readonly string[]
   readonly receiverUnit: ReceiverUnit
   readonly stageId: string | null
+  /** 同意書模式與用途（存草稿就落盤；發布後鎖定，`updatePublished` 改它們回 `VALIDATION_FAILED`）。 */
+  readonly consentMode: ConsentMode | null
+  readonly consentPurpose: ConsentPurpose | null
   readonly opensAt: Date | null
   readonly actualOpenedAt: Date | null
   readonly dueAt: Date | null
@@ -227,11 +279,20 @@ export type ItemDetail = {
   readonly updatedAt: Date
   /** 已有人存過草稿或正式送出（見 `ResponsePresence`）：收件單位、對象、欄位結構鎖定。 */
   readonly hasResponses: boolean
+  /**
+   * 指導老師閱覽目前的狀態（最新一列；沒設過＝不開放，生效版本 null）。只對個人一份的作業有意義（C 收尾 CL-13：
+   * 表單進階設定的開關讀這裡）。
+   */
+  readonly advisorVisibility: { readonly enabled: boolean; readonly effectiveFromVersionNo: number | null }
   /** 發布、發布更新的紀錄，新的在前。 */
   readonly publications: readonly {
     readonly action: string
     readonly notify: boolean
+    readonly actorUserId: string
     readonly actorName: string
+    /** 操作者頭像兩欄（`user_profiles`；沒有 profile 是 null，畫面依帳號 hash 固定一張預設圖）。 */
+    readonly actorAvatarPreset: number | null
+    readonly actorAvatarFileId: string | null
     readonly realAt: Date
   }[]
 }
@@ -277,6 +338,8 @@ export type RecipientQueryInput = {
 export interface ItemQuery {
   /** 專題事務工作台：一屆的全部項目（不含已刪除），新的在前（呼叫端守門）。 */
   list(cohortId: string): Promise<ItemListRow[]>
+  /** 同 `list`，只列指定位置，並帶分類、附件數、報名截止日與正文（資源、規則分頁；呼叫端守門）。 */
+  listWithContent(cohortId: string, placements: readonly Placement[]): Promise<ItemListRowWithContent[]>
   /** 編輯器要的一筆（呼叫端守門）。找不到或已刪除回 null。 */
   get(itemId: string): Promise<ItemDetail | null>
   /** 編輯器的選項：這一屆的階段與有效組別。 */
@@ -310,8 +373,8 @@ export type PublicItemCard = {
 }
 
 /**
- * 打開一個前台內容頁的結果（`publicAccessOf` 的四種狀態）。只有 `visible` 帶內容；
- * 已下架、已撤回、要登入、找不到都**不帶標題與內容**，只帶位置讓頁面給對的下一步。
+ * 打開一個前台內容頁的結果（`publicAccessOf` 的各種狀態）。只有 `visible` 帶內容；
+ * 已下架、已撤回、已刪除（CL-14）、要登入、找不到都**不帶標題與內容**，只帶位置讓頁面給對的下一步。
  */
 export type PublicItemPage =
   | {

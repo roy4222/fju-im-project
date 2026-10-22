@@ -400,6 +400,10 @@ function Toolbar({ editor, inputClass, buttonClass }: { editor: Editor; inputCla
         <ToolButton label="分隔線" onClick={() => chain().setHorizontalRule().run()}>
           分隔線
         </ToolButton>
+        {/* 表格（C 階段規格① §2.3）：extension 早就裝了，只缺按鈕。插一個 3×3、第一列是表頭。 */}
+        <ToolButton label="表格" active={editor.isActive('table')} onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
+          表格
+        </ToolButton>
       </div>
       {linkOpen ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2">

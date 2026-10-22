@@ -77,7 +77,8 @@ else
 fi
 
 # --no-deps：postgres 已經隨 app 在跑。-e 名稱（不帶值）：Compose 從目前環境轉交，值不進指令列。
-docker compose run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v "$SITE_ROOT/files:$FILES_ROOT" \
+# SEED_DEMO_PASSWORD（Doppler 只在 stg 有，選填）：新建時寫成示範帳號的密碼；沒設＝示範帳號沒有密碼（⑤-18）。
+docker compose run --rm --no-deps -e FJU_SITE -e FILES_ROOT -e SEED_DEMO_PASSWORD -v "$SITE_ROOT/files:$FILES_ROOT" \
   migrate node migrate/web/scripts/seed-demo.mjs ${args[@]+"${args[@]}"}
 
 if [ "$REMOVE" = 1 ]; then

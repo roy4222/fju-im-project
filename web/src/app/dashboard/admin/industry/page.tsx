@@ -5,8 +5,9 @@ import { PageTitle, StatTile } from '@/app/_ui/dashboard/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { GROUP_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { randomUUID } from 'node:crypto'
-import { ManageOpportunityList, OpportunityDangerZone } from '@/app/dashboard/_industry/manage-list'
+import { ManageOpportunityList } from '@/app/dashboard/_industry/manage-list'
 import { OpportunityFormDialog } from '@/app/dashboard/_industry/opportunity-forms'
 import {
   CHANGE_REASON_MAX_LENGTH,
@@ -17,23 +18,18 @@ import {
   OPPORTUNITY_STATUS_LABEL,
 } from '@/composition/groups'
 
-export const metadata = { title: '合作案｜資管系專題平台' }
+export const metadata = { title: '產學合作｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/industry'
-
-/** 側欄「分組」底下的兩個分頁（設計方案 §2.1），和分組總覽頁同一組。 */
-const GROUP_TABS = [
-  { href: '/dashboard/admin/groups', label: '分組總覽' },
-  { href: BASE, label: '合作案' },
-] as const
 
 /**
  * 系辦「合作案」（票 20；原型 `/dashboard/admin/industry`）：全部合作案與組別連結。
  *
- * 系辦可以編輯、發布、下架、重新發布任何一案，也可以解除連結（理由必填）。
+ * 系辦可以編輯、發布、下架、重新發布任何一案，也可以解除連結（理由可不填，C3-10）。
  * 第三波 W11：系辦也能「新增合作案」並從選單指定負責老師（老師自己建的負責老師仍是登入帳號）；
- * 草稿或已下架、沒連組別的可以刪除——刪除放在頁面底部的「危險操作」區（§9 規則 1），不跟日常按鈕並列。
- * AD-07：標題用側欄名「分組」，下面掛「分組總覽｜合作案」分頁列，「新增合作案」放分頁列右側。
+ * 草稿或已下架、沒連組別的可以刪除——C3-10（規格③ §6.5）起「刪除」在每列動作裡，不能刪的 disabled 寫原因，
+ * 頁尾的「危險操作」區拿掉；負責老師顯示頭像；解除連結理由可不填。
+ * AD-07：標題用側欄名「分組」，下面掛「全部組別｜未分組學生｜產學合作」分頁列（C2-04），「新增合作案」放分頁列右側。
  */
 export default async function AdminIndustryPage() {
   // 授權檢查在**頁面自己**：放在 layout 擋不住（見 `_nav.ts` 與 `guard.ts` 的說明）。
@@ -58,6 +54,9 @@ export default async function AdminIndustryPage() {
               actions={<OpportunityFormDialog labels={labels} requestId={randomUUID()} teachers={teachers} />}
             />
           </div>
+          <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+            老師開的產學合作案，以及每一案由哪幾組承接。
+          </p>
         </div>
         <section aria-label="合作案摘要" className="grid gap-4 sm:grid-cols-3">
           <StatTile
@@ -80,7 +79,6 @@ export default async function AdminIndustryPage() {
           empty={{ title: '還沒有合作案', description: '按分頁列右側「新增合作案」建立，或由老師在「我的合作案」建立。' }}
         />
         <p className="text-xs text-muted-foreground">連結代表組別選用這個題目，不代表企業或老師已正式承諾合作。</p>
-        <OpportunityDangerZone items={items} statusLabel={OPPORTUNITY_STATUS_LABEL} />
       </div>
     </DashboardShell>
   )

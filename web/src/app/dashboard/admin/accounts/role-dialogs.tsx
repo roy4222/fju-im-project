@@ -8,7 +8,7 @@ import { grantAdminAction, repairOrphanAction, revokeAdminAction } from './actio
 /**
  * 帳號列表每一列的「設為管理員／取消管理員」與孤兒帳號的「補建角色」（票 10b）。
  *
- * 跟停用對話框同一個樣子：先講影響、理由必填，送出後顯示回執；關掉對話框才刷新列表。
+ * 跟停用對話框同一個樣子：先講影響、理由選填，送出後顯示回執；關掉對話框才刷新列表。
  * 規則都在伺服器（不能對自己、學生不能設、最後一位管理員、孤兒帳號的定義），這裡只把輸入送過去。
  */
 
@@ -103,7 +103,7 @@ function AccountFacts({ account }: { account: RoleTargetView }) {
 function ReasonField({ value, onChange, placeholder, invalid }: { value: string; onChange: (v: string) => void; placeholder: string; invalid: boolean }) {
   return (
     <label className="block text-sm font-medium text-foreground">
-      理由 <span className="font-normal text-muted-foreground">・必填，會寫入紀錄</span>
+      理由（選填，會留在操作紀錄）
       <textarea
         rows={2}
         value={value}
@@ -144,10 +144,6 @@ export function AdminRoleDialog({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!d.reason.trim()) {
-      d.setError('請寫理由。')
-      return
-    }
     const input = { userId: account.userId, reason: d.reason, requestId: d.requestId }
     await d.run(
       () => (granting ? grantAdminAction(input) : revokeAdminAction(input)),
@@ -237,10 +233,6 @@ export function OrphanRepairDialog({ account, opener }: { account: RoleTargetVie
     event.preventDefault()
     if (!role) {
       d.setError('請選擇要補上的身分。')
-      return
-    }
-    if (!d.reason.trim()) {
-      d.setError('請寫理由。')
       return
     }
     await d.run(

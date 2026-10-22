@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { IconDownload, IconFileText, IconFolderOpen } from '@tabler/icons-react'
 import type { ItemFileSummary, PublicItemCard } from '@/application/items'
+import { feItem, feSection, frontEditScope, type FrontEditScope } from '@/app/_ui/front-edit/mark'
 import { requireSignedIn } from '@/app/_ui/guard'
 import { formatSize, ListEmpty, PublicPage, publishedDate, SearchField } from '@/app/_ui/public-content'
 import { SiteShell } from '@/app/_ui/site-shell'
@@ -38,6 +39,8 @@ export default async function FilesPage({
     query.list(actor, 'resource', { category: category || undefined, q: q || undefined, limit: 200 }),
     query.categories(actor, 'resource'),
   ])
+  // 前台編輯標記（C2-16）：只有系辦經 /office-edit 改寫進來才有。
+  const fe = await frontEditScope()
   const groups = [...new Set(resources.map((r) => r.category ?? '其他'))].map((name) => ({
     name,
     items: resources.filter((r) => (r.category ?? '其他') === name),
@@ -72,8 +75,8 @@ export default async function FilesPage({
               ))}
             </nav>
           </aside>
-          <div className="flex min-w-0 flex-col gap-8">
-            <SearchField action="/files" id="files-q" label="搜尋資源" placeholder="搜尋資源標題" defaultValue={q} keep={{ category }} inputClassName="sm:w-96" />
+          <div className="flex min-w-0 flex-col gap-8" {...feSection(fe, { label: '檔案下載', add: 'resource' })}>
+            <SearchField key={q} action="/files" id="files-q" label="搜尋資源" placeholder="搜尋資源標題" defaultValue={q} keep={{ category }} inputClassName="sm:w-96" />
             {resources.length === 0 ? (
               <ListEmpty
                 icon={q || category ? undefined : <IconFolderOpen className="size-9" aria-hidden />}
@@ -83,11 +86,17 @@ export default async function FilesPage({
               />
             ) : (
               groups.map((g) => (
-                <section key={g.name} aria-label={g.name} className="flex flex-col gap-3">
+                <section
+                  key={g.name}
+                  aria-label={g.name}
+                  className="flex flex-col gap-3"
+                  // 分類名稱可以改（跨屆同名一起改，§6.3.1）；還有檔案就不能刪。「其他」是沒填分類的，不是真的分類。
+                  {...(g.items[0]?.category ? feItem(fe, { kind: 'resource_category', id: g.name, fields: { name: g.name }, del: `有 ${g.items.length} 個檔案，先移走` }) : {})}
+                >
                   <h2 className="text-xl font-bold text-ink">{g.name}</h2>
                   <ul className="overflow-hidden rounded-xl border border-border">
                     {g.items.map((r) => (
-                      <ResourceRow key={r.id} resource={r} />
+                      <ResourceRow key={r.id} resource={r} fe={fe} />
                     ))}
                   </ul>
                 </section>
@@ -114,10 +123,14 @@ function DownloadLink({ file }: { file: ItemFileSummary }) {
  * 一個資源一列（原型 `/files` 的檔案列）：只有一個檔就是一列（標題、大小、日期、下載）；
  * 多個檔就在標題底下逐檔列出。
  */
-function ResourceRow({ resource: r }: { resource: PublicItemCard }) {
+function ResourceRow({ resource: r, fe }: { resource: PublicItemCard; fe: FrontEditScope }) {
   const single = r.attachments.length === 1 ? r.attachments[0]! : null
   return (
-    <li data-testid="resource" className="flex flex-col gap-3 border-b border-border px-4 py-3.5 last:border-b-0 sm:px-5">
+    <li
+      data-testid="resource"
+      className="flex flex-col gap-3 border-b border-border px-4 py-3.5 last:border-b-0 sm:px-5"
+      {...feItem(fe, { kind: 'resource', id: r.id, fields: { title: r.title }, del: true })}
+    >
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 sm:grid-cols-[minmax(0,1fr)_80px_100px_auto]">
         <div className="flex min-w-0 items-start gap-2.5">
           <IconFileText className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />

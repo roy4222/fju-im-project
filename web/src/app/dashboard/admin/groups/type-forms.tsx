@@ -2,6 +2,7 @@
 import { startTransition, useActionState, useState, type FormEvent } from 'react'
 import { changeGroupTypeAdminAction } from './actions'
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from './admin-group-forms'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 import { Pill } from '@/app/_ui/dashboard/primitives'
 import { BTN_ROW_GHOST as ROW_GHOST } from '@/app/_ui/dashboard/look'
 
@@ -54,7 +55,7 @@ export function GroupTypeCell({
           <Pill className="bg-transparent">{typeLabels[group.groupType]}</Pill>
         )}
         <button type="button" className={ROW_GHOST} aria-label={`改組別類型：${group.code}`} onClick={dialog.open}>
-          改類型
+          編輯
         </button>
       </div>
       <Feedback state={state?.ok ? state : undefined} />
@@ -89,18 +90,19 @@ export function GroupTypeCell({
           <input type="hidden" name="requestId" value={requestId} />
           <div>
             <label htmlFor={`type-reason-${group.id}`} className={LABEL}>
-              理由（必填）
+              理由（可不填）
             </label>
             <textarea
               id={`type-reason-${group.id}`}
               name="reason"
               rows={3}
-              maxLength={reasonMaxLength}
+              aria-describedby={charCountId(`type-reason-${group.id}`)}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="例：組長申請、分組期已過"
               className={INPUT}
             />
+            <CharCount forId={`type-reason-${group.id}`} max={reasonMaxLength} value={reason} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">

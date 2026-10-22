@@ -1,0 +1,6 @@
+{
+  "ticket": "CL-4",
+  "override": {
+    "/dashboard/admin/showcase": { "from": "C1-09", "value": { "baseline": 234.5, "limit": 250 } }
+  }
+}

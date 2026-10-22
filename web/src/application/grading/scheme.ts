@@ -1,5 +1,6 @@
 import { err, type Err } from '@/shared/result'
 import { LETTER_GRADES, type LetterGrade, type LetterMap, type ScoreItemType } from '@/shared/score'
+import { charLength } from '@/shared/text'
 
 /**
  * 評分方案的型別與純規則（產品模組 06 §4「7.2 評分方案」；模組實作設計 06 §3、附錄 A `stages`）。
@@ -11,6 +12,8 @@ import { LETTER_GRADES, type LetterGrade, type LetterMap, type ScoreItemType } f
  * - 方案版本寫了就不能改（資料庫 trigger 守）；要改結構就建新版本。第一位老師開始填（第一份暫存或正式送出）後，目前版本鎖定（產品 7.5）。
  *
  * **這裡的「階段」是評分方案的計分階段，不是票 11 屆別時間軸的四個階段**（兩件事分開，見 schema/grading.ts）。
+ * C 階段起畫面與訊息的用詞（設計方案① §0.4）：「計分階段」→「評分項目」（stage），「項目」→「細項」（stage.items）；
+ * 程式裡的名稱（`stages`、`items`）不改。
  * 這個檔沒有資料庫：權重怎麼驗、key 怎麼補，都在這裡單獨測。
  */
 
@@ -132,14 +135,14 @@ export function normalizeSchemeStages(
   input: readonly SchemeStageInput[],
   reserved: ReservedSchemeKeys = NO_RESERVED_KEYS,
 ): { ok: true; value: SchemeStage[] } | Err {
-  if (!Array.isArray(input) || input.length === 0) return fail('至少要有一個計分階段。', 'stages')
-  if (input.length > SCHEME_LIMITS.stages) return fail(`計分階段最多 ${SCHEME_LIMITS.stages} 個。`, 'stages')
+  if (!Array.isArray(input) || input.length === 0) return fail('至少要有一個評分項目。', 'stages')
+  if (input.length > SCHEME_LIMITS.stages) return fail(`評分項目最多 ${SCHEME_LIMITS.stages} 個。`, 'stages')
 
   const stageKeys = new Set<string>()
   for (const raw of input) {
     const key = typeof raw.key === 'string' ? raw.key.trim() : ''
     if (!key) continue
-    if (!KEY_PATTERN.test(key) || stageKeys.has(key)) return fail('階段代號重複或格式不對，請重新整理頁面再建立。', 'stages')
+    if (!KEY_PATTERN.test(key) || stageKeys.has(key)) return fail('評分項目代號重複或格式不對，請重新整理頁面再建立。', 'stages')
     stageKeys.add(key)
   }
 
@@ -155,26 +158,26 @@ export function normalizeSchemeStages(
 
   const stages: SchemeStage[] = []
   for (const [index, raw] of input.entries()) {
-    const label = `第 ${index + 1} 個階段`
+    const label = `第 ${index + 1} 個評分項目`
     const name = String(raw.name ?? '').trim()
     if (!name) return fail(`請填${label}的名稱。`, `stage${index + 1}.name`)
-    if (name.length > SCHEME_LIMITS.nameLength) return fail(`${label}的名稱最多 ${SCHEME_LIMITS.nameLength} 個字。`, `stage${index + 1}.name`)
+    if (charLength(name) > SCHEME_LIMITS.nameLength) return fail(`${label}的名稱最多 ${SCHEME_LIMITS.nameLength} 個字。`, `stage${index + 1}.name`)
     const weight = asInt(raw.weight)
     if (weight === null || weight < 1 || weight > 100) {
       return fail(`「${name}」占總成績的百分比要是 1–100 的整數。`, `stage${index + 1}.weight`)
     }
 
     const items = Array.isArray(raw.items) ? raw.items : []
-    if (items.length === 0) return fail(`「${name}」至少要有一個評分項目。`, `stage${index + 1}.items`)
+    if (items.length === 0) return fail(`「${name}」至少要有一個細項。`, `stage${index + 1}.items`)
     if (items.length > SCHEME_LIMITS.itemsPerStage) {
-      return fail(`「${name}」的評分項目最多 ${SCHEME_LIMITS.itemsPerStage} 個。`, `stage${index + 1}.items`)
+      return fail(`「${name}」的細項最多 ${SCHEME_LIMITS.itemsPerStage} 個。`, `stage${index + 1}.items`)
     }
 
     const itemKeys = new Set<string>()
     for (const item of items) {
       const key = typeof item.key === 'string' ? item.key.trim() : ''
       if (!key) continue
-      if (!KEY_PATTERN.test(key) || itemKeys.has(key)) return fail('項目代號重複或格式不對，請重新整理頁面再建立。', `stage${index + 1}.items`)
+      if (!KEY_PATTERN.test(key) || itemKeys.has(key)) return fail('細項代號重複或格式不對，請重新整理頁面再建立。', `stage${index + 1}.items`)
       itemKeys.add(key)
     }
 
@@ -182,8 +185,8 @@ export function normalizeSchemeStages(
     for (const [itemIndex, rawItem] of items.entries()) {
       const field = `stage${index + 1}.item${itemIndex + 1}`
       const itemName = String(rawItem.name ?? '').trim()
-      if (!itemName) return fail(`請填「${name}」第 ${itemIndex + 1} 個項目的名稱。`, `${field}.name`)
-      if (itemName.length > SCHEME_LIMITS.nameLength) {
+      if (!itemName) return fail(`請填「${name}」第 ${itemIndex + 1} 個細項的名稱。`, `${field}.name`)
+      if (charLength(itemName) > SCHEME_LIMITS.nameLength) {
         return fail(`「${itemName}」的名稱最多 ${SCHEME_LIMITS.nameLength} 個字。`, `${field}.name`)
       }
       const type = rawItem.type
@@ -208,10 +211,10 @@ export function normalizeSchemeStages(
     }
 
     const scored = normalizedItems.filter((i) => i.type !== 'passfail')
-    if (scored.length === 0) return fail(`「${name}」至少要有一個分數或等第項目（通過／不通過不算分）。`, `stage${index + 1}.items`)
+    if (scored.length === 0) return fail(`「${name}」至少要有一個分數或等第細項（通過／不通過不算分）。`, `stage${index + 1}.items`)
     const itemSum = scored.reduce((sum, i) => sum + i.weight, 0)
     if (itemSum !== 100) {
-      return fail(`「${name}」的項目權重合計是 ${itemSum}%，要剛好 100% 才能建立。`, `stage${index + 1}.itemWeights`)
+      return fail(`「${name}」的細項權重合計是 ${itemSum}%，要剛好 100% 才能建立。`, `stage${index + 1}.itemWeights`)
     }
 
     let letterMap: LetterMap | null = null
@@ -237,7 +240,7 @@ export function normalizeSchemeStages(
   }
 
   const names = new Set(stages.map((s) => s.name))
-  if (names.size !== stages.length) return fail('計分階段的名稱不能重複。', 'stages')
+  if (names.size !== stages.length) return fail('評分項目的名稱不能重複。', 'stages')
 
   const stageSum = stages.reduce((sum, s) => sum + s.weight, 0)
   if (stageSum !== 100) {

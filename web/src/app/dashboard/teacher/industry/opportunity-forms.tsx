@@ -6,6 +6,7 @@ import type { IndustryActionState, OpportunityFormLabels } from '@/app/dashboard
 import { DIALOG, GHOST_BUTTON, INPUT, OUTLINE_BUTTON_SM, PRIMARY_BUTTON, TEXTAREA } from '@/app/dashboard/teacher/_ui/dash'
 import type { NormalizedOpportunity, OpportunityField } from '@/application/groups'
 import { cn } from '@/shared/cn'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
  * 老師「我的合作案」會動的部分（票 20；票 37 照原型 `IndustryFormDialog` 的樣子）：新增／編輯對話框、發布／下架／重新發布、解除連結。
@@ -263,7 +264,7 @@ export function OpportunityStatusButton({
 }
 
 /**
- * 一案的「連結的組別」格：每組一顆「解除」；案主解除時理由必填，該組組員與案主會收到通知。
+ * 一案的「連結的組別」格：每組一顆「解除」；案主解除時理由可不填（C3-10），該組組員與案主會收到通知。
  * 整格是同一個元件（同一份動作狀態）：解除成功、那一組從清單消失之後，回饋句子仍留在這一格。
  */
 export function LinkedGroupsCell({
@@ -332,18 +333,19 @@ export function LinkedGroupsCell({
           <input type="hidden" name="requestId" value={`${requestId}`} />
           <div className="flex flex-col gap-1.5">
             <label htmlFor={`unlink-reason-${requestId}`} className={LABEL}>
-              理由（必填）
+              理由（可不填）
             </label>
             <textarea
               id={`unlink-reason-${requestId}`}
               name="reason"
               rows={3}
-              maxLength={reasonMaxLength}
+              aria-describedby={charCountId(`unlink-reason-${requestId}`)}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="例：企業暫停這個題目"
               className={TEXTAREA}
             />
+            <CharCount forId={`unlink-reason-${requestId}`} max={reasonMaxLength} value={reason} />
           </div>
           <Feedback state={state?.ok ? undefined : state} />
           <button type="submit" disabled={pending || !target} className={cn(PRIMARY_BUTTON, 'w-full')}>

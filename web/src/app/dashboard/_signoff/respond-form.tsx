@@ -3,6 +3,7 @@ import { useActionState, useState } from 'react'
 import { IconCheck, IconX } from '@tabler/icons-react'
 import { respondAction } from './actions'
 import { Feedback, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
+import { blockOverLimit, CharCount, charCountId } from '@/app/_ui/char-count'
 
 // 外觀照原型 `signoff-actions.tsx` 的 ApproveActions（票 38；原型學生與老師用同一個）：
 // 橘色實心「我已閱讀並同意」＋白底細框「不同意」，對話框大圓角、按鈕 44px 高。
@@ -17,10 +18,10 @@ const INPUT =
 const LABEL = 'block text-sm font-semibold'
 
 /**
- * 本人表態（票 26；原型「勾選已閱讀 → 我已閱讀並同意 → 確認框『只代表你自己的一票』」「不同意：原因必填」）。
+ * 本人表態（票 26；原型「勾選已閱讀 → 我已閱讀並同意 → 確認框『只代表你自己的一票』」；C1-11 起不同意／退回理由選填）。
  *
  * - 同意：先勾「我已完整閱讀全文與附件」才按得下去，按了再跳確認框。
- * - 不同意（學生）／退回（老師）：對話框裡理由必填。
+ * - 不同意（學生）／退回（老師）：對話框裡理由**選填**（C 階段規格① §1.4、AC-22a）；有填才記下、參與者與系辦看得到。
  * - 表單帶著這一版的內容核對碼：頁面過期（版本已換、內容不同）時伺服器拒絕，不會把票記到別的版本上。
  * - 按鈕上的字和伺服器記進 `approvals.button_text` 的是同一份常數（`BUTTON_TEXT`），由頁面傳進來。
  */
@@ -45,6 +46,8 @@ export function RespondForm({
   reasonMaxLength: number
 }) {
   const [state, formAction, pending] = useActionState(respondAction, undefined)
+  // 理由超過上限：送出前就擋（訊息同 `pg-signoff.ts` 的「不同意或退回的理由最多 N 字。」），打的字留著。
+  const [tooLong, setTooLong] = useState<string | null>(null)
   const [read, setRead] = useState(false)
   const agree = useDialog()
   const reject = useDialog()
@@ -85,7 +88,7 @@ export function RespondForm({
           {hidden}
           <input type="hidden" name="decision" value="agree" />
           <h2 className="text-lg font-extrabold">確認同意？</h2>
-          <p className="text-sm text-muted-foreground">這一票只代表{who}；送出後會記下時間、這次的登入方式與按鈕原文，不能改票。</p>
+          <p className="text-sm text-muted-foreground">這一票只代表{who}；送出後會記下時間與按鈕原文，不能改票。</p>
           <Feedback state={state?.ok ? undefined : state} />
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={pending} className={`${PRIMARY} flex-1`}>
@@ -99,20 +102,25 @@ export function RespondForm({
       </dialog>
 
       <dialog ref={reject.ref} aria-label={rejectText} className={DIALOG}>
-        <form action={formAction} className="space-y-4 p-6">
+        <form
+          action={formAction}
+          onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, `不同意或退回的理由最多 ${reasonMaxLength} 字。`))}
+          className="space-y-4 p-6"
+        >
           {hidden}
           <input type="hidden" name="decision" value="reject" />
           <h2 className="text-lg font-extrabold">{rejectText}？</h2>
           <p className="text-sm text-muted-foreground">
-            送出後這一版回到「退回修正中」，全組要等系辦重開新版再重新閱讀；你的理由會記在紀錄上，參與者與系辦看得到。
+            送出後這一版回到「退回修正中」，全組要等系辦重開新版再重新閱讀；有填理由的話會記在紀錄上，參與者與系辦看得到。
           </p>
           <div>
             <label htmlFor={`reason-${versionId}`} className={LABEL}>
-              理由（必填）
+              理由（選填）
             </label>
-            <textarea id={`reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`reason-${versionId}`} max={reasonMaxLength} />
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
+          <Feedback state={tooLong ? { ok: false, message: tooLong } : state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" className={SECONDARY} onClick={reject.close}>
               先不要

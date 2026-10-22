@@ -32,9 +32,8 @@ async function signInAs(page: Page, role: TestRole) {
 }
 
 async function openImportDialog(page: Page) {
-  await page.goto('/dashboard/admin/accounts')
-  // AD-11：匯入收在預設收合的「名單與停用」裡，先展開。
-  await page.getByRole('group', { name: '名單與停用' }).locator('summary').click()
+  // C 階段規格② §3.6：匯入在「名單匯入」分頁的標題列（AC-C2-31）。
+  await page.goto('/dashboard/admin/accounts/roster')
   await page.getByRole('button', { name: '匯入名單 CSV' }).click()
   await expect(page.getByRole('heading', { name: '匯入本屆名單' })).toBeVisible()
 }
@@ -88,8 +87,7 @@ test('管理員：選檔 → 預覽 → 匯入 → 版本列表看得到、原�
 
   // 版本列表：哪一屆、誰、何時、幾筆、原檔。
   await page.reload()
-  // AD-11：歷次匯入改成卡片、收在「名單與停用」裡（AC-AD-21）；只換定位，下面的斷言不動。
-  await page.getByRole('group', { name: '名單與停用' }).locator('summary').click()
+  // 歷次匯入是卡片，C2-07 起在「名單匯入」分頁（不用再展開）；只換定位，下面的斷言不動。
   const row = page.getByRole('region', { name: '歷次匯入' }).getByRole('article').filter({ hasText: cohortName }).first()
   await expect(row).toBeVisible()
   await expect(row).toContainText('13')
@@ -164,4 +162,47 @@ test('學生打不開帳號管理頁，也就碰不到匯入', async ({ page }) 
   await signInAs(page, 'student')
   await page.goto('/dashboard/admin/accounts')
   await expect(page).toHaveURL(/\/403$/)
+})
+
+test('沒有開放註冊的屆別：不預選、顯示提示、選了屆別才能匯入', async ({ page }) => {
+  if (!ownerUrl) throw new Error('e2e 需要 DATABASE_URL_OWNER 才能設定屆別狀態')
+  const pool = new Pool({ connectionString: ownerUrl, max: 1 })
+  // 自己種出確定的狀態：全部屆別都關閉註冊，並讓種的那一屆當預設工作屆別；測完還原。
+  const before = (await pool.query<{ id: string; is_registration_open: boolean; is_default_working: boolean }>(
+    'select id, is_registration_open, is_default_working from cohorts',
+  )).rows
+  try {
+    await pool.query('update cohorts set is_registration_open = false, is_default_working = false')
+    await pool.query('update cohorts set is_default_working = true where code = $1', [cohortCode])
+
+    await signInAs(page, 'admin')
+    await openImportDialog(page)
+    await page.getByLabel('選擇名單 CSV 檔').setInputFiles({
+      name: 'no-cohort.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('student_no,name\n411599001,王小明\n411599002,林小華\n', 'utf8'),
+    })
+
+    await expect(page.getByRole('heading', { name: '預覽・no-cohort.csv' })).toBeVisible()
+    const select = page.getByLabel('匯入到哪一屆')
+    await expect(select).toHaveValue('')
+    await expect(page.getByTestId('roster-no-open-cohort')).toContainText('目前沒有開放註冊的屆別')
+    await expect(page.getByRole('button', { name: '匯入 2 筆' })).toBeDisabled()
+
+    await select.selectOption({ label: `${cohortName}（${cohortCode}）` })
+    await expect(select.locator('option:checked')).toContainText(cohortName)
+    await expect(page.getByRole('button', { name: '匯入 2 筆' })).toBeEnabled()
+    await expect(page.getByTestId('roster-no-open-cohort')).toBeVisible()
+  } finally {
+    for (const r of before) {
+      await pool.query('update cohorts set is_registration_open = false, is_default_working = false where id = $1', [r.id])
+    }
+    for (const r of before.filter((c) => c.is_default_working)) {
+      await pool.query('update cohorts set is_default_working = true where id = $1', [r.id])
+    }
+    for (const r of before.filter((c) => c.is_registration_open)) {
+      await pool.query('update cohorts set is_registration_open = true where id = $1', [r.id])
+    }
+    await pool.end()
+  }
 })

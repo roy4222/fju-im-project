@@ -58,10 +58,27 @@ export const AUDIENCE_LABEL: Readonly<Record<AudienceKind, string>> = {
 }
 
 /**
- * 收件能用的對象只有兩種（產品模組 04「單一入口與收件單位」2026-09-12 定案）：
- * 收件不開給公開訪客，也不用「所有已登入者」；本期也不開「全部老師」（Q-SUB04 過渡）。
+ * 收件能用的對象（產品模組 04「單一入口與收件單位」2026-09-12 定案；C 階段規格① T3 加「全部老師」）：
+ * 收件不開給公開訪客，也不用「所有已登入者」。給老師的作業一律個人一份（名單＝啟用中、有老師角色的帳號）。
  */
-export const COLLECTION_AUDIENCES: readonly AudienceKind[] = ['cohort_students', 'groups']
+export const COLLECTION_AUDIENCES: readonly AudienceKind[] = ['cohort_students', 'groups', 'teachers']
+
+/**
+ * 同意書（C 階段規格① §1.1、§6.1）：作業的一種模式。
+ * - `form`：站內同意表單，整組一份；每個對象組發布時建一個簽核包（`signoff_packages.item_id`），沒有繳交欄位、截止選填。
+ * - `upload`：下載 PDF 簽名再上傳，就是一個個人一份、有檔案欄的作業，模式只影響標籤。
+ * 不是同意書的作業是 null。
+ */
+export type ConsentMode = 'form' | 'upload'
+export const CONSENT_MODES: readonly ConsentMode[] = ['form', 'upload']
+
+/** 站內同意表單的用途（跟簽核包的 `purpose` 同一組值）：只有 `form` 有、而且一定要有。 */
+export type ConsentPurpose = 'result_confirmation' | 'final_document'
+export const CONSENT_PURPOSES: readonly ConsentPurpose[] = ['result_confirmation', 'final_document']
+export const CONSENT_PURPOSE_LABEL: Readonly<Record<ConsentPurpose, string>> = {
+  result_confirmation: '期中結果確認',
+  final_document: '最終文件授權',
+}
 
 export type ReceiverUnit = 'none' | 'individual' | 'group'
 export const RECEIVER_UNIT_LABEL: Readonly<Record<ReceiverUnit, string>> = {
@@ -201,7 +218,12 @@ export type ItemInput = {
   readonly audienceKind: string
   readonly groupIds: readonly string[]
   readonly receiverUnit: string
+  /** 所屬階段：C 階段起表單不再送（給 null 或空字串）；舊資料保留不刪。 */
   readonly stageId: string | null
+  /** 同意書模式（`form`／`upload`）；不是同意書給 null、空字串或不給。只有作業能設。 */
+  readonly consentMode?: string | null
+  /** 站內同意表單的用途；只有 `consentMode='form'` 會留，其他一律清掉。 */
+  readonly consentPurpose?: string | null
   /** `datetime-local`（臺灣時間）；空字串＝發布即開放。 */
   readonly opensAt: string
   /** `datetime-local`（臺灣時間）；秒數捨去，存截止分鐘的起點。 */
@@ -212,6 +234,11 @@ export type ItemInput = {
   readonly eventDate?: string
   /** 榮譽榜的得獎日期（`YYYY-MM-DD`；空＝沒填，前台退回發布日）。只有榮譽會留，其他位置一律清掉。 */
   readonly awardedOn?: string
+  /**
+   * 指導老師閱覽（C 收尾 CL-13，從繳交狀況頁的面板移進表單）：`true` 開、`false` 關；不給或 `null`＝不動。
+   * 只用在「個人一份」的作業；整組一份給 `true` 回錯，給 `false` 當不動。存檔跟表單其他欄位同一個交易。
+   */
+  readonly advisorVisibility?: boolean | null
   readonly fields: readonly unknown[]
 }
 
@@ -228,7 +255,10 @@ export type ItemDraft = {
   readonly audienceKind: AudienceKind
   readonly groupIds: readonly string[]
   readonly receiverUnit: ReceiverUnit
+  /** 表單不送（永遠 null，除非舊資料帶著）；發布不再檢查（C 階段規格① §1.1）。 */
   readonly stageId: string | null
+  readonly consentMode: ConsentMode | null
+  readonly consentPurpose: ConsentPurpose | null
   readonly opensAt: Date | null
   readonly dueAt: Date | null
   /** 競賽資訊的兩個日期（臺灣日曆日）；不是「公告＋分類競賽資訊」一律 null。 */
@@ -236,6 +266,8 @@ export type ItemDraft = {
   readonly eventDate: TaipeiDate | null
   /** 榮譽榜的得獎日期（臺灣日曆日）；不是榮譽一律 null。 */
   readonly awardedOn: TaipeiDate | null
+  /** 指導老師閱覽要改成什麼；`null`＝不動（不是個人一份的作業一律 null）。 */
+  readonly advisorVisibility: boolean | null
   readonly fields: readonly FormField[]
 }
 
@@ -372,7 +404,7 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
   const audienceKind = String(input.audienceKind) as AudienceKind
   if (!AUDIENCE_KINDS.includes(audienceKind)) return invalid('請選擇誰看得到。', 'audienceKind')
   if (collects && !COLLECTION_AUDIENCES.includes(audienceKind)) {
-    return invalid('作業只能發給「本屆學生」或「指定組別」。', 'audienceKind')
+    return invalid('作業只能發給「本屆學生」「指定組別」或「全部老師」。', 'audienceKind')
   }
   if (placement === HONOR_PLACEMENT && audienceKind !== 'public') {
     return invalid('榮譽榜是公開頁，對象只能是「公開訪客」。', 'audienceKind')
@@ -385,6 +417,37 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
       return invalid('文件繳交要選繳交方式：個人一份或整組一份。', 'receiverUnit')
     }
     receiverUnit = unit
+    if (audienceKind === 'teachers' && unit !== 'individual') {
+      return invalid('給老師的作業一律個人一份。', 'receiverUnit')
+    }
+  }
+
+  // 同意書：只有作業能設；站內表單一定整組一份、要選用途，上傳簽名檔一定個人一份（DB CHECK 同一條）。
+  let consentMode: ConsentMode | null = null
+  let consentPurpose: ConsentPurpose | null = null
+  const rawMode = typeof input.consentMode === 'string' ? input.consentMode.trim() : ''
+  if (collects && rawMode !== '') {
+    if (!CONSENT_MODES.includes(rawMode as ConsentMode)) return invalid('同意書的形式不對，請重新選擇。', 'consentMode')
+    consentMode = rawMode as ConsentMode
+    if (consentMode === 'form') {
+      if (receiverUnit !== 'group') return invalid('站內同意書是整組一份（每組一份、組員各自同意）。', 'receiverUnit')
+      const rawPurpose = typeof input.consentPurpose === 'string' ? input.consentPurpose.trim() : ''
+      if (!CONSENT_PURPOSES.includes(rawPurpose as ConsentPurpose)) {
+        return invalid('請選同意書的用途：期中結果確認或最終文件授權。', 'consentPurpose')
+      }
+      consentPurpose = rawPurpose as ConsentPurpose
+    } else if (receiverUnit !== 'individual') {
+      return invalid('下載 PDF 簽名再上傳的同意書是個人一份。', 'receiverUnit')
+    }
+  }
+
+  // 指導老師閱覽：只有個人一份的作業有；整組一份的正式版本本來就給目前的指導老師看。
+  let advisorVisibility: boolean | null = null
+  if (typeof input.advisorVisibility === 'boolean') {
+    if (receiverUnit === 'individual') advisorVisibility = input.advisorVisibility
+    else if (input.advisorVisibility) {
+      return invalid('指導老師閱覽只用在「個人一份」的作業；整組一份的正式版本本來就給目前的指導老師看。', 'advisorVisibility')
+    }
   }
 
   const groups = uuidList(audienceKind === 'groups' ? input.groupIds : [], MAX_AUDIENCE_GROUPS, '指定組別', 'groupIds')
@@ -455,11 +518,14 @@ export function normalizeItemInput(input: ItemInput): Normalized<ItemDraft> {
       groupIds: groups.value,
       receiverUnit,
       stageId,
+      consentMode,
+      consentPurpose,
       opensAt,
       dueAt,
       registrationDeadline,
       eventDate,
       awardedOn,
+      advisorVisibility,
       fields,
     },
   }
@@ -478,7 +544,7 @@ function parseDay(value: unknown, label: string, field: string): Normalized<Taip
 /** 空收件的固定文案（產品模組 04「發布檢查與時間邊界」Q-PUB01；模組實作設計 04 §3）。 */
 export const EMPTY_COLLECTION_MESSAGE = '新增填寫欄位或上傳要求，或改用公告／資源'
 
-export type PublishCheckKey = 'title' | 'audience' | 'stage' | 'due' | 'window' | 'fields'
+export type PublishCheckKey = 'title' | 'audience' | 'due' | 'window' | 'fields' | 'consent_purpose' | 'consent_advisor' | 'consent_drafts'
 
 export type PublishCheck = {
   readonly key: PublishCheckKey
@@ -490,8 +556,21 @@ export type PublishCheck = {
 
 export type PublishState = Pick<
   ItemDraft,
-  'placement' | 'title' | 'audienceKind' | 'groupIds' | 'receiverUnit' | 'stageId' | 'opensAt' | 'dueAt' | 'fields'
->
+  'placement' | 'title' | 'audienceKind' | 'groupIds' | 'receiverUnit' | 'opensAt' | 'dueAt' | 'fields'
+> &
+  Partial<Pick<ItemDraft, 'consentMode' | 'consentPurpose'>> & {
+    /**
+     * 站內同意書要查資料庫的兩件事（由用例在檢查前查好；不是站內同意書不用給）：
+     * `advisedGroupCount`＝對象組裡有主指導的組數（0 就擋：一包都建不起來）；
+     * `groupsWithoutShowcaseDraft`＝最終文件授權時還沒有成果展示草稿的組代號（有就擋，列出組別）。
+     */
+    readonly consentFacts?: { readonly advisedGroupCount: number; readonly groupsWithoutShowcaseDraft: readonly string[] }
+  }
+
+/** 這份作業是不是站內同意表單（發布時建簽核包、不發「新作業」通知、沒有繳交欄位）。 */
+export function isConsentForm(state: { readonly placement: Placement; readonly consentMode?: ConsentMode | null }): boolean {
+  return collectsResponses(state.placement) && state.consentMode === 'form'
+}
 
 /**
  * 發布前檢查（模組實作設計 04 §3「draft→published」）。畫面與用例用同一份：
@@ -513,22 +592,42 @@ export function publishChecks(state: PublishState, openAt: Date): PublishCheck[]
   ]
   if (collects) {
     const opens = state.opensAt ?? openAt
-    checks.push(
-      { key: 'stage', label: '所屬階段', ok: state.stageId !== null, fix: '選這個作業屬於哪個階段' },
-      { key: 'due', label: '截止', ok: state.dueAt !== null, fix: '作業一定要有截止時間' },
-      {
-        key: 'window',
-        label: '時間',
-        ok: state.dueAt === null || state.dueAt.getTime() >= opens.getTime(),
-        fix: state.opensAt ? '截止不能早於開放時間' : '截止不能早於開放時間（沒設開放＝發布當下就開放）',
-      },
-      {
-        key: 'fields',
-        label: '欄位',
-        ok: state.fields.some(isInputField),
-        fix: EMPTY_COLLECTION_MESSAGE,
-      },
-    )
+    const consentForm = isConsentForm(state)
+    // 站內同意書：截止選填、沒有繳交欄位（同意在簽核包裡投）；所屬階段 C 階段起不再要求（§1.1）。
+    if (!consentForm) checks.push({ key: 'due', label: '截止', ok: state.dueAt !== null, fix: '作業一定要有截止時間' })
+    checks.push({
+      key: 'window',
+      label: '時間',
+      ok: state.dueAt === null || state.dueAt.getTime() >= opens.getTime(),
+      fix: state.opensAt ? '截止不能早於開放時間' : '截止不能早於開放時間（沒設開放＝發布當下就開放）',
+    })
+    if (!consentForm) {
+      checks.push({ key: 'fields', label: '欄位', ok: state.fields.some(isInputField), fix: EMPTY_COLLECTION_MESSAGE })
+    } else {
+      checks.push({
+        key: 'consent_purpose',
+        label: '同意書用途',
+        ok: state.consentPurpose !== null && state.consentPurpose !== undefined,
+        fix: '在進階設定選用途：期中結果確認或最終文件授權',
+      })
+      if (state.consentFacts) {
+        checks.push({
+          key: 'consent_advisor',
+          label: '指導老師',
+          ok: state.consentFacts.advisedGroupCount > 0,
+          fix: '對象組都還沒有指導老師，發布後一份同意書都建不起來；先指派老師或改對象',
+        })
+        if (state.consentPurpose === 'final_document') {
+          const missing = state.consentFacts.groupsWithoutShowcaseDraft
+          checks.push({
+            key: 'consent_drafts',
+            label: '成果展示草稿',
+            ok: missing.length === 0,
+            fix: `這些組還沒有成果展示草稿：${missing.join('、')}`,
+          })
+        }
+      }
+    }
   }
   return checks
 }

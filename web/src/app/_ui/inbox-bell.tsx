@@ -21,7 +21,7 @@ export async function InboxBell({ href, current }: { href: string; current?: str
       aria-current={current === href ? 'page' : undefined}
       title={label}
       data-testid="inbox-bell"
-      className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground pointer-coarse:size-11 transition-colors hover:bg-accent hover:text-foreground"
     >
       <IconBell aria-hidden className="size-4.5" />
       {unread > 0 ? (

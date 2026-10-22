@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { charCountBlocksSubmit, defaultValueNeedsKey, itFailsSingleExpect } from './cl-7-rules.mjs'
 
 /**
  * 本專案自己的 lint 規則。
@@ -401,5 +402,8 @@ export default {
     'external-packages': externalPackages,
     'module-boundary': moduleBoundary,
     'no-cached-actor-in-actions': noCachedActorInActions,
+    'default-value-needs-key': defaultValueNeedsKey,
+    'char-count-blocks-submit': charCountBlocksSubmit,
+    'it-fails-single-expect': itFailsSingleExpect,
   },
 }

@@ -29,7 +29,7 @@
 
 ```bash
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 ```
 
 預期：最後一行是 `total size is …`，沒有 error。（`fju-vm` 是 `ops/ssh-config.example` 那個 SSH 別名。）
@@ -54,7 +54,7 @@ sudo bash /tmp/fju-app/ops/vm-setup.sh
 ### 4. 🖥️ 把 app 檔放到正式位置，再跑一次設定
 
 ```bash
-sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -121,7 +121,9 @@ Password 那裡貼上 PAT（不會顯示）。預期 `Login Succeeded`。
 
 - `REGISTRATION_OPEN` 是註冊開關，**不在必要鍵的檢查裡**：沒設的話 VM 上當作 `false`（關閉註冊），
   所以測試站要記得設 `true`，否則註冊頁會是 404。只有 CI／本機（不經 `docker-compose.vm.yml`）沒設才是開放。
-  切換：改 Doppler 後跑 `sudo -u deploy /srv/fju/app/ops/site.sh <test|prod> docker compose up -d --no-deps app worker`（約 30 秒）。
+  切換：改 Doppler 後把**目前在跑的同一版**重新部署一次：`sudo -u deploy /srv/fju/app/ops/deploy.sh --site test <SHA> --execute`
+  （`<SHA>` 用 `docker inspect --format '{{.Config.Image}}' fju-test-app` 冒號後那段；正式站把 `test` 換成 `prod`）。
+  不要用 `site.sh … docker compose up`：那樣不會帶 `APP_IMAGE`，Compose 會直接報錯。
 - 寄信、Turnstile、GA4 這五個鍵**不在必要鍵的檢查裡**（`ops/lib/site.sh` 不擋）：少了站照樣起得來，
   只是寄信回失敗、表單被人機驗證擋、GA4 不載入。所以加完要自己對一次鍵名。
 - **`MAIL_CAPTURE` 絕對不要放進 Doppler**（stg、prd 都不要）：它是本機與 CI 的擷取模式，開了信不會寄出、整封存進資料庫。
@@ -381,7 +383,8 @@ sudo ls -lh /srv/fju/prod/backups/
 
 預期最後印 `✓ 完成：…、… 個項目，sha256 …` 與 `紀錄已寫入 /srv/fju/prod/backups/records.jsonl`。
 
-- 備份檔只存在這台 VM（`/srv/fju/<站>/backups/fju-<站>-<UTC 時間>.dump`，目錄 700、檔案 600，只有 deploy 讀得到）；不排程、不上傳。
+- 備份檔只存在這台 VM（`/srv/fju/<站>/backups/fju-<站>-<UTC 時間>.dump`，目錄 700、檔案 600，只有 deploy 讀得到）；不上傳到雲端。
+  **正式站每天自動備份一次**（下一節「每日備份」）；測試站只有手動跑這支時才備份。
 - **只備份資料庫**；附件（`/srv/fju/<站>/files`）不在備份裡，VM 硬碟壞了附件救不回來（Roy 已接受）。
 - 每次都在同一目錄的 `records.jsonl` 加一筆紀錄（成功：檔名、大小、sha256、各表筆數；失敗：哪一步、錯誤訊息）。
   紀錄只往後加，**失敗不會蓋掉上一次成功**。舊備份檔要清的話手動 `sudo -u deploy rm`，紀錄不用動。
@@ -391,6 +394,30 @@ sudo ls -lh /srv/fju/prod/backups/
 ```bash
 sudo -u deploy /srv/fju/app/ops/backup.sh --site prod --status
 ```
+
+### 每日備份（⑤-06）
+
+`fju-backup.timer`（`vm-setup.sh` 步驟 12 安裝）每天 **UTC 19:30（台灣 03:30）**、隨機延後最多 10 分鐘，
+以 deploy 身分跑 `ops/backup-daily.sh`；VM 那時關機的話，開機後補跑一次（`Persistent=true`）。它做三件事：
+
+1. 正式站的 `fju-prod-postgres` 容器存在 → `backup.sh --site prod`，再把 `/srv/fju/prod/backups/` 裡還沒同步過的 dump
+   複製到 `/srv/fju/offsite/prod/`（異地拉取從這裡拿）。容器不存在 → 印「正式站不存在，略過」，仍算成功。
+2. 量 `/srv` 的磁碟使用率（見下面「磁碟用量」）。
+3. 對 Healthchecks.io 的「每日備份」check 打卡：開始送 `/start`；備份失敗或磁碟 ≥ 80% 送 `/fail`；其他送成功（見「Healthchecks.io」）。
+
+```bash
+systemctl list-timers fju-backup.timer          # 下一次觸發是 UTC 19:30 起 10 分鐘內
+sudo systemctl start fju-backup.service         # 手動跑一次（跟 timer 跑的一模一樣）
+journalctl -u fju-backup.service -n 20 --no-pager
+sudo ls -lh /srv/fju/offsite/prod/
+```
+
+預期：journal 最後幾行是 `[backup-daily] 正式站備份完成，同步 1 個檔到 /srv/fju/offsite/prod。`、
+`[backup-daily] 磁碟 NN%（/srv）。`；放了打卡網址的話還有兩行 `[healthchecks] ping 已送（開始）`／`（成功）`。
+
+- 這支取代原本只放在 VM 上、不在 repo 的每日備份包裝腳本與 timer：同名的 `fju-backup.service`／`.timer` 會被步驟 12 覆蓋。
+  舊的包裝腳本若是別的單元名稱，Roy 看 `systemctl list-timers` 確認只剩 `fju-backup.timer` 一個在備份，舊的 `systemctl disable --now`。
+- 測試站不在每日備份內；異地目錄裡的舊檔不會自動清（要清時 `sudo -u deploy rm`）。
 
 ### 還原演練（票 27）
 
@@ -493,7 +520,51 @@ sudo -u deploy /srv/fju/app/ops/deploy.sh --site test "$(sudo -u deploy docker i
 
 ### 磁碟用量
 
-磁碟 80% 告警改由 status collector 負責（`status/collector/lib/vm.mjs`）；web 的 worker 不再量磁碟，系辦首頁也沒有「儲存與備份」磚。
+磁碟由 `ops/backup-daily.sh` 每天量一次（隨每日備份，台灣 03:30）：`/srv` 使用率 **≥ 80%** 就對 Healthchecks.io 的
+「每日備份」check 送 `/fail`，內容寫「磁碟 NN%」，Discord 會收到這一則；< 80% 照常打成功。web 的 worker 不量磁碟，
+系辦首頁也沒有「儲存與備份」磚。收到通知時：先清舊的 `backups/` 與 `offsite/prod/` dump，
+再看舊映像（自動部署成功後會清，`docker image ls ghcr.io/roy4222/fju-web`）；仍不夠就評估加大磁碟。
+
+### Healthchecks.io（⑤-06）
+
+三種排程工作各自定時「打卡」；過了寬限沒打卡，或打的是失敗，Healthchecks.io 就通知 Discord。
+**打卡網址等同密碼**：只放在下面兩個 secrets 檔與 Doppler，不貼進 repo、issue、PR 或聊天。檔案或變數沒設時一律不打卡，
+也不會讓腳本失敗（本機、CI 都是這樣）。
+
+| check 名稱 | 誰打卡 | 週期／寬限 | 網址放哪 |
+|---|---|---|---|
+| 每日備份 | `ops/backup-daily.sh`（開始、成功、失敗） | 1 天／2 小時 | VM `/srv/fju/secrets/healthchecks-backup.url` |
+| 自動部署 | `ops/auto-deploy.sh`（每一輪結束：成功或失敗） | 10 分鐘／10 分鐘 | VM `/srv/fju/secrets/healthchecks-deploy.url` |
+| worker 測試站 | 測試站 worker（每 5 分鐘） | 10 分鐘／10 分鐘 | Doppler `stg` 的 `HEALTHCHECKS_WORKER_URL` |
+| worker 正式站 | 正式站 worker（每 5 分鐘） | 10 分鐘／10 分鐘 | Doppler `prd` 的 `HEALTHCHECKS_WORKER_URL` |
+
+**Roy 設定一次（約 15 分鐘）**
+
+① 🌐 Healthchecks.io：建上表四個 check（Simple 排程，週期與寬限照表），整個專案接一次 Discord integration
+（選「寶寶聚會」的監測頻道）。每個 check 頁面上複製它的 ping 網址（`https://hc-ping.com/…`）。
+
+② 🖥️ VM：兩個網址各放一個檔（deploy 擁有、600）。用 `read -s` 貼，網址不會出現在畫面與 shell 紀錄裡：
+
+```bash
+for name in backup deploy; do
+  read -rsp "healthchecks-${name} 的 ping 網址：" url; echo
+  printf '%s\n' "$url" | sudo -u deploy tee /srv/fju/secrets/healthchecks-${name}.url >/dev/null
+  sudo chmod 600 /srv/fju/secrets/healthchecks-${name}.url
+done
+unset url
+sudo ls -l /srv/fju/secrets/
+```
+
+③ Doppler：`stg` 與 `prd` 各加 `HEALTHCHECKS_WORKER_URL`＝各自 worker check 的網址；加完把該站目前的版本重新部署一次
+（`deploy.sh --site <test|prod> <SHA> --execute`），worker 才拿得到。這個鍵**只轉交給 worker**（`docker-compose.vm.yml`），
+app 看不到；不在 `ops/lib/site.sh` 的必要鍵裡，沒設也起得來。
+
+④ 驗收：`sudo systemctl start fju-auto-deploy.service` 後 `journalctl -u fju-auto-deploy.service -n 5` 有
+`[healthchecks] ping 已送（成功）`；`sudo systemctl start fju-backup.service` 後有 `（開始）` 與 `（成功）`；
+等 5 分鐘兩個 worker check 都變綠。Healthchecks.io 四個都綠就好了。
+
+- 暫時不想收通知（例如整夜驗收前關了 timer）：在 Healthchecks.io 該 check 按 Pause，恢復時它會自己變回綠。
+- 換網址：Healthchecks.io 重建 check 後照 ②／③ 重做；舊網址立刻失效。
 
 ### 故障演練（票 28，只准測試站）
 
@@ -535,14 +606,14 @@ ops/fault-drill-local.sh poison --keep   # 只跑一個、留著看畫面（http
 
 自動部署只換**映像**，不會更新 VM 上的腳本與 compose 檔。這些檔有改時重做第 1、4 步：
 
-（送檔清單含 `docker-compose.status.yml`、VM 那行帶 `--filter='P /ops/status/cloudflared.yml'`：開發者後台裝好之後，少列那個檔或少帶 filter，`--delete` 會把後台的 compose 或安裝時產生的 `ops/status/cloudflared.yml` 刪掉，`fju-status-update` 就起不來。VM 還沒做下面「兩站網路拆分上線步驟」時，換 compose 前先照它的 B1 暫停自動部署。）
+（VM 上還有開發者後台時，先做下面「拆除開發者後台」再送檔。VM 還沒做下面「兩站網路拆分上線步驟」時，換 compose 前先照它的 B1 暫停自動部署。）
 
 ```bash
 # 💻 Mac
 git switch main && git pull
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 # 🖥️ VM
-sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -570,7 +641,8 @@ VM 新帳號 `fjureset`，它的金鑰被 `restrict,command=` 綁死只能跑守
 - **快照**：`/srv/fju/test/snapshots/<名稱>/{db.dump,files.tar.gz,meta}`，deploy 擁有、目錄 700、檔案 600；`meta` 記存的時間、commit、兩個檔的 sha256，restore 前先核對，附件包裡有 symlink、hardlink、`files/` 以外的路徑就拒絕。**最多留 5 份**，第 6 份存進來時刪最舊的。同名再存＝覆蓋。快照不在每日備份與異地拉取的範圍內。
 - **ssh 斷線不會把重置砍一半**：reset／snapshot／restore 在 VM 上的背景程序裡跑，輸出同步傳回來；斷線後它照樣跑完，之後 `ssh fju-reset status` 看 `last_run=`（`busy=yes`＝還在跑）。完整紀錄在 VM 的 `/var/log/fju-test-reset/`（root 才看得到）。同時只能跑一個。
 - **連線次數**：每個子命令＝一次新連線，ufw 對 22 埠 30 秒最多 6 次；整夜腳本每次間隔 ≥ 15 秒。
-- **每日備份撞到重置**：每日備份台灣 03:30 會跑 test 的 `backup.sh`；若整夜的 reset／restore 剛好停站中，那一次 test 備份會記失敗（prod 照常），屬正常，隔天會恢復。
+- **每日備份不碰測試站**：每日備份（台灣 03:30，`fju-backup.timer`）只備份正式站，整夜的 reset／restore 停測試站不會讓它失敗；
+  要留測試站的狀態用 `snapshot`。
 - **磁碟**：snapshot 用 `backup.sh` 產生 dump 後，`backups/` 裡那份會刪掉（快照裡已有一份）；`/var/log/fju-test-reset/` 只留最近 20 份。
 - **repo 的這兩支腳本改了之後**：照上一節把 ops 送上 VM，再重跑下面第 3 框的兩行 `sudo install`——`/usr/local/sbin` 那份才是生效的版本（root 不執行 `/srv/fju/app` 底下的腳本）。
 
@@ -701,7 +773,7 @@ sudo rm -f /usr/local/sbin/fju-test-reset-gate /usr/local/sbin/fju-test-reset
 ```bash
 git switch main && git pull
 grep -c 'fju-edge-test' docker-compose.edge.yml   # 確認是拆分後的版本
-rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml docker-compose.status.yml ops fju-vm:/tmp/fju-app/
+rsync -av --delete docker-compose.yml docker-compose.vm.yml docker-compose.edge.yml docker-compose.drill.yml ops fju-vm:/tmp/fju-app/
 ssh fju-vm
 ```
 
@@ -746,7 +818,7 @@ if [[ $SHA =~ ^[0-9a-f]{40}$ ]]; then echo "✓ 測試站目前的版本：$SHA�
 
 ```bash
 cd /srv/fju/app
-sudo rsync -a --delete --filter='P /ops/status/cloudflared.yml' --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
+sudo rsync -a --delete --chown=deploy:deploy /tmp/fju-app/ /srv/fju/app/
 sudo bash /srv/fju/app/ops/vm-setup.sh
 ```
 
@@ -910,6 +982,169 @@ docker stop fju-n1-probe
 正式站部署之後再補驗一次：`docker exec fju-test-app getent hosts fju-prod-app` 沒有輸出、exit 不是 0；
 `docker network inspect fju-edge-prod --format '{{range .Containers}}{{.Name}} {{end}}'` 只有 `fju-edge-caddy fju-prod-app`。
 
+### 拆除開發者後台（⑤-07，做一次）
+
+先講結論：開發者後台（fju-status）10/18 定案不做了，repo 裡的程式、compose、安裝腳本與 systemd 單元都已刪掉（⑤-07）。
+VM 與 Cloudflare 上裝過的東西要照下面一次拆乾淨；**要在合併後第一次照「repo 的 ops／compose 檔改了之後」送檔之前做**——
+新的送檔清單沒有後台的 compose 與 `ops/status/`，`--delete` 會把它們從 `/srv/fju/app` 刪掉。順序反了也沒關係，
+下面第 3 步用專案名稱停容器，不需要 compose 檔。每步都能重貼；沒裝過的項目會印「沒有」或空白，照樣往下做。
+主網站（測試站、正式站）不受影響，全程不用暫停自動部署。
+
+**1. 🖥️ VM：停掉兩個 timer**
+
+```bash
+sudo systemctl disable --now fju-status-update.timer fju-status-envcheck.timer
+sudo systemctl stop fju-status-update.service fju-status-envcheck.service
+```
+
+怎麼確認做完：`systemctl list-timers --all | grep -c fju-status` 印 `0`。（從沒裝過時前兩行會印 `not loaded`，正常。）
+
+**2. 🖥️ VM：刪掉 systemd 單元檔**
+
+```bash
+sudo rm -f /etc/systemd/system/fju-status-update.service /etc/systemd/system/fju-status-update.timer \
+  /etc/systemd/system/fju-status-envcheck.service /etc/systemd/system/fju-status-envcheck.timer
+sudo systemctl daemon-reload
+sudo systemctl reset-failed 'fju-status*' 2>/dev/null || true
+```
+
+怎麼確認做完：`systemctl list-unit-files 'fju-status*' | tail -1` 印 `0 unit files listed.`。
+
+**3. 🖥️ VM：停掉並刪除後台的容器、網路、volume**
+
+```bash
+sudo docker compose -p fju-status down --volumes --remove-orphans
+sudo docker ps -aq --filter label=com.docker.compose.project=fju-status | xargs -r sudo docker rm -f
+sudo docker volume ls -q --filter label=com.docker.compose.project=fju-status | xargs -r sudo docker volume rm
+sudo docker volume rm beszel_socket beszel_agent_data 2>/dev/null || true
+sudo docker network rm fju-status fju-status-docker 2>/dev/null || true
+sudo docker rm -f fju-status-verify-origin fju-status-verify-cloudflared 2>/dev/null; sudo docker network rm fju-status-verify 2>/dev/null || true
+```
+
+怎麼確認做完（三行都印 `0`）：
+
+```bash
+sudo docker ps -a --format '{{.Names}}' | grep -c -E 'fju-status|beszel|gatus|dozzle|pghero|cloudflared'
+sudo docker volume ls -q | grep -c -E 'fju-status|beszel|gatus'
+sudo docker network ls --format '{{.Name}}' | grep -c '^fju-status'
+```
+
+另外 `sudo docker ps --format '{{.Names}}'` 要還看得到 `fju-test-app`、`fju-prod-app`、`fju-edge-caddy`（主網站沒被動到）。
+
+**4. 🖥️ VM：刪掉後台用過的映像**
+
+```bash
+sudo docker image ls --format '{{.Repository}}:{{.Tag}}' \
+  | grep -E '^(ghcr\.io/roy4222/fju-status|twinproduction/gatus|henrygd/beszel|henrygd/beszel-agent|amir20/dozzle|ankane/pghero|cloudflare/cloudflared):' \
+  | xargs -r sudo docker image rm
+```
+
+怎麼確認做完：`sudo docker image ls --format '{{.Repository}}' | grep -c -E 'fju-status|gatus|beszel|dozzle|pghero|cloudflared'` 印 `0`。
+
+**5. 🖥️ VM：刪掉測試站資料庫裡的監控帳號 `fju_monitor`**（PgHero 用的唯讀角色；只建在測試站）
+
+```bash
+sudo docker exec -i fju-test-postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fju_monitor') THEN
+    DROP OWNED BY fju_monitor;
+    DROP ROLE fju_monitor;
+  END IF;
+END
+$$;
+SQL
+```
+
+怎麼確認做完：
+
+```bash
+sudo docker exec fju-test-postgres sh -c 'psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FROM pg_roles WHERE rolname = '"'"'fju_monitor'"'"'"'
+```
+
+印 `0`。
+
+**6. 🖥️ VM：sshd 拿掉 `fjustatus`、刪帳號與資料目錄**
+
+改 sshd 前**先另開一個終端機保持登入**，改完用新連線確認還進得來，再關舊的（改錯會把人鎖在外面）。
+
+```bash
+sudo cp -p /etc/ssh/sshd_config.d/10-fju.conf /etc/ssh/sshd_config.d/10-fju.conf.bak-c5-07
+sudo sed -i -E '/^AllowUsers /s/[[:space:]]+fjustatus([[:space:]]|$)/\1/' /etc/ssh/sshd_config.d/10-fju.conf
+sudo sshd -t && sudo systemctl reload ssh
+grep '^AllowUsers' /etc/ssh/sshd_config.d/10-fju.conf
+```
+
+預期：`sshd -t` 沒有輸出；最後一行是 `AllowUsers gtuser fjubackup fjureset`（順序可能不同，但沒有 `fjustatus`）。
+`sshd -t` 有錯時**不要 reload**，先還原：`sudo cp -p /etc/ssh/sshd_config.d/10-fju.conf.bak-c5-07 /etc/ssh/sshd_config.d/10-fju.conf`。
+用 💻 Mac 另開新連線 `ssh fju-vm` 還進得來，再刪備份與帳號：
+
+```bash
+sudo rm -f /etc/ssh/sshd_config.d/10-fju.conf.bak-c5-07
+id fjustatus >/dev/null 2>&1 && sudo userdel -r fjustatus
+sudo rm -rf /srv/fju/status
+```
+
+怎麼確認做完：`sudo sshd -T | grep -i '^allowusers'` 沒有 `fjustatus`；`id fjustatus` 印 `no such user`；`ls /srv/fju` 沒有 `status`。
+（`/srv/fju/status` 裡有後台自己的隧道憑證與密碼檔，後台拆掉後都沒用了，直接刪。）
+
+**7. 🌐 Cloudflare 網頁：刪 Access 應用、隧道與 DNS**
+
+- Zero Trust → Access → Applications：刪名稱 `fju-status` 的應用（含四個網址那一個）。
+- Zero Trust → Networks → Tunnels：刪隧道 `fju-status`；若看到 `fju-status-verify` 開頭的暫時隧道也一起刪。
+- `roy422.dev` → DNS → Records：刪 `fju-status`、`fju-status-vm`、`fju-status-logs`、`fju-status-db` 四筆，與任何 `fju-status-verify` 開頭的記錄。
+
+怎麼確認做完：💻 Mac 上 `dig +short fju-status.roy422.dev fju-status-vm.roy422.dev fju-status-logs.roy422.dev fju-status-db.roy422.dev` 沒有任何輸出
+（DNS 快取最多約 30 分鐘才消，有輸出就過一陣子再查）；Access 與 Tunnels 兩頁搜尋 `fju-status` 都沒有結果。
+
+**8. 💻 Mac mini／MacBook：拿掉推送設定與金鑰**
+
+`~/.ssh/config` 刪掉 `Host fju-status-publish` 整段（`ops/ssh-config.example` 已經沒有這段），再刪金鑰：
+
+```bash
+rm -f ~/.ssh/fju_status_publish ~/.ssh/fju_status_publish.pub
+```
+
+怎麼確認做完：`grep -c fju-status-publish ~/.ssh/config` 印 `0`；`ls ~/.ssh | grep -c fju_status` 印 `0`。
+
+**9.（可選）🌐 GitHub：刪 GHCR 上的 `fju-status` 映像**
+
+GitHub → 個人頁 → Packages → `fju-status` → Package settings → Delete this package。不刪也不影響任何東西（已經沒有東西會拉它）。
+
+做完回報：第 1～8 步的「怎麼確認做完」輸出各貼一行。
+
+---
+
+## Cloudflare（橘雲代理）
+
+先講結論：網站前面可以擋一層 Cloudflare。這個 repo 已經讓 Caddy 兩種情況都對（沒切、切了都行），所以**先合、先部署，再慢慢切**，不必配合時間。切了之後要再跑一支腳本，讓 VM 只接受 Cloudflare 的連線；這一步沒做，別人還是能直接打 VM 的 IP 繞過去。
+
+**Caddy 的兩種模式**（`ops/Caddyfile.vm`，不用手動切）：
+- 灰雲或還沒切：連線就是訪客本人，Caddy 把連線 IP 當成真實 IP 交給 app。
+- 橘雲：連線來自 Cloudflare，Caddy 只在「連線真的來自 Cloudflare 範圍」時才相信 `CF-Connecting-IP`；從其他地方偽造這個標頭一律無效。
+- 兩種都把結果放進 `X-Real-IP`，app 的登入限速照舊讀它。沒這一步的話，切橘雲後所有人共用 Cloudflare 的 IP，登入錯幾次全站就被鎖。
+- Cloudflare 範圍清單寫死在 `ops/Caddyfile.vm` 與 `ops/cloudflare-origin-lock.sh`（抓取日期 2026-10-19，來源 `https://www.cloudflare.com/ips-v4`、`/ips-v6`）。要更新時兩個檔一起改（測試會檢查兩邊一致），改完 Caddy 要 `docker compose -f docker-compose.edge.yml restart caddy`，再重跑 `--execute`。
+
+**Roy 的操作清單（照順序）**
+
+1. 先合這張票並部署到測試站、正式站。
+2. DNS：測試站與正式站的 A／AAAA 記錄打開代理（橘雲）。先測試站，確認後再正式站。
+3. SSL/TLS：加密模式選 **Full (strict)**（來源是 Let's Encrypt 憑證，strict 驗得過）。**關**「Always Use HTTPS」、「Automatic HTTPS Rewrites」，「Opportunistic Encryption」建議也關（轉址交給 Caddy，Let's Encrypt 的 HTTP-01 驗證才不會被打亂）。HSTS 不在 Cloudflare 開。
+4. Speed → Optimization：**關** Rocket Loader 與 Email Address Obfuscation（它們會在 HTML 裡塞 inline script，撞上網站不准 inline script 的安全標頭，頁面功能會壞）。Brotli 可開。
+5. Caching → Cache Rules 新增一條：`URI Path starts with "/api/files/"` → Eligible for cache；Edge TTL 選 **Use cache-control header from origin**；Browser TTL 選 Use cache-control header from origin（不要選 Override origin）。**不要**開 Cache Everything 整站規則（HTML 頁會看登入狀態，整站快取會把登入者的頁面給訪客）。Browser Cache TTL 設「Respect Existing Headers」。驗證：對一個公開 PDF 連打兩次，第二次 `cf-cache-status: HIT`；登入後的私有檔是 `BYPASS` 或沒有該標頭。
+6. Security → WAF：Rate limiting rule 一條（Free 方案 1 條）：路徑 `/api/auth/*` 或 `/login`，同一 IP 10 秒內超過 30 次 → 封鎖 10 秒。這是 app 限速之外的粗網，不取代 app 的規則。**Bot Fight Mode 關**（Free 方案無法放行 Playwright、教學錄影、health-cron 的 curl）；Browser Integrity Check 可開。
+7. 來源限制（切橘雲**之後**）：在 VM 上先 `sudo ops/cloudflare-origin-lock.sh`（只印偵測結果與指令）看一眼，再 `sudo ops/cloudflare-origin-lock.sh --execute`。它不用 ufw（ufw 擋不到 Docker 發布的 80／443），改在 `DOCKER-USER` 鏈第一條 jump 到自建鏈 `FJU-CF-ORIGIN`；`--execute` 可重跑，並寫 `fju-cf-origin-lock.service` 讓重開機後自動補回。驗證：
+   - 從 VM 以外直接對 VM 的 IPv4 打 `:443`、`:80`：被拒或逾時。
+   - VM 有 AAAA 時對 IPv6 位址同樣打，也要被拒；沒有 AAAA 記「無 v6」。有 AAAA 但 Docker 的 ip6tables 沒開，腳本會警告，先在 `/etc/docker/daemon.json` 開或拿掉 AAAA，不能放著不管。
+   - 經網域開首頁仍是 200。
+   - `sudo iptables -S DOCKER-USER | awk '$1=="-A" && $2=="DOCKER-USER" {print; exit}'` 的輸出是 `-A DOCKER-USER -j FJU-CF-ORIGIN`（不要用 `head -1`，`-S` 第一行是 `-N DOCKER-USER`）。
+   - 重開機後同一指令、同一結果。
+   - 來源限制**持續啟用**時，憑證要能成功續期（`docker logs fju-edge-caddy` 看到續期成功，當時第一條規則仍是上面那條）。`--release` 之後的續期不算通過。
+   - 要解除：`sudo ops/cloudflare-origin-lock.sh --release`（拿掉 jump 與自建鏈、停用並刪掉單元）。
+8. 驗證：登入錯 5 次，確認被鎖的是自己、不是全站；`/api/health` 經 Cloudflare 仍 200 且 `cache-control: no-store`。切橘雲後開首頁、登入頁、後台首頁，瀏覽器 console 不該有 CSP 違規。
+9. 上傳上限（**要在切橘雲之前做**）：Cloudflare Free 方案每個請求 body 上限 100 MB，app 的 `FILE_MAX_BYTES` 預設 100 MiB 略大，超過會先被 Cloudflare 回 413，看不到 app 的友善訊息。到 Doppler → 專案 `fju-im-capstone` → config `stg` → 鍵 `FILE_MAX_BYTES` 改成 `99614720`（95 MiB）→ Save；`prd` 同樣；然後兩站各重跑一次 `deploy.sh`（值每次部署重新取）。上傳頁的上限文字由程式算，會自動顯示 95 MB。
+10. 舊的開發者後台的 Cloudflare Access 應用、隧道與 DNS 記錄一併刪（見上面「拆除開發者後台」第 7 步）。
+
 ---
 
 ## 檔案對照
@@ -920,6 +1155,8 @@ docker stop fju-n1-probe
 | `ops/deploy.sh` | 部署／回滾某一站（`--site test|prod`） |
 | `ops/auto-deploy.sh` | timer 呼叫：GHCR `:main` 有新 SHA 就部署到測試站 |
 | `ops/backup.sh` | 手動備份某一站的資料庫、寫備份紀錄；`--status` 看最近成功備份／演練 |
+| `ops/backup-daily.sh` | `fju-backup.timer` 呼叫：每天備份正式站、同步到 `offsite/prod/`、量磁碟、打卡 Healthchecks.io |
+| `ops/lib/healthchecks.sh` | `hc_ping`：讀 secrets 裡的打卡網址打 Healthchecks.io（檔案不存在就不打）；`auto-deploy.sh`、`backup-daily.sh` 共用 |
 | `ops/restore-drill.sh` | 把備份還原到演練副本（`fju-drill`）、抽查、寫演練紀錄；`--remove` 移除副本 |
 | `docker-compose.drill.yml` | 演練副本（獨立的 Compose 檔，不疊在站台設定上；不發布 port、不接 Caddy） |
 | `ops/fault-drill.sh` | 四種故障演練（只准測試站；`--execute` 才真的跑），結果寫 `/srv/fju/test/drills/fault-drills.log` |
@@ -935,6 +1172,7 @@ docker stop fju-n1-probe
 | `ops/lib/site.sh` | 上面幾支共用：站台設定、Doppler 取值 |
 | `docker-compose.vm.yml` | 疊在 `docker-compose.yml` 上的站台設定 |
 | `docker-compose.edge.yml`、`ops/Caddyfile.vm` | 兩站共用的 Caddy |
+| `ops/cloudflare-origin-lock.sh` | 切橘雲後：只讓 Cloudflare 連到 80／443（`DOCKER-USER` 鏈；預設只印，`--execute`／`--release`） |
 | `.github/workflows/image.yml` | main 合併後推 `ghcr.io/roy4222/fju-web:<SHA>` 與 `:main` |
 
 VM 上的目錄：

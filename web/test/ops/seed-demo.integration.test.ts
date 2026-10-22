@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { verifyPassword } from 'better-auth/crypto'
 import { ANONYMOUS } from '@/application/accounts'
 import { competitionStatus } from '@/application/items'
 import { PgPublicItemQuery } from '@/infrastructure/items/pg-public-items'
@@ -15,7 +18,9 @@ import { migratedSchema } from '../migrations'
  *
  * 真的跑腳本（子程序），每一步回資料庫核對：
  * - 只准測試站（正式站在連資料庫前就拒絕，見 seed-demo-guard.test.ts；這裡再確認一次什麼都沒寫）。
- * - 建出來的東西前台看得到（訪客看得到公開公告與封面）、示範帳號登不進來（沒有密碼）。
+ * - 建出來的東西前台看得到（訪客看得到公開公告與封面）；沒設 SEED_DEMO_PASSWORD 時示範帳號登不進來（沒有密碼），
+ *   設了則在學的示範老師與學生用它登入（⑤-18，另一個資料庫）。
+ * - ⑤-18：新建時 DEMO-114 成為預設工作屆別（開放註冊屆別不動）；重跑不搶回；--remove 不動別屆的旗標。
  * - 冪等：重跑不多寫任何一列；遺失的實體檔會補回。
  * - --remove 只刪示範資料：先放一批「真資料」（另一屆、另一個帳號、一則公告），清完它們原封不動；
  *   不可變表的 trigger 清完後照樣擋；真資料引用示範資料時整批不刪。
@@ -23,6 +28,9 @@ import { migratedSchema } from '../migrations'
 
 const webRoot = path.join(import.meta.dirname, '..', '..')
 const ANCHOR = '2026-09-25'
+const demo = (await import(pathToFileURL(path.join(webRoot, 'scripts', 'demo', 'data.mjs')).href)) as {
+  DEMO_PDF: { title: string; paragraphs: string[] }
+}
 
 let db: IsolatedDatabase
 let schemaUrl: string
@@ -46,7 +54,8 @@ function runSeed(args: string[] = [], env: Record<string, string | undefined> = 
   const result = spawnSync('node', ['scripts/seed-demo.mjs', ...args], {
     cwd: webRoot,
     encoding: 'utf8',
-    env: { ...process.env, DATABASE_URL_OWNER: schemaUrl, FJU_SITE: 'test', FILES_ROOT: filesRoot, DEMO_ANCHOR_DATE: ANCHOR, ...env },
+    // SEED_DEMO_PASSWORD 預設不帶（值是 undefined 的鍵子程序收不到）；要測密碼的案例自己給。
+    env: { ...process.env, DATABASE_URL_OWNER: schemaUrl, FJU_SITE: 'test', FILES_ROOT: filesRoot, DEMO_ANCHOR_DATE: ANCHOR, SEED_DEMO_PASSWORD: undefined, ...env },
     timeout: 60_000,
   })
   return { code: result.status, stdout: result.stdout, stderr: result.stderr }
@@ -65,6 +74,12 @@ async function tableCounts(): Promise<Record<string, number>> {
     counts[name] = Number(c.rows[0]!.n)
   }
   return counts
+}
+
+/** 每一屆的兩個全系旗標與 revision（照代碼排序）。 */
+async function cohortFlags() {
+  const r = await db.sql(`select code, is_default_working, is_registration_open, revision from cohorts order by code`)
+  return r.rows
 }
 
 function filesOnDisk(): string[] {
@@ -159,7 +174,7 @@ describe('seed-demo.mjs', () => {
     expect(await tableCounts()).toEqual(before)
   })
 
-  it('第一次（只建第一批＝#290 已經灌過的測試站）：建出示範屆別與它底下的內容，兩個全系旗標不動', async () => {
+  it('第一次（只建第一批＝#290 已經灌過的測試站）：建出示範屆別與它底下的內容；DEMO-114 成為預設工作屆別、開放註冊屆別不動', async () => {
     real = await seedRealData()
     const r = runSeed([], { DEMO_PHASES: 'current' })
     expect(r.code, r.stderr).toBe(0)
@@ -168,10 +183,14 @@ describe('seed-demo.mjs', () => {
     expect(Number(history.rows[0]!.n)).toBe(0)
 
     const cohort = await db.sql(`select code, name, status, is_default_working, is_registration_open from cohorts where code = 'DEMO-114'`)
-    expect(cohort.rows[0]).toMatchObject({ name: '示範 114 屆', status: 'active', is_default_working: false, is_registration_open: false })
-    // 真的那一屆還是預設工作屆別與開放註冊屆別。
-    const flags = await db.sql(`select code from cohorts where is_default_working or is_registration_open`)
-    expect(flags.rows.map((x) => x.code)).toEqual(['REAL-115'])
+    // ⑤-18（既有保證改寫）：DEMO-114 成為預設工作屆別（原本的 REAL-115 被清掉）；開放註冊屆別仍只有真的那一屆。
+    expect(cohort.rows[0]).toMatchObject({ name: '示範 114 屆', status: 'active', is_default_working: true, is_registration_open: false })
+    const defaults = await db.sql(`select code from cohorts where is_default_working`)
+    expect(defaults.rows.map((x) => x.code)).toEqual(['DEMO-114'])
+    const registration = await db.sql(`select code from cohorts where is_registration_open`)
+    expect(registration.rows.map((x) => x.code)).toEqual(['REAL-115'])
+    expect(r.stdout).toContain('預設工作屆別改成 DEMO-114（原本是 REAL-115')
+    expect(r.stdout).toContain('示範帳號沒有密碼')
 
     const counts = await db.sql(
       `select (select count(*) from groups g join cohorts c on c.id = g.cohort_id where c.code = 'DEMO-114')::int as groups,
@@ -188,15 +207,17 @@ describe('seed-demo.mjs', () => {
 
   it('N-01：內文提到的日期跟活動、截止日同一條時間線（原型 8/20 的說明會，平移 +39 天後兩邊都是 9/28），沒有留下記號', async () => {
     const events = await db.sql(
-      `select title, to_char(starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts
+      `select title, to_char(starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts,
+              to_char(ends_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as ends
          from project_events where title in ('114 學年度專題說明會', '雲端服務實務工作坊', '全國大專資訊應用服務創新競賽報名截止', '智慧製造大數據分析競賽決賽')
         order by starts_at`,
     )
-    expect(events.rows.map((e) => [e.title, e.starts])).toEqual([
-      ['114 學年度專題說明會', '2026-09-28 13:10'],
-      ['雲端服務實務工作坊', '2026-10-06 09:00'],
-      ['智慧製造大數據分析競賽決賽', '2026-10-11 00:00'],
-      ['全國大專資訊應用服務創新競賽報名截止', '2026-11-11 00:00'],
+    // C3-01：每筆都有結束；全天的結束＝次日 00:00。
+    expect(events.rows.map((e) => [e.title, e.starts, e.ends])).toEqual([
+      ['114 學年度專題說明會', '2026-09-28 13:10', '2026-09-28 15:00'],
+      ['雲端服務實務工作坊', '2026-10-06 09:00', '2026-10-06 12:00'],
+      ['智慧製造大數據分析競賽決賽', '2026-10-11 00:00', '2026-10-12 00:00'],
+      ['全國大專資訊應用服務創新競賽報名截止', '2026-11-11 00:00', '2026-11-12 00:00'],
     ])
     const text = async (title: string) => {
       const r = await db.sql(
@@ -225,6 +246,65 @@ describe('seed-demo.mjs', () => {
     const archived = await archivedNewsDates(db.sql)
     expect(archived.body).toContain('已於 9 月 8 日結束')
     expect(archived.published < '2026-09-08' && '2026-09-08' < archived.archived).toBe(true)
+  })
+
+  it('C3-01（AC-C3-49 前置）：活動都有結束、含跨三天的佈展；頭像、名片、g-03 待確認、提案是產學', async () => {
+    const open = await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)
+    expect(open.rows).toEqual([{ n: 0 }])
+    const setup = await db.sql(
+      `select e.audience_kind, e.all_day, to_char(e.starts_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as starts,
+              to_char(e.ends_at at time zone 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') as ends
+         from project_events e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114' and e.title = '成果展佈展'`,
+    )
+    expect(setup.rows).toEqual([{ audience_kind: 'teachers', all_day: true, starts: '2027-06-11 00:00', ends: '2027-06-14 00:00' }])
+    const events = await db.sql(
+      `select count(*)::int as n from project_events e join cohorts c on c.id = e.cohort_id where c.code = 'DEMO-114'`,
+    )
+    expect(events.rows).toEqual([{ n: 6 }])
+
+    // 示範屆別的老師與學生都有預設頭像，而且彼此不同。
+    const avatars = await db.sql(
+      `select count(*)::int as people, count(p.avatar_preset)::int as with_avatar, count(distinct p.avatar_preset)::int as distinct_avatar
+         from user_profiles p join users u on u.id = p.user_id join role_assignments r on r.user_id = u.id and r.revoked_real_at is null
+        where u.email like '%@demo.invalid' and r.role in ('teacher', 'student')
+          and (p.cohort_id is null or p.cohort_id in (select id from cohorts where code = 'DEMO-114'))`,
+    )
+    expect(avatars.rows[0]).toMatchObject({ with_avatar: avatars.rows[0]!.people, distinct_avatar: avatars.rows[0]!.people })
+    expect(Number(avatars.rows[0]!.people)).toBeGreaterThan(50)
+
+    // 未分組四人有名片；至少兩人公開找隊員；技能涵蓋預設清單至少 6 種。
+    const cards = await db.sql(
+      `select p.display_name, p.bio, p.skills, p.open_to_join from user_profiles p join users u on u.id = p.user_id
+        where u.email like '%@demo.invalid' and p.bio <> '' order by p.student_no`,
+    )
+    expect(cards.rows.map((r) => r.display_name)).toEqual(['應宥丞', '解雨萱', '鞠柏宇', '冷佳霓'])
+    for (const row of cards.rows) {
+      expect([...String(row.bio)].length).toBeLessThanOrEqual(50)
+      expect((row.skills as string[]).length).toBeGreaterThanOrEqual(2)
+    }
+    expect(cards.rows.filter((r) => r.open_to_join).length).toBeGreaterThanOrEqual(2)
+    const presets = ['前端', '後端', '資料庫', '資料分析', 'AI', 'UI 設計', '簡報', '企劃', 'Python', 'JavaScript', 'Figma']
+    const used = new Set(cards.rows.flatMap((r) => r.skills as string[]))
+    expect(presets.filter((p) => used.has(p)).length).toBeGreaterThanOrEqual(6)
+
+    // g-02 已確認（有指導老師＝負責老師）；g-03 待老師確認、沒有指導老師。
+    const links = await db.sql(
+      `select g.code, l.state, (select count(*)::int from advisor_assignments a where a.group_id = g.id and a.valid_to is null) as advisors,
+              (select a.teacher_user_id = o.owner_teacher_user_id from advisor_assignments a where a.group_id = g.id and a.valid_to is null) as owner_advises
+         from opportunity_links l join groups g on g.id = l.group_id join industry_opportunities o on o.id = l.opportunity_id
+         join cohorts c on c.id = g.cohort_id where c.code = 'DEMO-114' and g.code in ('G02', 'G03') order by g.code`,
+    )
+    expect(links.rows).toEqual([
+      { code: 'G02', state: 'active', advisors: 1, owner_advises: true },
+      { code: 'G03', state: 'pending', advisors: 0, owner_advises: null },
+    ])
+
+    // 建立中的那份提案是產學合作、選了 ind-03（昱鋼精機）。
+    const proposal = await db.sql(
+      `select p.group_type, p.state, o.company_name from group_proposals p join cohorts c on c.id = p.cohort_id
+         left join industry_opportunities o on o.id = p.opportunity_id where c.code = 'DEMO-114'`,
+    )
+    expect(proposal.rows).toEqual([{ group_type: 'industry', state: 'open', company_name: '昱鋼精機工業' }])
   })
 
   it('第一批已在時再跑：只補第二批（歷屆專題、榮譽榜、競賽），第一批一列不動', async () => {
@@ -331,6 +411,69 @@ describe('seed-demo.mjs', () => {
     afterFirst = await tableCounts()
   })
 
+  it('⑤-18（AC-66、AC-67）：跨屆不重名、檢查碼各不同、沒交件的組沒有成績、有要上傳的待交作業、文字修正、PDF 有內容', async () => {
+    // 跨屆別（含老師、待審、畢業學長姐）沒有兩個示範帳號同名。
+    const dupNames = await db.sql(
+      `select p.display_name, count(*)::int as n from user_profiles p join users u on u.id = p.user_id
+        where u.email like '%@demo.invalid' group by p.display_name having count(*) > 1`,
+    )
+    expect(dupNames.rows).toEqual([])
+    const alumni = await db.sql(
+      `select count(*)::int as n from user_profiles p join cohorts c on c.id = p.cohort_id where c.code in ('DEMO-113', 'DEMO-112')`,
+    )
+    expect(Number(alumni.rows[0]!.n)).toBe(30)
+
+    // 同意書：每份的檢查碼都不同，而且就是內容的 sha256。
+    const checksums = await db.sql(
+      `select count(*)::int as n, count(distinct content_checksum)::int as distinct_n,
+              count(*) filter (where content_checksum <> encode(sha256(convert_to(content_text, 'UTF8')), 'hex'))::int as mismatch
+         from signoff_package_versions`,
+    )
+    expect(checksums.rows[0]).toEqual({ n: 6, distinct_n: 6, mismatch: 0 })
+
+    // 階段 1 的示範屆別不塞「沒交件的成績」：每筆評分的組，都交了該評分項目對應的作業（系統驗收文件）。
+    const graded = await db.sql(
+      `select g.code, count(*)::int as n,
+              bool_and(exists (select 1 from submission_versions s where s.item_id = st.item_id and s.receiver_kind = 'group' and s.receiver_id = g.id)) as submitted
+         from evaluations e join evaluator_assignments a on a.id = e.assignment_id join groups g on g.id = a.group_id
+         join grading_stage_settings st on st.cohort_id = g.cohort_id and st.stage_key = a.stage_key
+        group by g.code order by g.code`,
+    )
+    expect(graded.rows.map((r) => r.code)).toEqual(['G01', 'G02', 'G04'])
+    expect(graded.rows.every((r) => r.submitted)).toBe(true)
+
+    // 至少一筆待交、要上傳檔案的作業：截止在今天（ANCHOR）之後 7 天內，第 07 組還沒交。
+    const upload = await db.sql(
+      `select m.title from managed_items m join cohorts c on c.id = m.cohort_id
+         join form_schema_versions f on f.id = m.current_schema_version_id
+        where c.code = 'DEMO-114' and m.status = 'published'
+          and jsonb_path_exists(f.schema, '$.fields[*] ? (@.type == "file")')
+          and m.due_at > $1::timestamptz and m.due_at <= $1::timestamptz + interval '7 days 12 hours'
+          and exists (select 1 from response_rosters r join groups g on g.id = r.receiver_id where r.item_id = m.id and g.code = 'G07')
+          and not exists (select 1 from submission_versions s join groups g on g.id = s.receiver_id where s.item_id = m.id and g.code = 'G07')`,
+      [`${ANCHOR}T12:00:00+08:00`],
+    )
+    expect(upload.rows.map((r) => r.title)).toContain('系統驗收文件')
+
+    // 文字：第 1 階段寫「4～5 人一組」；沒有「王小明」；沒有標題帶「（草稿）」的項目。
+    const stage1 = await db.sql(`select s.description from cohort_stages s join cohorts c on c.id = s.cohort_id where c.code = 'DEMO-114' and s.seq = 1`)
+    expect(String(stage1.rows[0]!.description)).toContain('4～5 人一組')
+    const leftovers = await db.sql(
+      `select (select count(*) from users where name = '王小明')::int as wang,
+              (select count(*) from cohort_stages where description like '%五人一組%')::int as five,
+              (select count(*) from managed_items where title like '%（草稿）%')::int as draft_titles`,
+    )
+    expect(leftovers.rows[0]).toEqual({ wang: 0, five: 0, draft_titles: 0 })
+
+    // 示範 PDF：一頁有標題、日期與兩段文字，不是只寫「示範檔案」。
+    const pdf = await db.sql(`select storage_key from stored_files where mime_detected = 'application/pdf' order by storage_key limit 1`)
+    const bytes = fs.readFileSync(path.join(filesRoot, String(pdf.rows[0]!.storage_key))).toString('latin1')
+    expect(bytes.startsWith('%PDF-')).toBe(true)
+    expect(bytes).toContain(`(${demo.DEMO_PDF.title}) Tj`)
+    expect(bytes).toMatch(/\(Date: \d{4}-\d{2}-\d{2}\) Tj/)
+    for (const p of demo.DEMO_PDF.paragraphs) expect(bytes).toContain(p.split(' ').slice(0, 6).join(' '))
+  })
+
   it('第三波（W8，AC-27）：新後台每個功能都有示範資料可點', async () => {
     const items = await db.sql(
       `select m.title, m.placement, m.status, m.audience_kind, m.receiver_unit, m.awarded_on::text as awarded_on,
@@ -347,7 +490,7 @@ describe('seed-demo.mjs', () => {
         order by m.title`,
       [
         [
-          '（草稿）期末成果展場地與時段調查',
+          '期末成果展場地與時段調查',
           '暑期程式設計自學營報名（已結束）',
           '指導老師：系統驗收評分作業時程',
           '第 01 組：期中進度會議改期',
@@ -360,8 +503,8 @@ describe('seed-demo.mjs', () => {
     const byTitle = Object.fromEntries(items.rows.map((r) => [String(r.title), r]))
     expect(Object.keys(byTitle)).toHaveLength(7)
 
-    // 草稿公告：從沒發布（沒有版本、沒有發布紀錄）——可以直接刪。
-    expect(byTitle['（草稿）期末成果展場地與時段調查']).toMatchObject({ placement: 'news', status: 'draft', versions: 0, actions: null })
+    // 草稿公告：從沒發布（沒有版本、沒有發布紀錄）——可以直接刪。⑤-18：標題不再寫「（草稿）」，狀態本身就是草稿。
+    expect(byTitle['期末成果展場地與時段調查']).toMatchObject({ placement: 'news', status: 'draft', versions: 0, actions: null })
     // 已下架公告：發布過再下架——可以重新發布，也可以刪。
     expect(byTitle['暑期程式設計自學營報名（已結束）']).toMatchObject({ status: 'archived', versions: 1, actions: ['publish', 'archive'] })
     // 老師首頁公告（Q13、Q14）：一則給全部老師、一則只給第 01 組。
@@ -414,7 +557,118 @@ describe('seed-demo.mjs', () => {
     expect(Number(drafts.rows[0]!.n)).toBe(9)
   })
 
-  it('示範帳號登不進來：一律 @demo.invalid、沒有任何密碼；建立者是停用、沒有角色', async () => {
+  it('C1-17（AC-36、AC-33）：老師作業、同意書作業連 6 包、系統驗收文件＋評分項目設定；規則第八節不寫死比例', async () => {
+    const items = await db.sql(
+      `select m.title, m.placement, m.status, m.audience_kind, m.receiver_unit, m.consent_mode, m.consent_purpose,
+              m.stage_id, m.due_at is not null and m.due_at > $2::timestamptz as due_after_anchor,
+              (select array_agg(g.code order by g.code) from item_audience_groups a join groups g on g.id = a.group_id where a.item_id = m.id) as groups,
+              (select count(*) from response_rosters r where r.item_id = m.id)::int as roster,
+              (select count(*) from submission_versions s where s.item_id = m.id)::int as submissions,
+              (select count(*) from submission_files f join submission_versions s on s.id = f.submission_version_id where s.item_id = m.id)::int as files
+         from managed_items m join cohorts c on c.id = m.cohort_id
+        where c.code = 'DEMO-114' and m.title = any($1::text[])
+        order by m.title`,
+      [['指導意願調查表（老師）', '專題成果授權同意書', '系統驗收文件'], `${ANCHOR}T12:00:00+08:00`],
+    )
+    const byTitle = Object.fromEntries(items.rows.map((r) => [String(r.title), r]))
+    expect(Object.keys(byTitle)).toHaveLength(3)
+    // 給老師的作業（T3）：每位老師一份，4 位裡 2 位已交。
+    expect(byTitle['指導意願調查表（老師）']).toMatchObject({
+      placement: 'submission',
+      status: 'published',
+      audience_kind: 'teachers',
+      receiver_unit: 'individual',
+      consent_mode: null,
+      consent_purpose: null,
+      stage_id: null,
+      roster: 4,
+      submissions: 2,
+    })
+    // 站內同意書作業：最終文件授權、整組收件，對象＝有主指導的 6 組；不收繳交（「已交」看簽核包）。
+    expect(byTitle['專題成果授權同意書']).toMatchObject({
+      placement: 'submission',
+      status: 'published',
+      audience_kind: 'groups',
+      receiver_unit: 'group',
+      consent_mode: 'form',
+      consent_purpose: 'final_document',
+      stage_id: null,
+      groups: ['G01', 'G02', 'G04', 'G05', 'G07', 'G08'],
+      roster: 6,
+      submissions: 0,
+    })
+    // 系統驗收文件（T2-2）：整組一份、截止在今天之後，3 組已交而且都附 PDF。
+    expect(byTitle['系統驗收文件']).toMatchObject({
+      placement: 'submission',
+      status: 'published',
+      audience_kind: 'cohort_students',
+      receiver_unit: 'group',
+      consent_mode: null,
+      consent_purpose: null,
+      stage_id: null,
+      due_after_anchor: true,
+      roster: 9,
+      submissions: 3,
+      files: 3,
+    })
+    const pdfs = await db.sql(
+      `select f.mime_detected, f.purpose, f.status,
+              (select array_agg(r.ref_type order by r.ref_type) from file_references r where r.file_id = f.id and r.released_at is null) as refs
+         from submission_files sf join stored_files f on f.id = sf.file_id
+         join submission_versions s on s.id = sf.submission_version_id join managed_items m on m.id = s.item_id
+        where m.title = '系統驗收文件'`,
+    )
+    for (const row of pdfs.rows) {
+      expect(row).toMatchObject({ mime_detected: 'application/pdf', purpose: 'submission', status: 'stored', refs: ['draft', 'submission_version'] })
+    }
+
+    // 6 包都掛在同意書作業底下、用途仍是最終文件授權、授權範圍照原樣；逐人同意仍 28 筆。
+    const packages = await db.sql(
+      `select g.code, p.purpose, m.title as item, v.authorization_scope -> 'usages' as usages, v.authorization_scope ->> 'title' as scope_title,
+              (select d.title from showcase_drafts d join showcase_entries e on e.id = d.entry_id where e.group_id = p.group_id) as draft_title
+         from signoff_packages p join groups g on g.id = p.group_id
+         left join managed_items m on m.id = p.item_id
+         join signoff_package_versions v on v.id = p.current_version_id
+        order by g.code`,
+    )
+    expect(packages.rows.map((r) => r.code)).toEqual(['G01', 'G02', 'G04', 'G05', 'G07', 'G08'])
+    for (const row of packages.rows) {
+      expect(row, String(row.code)).toMatchObject({ purpose: 'final_document', item: '專題成果授權同意書', usages: ['public_showcase'] })
+      expect(row.scope_title).toBe(row.draft_title)
+    }
+    const approvals = await db.sql(`select count(*)::int as n from approvals`)
+    expect(Number(approvals.rows[0]!.n)).toBe(28)
+
+    // 評分項目的對應作業與說明：系統驗收→系統驗收文件；專題發表只有說明；示範不設評審組。
+    const settings = await db.sql(
+      `select s.stage_key, m.title as item, s.description, s.panel_key
+         from grading_stage_settings s join cohorts c on c.id = s.cohort_id left join managed_items m on m.id = s.item_id
+        where c.code = 'DEMO-114' order by s.stage_key`,
+    )
+    expect(settings.rows).toEqual([
+      { stage_key: 's1', item: '系統驗收文件', description: null, panel_key: null },
+      { stage_key: 's2', item: null, description: '依發表當天表現評分', panel_key: null },
+    ])
+
+    // AC-33（正文）：第八節不寫死 60%／40%，改指到評分規則。
+    const query = new PgPublicItemQuery(clock, () => db.pool)
+    const eighth = (await query.fullText(ANONYMOUS, 'rules')).find((r) => r.title.startsWith('八、'))!
+    expect(eighth.bodyHtml).not.toMatch(/60\s*%|40\s*%/)
+    expect(eighth.bodyHtml).toContain('評分方式與比例以本站「評分規則」為準')
+  })
+
+  it('C2-12：示範有一位 email_roster_match 自動開通的學生，已核准、有學號占用、不在待審', async () => {
+    const row = await db.sql(
+      `select ra.state, ra.verification_method, u.status,
+              exists (select 1 from student_identities si where si.user_id = u.id) as has_identity
+         from registration_applications ra join users u on u.id = ra.user_id
+        where ra.student_no = $1`,
+      ['411410889'],
+    )
+    expect(row.rows).toEqual([{ state: 'approved', verification_method: 'email_roster_match', status: 'active', has_identity: true }])
+  })
+
+  it('沒設 SEED_DEMO_PASSWORD：示範帳號登不進來（一律 @demo.invalid、沒有任何密碼）；建立者是停用、沒有角色', async () => {
     const users = await db.sql(`select email, status from users where email like '%@demo.invalid'`)
     expect(users.rowCount).toBeGreaterThan(50)
     const passwords = await db.sql(
@@ -487,11 +741,14 @@ describe('seed-demo.mjs', () => {
   it('重跑：已存在就不動（每張表筆數一樣），遺失的實體檔會補回', async () => {
     const [victim] = filesOnDisk()
     fs.rmSync(path.join(filesRoot, victim!))
+    const flagsBefore = await cohortFlags()
     const r = runSeed()
     expect(r.code, r.stderr).toBe(0)
     expect(r.stdout).toContain('示範資料已存在')
     expect(r.stdout).toContain('補回 1 個')
     expect(await tableCounts()).toEqual(afterFirst)
+    // ⑤-18：已存在就不碰旗標（每一屆的兩個旗標與 revision 都一樣）。
+    expect(await cohortFlags()).toEqual(flagsBefore)
     expect(fs.existsSync(path.join(filesRoot, victim!))).toBe(true)
   })
 
@@ -517,6 +774,51 @@ describe('seed-demo.mjs', () => {
     const query = new PgPublicItemQuery(clock, () => db.pool)
     const competitions = await query.list(ANONYMOUS, 'news', { category: '競賽資訊', limit: 20 })
     expect(competitions.map((c) => competitionStatus(c, ANCHOR))).toEqual(['open', 'result', 'closed'])
+
+    const again = runSeed()
+    expect(again.code, again.stderr).toBe(0)
+    expect(again.stdout).toContain('不做任何事')
+  })
+
+  it('0023 之前就灌過的測試站（C3-01）：再跑只補頭像、名片、產學待確認、提案、活動結束與佈展（空著的才填、改過的不動），重跑第二次不變', async () => {
+    const demoCohort = `(select id from cohorts where code = 'DEMO-114')`
+    // 模擬「部署 0023 前已經灌好」：新欄位都是預設值、全天活動沒有結束、提案是一般組、沒有佈展那筆。
+    await db.sql(`update user_profiles set avatar_preset = null, bio = '', skills = '[]'::jsonb
+                   where user_id in (select id from users where email like '%@demo.invalid')`)
+    await db.sql(`update opportunity_links set state = 'active'`)
+    await db.sql(`update group_proposals set group_type = 'general', opportunity_id = null where cohort_id = ${demoCohort}`)
+    // 不再模擬「全天活動沒有結束」：0024（C3-06）起 CHECK 規定全天活動必有結束時間，舊資料由 migration 回填
+    // （回填與新 CHECK 的證明在 migrations.integration.test.ts 的 0024 案例）。
+    await db.sql(`delete from project_events where title = '成果展佈展' and cohort_id = ${demoCohort}`)
+    // 本人改過的：解雨萱自己選了頭像、寫了名片，不能被蓋掉。
+    await db.sql(`update user_profiles set avatar_preset = 99, bio = '本人寫的', skills = '["Go"]'::jsonb
+                   where user_id = (select id from users where email = '411410422@demo.invalid')`)
+    const before = await tableCounts()
+
+    const r = runSeed()
+    expect(r.code, r.stderr).toBe(0)
+    expect(r.stdout).toMatch(/補上 C3-01 的頭像、名片、產學待確認與活動結束 \d+ 列/)
+    expect(await tableCounts()).toEqual({ ...before, project_events: before.project_events! + 1 })
+
+    const open = await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)
+    expect(open.rows).toEqual([{ n: 0 }])
+    const self = await db.sql(`select avatar_preset, bio, skills from user_profiles where user_id = (select id from users where email = '411410422@demo.invalid')`)
+    expect(self.rows).toEqual([{ avatar_preset: 99, bio: '本人寫的', skills: ['Go'] }])
+    const missing = await db.sql(
+      `select count(*)::int as n from user_profiles p join role_assignments r on r.user_id = p.user_id and r.revoked_real_at is null
+        where r.role in ('teacher', 'student')
+          and p.user_id in (select id from users where email like '%@demo.invalid') and p.avatar_preset is null
+          and (p.cohort_id is null or p.cohort_id = ${demoCohort})`,
+    )
+    expect(missing.rows).toEqual([{ n: 0 }])
+    const cards = await db.sql(`select count(*)::int as n from user_profiles where bio <> '' and user_id in (select id from users where email like '%@demo.invalid')`)
+    expect(cards.rows).toEqual([{ n: 4 }])
+    const links = await db.sql(
+      `select g.code, l.state from opportunity_links l join groups g on g.id = l.group_id where g.cohort_id = ${demoCohort} and l.state = 'pending'`,
+    )
+    expect(links.rows).toEqual([{ code: 'G03', state: 'pending' }])
+    const proposal = await db.sql(`select group_type, opportunity_id is not null as has_opportunity from group_proposals where cohort_id = ${demoCohort}`)
+    expect(proposal.rows).toEqual([{ group_type: 'industry', has_opportunity: true }])
 
     const again = runSeed()
     expect(again.code, again.stderr).toBe(0)
@@ -610,10 +912,14 @@ describe('seed-demo.mjs', () => {
       [real.adminId],
     )
     expect(Number((await db.sql(`select count(*)::int as n from submission_reopens`)).rows[0]!.n)).toBe(1)
+    // ⑤-18（AC-67 a）：清除前 DEMO-114 是預設工作屆別。
+    expect((await cohortFlags()).filter((c) => c.is_default_working).map((c) => c.code)).toEqual(['DEMO-114'])
     const r = runSeed(['--remove'])
     expect(r.code, r.stderr).toBe(0)
     expect(r.stdout).toContain('示範資料已清除')
     expect(Number((await db.sql(`select count(*)::int as n from submission_reopens`)).rows[0]!.n)).toBe(0)
+    // 刪完沒有任何屆別是預設工作屆別（--remove 不替別屆設旗標）；開放註冊屆別仍是真的那一屆。
+    expect((await cohortFlags()).map((c) => [c.code, c.is_default_working, c.is_registration_open])).toEqual([['REAL-115', false, true]])
 
     const left = await db.sql(
       `select (select count(*) from cohorts where code in ('DEMO-114', 'DEMO-113', 'DEMO-112'))::int as cohorts,
@@ -661,6 +967,24 @@ describe('seed-demo.mjs', () => {
     const reseed = runSeed()
     expect(reseed.code, reseed.stderr).toBe(0)
     expect(reseed.stdout).toContain('示範資料已建立')
+    expect(reseed.stdout).toContain('預設工作屆別改成 DEMO-114（原本沒有預設）')
+  })
+
+  it('⑤-18（AC-67 b、AC-66a）：系辦把預設改回真的屆別後，重跑不搶回；--remove 後真的屆別仍是預設、其他旗標都不變', async () => {
+    // 系辦在後台把預設工作屆別改回 REAL-115（DEMO-114 不再是預設）。
+    await db.sql(`update cohorts set is_default_working = false, revision = revision + 1 where code = 'DEMO-114'`)
+    await db.sql(`update cohorts set is_default_working = true, revision = revision + 1 where code = 'REAL-115'`)
+    const before = await cohortFlags()
+    expect(before.filter((c) => c.is_default_working).map((c) => c.code)).toEqual(['REAL-115'])
+
+    const again = runSeed()
+    expect(again.code, again.stderr).toBe(0)
+    expect(again.stdout).toContain('示範資料已存在')
+    expect(await cohortFlags()).toEqual(before)
+
+    const r = runSeed(['--remove'])
+    expect(r.code, r.stderr).toBe(0)
+    expect(await cohortFlags()).toEqual(before.filter((c) => !String(c.code).startsWith('DEMO-')))
   })
 })
 
@@ -698,5 +1022,65 @@ describe('seed-demo.mjs：跨年灌資料（N-01）', () => {
     expect(String(news.rows[0]!.summary)).toContain('報名至 2027 年 3 月 20 日止')
     const leftover = await yearDb.sql(`select count(*)::int as n from item_versions where title || summary || body_html like '%{{%'`)
     expect(Number(leftover.rows[0]!.n)).toBe(0)
+  })
+})
+
+describe('seed-demo.mjs：SEED_DEMO_PASSWORD（⑤-18，AC-65、AC-67）', () => {
+  let pwDb: IsolatedDatabase
+  let pwUrl: string
+
+  beforeAll(async () => {
+    pwDb = await createIsolatedDatabase({ label: 'seed-demo-password', setup: migratedSchema })
+    const url = new URL(TEST_DATABASE_URL)
+    url.searchParams.set('options', `-c search_path=${pwDb.schemaName}`)
+    pwUrl = url.toString()
+  })
+
+  afterAll(async () => {
+    await pwDb?.close()
+  })
+
+  it('有設：在學的示範老師與學生各有一列 credential、雜湊驗得過、不用改密碼；其他示範帳號沒有；值不印；重跑不動', async () => {
+    // 測試自己產生的假密碼（不是任何站的值）。
+    const password = `demo-${randomBytes(12).toString('hex')}`
+    const r = runSeed([], { DATABASE_URL_OWNER: pwUrl, FILES_ROOT: undefined, SEED_DEMO_PASSWORD: password })
+    expect(r.code, r.stderr).toBe(0)
+    expect(r.stdout).toContain('密碼是 SEED_DEMO_PASSWORD')
+    expect(r.stdout + r.stderr).not.toContain(password)
+
+    const rows = await pwDb.sql(
+      `select u.email, u.status, u.must_change_password,
+              (select count(*) from role_assignments r where r.user_id = u.id and r.role in ('teacher', 'student'))::int as roles,
+              (select array_agg(a.password) from accounts a where a.user_id = u.id and a.provider_id = 'credential') as hashes,
+              (select count(*) from accounts a where a.user_id = u.id)::int as accounts
+         from users u where u.email like '%@demo.invalid' order by u.email`,
+    )
+    const loginable = rows.rows.filter((x) => x.status === 'active')
+    // 4 位老師＋9 組 44 人＋未分組 4 人＋自動開通 1 人。
+    expect(loginable).toHaveLength(53)
+    for (const row of loginable) {
+      expect(row, String(row.email)).toMatchObject({ roles: 1, accounts: 1, must_change_password: false })
+    }
+    const sample = (loginable[0]!.hashes as string[])[0]!
+    expect(await verifyPassword({ hash: sample, password })).toBe(true)
+    expect(await verifyPassword({ hash: sample, password: `${password}x` })).toBe(false)
+    const teacher = loginable.find((x) => x.email === 'chen.ch@demo.invalid')!
+    expect(await verifyPassword({ hash: (teacher.hashes as string[])[0]!, password })).toBe(true)
+    // 停用（含建立者與畢業學長姐）、待審的示範帳號都沒有密碼。
+    const others = rows.rows.filter((x) => x.status !== 'active')
+    expect(others.length).toBeGreaterThan(0)
+    expect(others.every((x) => x.accounts === 0)).toBe(true)
+
+    // 重跑（換一個密碼也一樣）：已存在就不動，密碼雜湊一列不變。
+    const before = await pwDb.sql(`select id, password, updated_at from accounts order by id`)
+    const again = runSeed([], { DATABASE_URL_OWNER: pwUrl, FILES_ROOT: undefined, SEED_DEMO_PASSWORD: `${password}-new` })
+    expect(again.code, again.stderr).toBe(0)
+    expect(again.stdout).toContain('示範資料已存在')
+    expect((await pwDb.sql(`select id, password, updated_at from accounts order by id`)).rows).toEqual(before.rows)
+
+    // --remove 連密碼一起清掉。
+    const removed = runSeed(['--remove'], { DATABASE_URL_OWNER: pwUrl, FILES_ROOT: undefined })
+    expect(removed.code, removed.stderr).toBe(0)
+    expect((await pwDb.sql(`select count(*)::int as n from accounts`)).rows).toEqual([{ n: 0 }])
   })
 })

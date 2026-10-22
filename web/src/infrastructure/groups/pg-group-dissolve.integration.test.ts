@@ -186,6 +186,7 @@ async function footprint(s: Scenario) {
     group: await q('select status, dissolved_real_at, dissolve_reason, revision from groups where id = $1'),
     members: await q('select id, valid_to, removal_reason, updated_at from group_memberships where group_id = $1 order by id'),
     leaders: await q('select id, valid_to from group_leaders where group_id = $1 order by id'),
+    advisors: await q('select * from advisor_assignments where group_id = $1 order by id'),
     assignments: await q('select id, valid_to, removal_choice, revision from evaluator_assignments where group_id = $1 order by id'),
     evaluations: await q(
       `select s.evaluation_id, s.state from evaluation_status s join evaluator_assignments a on a.id = s.assignment_id
@@ -243,14 +244,52 @@ afterAll(async () => {
 })
 
 describe('權限與拒絕', () => {
-  it('學生、老師不能解散；理由空白、版本過舊被拒；全部不動', async () => {
+  it('C3-12：有正式繳交直接刪除被拒，成員、老師、評分、簽核、事件、稽核與 revision 全部不動', async () => {
+    const s = await scenario()
+    const itemId = randomUUID()
+    const schemaId = randomUUID()
+    await owner.sql(
+      `insert into managed_items
+         (id, cohort_id, placement, audience_kind, receiver_unit, title, created_by_kind)
+       values ($1, $2, 'submission', 'cohort_students', 'group', '正式繳交守門', 'system')`,
+      [itemId, s.cohortId],
+    )
+    await owner.sql(
+      `insert into form_schema_versions (id, item_id, version_no, schema, created_by_user_id)
+       values ($1, $2, 1, '{"fields":[]}'::jsonb, $3)`,
+      [schemaId, itemId, adminId],
+    )
+    await owner.sql(
+      `insert into submission_versions
+         (id, item_id, receiver_kind, receiver_id, version_no, schema_version_id, answers, submitted_by_user_id,
+          received_real_at, received_business_at, request_id, membership_snapshot, deadline_version_at_submit)
+       values (gen_random_uuid(), $1, 'group', $2, 1, $3, '{}'::jsonb, $4, now(), now(), gen_random_uuid(), $5::jsonb, 1)`,
+      [itemId, s.groupId, schemaId, s.s1, JSON.stringify([s.s1, s.s2, s.s3])],
+    )
+    const before = await footprint(s)
+    expect(await dissolve(s, { reason: '' })).toMatchObject({
+      ok: false,
+      code: 'GROUP_HAS_SUBMISSIONS',
+      message: '這組已有繳交紀錄，不能刪除',
+    })
+    expect(await footprint(s)).toEqual(before)
+  })
+
+  it('學生、老師不能解散；版本過舊被拒；全部不動', async () => {
     const s = await scenario()
     const before = await footprint(s)
     expect(await dissolve(s, { as: actor(s.s1, ['student']) })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
     expect(await dissolve(s, { as: actor(s.t0, ['teacher']) })).toMatchObject({ ok: false, code: 'FORBIDDEN' })
-    expect(await dissolve(s, { reason: '   ' })).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'reason' } })
     expect(await dissolve(s, { revision: (await revisionOf(s.groupId)) - 1 })).toMatchObject({ ok: false, code: 'CONFLICT' })
     expect(await footprint(s)).toEqual(before)
+  })
+
+  it('理由留空也能刪除（C3-05）：dissolve_reason 為 NULL 或空字串，畫面均視為未填', async () => {
+    const s = await scenario()
+    expect(await dissolve(s, { reason: '   ' })).toMatchObject({ ok: true })
+    const row = (await owner.sql('select status, dissolve_reason from groups where id = $1', [s.groupId])).rows[0]!
+    expect(row.status).toBe('dissolved')
+    expect([null, '']).toContain(row.dissolve_reason)
   })
 
   it('封存屆別的組不能解散', async () => {

@@ -12,8 +12,8 @@ import { err, type Err, type Result } from '@/shared/result'
  * 那邊每個方法一開頭就先呼叫這裡的授權與驗證。
  *
  * 三條貫穿全檔的規則：
- * 1. **只有一種自動核准**（Q42，2026-10-15；部分推翻 Q-ACC01）：用 Google 註冊、Google 已驗證的 Email
- *    與本屆名單登記的 Email 完全相同（`autoApprovalEligible`）；其他一律系辦核實，名單比對只產生「比對結果」給系辦看。
+ * 1. **只有一種自動核准**（Q42，2026-10-15；部分推翻 Q-ACC01）：用 Google 登入，或 Email 密碼註冊且 Email 已驗證（C2-12），
+ *    而且 Email、學號、姓名與本屆名單同一列（`autoApprovalEligible`）；其他一律系辦核實，名單比對只產生「比對結果」給系辦看。
  * 2. **比對結果只給系辦看**：申請人自己的頁面不顯示命中與否——不然任何人拿別人的學號註冊
  *    再改幾次，就能問出「某學號在不在名單上」（契約 03 §4 最小揭露）。
  * 3. **核准依當時的申請資料版本**：學生改過資料，舊畫面上的核准一律 `CONFLICT`。
@@ -323,22 +323,41 @@ export function evidenceFlags(match: RosterMatch, duplicates: DuplicateInfo): Ev
 
 // ── 核准與退回 ──────────────────────────────────────────────────────────────
 
-export type VerificationMethod = 'id_document' | 'school_channel' | 'other' | 'google_email_match'
+export type VerificationMethod =
+  | 'id_document'
+  | 'school_channel'
+  | 'other'
+  | 'google_email_match'
+  | 'office_review'
+  | 'email_roster_match'
 
 /**
- * 核實方式（2026-09-12 第二輪定案）。班代協助聯絡不能單獨作為依據，所以沒有這個選項。
- * `google_email_match` 是 Q42 自動開通，只由系統寫入（VB-6）；系辦能選的是 `MANUAL_VERIFICATION_METHODS`。
+ * 核實方式（2026-09-12 第二輪定案；C 階段 C2-10 起畫面不再問）。班代協助聯絡不能單獨作為依據，所以沒有這個選項。
+ * 系辦核准、新增成員、臨時密碼固定寫 `office_review`；前三種只留給舊資料顯示與匯出。
+ * `google_email_match`、`email_roster_match` 是自動開通，只由系統寫入（VB-6）；人送進來的值看 `MANUAL_VERIFICATION_METHODS`。
  */
-export const VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other', 'google_email_match']
+export const VERIFICATION_METHODS: readonly VerificationMethod[] = [
+  'id_document',
+  'school_channel',
+  'other',
+  'google_email_match',
+  'office_review',
+  'email_roster_match',
+]
 
-/** 系辦審核、新增老師、核發臨時密碼時可以選的核實方式（不含系統自動開通那一種）。 */
-export const MANUAL_VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other']
+/** 系辦審核、新增老師、核發臨時密碼時用得上的核實方式（不含系統自動開通的那兩種）。 */
+export const MANUAL_VERIFICATION_METHODS: readonly VerificationMethod[] = ['id_document', 'school_channel', 'other', 'office_review']
+
+/** 沒帶核實方式時寫入的固定值。 */
+export const DEFAULT_VERIFICATION_METHOD: VerificationMethod = 'office_review'
 
 export const VERIFICATION_LABEL: Record<VerificationMethod, string> = {
   id_document: '當面核對學生證或其他身分證件',
   school_channel: '經校方授權人員透過既有可信管道確認',
   other: '用其他方式確認本人',
   google_email_match: 'Google Email 與名單相同（自動開通）',
+  office_review: '系辦審核',
+  email_roster_match: 'Email 已驗證且與名單相同（自動開通）',
 }
 
 /** 核實說明哪幾種必填：校方管道要記「由誰、透過什麼管道」；其他方式要說明是什麼方式。 */
@@ -347,6 +366,8 @@ export const VERIFICATION_NOTE_REQUIRED: Record<VerificationMethod, boolean> = {
   school_channel: true,
   other: true,
   google_email_match: false,
+  office_review: false,
+  email_roster_match: false,
 }
 
 export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
@@ -354,6 +375,8 @@ export const VERIFICATION_NOTE_HINT: Record<VerificationMethod, string> = {
   school_channel: '必填：由誰、透過什麼管道確認',
   other: '必填：說明用了什麼方式確認本人',
   google_email_match: '系統自動開通，不用填',
+  office_review: '不用填',
+  email_roster_match: '系統自動開通，不用填',
 }
 
 export type ApprovalDecision = {
@@ -367,13 +390,13 @@ function isVerificationMethod(value: string): value is VerificationMethod {
   return (MANUAL_VERIFICATION_METHODS as readonly string[]).includes(value)
 }
 
-/** 核准的欄位檢查：核實方式必選、校方管道與其他方式要寫說明、理由選填。 */
+/** 核准的欄位檢查：核實方式沒帶就是 `office_review`（畫面不再問）、舊的校方管道與其他方式仍要寫說明、理由選填。 */
 export function normalizeApproval(input: {
   verificationMethod: string
   verificationNote: string
   reason: string
 }): { ok: true; value: ApprovalDecision } | Err {
-  const method = input.verificationMethod.trim()
+  const method = input.verificationMethod.trim() || DEFAULT_VERIFICATION_METHOD
   if (!isVerificationMethod(method)) {
     return err('VALIDATION_FAILED', '請選擇怎麼確認是本人。', { details: { field: 'verificationMethod' } })
   }
@@ -517,7 +540,7 @@ export function bulkApprovalSkip(
 /**
  * 第一次送申請時能不能直接開通（Q42；visitor-r3 §3.6，R1／R2 定案）。全部成立才 true：
  *
- * - 用 Google 登入，而且 Email 已驗證（密碼註冊就算 Email 相同也不算：本條要守的規則，AC-VI-56 (a)）；
+ * - 用 Google 登入，或用 Email 密碼註冊而且 Email 已驗證（C2-12，AC-C2-28）；密碼註冊但 Email 沒驗證不算（AC-VI-56 (a)、AC-C2-29）；
  * - Email＋學號＋姓名命中名單的**同一列**（`matchRoster` 的 `hit`：姓名相符、Email 比對 `same`）；
  * - 那一列在**開放註冊屆別**；
  * - 批次核准的資格也成立（`bulkApprovalSkip === null`：學號沒被占用、沒有別人同學號待審、只有一屆）。
@@ -534,7 +557,7 @@ export function autoApprovalEligible(input: {
 }): boolean {
   const { match } = input
   return (
-    input.loginMethod === 'google' &&
+    (input.loginMethod === 'google' || input.loginMethod === 'password') &&
     input.emailVerified &&
     match.status === 'matched' &&
     match.emailComparison === 'same' &&
@@ -642,6 +665,8 @@ export type PendingApplication = ApplicationFields & {
   readonly suggestedCohortId: string | null
   /** 能不能在對話框裡換屆別（只有一屆命中時由名單決定，不能換）。 */
   readonly cohortLocked: boolean
+  /** 這個人先前被退回過（待審清單標「已重送」）。 */
+  readonly previouslyRejected: boolean
 }
 
 export type PendingList = {
@@ -681,7 +706,7 @@ export interface RegistrationCommand {
   /** 本人看自己的申請。 */
   viewMine(actor: ResolvedActor): Promise<Result<MyApplication>>
   /**
-   * 本人的帳號是不是 Q42 自動開通的（VB-6）：最近一筆申請已核准、核實方式是 `google_email_match`。
+   * 本人的帳號是不是 Q42 自動開通的（VB-6）：最近一筆申請已核准、核實方式是 `google_email_match` 或 `email_roster_match`。
    * 「帳號已開通」頁只給這種人看；系辦人工核准的學生不能看到「Email 與名單相同、自動開通」。
    */
   autoApprovedMine(actor: ResolvedActor): Promise<boolean>

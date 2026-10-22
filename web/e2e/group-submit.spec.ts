@@ -1,13 +1,13 @@
-import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type Page, type Request } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
  * 票 21（#232）：組別共用草稿、上傳與正式送出。「做完的樣子」逐條走：
  *
- * 1. 同組任一人儲存草稿，其他人打開看到同一份；兩人同時改會被要求重新載入。
- * 2. 組員上傳附件並附到草稿：合法檔案收、偽裝副檔名與超過上限的擋、中斷的殘留留給回收（中斷在整合測試用斷線串流證明）。
- * 3. 任一組員代表全組正式送出，拿到收件章回執，其他有效組員收到通知；未成組不能送出。
+ * 1. 同組共用一份（隱形的）草稿：組員上傳的檔，其他人按「寫作業」也帶得到；兩人同時寫會被要求重新載入（C 階段規格① §5.2）。
+ * 2. 上傳：超過上限、類型不符在選檔當下就擋（不上傳，AC-17）；偽裝副檔名由伺服器擋；中斷的殘留留給回收（整合測試證明）。
+ * 3. 任一組員按「繳交作業」代表全組送出，回執「已代表 組別 送出第 N 次」，其他有效組員收到通知；未成組不能送出。
  * 4. 截止前可重送新版本，第 1 版不動。
  * 另外：附件下載只有本組有效組員、目前主指導、系辦拿得到；名單頁的組別完成率以組為單位。
  *
@@ -219,24 +219,23 @@ test.afterAll(async () => {
   await pool?.end()
 })
 
-test('1. 同組任一人存草稿，另一位打開看到同一份；未成組的人看不到這份收件', async ({ page }) => {
+/** 「寫作業」打開的表單區（C 階段規格① §5.2）。 */
+const writePath = () => `${itemPath()}?tab=history&write=1`
+
+test('1. 整組一份列在每位組員的交作業；寫作業看得到組別資訊；未成組的人看不到這份收件', async ({ page }) => {
   await signIn(page, s1)
   await page.goto('/dashboard/student/affairs')
   const row = page.getByTestId(`affair-${itemId}`)
   await expect(row).toContainText('整組')
-  await row.click()
+  await expect(row.getByTestId('affair-form')).toHaveText('表單＋檔案・整組')
+  await row.getByRole('link', { name: '交作業' }).click()
+  await page.getByRole('link', { name: '寫作業' }).click()
   await expect(page.getByTestId('group-bar')).toContainText(G1)
   await expect(page.getByTestId('group-bar')).toContainText('組長 組長一號')
   await expect(page.getByTestId('group-bar')).toContainText('指導老師')
-
-  await page.getByLabel('專題題目').fill('智慧校園導覽')
-  await page.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(page.getByText('共用草稿已存到伺服器；同組的人打開會看到同一份。')).toBeVisible()
-
-  await signIn(page, s2)
-  await page.goto(itemPath())
-  await expect(page.getByLabel('專題題目')).toHaveValue('智慧校園導覽')
-  await expect(page.getByTestId('draft-updated-by')).toContainText('組長一號')
+  await expect(page.getByRole('button', { name: '儲存草稿' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '代表全組正式送出' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '繳交作業' })).toBeVisible()
 
   // 沒有組別：作業區不列，直接打網址 404。
   await signIn(page, s9)
@@ -245,53 +244,67 @@ test('1. 同組任一人存草稿，另一位打開看到同一份；未成組�
   expect((await page.goto(itemPath()))?.status()).toBe(404)
 })
 
-test('1. 兩位組員同時改：後存的那一位被要求重新載入，先存的內容沒有被蓋掉', async ({ browser }) => {
+test('1. 兩位組員同時寫：組員先上傳（共用草稿自動存），另一位舊畫面繳交被要求重新載入，不會蓋掉', async ({ browser }) => {
   const a = await (await browser.newContext({ baseURL: BASE_URL })).newPage()
   const b = await (await browser.newContext({ baseURL: BASE_URL })).newPage()
   await signIn(a, s1)
   await signIn(b, s2)
-  await a.goto(itemPath())
-  await b.goto(itemPath())
+  await a.goto(writePath())
+  await b.goto(writePath())
 
-  await b.getByLabel('專題題目').fill('組員二號的題目')
-  await b.getByRole('button', { name: '儲存草稿' }).click()
-  await expect(b.getByTestId('save-status')).toContainText('已儲存')
+  await reportInput(b).setInputFiles({ name: '組員二號的版本.pdf', mimeType: 'application/pdf', buffer: PDF })
+  await expect(b.getByText('「組員二號的版本.pdf」已上傳。按「繳交作業」才算交出。')).toBeVisible()
 
   await a.getByLabel('專題題目').fill('組長一號的舊題目')
-  await a.getByRole('button', { name: '儲存草稿' }).click()
+  await a.getByRole('button', { name: '繳交作業' }).click()
   await expect(a.getByText(/這份共用草稿剛剛被組員存過了/)).toBeVisible()
   await expect(a.getByRole('button', { name: '重新載入' })).toBeVisible()
+  expect(await versions()).toHaveLength(0)
 
+  // 重新載入：帶上組員剛上傳的檔（上次選的檔案），文字欄是空的。
   await a.getByRole('button', { name: '重新載入' }).click()
-  await expect(a.getByLabel('專題題目')).toHaveValue('組員二號的題目')
+  await expect(a.getByTestId('file-field-report').getByRole('link', { name: '組員二號的版本.pdf' })).toBeVisible()
+  await expect(a.getByTestId('carried-over-report')).toHaveText('上次選的檔案')
+  await expect(a.getByLabel('專題題目')).toHaveValue('')
   await a.context().close()
   await b.context().close()
 })
 
-test('2. 上傳：偽裝副檔名與超過上限被擋、不會顯示成已附上；合法 PDF 顯示進度後附到共用草稿', async ({ page }) => {
+test('2. 選檔當下就擋超過上限與類型不符（不上傳，AC-17）；偽裝副檔名由伺服器擋；合法 PDF 顯示進度後附到共用草稿', async ({ page }) => {
   await signIn(page, s1)
-  await page.goto(itemPath())
+  await page.goto(writePath())
+  // 上限提示寫在「寫作業」旁（由欄位 fileRules 產生）。
+  await expect(page.getByTestId('file-limit')).toHaveText('檔案上限：PDF・1 MB 以內')
 
   await reportInput(page).setInputFiles({ name: 'report.pdf', mimeType: 'application/pdf', buffer: EXE })
   await expect(page.getByTestId('upload-error-report')).toContainText('檔案內容與副檔名不符')
-  await expect(page.getByTestId('file-field-report').getByRole('link')).toHaveCount(0)
+  await expect(page.getByTestId('file-field-report').getByRole('link', { name: 'report.pdf' })).toHaveCount(0)
 
-  const big = Buffer.alloc(1024 * 1024 + 10, 0x20)
+  // 超量與類型不符：選檔的 change 當下就擋，沒有任何 POST（不要上傳憑證、不送位元組）。
+  const posts: string[] = []
+  const onRequest = (request: Request) => {
+    if (request.method() === 'POST') posts.push(request.url())
+  }
+  page.on('request', onRequest)
+  const big = Buffer.alloc(Math.round(1.5 * 1024 * 1024), 0x20)
   PDF.copy(big)
   await reportInput(page).setInputFiles({ name: 'big.pdf', mimeType: 'application/pdf', buffer: big })
-  await expect(page.getByTestId('upload-error-report')).toContainText('超過上限')
+  await expect(page.getByTestId('pick-error-report')).toHaveText('超過 1 MB 上限（這個檔 1.5 MB）')
 
   await reportInput(page).setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: PDF })
-  await expect(page.getByTestId('upload-error-report')).toContainText('只接受 .pdf')
+  await expect(page.getByTestId('pick-error-report')).toHaveText('只接受 PDF')
+  expect(posts, '被預檢擋下的檔不能發出任何請求').toEqual([])
+  page.off('request', onRequest)
 
   await reportInput(page).setInputFiles({ name: '期中報告.pdf', mimeType: 'application/pdf', buffer: PDF })
-  await expect(page.getByText('「期中報告.pdf」已上傳並附到草稿。')).toBeVisible()
+  await expect(page.getByText('「期中報告.pdf」已上傳。按「繳交作業」才算交出。')).toBeVisible()
+  await expect(page.getByTestId('pick-error-report')).toHaveCount(0)
   await expect(page.getByTestId('file-field-report').getByRole('link', { name: '期中報告.pdf' })).toBeVisible()
   const fileId = await draftFileId()
   expect((await pool.query(`select status from stored_files where id = $1`, [fileId])).rows[0]!.status).toBe('stored')
 
   // 被擋下的三個檔都沒有附到任何地方：偽裝檔傳完才被內容檢查擋下，列留在 uploading 給回收；
-  // 超量與副檔名不對的在發 ticket 時就擋，不建列。
+  // 超量與副檔名不對的在瀏覽器就擋，不建列。
   const rejected = await pool.query<{ status: string; n: string }>(
     `select status, count(*) as n from stored_files where owner_user_id = $1 and purpose = 'submission' group by status order by status`,
     [s1.userId],
@@ -301,27 +314,31 @@ test('2. 上傳：偽裝副檔名與超過上限被擋、不會顯示成已附�
     { status: 'uploading', n: '1' },
   ])
 
-  // 另一位組員打開看到同一個附件，也下載得到。
+  // 另一位組員離開再回來按「寫作業」：同一個附件帶著「上次選的檔案」，也下載得到；沒按任何鈕，所以還沒交。
   await signIn(page, s2)
   await page.goto(itemPath())
+  await page.getByRole('link', { name: '寫作業' }).click()
   const link = page.getByTestId('file-field-report').getByRole('link', { name: '期中報告.pdf' })
   await expect(link).toBeVisible()
+  await expect(page.getByTestId('carried-over-report')).toHaveText('上次選的檔案')
+  await expect(page.getByLabel('專題題目')).toHaveValue('')
+  expect(await versions()).toHaveLength(0)
   const response = await page.request.get(`/api/files/${fileId}`)
   expect(response.status()).toBe(200)
   expect((await response.body()).equals(PDF)).toBe(true)
 })
 
-test('3. 任一組員代表全組送出：收件章回執、另一位組員收到通知、全組同步已繳；連點只算一次', async ({ page }) => {
+test('3. 任一組員代表全組繳交：回執「已代表 組別 送出第 1 次」、另一位組員收到通知、全組同步已繳；連點只算一次', async ({ page }) => {
   await signIn(page, s2)
-  await page.goto(itemPath())
-  await expect(page.getByLabel('專題題目')).toHaveValue('組員二號的題目')
-  await page.getByRole('button', { name: '代表全組正式送出' }).dblclick()
+  await page.goto(writePath())
+  await expect(page.getByTestId('file-field-report').getByRole('link', { name: '期中報告.pdf' })).toBeVisible()
+  await page.getByLabel('專題題目').fill('組員二號的題目')
+  await page.getByRole('button', { name: '繳交作業' }).dblclick()
 
   const receipt = page.getByTestId('receipt')
   await expect(receipt).toBeVisible()
-  await expect(receipt).toContainText('已送出')
-  await expect(receipt).toContainText('第 1 次')
-  await expect(receipt).toContainText(`組員二號（代表 ${G1} 全組）`)
+  await expect(receipt.getByRole('heading', { level: 2 })).toHaveText(`已代表 ${G1} 送出第 1 次`)
+  await expect(receipt).toContainText('組員二號')
   await expect(receipt).toContainText('期中報告.pdf')
   await expect(receipt).toContainText('其他組員會收到一則通知')
 
@@ -354,17 +371,18 @@ test('3. 任一組員代表全組送出：收件章回執、另一位組員收�
   await expect(page.getByText(`組員二號 代表 ${G1} 組正式送出了「${CODE} 期中報告」（第 1 次）`)).toBeVisible()
 })
 
-test('4. 截止前換檔重送：第 2 版採計，第 1 版的附件與 checksum 不動、仍下載得到', async ({ page }) => {
+test('4. 截止前換檔重送：第 2 版採計，第 1 版的附件與 checksum 不動、仍下載得到；繳交歷史兩列（AC-19）', async ({ page }) => {
   const [v1] = await versions()
   const v1Files = (await pool.query(`select file_id, checksum from submission_files where submission_version_id = $1`, [v1!.id])).rows
 
   await signIn(page, s1)
-  await page.goto(itemPath())
-  await page.getByTestId('file-field-report').locator('input[type=file]').setInputFiles({ name: '期中報告-修正.pdf', mimeType: 'application/pdf', buffer: PDF_V2 })
-  await expect(page.getByText('「期中報告-修正.pdf」已上傳並附到草稿。')).toBeVisible()
-  await page.getByRole('button', { name: '重新送出' }).click()
-  await expect(page.getByTestId('receipt')).toContainText('第 2 次')
-  await expect(page.getByTestId('receipt')).toContainText('組長一號（代表')
+  await page.goto(writePath())
+  await reportInput(page).setInputFiles({ name: '期中報告-修正.pdf', mimeType: 'application/pdf', buffer: PDF_V2 })
+  await expect(page.getByText('「期中報告-修正.pdf」已上傳。按「繳交作業」才算交出。')).toBeVisible()
+  await page.getByLabel('專題題目').fill('智慧校園導覽')
+  await page.getByRole('button', { name: '繳交作業' }).click()
+  await expect(page.getByTestId('receipt')).toContainText(`已代表 ${G1} 送出第 2 次`)
+  await expect(page.getByTestId('receipt')).toContainText('組長一號')
 
   const rows = await versions()
   expect(rows.map((r) => r.version_no)).toEqual([1, 2])
@@ -372,10 +390,20 @@ test('4. 截止前換檔重送：第 2 版採計，第 1 版的附件與 checksu
 
   await page.getByTestId('receipt').getByRole('button', { name: '關閉' }).click()
   await page.goto(`${itemPath()}?tab=history`)
-  await expect(page.getByRole('list', { name: '繳交歷史' })).toContainText('組員二號')
+  const history = page.getByRole('table', { name: '繳交歷史' })
+  // 只露出最後一次，第 1 次折在「之前的版本（1）」（C 收尾 CL-13）。
+  await expect(history.getByTestId('history-row')).toHaveCount(1)
+  await expect(history.getByTestId('history-row').nth(0)).toContainText('組長一號')
+  await page.getByTestId('older-versions').getByText('之前的版本（1）').click()
+  const older = page.getByRole('table', { name: '之前的版本' })
+  await expect(older.getByTestId('history-row')).toHaveCount(1)
+  await expect(older.getByTestId('history-row').nth(0)).toContainText('組員二號')
+  await expect(older.getByTestId('history-row').nth(0).locator('img')).toHaveCount(1)
+  await expect(history).not.toContainText('草稿')
+  await expect(page.getByRole('link', { name: '寫作業' })).toBeVisible()
   await page.goto(`${itemPath()}?tab=history&version=1`)
   const old = page.getByTestId('version-view')
-  await expect(old).toContainText('已被後來的版本取代')
+  await expect(old).toContainText('已被後來的繳交取代')
   await expect(old.getByRole('link', { name: '期中報告.pdf' })).toBeVisible()
   expect((await page.request.get(`/api/files/${v1Files[0]!.file_id}`)).status()).toBe(200)
 })
@@ -407,6 +435,9 @@ test('名單頁：整組一份的完成率以組為單位（同組送兩次也�
   await expect(page.getByTestId('completion')).toContainText('已正式送出／需要繳交的組數')
   await page.getByRole('link', { name: `查看 ${G1} 組的繳交` }).click()
   await expect(page.getByTestId('receiver-view')).toContainText('正式送出的版本（2）')
-  await page.getByRole('link', { name: '看回答' }).last().click()
+  // 只露出最後一次（以此版為準），第 1 次折在「之前的版本（1）」（C 收尾 CL-13）。
+  await expect(page.getByRole('table', { name: '正式送出的版本' }).locator('tbody tr')).toHaveCount(1)
+  await page.getByTestId('older-versions').getByText('之前的版本（1）').click()
+  await page.getByRole('table', { name: '之前的版本' }).getByRole('link', { name: '看回答' }).click()
   await expect(page.getByTestId('version-view').getByRole('link', { name: '期中報告.pdf' })).toBeVisible()
 })

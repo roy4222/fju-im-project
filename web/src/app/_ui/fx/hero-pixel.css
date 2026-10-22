@@ -1,0 +1,10 @@
+/* ==========================================================================
+   現在橫幅的 Pixel Card（hero-pixel.tsx）：鋪滿 `.hero`、不擋點擊。
+   壓在文字底下、藍圓花紋上面：`.hero::after`（右下的圓）沒設 z-index，像素層要 z-index 1 才蓋得過它，
+   所以有像素層時其他子元素提到 2（_stage.css 的 `.hero > *` 是 1）。文字後面的 scrim 在 _stage.css。
+   ========================================================================== */
+@layer components {
+  .hero > .hero-pixel { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; border-radius: inherit; }
+  .hero:has(> .hero-pixel) > :not(.hero-pixel) { z-index: 2; }
+  .hero-pixel > canvas { display: block; width: 100%; height: 100%; }
+}

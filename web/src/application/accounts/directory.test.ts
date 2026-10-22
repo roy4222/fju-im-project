@@ -95,6 +95,8 @@ function row(patch: Partial<AccountRow>): AccountRow {
     cohortId: null,
     cohortCode: '114',
     cohortName: '114 學年度',
+    groupId: null,
+    groupCode: null,
     phone: '0912-345-678',
     loginEmail: 's@example.com',
     contactEmail: 'c@example.com',
@@ -105,6 +107,7 @@ function row(patch: Partial<AccountRow>): AccountRow {
     orphan: false,
     avatarPreset: null,
     avatarFileId: null,
+    hasPassword: true,
     ...patch,
   }
 }
@@ -138,8 +141,9 @@ describe('匯出 CSV', () => {
 })
 
 describe('停用理由', () => {
-  it('必填、有上限、不收控制字元', () => {
-    expect(normalizeStatusReason('  ').ok).toBe(false)
+  it('選填（C2 X2）：留空存 null；有上限、不收控制字元', () => {
+    expect(normalizeStatusReason('  ')).toEqual({ ok: true, value: null })
+    expect(normalizeStatusReason(undefined)).toEqual({ ok: true, value: null })
     expect(normalizeStatusReason('x'.repeat(501)).ok).toBe(false)
     expect(normalizeStatusReason('a\u0000b').ok).toBe(false)
     const ok = normalizeStatusReason(' 休學\n一學期 ')

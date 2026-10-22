@@ -64,6 +64,9 @@ web/src/
 | `fju/module-boundary` | 跨模組直接指到內部檔案（只能經 `index.ts`，**`export … from` 也算**）；跨模組帶執行期值（只能 `import type`／`export type`，執行要走 composition 注入的 port）；app 對 application 一律 type-only。infrastructure 與 composition 可以拿執行期實作，但一樣要經公開入口 | 母 spec §4.3 |
 | `no-restricted-imports` | 直接引用 Better Auth 原生 API（只有 `infrastructure/auth/wrapper` 可以）；四層以上的相對路徑 | 契約 03、S01-03 |
 | `import/no-cycle` | 循環引用 | 母 spec §4.3 |
+| `fju/default-value-needs-key` | `defaultValue`／`defaultChecked` 帶資料，欄位與外層都沒有 `key`（資料變了不重掛、留舊值） | CL-7（C1-12、C3-07） |
+| `fju/char-count-blocks-submit` | 不受控的 `<CharCount>` 所在的 `<form action>` 沒用 `blockOverLimit` 擋送出 | CL-7（CL-4） |
+| `fju/it-fails-single-expect` | `it.fails`（含條件別名）主體不是剛好一個 `expect` | CL-7（⑤-12） |
 
 Client Component 匯入同目錄 `actions.ts` 是明確例外（compiler 會把匯出轉成 Server Action 參照），`lint-fixtures` 的合法例 1 就是這個情形。
 
@@ -99,5 +102,11 @@ S00 卡列的七個反例與三個合法例全部保留且仍然通過；上表�
 | `application/other/valid-cross-module-type-only.ts` | 放行（跨模組但只帶型別） |
 | `application/other/valid-reexport-type-only.ts` | 放行（`export type … from`，跨模組但只帶型別） |
 | `infrastructure/valid-uses-module-entry.ts` | 放行（infrastructure 經 application 公開入口拿執行期實作，實作 port） |
+| `app/demo/invalid-default-value-no-key.tsx` | 被 `fju/default-value-needs-key` 擋（網址參數的搜尋框沒 key） |
+| `app/demo/invalid-char-count-no-block.tsx` | 被 `fju/char-count-blocks-submit` 擋 |
+| `../test/invalid-it-fails-two-expects.test.ts` | 被 `fju/it-fails-single-expect` 擋（直接寫與條件別名各一處） |
+| `app/demo/valid-default-value-key.tsx` | 放行（表單帶 key、字面值、轉傳 prop、`.map` 外層 key） |
+| `app/demo/valid-char-count-blocked.tsx` | 放行（`blockOverLimit` 擋送出；受控欄位傳 `value`） |
+| `../test/valid-it-fails-single-expect.test.ts` | 放行（一支一個 expect；一般 `it` 不受限） |
 
 fixtures 之間刻意用相對路徑而不是 `@/` 別名：`@/` 指向 `src/`，fixtures 在 `lint-fixtures/src/`，用別名會解析不到、邊界規則也就看不出違規。

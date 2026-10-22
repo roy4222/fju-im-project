@@ -1,13 +1,14 @@
 'use client'
-import { useActionState } from 'react'
-import { remindAction, restartAction, voidAction } from './actions'
+import { useActionState, useState } from 'react'
+import { createPackageAction, remindAction, restartAction, voidAction } from './actions'
 import type { SignoffActionState } from './signoff-forms'
 import { DIALOG, Feedback, INPUT, LABEL, SECONDARY, useCloseOnSuccess, useDialog } from '@/app/dashboard/admin/groups/admin-group-forms'
 import { buttonVariants } from '@/app/_ui/ui/button'
+import { blockOverLimit, CharCount, charCountId } from '@/app/_ui/char-count'
 
 /**
- * 系辦在版本頁上的管理動作（票 26；原型「提醒未同意者」「重置：列出將失效的簽署、原因必填」）。
- * 重新收集同意（原「重置」，AD-09 只改畫面字）、重開、作廢都要填理由；提醒同一版 24 小時內一次。規則都在用例裡判，畫面只顯示伺服器回的句子。
+ * 系辦在版本頁與同意書看板上的管理動作（票 26；C1-11 起看板也用）。
+ * 重新收集同意（原「重置」，AD-09 只改畫面字）、重開、作廢的理由都選填（C 階段規格① §1.4、AC-25、AC-25a）；提醒同一版 24 小時內一次。規則都在用例裡判，畫面只顯示伺服器回的句子。
  * **這裡沒有任何替人表態的按鈕。**
  *
  * 重新收集、重開、作廢放在版本頁的「危險操作」區（第三波 §9 規則 1、AC-37）：確認視窗寫對象、範圍、後果、能不能恢復。
@@ -69,6 +70,7 @@ export function RestartButton({
   affected,
   facts,
   reasonMaxLength,
+  stay = false,
 }: {
   versionId: string
   requestId: string
@@ -79,8 +81,13 @@ export function RestartButton({
   affected: readonly string[]
   facts: DangerFacts
   reasonMaxLength: number
+  /** 看板上用：成功後留在原頁（重新整理）並寫回執，不轉到新版頁。 */
+  stay?: boolean
 }) {
   const [state, formAction, pending] = useActionState<SignoffActionState, FormData>(restartAction, undefined)
+  // 理由超過上限：送出前就擋（訊息同 `pg-signoff.ts`，what 同 application 的 RESTART_LABEL），打的字留著。
+  const [tooLong, setTooLong] = useState<string | null>(null)
+  const tooLongMessage = `${kind === 'reset' ? '重新收集同意' : '重開新版'}的理由最多 ${reasonMaxLength} 字。`
   const dialog = useDialog()
   useCloseOnSuccess(state, dialog.close)
   return (
@@ -88,11 +95,13 @@ export function RestartButton({
       <button type="button" className={DANGER} onClick={dialog.open}>
         {label.button}
       </button>
+      {stay ? <Feedback state={state?.ok ? state : undefined} /> : null}
       <dialog ref={dialog.ref} aria-label={label.title} className={DIALOG}>
-        <form action={formAction} className="space-y-4 p-5">
+        <form action={formAction} onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, tooLongMessage))} className="space-y-4 p-5">
           <input type="hidden" name="versionId" value={versionId} />
           <input type="hidden" name="requestId" value={requestId} />
           <input type="hidden" name="kind" value={kind} />
+          {stay ? <input type="hidden" name="stay" value="1" /> : null}
           <h2 className="text-lg font-extrabold text-foreground">{label.title}</h2>
           <Facts facts={facts} />
           {affected.length > 0 ? (
@@ -103,11 +112,12 @@ export function RestartButton({
           ) : null}
           <div>
             <label htmlFor={`restart-reason-${versionId}`} className={LABEL}>
-              理由（必填）
+              理由（選填）
             </label>
-            <textarea id={`restart-reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`restart-reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`restart-reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`restart-reason-${versionId}`} max={reasonMaxLength} />
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
+          <Feedback state={tooLong ? { ok: false, message: tooLong } : state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不要
@@ -135,6 +145,8 @@ export function VoidButton({
   reasonMaxLength: number
 }) {
   const [state, formAction, pending] = useActionState<SignoffActionState, FormData>(voidAction, undefined)
+  const [tooLong, setTooLong] = useState<string | null>(null)
+  const tooLongMessage = `作廢的理由最多 ${reasonMaxLength} 字。`
   const dialog = useDialog()
   useCloseOnSuccess(state, dialog.close)
   return (
@@ -144,18 +156,19 @@ export function VoidButton({
       </button>
       <Feedback state={state?.ok ? state : undefined} />
       <dialog ref={dialog.ref} aria-label="作廢這一版？" className={DIALOG}>
-        <form action={formAction} className="space-y-4 p-5">
+        <form action={formAction} onSubmit={(e) => setTooLong(blockOverLimit(e, 'reason', reasonMaxLength, tooLongMessage))} className="space-y-4 p-5">
           <input type="hidden" name="versionId" value={versionId} />
           <input type="hidden" name="requestId" value={requestId} />
           <h2 className="text-lg font-extrabold text-foreground">作廢這一版？</h2>
           <Facts facts={facts} />
           <div>
             <label htmlFor={`void-reason-${versionId}`} className={LABEL}>
-              理由（必填）
+              理由（選填）
             </label>
-            <textarea id={`void-reason-${versionId}`} name="reason" rows={3} maxLength={reasonMaxLength} className={INPUT} />
+            <textarea id={`void-reason-${versionId}`} name="reason" rows={3} aria-describedby={charCountId(`void-reason-${versionId}`)} className={INPUT} />
+            <CharCount forId={`void-reason-${versionId}`} max={reasonMaxLength} />
           </div>
-          <Feedback state={state?.ok ? undefined : state} />
+          <Feedback state={tooLong ? { ok: false, message: tooLong } : state?.ok ? undefined : state} />
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <button type="button" className={SECONDARY} onClick={dialog.close}>
               先不要
@@ -167,5 +180,21 @@ export function VoidButton({
         </form>
       </dialog>
     </div>
+  )
+}
+
+/** 看板「建立」（AC-25）：尚未建包的組（剛指派主指導）補建包＋第 1 版。 */
+export function CreatePackageButton({ itemId, groupId, groupCode, requestId }: { itemId: string; groupId: string; groupCode: string; requestId: string }) {
+  const [state, formAction, pending] = useActionState<SignoffActionState, FormData>(createPackageAction, undefined)
+  return (
+    <form action={formAction} className="space-y-2" aria-label={`建立 ${groupCode} 的同意書`}>
+      <input type="hidden" name="itemId" value={itemId} />
+      <input type="hidden" name="groupId" value={groupId} />
+      <input type="hidden" name="requestId" value={requestId} />
+      <button type="submit" className={SECONDARY} disabled={pending}>
+        {pending ? '建立中…' : '建立'}
+      </button>
+      <Feedback state={state} />
+    </form>
   )
 }

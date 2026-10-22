@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSource } from '@/infrastructure/notifications/pg-inbox'
+import type { ResolvedActor } from '@/application/accounts'
+import { PgInbox, resolveSource } from '@/infrastructure/notifications/pg-inbox'
 
 /** 票 18：專題事務的通知依「現在」的項目與本人身分給連結（票 16 遺留）。 */
 
@@ -82,5 +83,78 @@ describe('評分指派通知的連結（票 43：被移出後那一組不在評�
 
   it('不是老師：無法存取', () => {
     expect(resolveSource(grading({ grading_group_listed: true }), ['student'])).toEqual({ state: 'forbidden' })
+  })
+})
+
+describe('專題時程通知的連結（C3-13）', () => {
+  it('來源 timeline（屆別）→ /timeline；屆別封存標唯讀；未知來源仍無法存取', () => {
+    const timeline = (patch: Record<string, unknown>) => ({ source_ref: { type: 'timeline', id: ID }, cohort_status: 'active', ...patch })
+    expect(resolveSource(timeline({}), ['student'])).toEqual({ state: 'ok', href: '/timeline' })
+    expect(resolveSource(timeline({ cohort_status: 'archived' }), ['student'])).toEqual({ state: 'archived', href: '/timeline' })
+    expect(resolveSource(timeline({ source_ref: { type: 'unknown', id: ID } }), ['student'])).toEqual({ state: 'forbidden' })
+  })
+})
+
+describe('點開通知就算已讀（C2-15）', () => {
+  const ME = '0192d6a0-0000-7000-8000-0000000000aa'
+  const NOTE = '0192d6a0-0000-7000-8000-0000000000bb'
+  const NOW = new Date('2026-10-19T02:00:00Z')
+  const student: ResolvedActor = {
+    kind: 'authenticated',
+    userId: ME,
+    roles: ['student'],
+    status: 'active',
+    mustChangePassword: false,
+    cohortMemberships: [],
+  }
+
+  /** 假的資料庫：記下每一句 SQL；查單則時回 `found`（本人的那一則，沒有就是空的）。 */
+  function inbox(found: Record<string, unknown> | null) {
+    const calls: { sql: string; values: unknown[] }[] = []
+    const db = () => ({
+      query: async (sql: string, values: unknown[]) => {
+        calls.push({ sql, values })
+        if (/^\s*select/i.test(sql)) return { rows: found ? [found] : [], rowCount: found ? 1 : 0 }
+        return { rows: [], rowCount: 1 }
+      },
+    })
+    const target = new PgInbox({ db: db as never, realClock: { now: () => NOW } as never })
+    return { target, calls, updates: () => calls.filter((c) => /^\s*update/i.test(c.sql)) }
+  }
+
+  it('本人的公告通知：回來源重新解析的連結、只標這一則（本人）已讀，已讀過的不改時間', async () => {
+    const { target, calls, updates } = inbox(row({ item_placement: 'news', item_on_roster: false }))
+    expect(await target.open(student, NOTE)).toMatchObject({ ok: true, receipt: { href: `/news/${ID}` } })
+    // 查詢與更新都綁本人與這一則。
+    expect(calls[0]!.sql).toMatch(/where n\.recipient_user_id = \$1 and n\.id = \$2/)
+    expect(calls[0]!.values).toEqual([ME, NOTE])
+    expect(updates()).toHaveLength(1)
+    expect(updates()[0]!.sql).toMatch(/coalesce\(read_at, \$3\) where id = \$1 and recipient_user_id = \$2/)
+    expect(updates()[0]!.values).toEqual([NOTE, ME, NOW])
+  })
+
+  it('連結看「現在」：收件已被移出名單 → href null（仍標已讀）；屆別封存仍給連結；無法存取不給', async () => {
+    const removed = inbox(row({ item_on_roster: false }))
+    expect(await removed.target.open(student, NOTE)).toMatchObject({ ok: true, receipt: { href: null } })
+    expect(removed.updates()).toHaveLength(1)
+
+    const archived = inbox(row({ cohort_status: 'archived' }))
+    expect(await archived.target.open(student, NOTE)).toMatchObject({ ok: true, receipt: { href: `/dashboard/student/affairs/${ID}` } })
+
+    const forbidden = inbox(row({ source_ref: { type: 'unknown', id: ID } }))
+    expect(await forbidden.target.open(student, NOTE)).toMatchObject({ ok: true, receipt: { href: null } })
+  })
+
+  it('別人的、不存在的通知：FORBIDDEN，什麼都不改', async () => {
+    const { target, updates } = inbox(null)
+    expect(await target.open(student, NOTE)).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(updates()).toHaveLength(0)
+  })
+
+  it('編號格式不對：FORBIDDEN、不查資料庫；沒登入：UNAUTHENTICATED', async () => {
+    const bad = inbox(row({}))
+    expect(await bad.target.open(student, 'not-a-uuid')).toMatchObject({ ok: false, code: 'FORBIDDEN' })
+    expect(await bad.target.open({ kind: 'anonymous' }, NOTE)).toMatchObject({ ok: false, code: 'UNAUTHENTICATED' })
+    expect(bad.calls).toHaveLength(0)
   })
 })

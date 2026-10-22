@@ -53,7 +53,7 @@ for (const width of [1280, 1024]) {
     // 按鈕不壓到標題（AD-11：AC-AD-21 標題縮短後兩顆按鈕可以跟標題同一列）：
     // 同一列時按鈕在標題右邊，換列時按鈕在標題下面。
     const actions = page.getByTestId('page-title-actions')
-    for (const part of [actions.getByRole('button', { name: '發臨時密碼' }), actions.getByRole('button', { name: '新增老師' })]) {
+    for (const part of [actions.getByRole('button', { name: '新增成員' })]) {
       const b = await box(page, part)
       if (b.top < title.bottom - 1) expect(b.left).toBeGreaterThanOrEqual(title.right - 1)
       else expect(b.top).toBeGreaterThanOrEqual(title.bottom - 1)

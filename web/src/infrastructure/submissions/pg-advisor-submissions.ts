@@ -328,6 +328,7 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
   /**
    * 評分老師讀得到的某組、某份整組收件的正式版本（新到舊）：已發布、整組一份、而且是因「本組有效評分指派」放行
    * （同一段 `VERSION_ACCESS_COLUMNS` 事實＋`canReadSubmission`，跟附件下載、`groupVersions` 一致）。
+   * C 階段起那個指派的評分項目要在側表連到**這份作業**才算（§3.2）；沒連結的作業回空。
    */
   async #evaluatorVersions(
     actor: Extract<ResolvedActor, { kind: 'authenticated' }>,
@@ -440,6 +441,8 @@ export class PgAdvisorSubmissionQuery implements AdvisorSubmissionQuery {
     receiverId: string | null,
   ): Promise<{ item: RosterItem; entries: RosterEntry[]; effective: number | null } | null> {
     const db = this.#reader()
+    // 這裡的範圍（指導該屆任一有效組；整組一份，或個人一份且閱覽開著）也寫在 `PgSubmissionQuery.deletedItemSeenBy`
+    // 的主指導那一段（CL-14：刪掉的作業只對原本看得到的老師顯示「已刪除」）；改其中一邊要一起改另一邊。
     const item = await rosterItemOf(db, itemId)
     if (!item || item.status !== 'published') return null
     const advising = await db.query(`${MY_GROUPS} and g.cohort_id = $2 limit 1`, [teacherId, item.cohortId])

@@ -250,7 +250,7 @@ seed_demo_data() {
     log "        示範資料：略過（$DEMO_SEED_OFF 在；要重建請跑 ops/seed-demo.sh test）"
     return 0
   fi
-  $COMPOSE run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v "$SITE_ROOT/files:$FILES_ROOT" \
+  $COMPOSE run --rm --no-deps -e FJU_SITE -e FILES_ROOT -e SEED_DEMO_PASSWORD -v "$SITE_ROOT/files:$FILES_ROOT" \
     migrate node migrate/web/scripts/seed-demo.mjs
 }
 
@@ -268,7 +268,7 @@ else
     printf '        $ （stdin）ALTER ROLE fju_app PASSWORD <APP_DB_PASSWORD> | %s exec -T postgres psql\n' "$COMPOSE"
     if [ "$SITE" = test ]; then
       printf '        $ %s run --rm --no-deps -e E2E_ADMIN_EMAIL -e E2E_ADMIN_PASSWORD -e FJU_SITE migrate node migrate/web/scripts/seed-e2e.mjs  # Doppler 有這兩個鍵才跑\n' "$COMPOSE"
-      printf '        $ %s run --rm --no-deps -e FJU_SITE -e FILES_ROOT -v %s/files:<FILES_ROOT> migrate node migrate/web/scripts/seed-demo.mjs  # 示範資料；已存在就不動，%s 在就略過\n' "$COMPOSE" "$SITE_ROOT" "$DEMO_SEED_OFF"
+      printf '        $ %s run --rm --no-deps -e FJU_SITE -e FILES_ROOT -e SEED_DEMO_PASSWORD -v %s/files:<FILES_ROOT> migrate node migrate/web/scripts/seed-demo.mjs  # 示範資料；已存在就不動，%s 在就略過\n' "$COMPOSE" "$SITE_ROOT" "$DEMO_SEED_OFF"
     else
       printf '        # E2E 測試帳號：正式站一律不建\n'
       printf '        # 示範資料：正式站一律不建\n'

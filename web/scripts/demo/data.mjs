@@ -5,13 +5,26 @@
  * 怎麼寫進資料庫、日期怎麼平移到現在，在 `../seed-demo.mjs`。
  * 內文裡提到的日期要跟活動、截止日一起平移，寫成記號：`{{md:2026-08-20}}`→「8/20」、`{{月日:2026-08-20}}`→「8 月 20 日」、
  * `{{年月日:2026-08-20}}`→「2026 年 8 月 20 日」（寫入時換成平移後的日期；直接寫死的日期不會跟著動，N-01）。
- * 全部是虛構資料：姓名、學號、公司都是原型的示範值；Email 一律用保留網域 `@demo.invalid`（寄不出去、也登不進來）。
+ * 全部是虛構資料：姓名、學號、公司都是原型的示範值；Email 一律用保留網域 `@demo.invalid`（寄不出去）。
+ * 測試站設了 `SEED_DEMO_PASSWORD` 時，示範老師與在學示範學生用它登入（⑤-18；沒設＝沒有密碼、登不進來）。
  */
 
 /** 原型的「今天」（`TODAY_YMD`）。所有日期都相對它平移到種子當下。 */
 export const PROTOTYPE_TODAY = '2026-08-17'
 
 export const EMAIL_DOMAIN = 'demo.invalid'
+
+/**
+ * 示範 PDF 的內容（⑤-18）：一頁、有標題、日期（檔案規格的日期，原型日期）與兩段文字。
+ * PDF 用內建的 Helvetica，只能放 ASCII；仍是佔位檔，文字講清楚不是真的範本。
+ */
+export const DEMO_PDF = {
+  title: 'FJU IM Capstone Project - Demo Document',
+  paragraphs: [
+    'This is a placeholder document generated for the test site of the FJU Information Management capstone project system. It stands in for the real handout, template or submission that would normally be attached here.',
+    'All names, numbers and dates in the demo data are fictional. Replace this file with the real document before using it for coursework.',
+  ],
+}
 
 export const COHORT = {
   code: 'DEMO-114',
@@ -26,7 +39,7 @@ export const COHORT = {
  * `description`（票 39，0011）＝原型 `Stage.summary` 的一句話說明，四段各自併原型對應幾段的說明。
  */
 export const STAGES = [
-  { seq: 1, name: '分組與指導老師', startDate: '2026-08-01', description: '五人一組報名，五位成員各自確認後成立；填指導老師意願調查，產學組由老師優先指定。' },
+  { seq: 1, name: '分組與指導老師', startDate: '2026-08-01', description: '4～5 人一組報名，全組成員各自確認後成立；填指導老師意願調查，產學組由老師優先指定。' },
   { seq: 2, name: '題目與計畫書', startDate: '2026-09-18', description: '確定題目與範圍，上學期結束前發表計畫書；只評通過／不通過。' },
   { seq: 3, name: '系統驗收', startDate: '2027-03-01', description: '系統發展文件完稿後，正式發表前一個月驗收系統文件與系統功能。' },
   { seq: 4, name: '專題發表與成品', startDate: '2027-05-01', description: '公開發表；之後繳交系統與文件完稿，完成成果授權同意書後封存。' },
@@ -101,6 +114,8 @@ export const GROUPS = [
     type: 'industry',
     advisor: null,
     industry: 'ind-02',
+    /** C3-01：學生選了合作案、負責老師（王雅玲）還沒確認指導——老師「待確認要帶的組」有東西看。 */
+    linkState: 'pending',
     established: '2026-08-09',
     members: members(320, ['方品瑄', '游承翰', '廖珮綺', '康柏融', '詹于萱']),
     tech: 'Laravel、MySQL',
@@ -163,17 +178,25 @@ export const GROUPS = [
   },
 ]
 
-/** 還沒分組的同學（原型 `UNGROUPED`）。 */
+/**
+ * 還沒分組的同學（原型 `UNGROUPED`）。`card` 是名片（C3-01，規格③ §4.1）：一句話自介 ≤ 50 字、技能 2～3 個，
+ * 四人合起來涵蓋預設清單（前端、後端、資料庫、資料分析、AI、UI 設計、簡報、企劃、Python、JavaScript、Figma）至少 6 種。
+ */
 export const UNGROUPED = [
-  { key: 'u-501', name: '應宥丞', studentNo: '411410411', openToJoin: true },
-  { key: 'u-502', name: '解雨萱', studentNo: '411410422', openToJoin: true },
-  { key: 'u-503', name: '鞠柏宇', studentNo: '411410433', openToJoin: false },
-  { key: 'u-504', name: '冷佳霓', studentNo: '411410444', openToJoin: true },
+  { key: 'u-501', name: '應宥丞', studentNo: '411410411', openToJoin: true, card: { bio: '做過兩個 Next.js 專案，想找會後端的夥伴。', skills: ['前端', 'JavaScript', '企劃'] } },
+  { key: 'u-502', name: '解雨萱', studentNo: '411410422', openToJoin: true, card: { bio: '喜歡整理資料、畫圖表，期末報告常負責簡報。', skills: ['資料分析', 'Python', '簡報'] } },
+  { key: 'u-503', name: '鞠柏宇', studentNo: '411410433', openToJoin: false, card: { bio: '後端與資料庫比較熟，寫過 Laravel。', skills: ['後端', '資料庫'] } },
+  { key: 'u-504', name: '冷佳霓', studentNo: '411410444', openToJoin: true, card: { bio: '設計系雙主修，會 Figma，也想學 AI 應用。', skills: ['UI 設計', 'Figma', 'AI'] } },
 ]
 
-/** 進行中的組別提案：應宥丞發起，兩人已確認、兩人還沒回覆（原型「還差 2 人確認」）。 */
+/**
+ * 進行中的組別提案：應宥丞發起，兩人已確認、兩人還沒回覆（原型「還差 2 人確認」）。
+ * C3-01：改成產學合作，選了示範合作案 ind-03（昱鋼精機，負責老師李孟儒）。
+ */
 export const PROPOSAL = {
   proposer: 'u-501',
+  type: 'industry',
+  industry: 'ind-03',
   created: '2026-08-16',
   confirmed: ['u-501', 'u-502'],
   pending: ['u-504', 'u-503'],
@@ -184,8 +207,11 @@ export const PENDING = [
   { key: 'a-04', name: '許庭瑋', studentNo: '411410466', created: '2026-08-16', rosterName: '許廷瑋' },
   { key: 'a-05', name: '陳冠宇', studentNo: '411410477', created: '2026-08-16' },
   { key: 'a-06', name: '劉思妤', studentNo: '410410312', created: '2026-08-17' },
-  { key: 'a-07', name: '王小明', studentNo: '411410999', created: '2026-08-17' },
+  { key: 'a-07', name: '紀妍希', studentNo: '411410999', created: '2026-08-17' },
 ]
+
+/** Email 註冊、Email 已驗證、名單同一列而自動開通的學生（C2-12，核實方式 `email_roster_match`）；已核准，不在待審。 */
+export const AUTO_APPROVED = [{ key: 'a-08', name: '趙若琳', studentNo: '411410889', created: '2026-08-18' }]
 
 /** 已停用的學生（原型 `ACCOUNTS` 的 disabled 兩筆）。 */
 export const DISABLED = [
@@ -267,7 +293,7 @@ export const NEWS = [
     attachments: ['114 專題分組作業說明.pdf', '指導老師名單與研究領域.pdf'],
     body: [
       '114 學年度專題分組作業與指導老師意願調查已於系統開放填寫，請各組於截止日前完成送出。',
-      '分組名單確認表需由組長填入五位組員學號，五位成員各自登入確認後，組別才會正式成立。任一成員未確認前，組別維持申請中狀態，不會佔用其他組別的名額。',
+      '分組名單確認表需由組長填入全組 4～5 位組員學號，全組成員各自登入確認後，組別才會正式成立。任一成員未確認前，組別維持申請中狀態，不會佔用其他組別的名額。',
       '指導老師意願調查表請填寫三個志願的順序，並簡述題目方向。一般專題的指導老師由系辦依行政程序指派；產學合作組別則由老師在系統中直接擔任指導老師。',
       '兩份表單皆為整組共用一份，同組任一成員送出即代表全組完成，其餘成員的畫面會同步顯示已繳交。截止前可重新送出，系統會保留每一次送出的版本。',
     ],
@@ -379,7 +405,15 @@ export const RULES = {
     {
       key: 's8',
       heading: '八、評分方式',
-      list: ['專題學期分數由專題指導老師評訂。', '第一階段－計畫書發表：評審老師提出改進建議。', '第二階段－系統驗收：評分項目包括系統文件、系統功能，佔專題發表分數 60%。', '第三階段－正式發表：評分項目包括專題發表臨場表現及系統驗收後整體系統功能修改程度，佔專題發表分數 40%。', '評分細項請參照專題發表評分標準說明。'],
+      // C1-17（X7）：比例不寫死在正文，前台 /rules 在章節之後讀系辦的評分規則（`GRADING`）顯示。
+      list: [
+        '專題學期分數由專題指導老師評訂。',
+        '第一階段－計畫書發表：評審老師提出改進建議。',
+        '第二階段－系統驗收：評分項目包括系統文件、系統功能。',
+        '第三階段－正式發表：評分項目包括專題發表臨場表現及系統驗收後整體系統功能修改程度。',
+        '評分方式與比例以本站「評分規則」為準（見下方）。',
+        '評分細項請參照專題發表評分標準說明。',
+      ],
     },
     {
       key: 's9',
@@ -446,7 +480,7 @@ export const COLLECTIONS = [
     key: 'mi-013',
     title: '專題分組名單確認表',
     placement: 'submission',
-    summary: '確認五位組員名單、組長與組別類型（一般／產學）。',
+    summary: '確認全組 4～5 位組員名單、組長與組別類型（一般／產學）。',
     published: '2026-08-04',
     due: '2026-09-04',
     stage: 1,
@@ -456,7 +490,7 @@ export const COLLECTIONS = [
     fields: [
       { key: 'f2', type: 'text', label: '組長學號', required: true },
       { key: 'f3', type: 'radio', label: '組別類型', required: true, options: GROUP_TYPES },
-      { key: 'f4', type: 'checkbox', label: '確認事項', required: true, options: ['五位組員皆為本屆學生', '已閱讀專題規則第四節'] },
+      { key: 'f4', type: 'checkbox', label: '確認事項', required: true, options: ['全體組員皆為本屆學生', '已閱讀專題規則第四節'] },
     ],
   },
   {
@@ -502,13 +536,18 @@ export const COLLECTIONS = [
   },
 ]
 
-/** 活動（原型 `CALENDAR_EVENTS` 的活動與競賽；截止日由收件項目自己帶出來）。 */
+/**
+ * 活動（原型 `CALENDAR_EVENTS` 的活動與競賽；截止日由收件項目自己帶出來）。
+ * C3-01：每筆都有結束——有時段的看 `to`；全天的看 `endDate`（不含當天，結束＝`endDate` 00:00，一天的就是次日）。
+ * 第 6 筆是跨三天的全天活動，對象是老師（補 `teachers` 的樣本）。
+ */
 export const EVENTS = [
   { key: 'c2', title: '114 學年度專題說明會', date: '2026-08-20', from: '13:10', to: '15:00', audience: 'public', description: '說明本學年度專題時程、分組方式與評分規則。' },
   { key: 'c4', title: '雲端服務實務工作坊', date: '2026-08-28', from: '09:00', to: '12:00', audience: 'cohort_students', description: '業界講師帶領半日實作，名額 40 人。' },
-  { key: 'c6', title: '全國大專資訊應用服務創新競賽報名截止', date: '2026-10-03', allDay: true, audience: 'public' },
+  { key: 'c6', title: '全國大專資訊應用服務創新競賽報名截止', date: '2026-10-03', endDate: '2026-10-04', allDay: true, audience: 'public' },
   { key: 'c8', title: '指導老師公開抽籤', date: '2026-09-25', from: '15:00', to: '16:00', audience: 'cohort_students', description: '每組至少派一員參加。' },
-  { key: 'c9', title: '智慧製造大數據分析競賽決賽', date: '2026-09-02', allDay: true, audience: 'public' },
+  { key: 'c9', title: '智慧製造大數據分析競賽決賽', date: '2026-09-02', endDate: '2026-09-03', allDay: true, audience: 'public' },
+  { key: 'c10', title: '成果展佈展', date: '2027-05-03', endDate: '2027-05-06', allDay: true, audience: 'teachers', description: '專題發表前三天佈置展場，請指導老師協助確認各組海報與展位。' },
 ]
 
 /**
@@ -545,7 +584,9 @@ export const GRADING = {
     },
   ],
   /**
-   * 系統驗收的評分指派（原型 `GRADING_PROGRESS`＋`EVALUATION_QUEUE`：陳建宏 4 組送出 1、王雅玲 3/3、李孟儒 2/0、張士豪 2/2）。
+   * 系統驗收的評分指派（原型 `GRADING_PROGRESS`＋`EVALUATION_QUEUE`）。
+   * ⑤-18：成績只掛在有交「系統驗收文件」（`ACCEPTANCE_COLLECTION.submitted`：g-01、g-02、g-04）的組；
+   * 沒交件的組一律還沒填（陳建宏 4 組暫存 1、送出 1；王雅玲 3 組送出 2；李孟儒 2 組 0；張士豪 2 組送出 1）。
    * `state`：none＝還沒填、draft＝暫存、final＝正式送出（採計）。
    */
   assignments: [
@@ -555,11 +596,11 @@ export const GRADING = {
     { teacher: 'u-102', group: 'g-08', state: 'none' },
     { teacher: 'u-103', group: 'g-01', state: 'final', at: '2026-08-14 11:05', scores: { i1: '90', i2: '88', i3: '86', i4: '85', i5: '88', i6: 'A', i7: 'A' } },
     { teacher: 'u-103', group: 'g-04', state: 'final', at: '2026-08-15 18:00', scores: { i1: '84', i2: '82', i3: '87', i4: '78', i5: '80', i6: 'B', i7: 'A' } },
-    { teacher: 'u-103', group: 'g-08', state: 'final', at: '2026-08-15 18:20', scores: { i1: '80', i2: '79', i3: '83', i4: '76', i5: '81', i6: 'B', i7: 'B' } },
+    { teacher: 'u-103', group: 'g-08', state: 'none' },
     { teacher: 'u-104', group: 'g-01', state: 'none' },
     { teacher: 'u-104', group: 'g-05', state: 'none' },
     { teacher: 'u-105', group: 'g-02', state: 'final', at: '2026-08-16 10:30', scores: { i1: '86', i2: '84', i3: '88', i4: '82', i5: '85', i6: 'A', i7: 'B' } },
-    { teacher: 'u-105', group: 'g-05', state: 'final', at: '2026-08-16 14:15', scores: { i1: '78', i2: '80', i3: '76', i4: '74', i5: '79', i6: 'C', i7: 'B' } },
+    { teacher: 'u-105', group: 'g-05', state: 'none' },
   ],
   assignedAt: '2026-08-10',
   requiredCount: 2,
@@ -620,9 +661,56 @@ export const HISTORY_COHORTS = [
   { key: 'DEMO-112', code: 'DEMO-112', name: '示範 112 屆', yearEndDate: '2025-06-30', created: '2024-07-01', studentPrefix: '4094105' },
 ]
 
+// ── 歷屆組員姓名（⑤-18）：固定種子、不重複 ─────────────────────────────────────────
+
+/** 固定種子的亂數（mulberry32）：同一個種子每次都產生同一串數字。 */
+function seededRandom(seed) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const ALUMNI_SURNAMES = ['林', '陳', '黃', '張', '李', '吳', '劉', '蔡', '楊', '謝', '徐', '高', '蕭', '羅', '葉', '彭', '盧', '曹']
+const ALUMNI_GIVEN = [
+  '承恩', '品妤', '冠廷', '筱涵', '俊傑', '怡安', '家豪', '雅筑', '宗翰', '佩珊', '柏翰', '欣妤', '睿哲', '芷晴',
+  '昱廷', '思妤', '子豪', '靖雯', '彥廷', '語婕', '書豪', '心怡', '韋辰', '亭妤', '振宇', '佳穎', '煒翔', '若瑜',
+]
+
+/** 本屆（DEMO-114）用過的所有姓名：歷屆組員不能跟他們撞名。 */
+const CURRENT_NAMES = [
+  ...TEACHERS.map((t) => t.name),
+  ...GROUPS.flatMap((g) => g.members.map((m) => m.name)),
+  ...UNGROUPED.map((u) => u.name),
+  ...PENDING.flatMap((p) => [p.name, p.rosterName].filter(Boolean)),
+  ...AUTO_APPROVED.map((a) => a.name),
+  ...DISABLED.map((d) => d.name),
+]
+
+const alumni = (() => {
+  const random = seededRandom(114)
+  const used = new Set(CURRENT_NAMES)
+  const pick = (list) => list[Math.floor(random() * list.length)]
+  return (n) =>
+    Array.from({ length: n }, () => {
+      for (;;) {
+        const name = pick(ALUMNI_SURNAMES) + pick(ALUMNI_GIVEN)
+        if (used.has(name)) continue
+        used.add(name)
+        return name
+      }
+    })
+})()
+
 /**
  * 歷屆專題（原型 `PROJECTS`＋`PROJECT_DETAIL`）：一件一組、一個已發布的精選條目（海報＝原型的卡片圖）。
  * 組員只有原型詳情有列的幾件才有（p-7、p-8 原型沒有組員名單）；主指導照原型。
+ * ⑤-18：組員姓名不再沿用原型（原型拿本屆的名字重複用，跨屆 30 個重名），改由 `alumni` 依固定種子產生，
+ * 跟本屆、彼此都不重複；重跑一定產生同一批名字。
  * 八件都發布（歷屆一覽）；`award`／`awardLabel` 照原型（票 39，0011 的 `showcase_entries.award_level`／`award_label`）：
  * 有等級的五件才出現在公開的優秀專題，p-3、p-5、p-8 只在登入後的歷屆一覽。
  */
@@ -633,7 +721,7 @@ export const PROJECTS = [
     title: '城市微光：公共資訊可讀性改善',
     summary: '針對公部門開放資料網站的資訊可讀性問題，重新設計資料呈現流程。以三個實際的市政資料集為例，建立一套可重複套用的視覺化樣板，並邀請十二位非資訊背景使用者進行可用性測試，量測任務完成時間與理解正確率。',
     video: null,
-    members: ['周子瑜', '許哲瑋', '潘映璇', '簡宇軒', '邱郁婷'],
+    members: alumni(5),
   },
   {
     key: 'p-2', cohort: 'DEMO-113', code: 'G03', advisor: 'u-102', image: 'phone.jpg', published: '2026-06-20',
@@ -641,13 +729,13 @@ export const PROJECTS = [
     title: '拾語：課堂討論脈絡整理器',
     summary: '課堂討論常因發言分散而難以整理脈絡。本作品以語音轉文字與主題聚類，將討論內容整理成可追溯的議題樹，並提供教師端的重點摘要與未回應問題清單。',
     video: null,
-    members: ['賴威廷', '宋佳蓉', '馮柏勳', '涂雅雯', '石承翰'],
+    members: alumni(5),
   },
   {
     key: 'p-3', cohort: 'DEMO-113', code: 'G05', advisor: 'u-104', image: 'lounge.jpg', published: '2026-06-20',
     title: '安心路徑：校園友善空間指南',
     summary: '以校園實地盤點為基礎，建立友善空間資料庫，包含無障礙坡道、電梯、哺集乳室與性別友善廁所位置，並提供路徑建議與現場照片。盤點結果已回饋給校內單位。',
-    members: ['溫子謙', '范芷妍', '杜宥安', '洪思語', '莊博凱'],
+    members: alumni(5),
   },
   {
     key: 'p-7', cohort: 'DEMO-113', code: 'G09', advisor: 'u-105', image: 'present.jpg', published: '2026-06-20',
@@ -663,21 +751,21 @@ export const PROJECTS = [
     title: '備援：中小企業備份稽核工具',
     summary: '中小企業常無專責資訊人員，備份策略難以驗證。本作品建立一套備份稽核工具，自動檢查備份完整性、可還原性與保留週期，並產出可交付稽核單位的報告。',
     video: null,
-    members: ['田家瑜', '阮柏毅', '曾語彤', '崔浩然', '翁苡榛'],
+    members: alumni(5),
   },
   {
     key: 'p-5', cohort: 'DEMO-112', code: 'G06', advisor: 'u-103', image: 'study.jpg', published: '2025-06-18',
     title: '菜市場數位帳本',
     summary: '傳統市場攤商多以紙本記帳。本作品以極簡輸入介面與語音記帳降低使用門檻，並提供進貨與銷售的簡易分析。實際導入三個攤位試用兩個月。',
     video: null,
-    members: ['巫佳蓁', '郝彥丞', '岳庭妤', '解軍豪', '麥若彤'],
+    members: alumni(5),
   },
   {
     key: 'p-6', cohort: 'DEMO-112', code: 'G11', advisor: 'u-104', image: 'atrium.jpg', published: '2025-06-18',
     award: 'merit', awardLabel: '112 學年度專題發表 佳作',
     title: '無障礙報名流程重構',
     summary: '以校內活動報名流程為對象，重新設計符合 WCAG 2.2 AA 的表單與流程，並以螢幕閱讀器與鍵盤操作完成完整驗證。',
-    members: ['柯亦辰', '宮宇薇', '潘冠霖', '尤思穎', '方品瑄'],
+    members: alumni(5),
   },
   {
     key: 'p-8', cohort: 'DEMO-112', code: 'G04', advisor: 'u-102', image: 'building.jpg', published: '2025-06-18',
@@ -737,7 +825,7 @@ export const WAVE3_NEWS = [
     status: 'draft',
     audience: 'public',
     category: '專題事務',
-    title: '（草稿）期末成果展場地與時段調查',
+    title: '期末成果展場地與時段調查',
     summary: '還在整理的草稿：可以試「刪除」——草稿刪掉後前後台都看不到，不能恢復。',
     date: '2026-08-16',
     body: ['期末成果展的場地與時段還在確認中，確定後再發布。'],
@@ -822,3 +910,74 @@ export const DRAFT_HONOR = {
 
 /** 首頁輪播順序（W0 的 `showcase_entries.home_position`）：兩件有獎項的歷屆作品。 */
 export const HOME_POSITIONS = { 'p-1': 1, 'p-4': 2 }
+
+// ── C1-17：專題事務的作業示範（規格① §1.7）───────────────────────────────────────
+// 跟第一批同一條時間線（日期照第一批平移），掛在示範 114 屆。`stage` 只當註解（作業不再寫所屬階段，§1.1）。
+
+/** 給老師的作業（T3）：每位老師一份；`submitted` 是已交的老師與送出時間。 */
+export const TEACHER_COLLECTION = {
+  key: 'mi-015',
+  title: '指導意願調查表（老師）',
+  placement: 'submission',
+  summary: '請各位老師填寫本學年可指導的組數與偏好的題目方向，系辦據此安排指導老師。每位老師一份。',
+  published: '2026-08-05',
+  due: '2026-08-31',
+  stage: 1,
+  submitted: [
+    { teacher: 'u-102', at: '2026-08-07 14:20' },
+    { teacher: 'u-103', at: '2026-08-09 10:05' },
+  ],
+  fields: [
+    { key: 'f2', type: 'number', label: '本學年可指導組數', required: true },
+    { key: 'f3', type: 'textarea', label: '偏好的題目方向', help: '200 字內', required: true },
+    { key: 'f4', type: 'radio', label: '是否接受產學合作組', required: true, options: ['接受', '不接受'] },
+  ],
+  answers: {
+    'u-102': { f2: '4', f3: '物流與零售的資料分析、校園服務平台。', f4: '接受' },
+    'u-103': { f2: '3', f3: '醫療與長照的資訊系統、排班與流程最佳化。', f4: '接受' },
+  },
+}
+
+/**
+ * 站內同意書作業（§1.2）：「專題成果授權同意書」＝最終文件授權（`consent_purpose='final_document'`），整組一份。
+ * 對象＝有主指導的 6 組（`SIGNOFF.approvals`）；正文＝`SIGNOFF.body`，沒有附件、沒有截止。
+ * 不另建簽核包：既有 6 包（`SIGNOFF`）直接掛到這份作業底下（`signoff_packages.item_id`）。
+ */
+export const CONSENT_COLLECTION = {
+  key: 'mi-016',
+  title: '專題成果授權同意書',
+  placement: 'submission',
+  summary: '全組成員與指導老師逐人在站內同意成果授權；授權範圍以成果展示草稿的題目與摘要為準。',
+  published: '2026-08-15',
+  stage: 4,
+}
+
+/**
+ * 系統驗收文件（T2-2）：整組一份 PDF，截止在原型今天的 7 天後；`submitted` 是已交的三組（都有系統驗收的評分指派，
+ * 老師批改頁看得到 PDF）。評分項目「系統驗收」對應這份作業（`grading_stage_settings`）。
+ */
+export const ACCEPTANCE_COLLECTION = {
+  key: 'mi-017',
+  title: '系統驗收文件',
+  placement: 'submission',
+  summary: '繳交系統發展文件（PDF）供系統驗收的評審老師批改。整組一份，截止前可重新上傳。',
+  published: '2026-08-12',
+  // ⑤-18：截止在原型今天的 7 天後，第 07 組（學生本人那組）首頁有一筆「待交、要上傳 PDF」的作業。
+  due: '2026-08-24',
+  stage: 3,
+  submitted: [
+    { group: 'g-01', at: '2026-08-13 21:30' },
+    { group: 'g-04', at: '2026-08-14 15:10' },
+    { group: 'g-02', at: '2026-08-15 20:40' },
+  ],
+  fields: [
+    { key: 'f2', type: 'file', label: '系統發展文件', required: true, fileRules: { allowedTypes: ['pdf'], maxMiB: 20 } },
+    { key: 'f3', type: 'textarea', label: '補充說明', help: '選填' },
+  ],
+}
+
+/** 評分項目的對應作業與說明（`grading_stage_settings`，不進方案版本）。示範不設評審組（`panel_key` 皆 null）。 */
+export const STAGE_SETTINGS = [
+  { stage: 's1', item: 'mi-017', description: null },
+  { stage: 's2', item: null, description: '依發表當天表現評分' },
+]

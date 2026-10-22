@@ -49,11 +49,16 @@ function toItemInput(raw: unknown): ItemInput {
     groupIds: ids(r.groupIds),
     receiverUnit: str(r.receiverUnit, 40),
     stageId: typeof r.stageId === 'string' && r.stageId !== '' ? r.stageId.slice(0, 100) : null,
+    // 同意書模式與用途（C 階段規格① §1.1）：規則在用例判，這裡只收斂型別。
+    consentMode: typeof r.consentMode === 'string' && r.consentMode !== '' ? r.consentMode.slice(0, 20) : null,
+    consentPurpose: typeof r.consentPurpose === 'string' && r.consentPurpose !== '' ? r.consentPurpose.slice(0, 40) : null,
     opensAt: str(r.opensAt, 40),
     dueAt: str(r.dueAt, 40),
     registrationDeadline: str(r.registrationDeadline, 20),
     eventDate: str(r.eventDate, 20),
     awardedOn: str(r.awardedOn, 20),
+    // 指導老師閱覽（C 收尾 CL-13）：只收 true／false，其他一律當「不動」；能不能開由用例判。
+    advisorVisibility: typeof r.advisorVisibility === 'boolean' ? r.advisorVisibility : null,
     fields: Array.isArray(r.fields) ? r.fields.slice(0, 200) : [],
   }
 }
@@ -230,6 +235,7 @@ export async function moveRuleAction(
 
 export async function startItemUploadAction(input: {
   cohortId: string
+  placement: string
   kind: 'attachment' | 'cover'
   fileName: string
   declaredMime: string
@@ -237,6 +243,7 @@ export async function startItemUploadAction(input: {
 }): Promise<ItemActionOutcome<UploadTicket>> {
   const result = await getItemCommand().startUpload(await currentActor(), {
     cohortId: str(input?.cohortId, 100),
+    placement: str(input?.placement, 40),
     kind: input?.kind === 'cover' ? 'cover' : 'attachment',
     fileName: str(input?.fileName, 500),
     declaredMime: str(input?.declaredMime, 200),

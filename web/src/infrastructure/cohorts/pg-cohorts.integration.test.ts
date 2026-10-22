@@ -463,18 +463,32 @@ describe('封存與解封（AD-B4）', () => {
     expect(await writes(cohort.id)).toEqual({ events: 1, audits: 1, ledger: 1 })
   })
 
-  it('理由空白或超過 200 字：VALIDATION_FAILED，不寫', async () => {
+  it('理由超過 200 字：VALIDATION_FAILED，不寫；200 字可以', async () => {
     const cohort = await activeCohort('ARCH-RS')
-    for (const reason of ['', '   ', 'x'.repeat(201)]) {
-      expect(await command.archive(authenticated(adminId), { cohortId: cohort.id, reason }, randomUUID())).toMatchObject({
-        ok: false,
-        code: 'VALIDATION_FAILED',
-        details: { field: 'reason' },
-      })
-    }
+    expect(await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: 'x'.repeat(201) }, randomUUID())).toMatchObject({
+      ok: false,
+      code: 'VALIDATION_FAILED',
+      details: { field: 'reason' },
+    })
     expect(
       (await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: 'x'.repeat(200) }, randomUUID())).ok,
     ).toBe(true)
+  })
+
+  it('理由選填（C2 X2；AC-C2-11）：留空封存、解封都成功，狀態事件與稽核的理由是 NULL', async () => {
+    const cohort = await activeCohort('ARCH-NR')
+    expect(await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '   ' }, randomUUID())).toMatchObject({ ok: true })
+    expect(await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: '' }, randomUUID())).toMatchObject({ ok: true })
+    const events = await owner.sql(
+      `select to_status, reason from cohort_status_events where cohort_id = $1 and to_status in ('archived', 'active') order by real_at, id`,
+      [cohort.id],
+    )
+    expect(events.rows.slice(-2)).toEqual([{ to_status: 'archived', reason: null }, { to_status: 'active', reason: null }])
+    const audits = await owner.sql(
+      `select action, reason from audit_events where target_id = $1 and action in ('cohort.archive', 'cohort.unarchive') order by real_at, id`,
+      [cohort.id],
+    )
+    expect(audits.rows).toEqual([{ action: 'cohort.archive', reason: null }, { action: 'cohort.unarchive', reason: null }])
   })
 
   it('非管理員、還沒改密、找不到的屆別：被擋，狀態不變', async () => {
@@ -518,14 +532,14 @@ describe('封存與解封（AD-B4）', () => {
     expect((await command.setDefaultWorking(authenticated(adminId), cohort.id, randomUUID())).ok).toBe(true)
   })
 
-  it('不是已封存的屆別解除封存：CONFLICT，不寫；理由空白 VALIDATION_FAILED', async () => {
+  it('不是已封存的屆別解除封存：CONFLICT，不寫；理由超過 200 字 VALIDATION_FAILED', async () => {
     const cohort = await activeCohort('UNARCH-X')
     expect(
       await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: '補登' }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'CONFLICT' })
     await command.archive(authenticated(adminId), { cohortId: cohort.id, reason: '年度結束' }, randomUUID())
     expect(
-      await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: ' ' }, randomUUID()),
+      await command.unarchive(authenticated(adminId), { cohortId: cohort.id, reason: 'x'.repeat(201) }, randomUUID()),
     ).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
     expect(await status(cohort.id)).toBe('archived')
     expect(await writes(cohort.id)).toEqual({ events: 1, audits: 1, ledger: 1 })

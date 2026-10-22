@@ -1,0 +1,6 @@
+{
+  "ticket": "C1-11",
+  "override": {
+    "/dashboard/student/signoff": { "from": "base", "value": { "as": "student", "baseline": 9, "max": 9, "identity": 0 } }
+  }
+}

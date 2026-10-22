@@ -4,12 +4,12 @@ import { pathToFileURL } from "node:url";
 
 const modulesRoot =
   process.env.CODEX_NODE_MODULES ??
-  "/Users/lubaiyu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
+  "<home>/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
 const { chromium } = await import(
   pathToFileURL(path.join(modulesRoot, "playwright", "index.mjs")).href
 );
 
-const root = "/Users/lubaiyu/fju-project/prototypes";
+const root = "<home>/fju-project/prototypes";
 const screenshotDir = path.join(root, "screenshots");
 const prototypes = [
   { slug: "public-site", file: path.join(root, "public-site", "index.html") },

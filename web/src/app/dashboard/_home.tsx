@@ -36,7 +36,7 @@ export function Panel({
     <section className={cn('dash-card flex flex-col overflow-hidden', tint && `tint tint-${tint}`, className)} data-testid={testId}>
       <div className="flex items-center justify-between gap-3 px-5 py-3.5">
         <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="truncate text-[15px] font-bold text-foreground">{title}</h2>
+          <h2 className="shrink-0 text-[15px] font-bold text-foreground">{title}</h2>
           {description ? <span className="hidden truncate text-xs text-muted-foreground sm:inline">・{description}</span> : null}
         </div>
         {action && typeof action === 'object' && 'href' in action ? (

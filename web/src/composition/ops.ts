@@ -20,6 +20,7 @@ import { PgOperationLedger } from '@/infrastructure/ops/operation-ledger'
 import { createPosterPolicy } from '@/infrastructure/showcase/poster-policy'
 import { createHeroPhotoPolicy } from '@/infrastructure/site/hero-photo-policy'
 import { createSubmissionFilePolicy } from '@/infrastructure/submissions/submission-file-policy'
+import { PUBLIC_READ_PURPOSES } from './download-policy'
 
 // 操作紀錄頁（票 36）要的顯示規則：app 對 application 只能帶型別，值經 composition 轉出去。
 export {
@@ -33,6 +34,7 @@ export {
   describeAuditTarget,
 } from '@/application/ops'
 export { AUDIT_QUERY_MAX_LENGTH, AuditQueryInvalidError } from '@/application/ops'
+export { PUBLIC_READ_PURPOSES } from './download-policy'
 
 /** 模組 10 的共用 port（稽核、帳本、檔案）。 */
 let auditWriter: AuditWriter<PoolClient> | undefined
@@ -122,7 +124,7 @@ export function getFileStorage(): FileStorage<PoolClient> {
     ticketSecret,
     policies: DOWNLOAD_POLICIES,
     // 待審、必須改密的人比照訪客：首頁大圖、公告封面與附件、精選海報仍走各用途的訪客政策，訪客拿得到的才拿得到。
-    publicReadPurposes: ['photo', 'attachment', 'poster'],
+    publicReadPurposes: PUBLIC_READ_PURPOSES,
     db: getPool,
     // 頭像收檔時縮成 256×256 WebP、清掉 EXIF；處理不了的圖不收（SH-9）。
     transforms: { avatar: avatarImageTransform },

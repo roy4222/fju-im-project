@@ -13,6 +13,7 @@ import { PgSessionRevocationExecutor } from '@/infrastructure/accounts/session-r
 import { getPool } from '@/infrastructure/db/client'
 import { purgeMailOutbox } from '@/infrastructure/mail/mail-outbox-cleanup'
 import { proposalExpiryDueWorkHandler } from '@/infrastructure/notifications/due-work-handlers'
+import { pingHealthchecks } from '@/infrastructure/notifications/healthchecks-ping'
 import { PgDueWorkRunner, testNoopHandler } from '@/infrastructure/notifications/pg-due-work-runner'
 import { PgNotificationProjector } from '@/infrastructure/notifications/pg-projector'
 import {
@@ -29,6 +30,7 @@ import {
  * - 到期工作：每 30 秒看業務鐘，撿到期的工作交給 handler（提案到期；測試站另有 `test_noop`）。
  * - 撤 session 收斂：每 5 分鐘回收過期租約、做掉排著的工作、核對停用／恢復是否真的生效。
  * - 半成品帳號清理：每小時把滿 7 天沒完成註冊的帳號清密碼、刪 session（VB-14）。
+ * - Healthchecks.io 打卡：有設 `HEALTHCHECKS_WORKER_URL` 才跑，每 5 分鐘一次（⑤-06）；拿不到鎖的不會跑到。
  *
  * 啟動時每個迴圈都先立刻跑一次：部署的健康判定只等 60 秒，心跳要在那之前出現。
  * 磁碟用量不在這裡量（A-17）：由 status collector 負責。
@@ -44,6 +46,10 @@ export type WorkerOptions = {
   reconcileIntervalMs?: number
   mailOutboxCleanupIntervalMs?: number
   staleSignupCleanupIntervalMs?: number
+  /** Healthchecks.io 打卡網址；沒給就讀 `HEALTHCHECKS_WORKER_URL`，空的就不起這個迴圈。 */
+  healthchecksUrl?: string
+  healthchecksIntervalMs?: number
+  healthchecksFetch?: typeof fetch
   /** 拿著鎖的連線斷了：鎖已經不在，進程要結束讓 Compose 重啟（不然可能兩個 worker 同時跑）。 */
   onLockLost?: (error: unknown) => void
   log?: (message: string, detail?: Record<string, unknown>) => void
@@ -150,6 +156,14 @@ export async function startWorker(options: WorkerOptions): Promise<RunningWorker
     const scrubbed = await scrubStaleSignups(pool, new Date(), { audit: getAuditWriter(), businessAt: await businessClock.now() })
     if (scrubbed > 0) log('半成品帳號清理完成一輪', { scrubbed })
   })
+
+  // Healthchecks.io 打卡（⑤-06）：沒設網址就整個不起，不 fetch、不記 log（AC-41）。
+  const healthchecksUrl = (options.healthchecksUrl ?? process.env.HEALTHCHECKS_WORKER_URL ?? '').trim()
+  if (healthchecksUrl) {
+    every('healthchecks-ping', options.healthchecksIntervalMs ?? 5 * 60 * 1000, async () => {
+      await pingHealthchecks({ url: healthchecksUrl, fetch: options.healthchecksFetch, log })
+    })
+  }
 
   log('背景工作已啟動（拿到單一實例鎖）', { version: options.version })
 

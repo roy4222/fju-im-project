@@ -14,6 +14,7 @@ import { getSubmissionQuery, phaseOf, receiverStatus } from '@/composition/submi
  * 首頁待辦卡與「下一件要交的」、交作業三個篩選的數字、側欄「交作業」徽章全部從 `studentTodos` 算，不各自推。
  *
  * - 作業的狀態由既有 `receiverStatus`（名單頁、作業區同一個）決定，這裡只把它對到待辦的六種狀態。
+ *   草稿是隱形的（C 階段規格① §5.2 拿掉「儲存草稿」鈕）：有草稿還沒交就是「待交」，首頁按鈕一律「去交」。
  * - 同意書只列簽核包目前那一版、而且不是失效／作廢（Q123）；`isCurrent` 只是指標，不代表有效。
  * - 三個讀取都用 React `cache`、以 `userId` 字串當 key：頁面的 actor 與徽章的 actor 是兩個物件，
  *   拿物件當 key 會各查一次。呼叫端一律傳 `actor.userId`。
@@ -32,8 +33,6 @@ export type StudentTodo = {
   /** 膠囊字：逾期／快到期／待交／尚未開放／免繳／已交／補交／待你同意／已同意／不同意／（signoffStateLabel）。 */
   label: string
   href: string
-  /** 有草稿、還沒送出 → 首頁卡按鈕字「繼續填寫」。 */
-  draft: boolean
   /** `group` → 卡片小字「整組」（Q128）；同意書是 null。 */
   unit: 'individual' | 'group' | null
   /** 系辦開的補交期限生效中、還沒交 → 膠囊「補交」、截止字「補交到 M/D」（Q128）。 */
@@ -85,7 +84,6 @@ export function itemTodo(row: MyItemRow, now: Date): StudentTodo {
     status,
     label: late ? '補交' : ITEM_LABEL[status],
     href: `${BASE}/affairs/${row.itemId}`,
-    draft: view.pending && row.hasDraft,
     unit: row.receiverUnit,
     late,
   }
@@ -104,8 +102,8 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
     id: version.versionId,
     title: PURPOSE_LABEL[version.purpose],
     due: null,
-    href: `${BASE}/signoff?version=${version.versionId}`,
-    draft: false,
+    // 連到同意書作業的版本直接進作業的「狀態」分頁（CL-2）；舊 API 建的包沒有作業，照舊進同意書頁。
+    href: version.itemId ? `${BASE}/affairs/${version.itemId}?tab=status` : `${BASE}/signoff?version=${version.versionId}`,
     unit: null,
     late: false,
   }
@@ -123,13 +121,35 @@ export function consentTodo(version: VersionDetail): StudentTodo | null {
  */
 export function buildTodos(rows: readonly MyItemRow[], now: Date, signoff: StudentSignoffView): readonly StudentTodo[] {
   const entries: { todo: StudentTodo; finishedAt: number }[] = []
-  for (const row of rows) entries.push({ todo: itemTodo(row, now), finishedAt: row.latestReceivedAt?.getTime() ?? -Infinity })
+  const consentOf = new Map<string, { todo: StudentTodo; finishedAt: number }>()
   for (const version of signoff.versions) {
     const todo = consentTodo(version)
     if (!todo) continue
     const mine = version.progress.students.find((s) => s.userId === version.viewer.userId)
-    entries.push({ todo, finishedAt: (mine?.at ?? version.createdAt).getTime() })
+    consentOf.set(version.itemId ?? `version:${version.versionId}`, { todo, finishedAt: (mine?.at ?? version.createdAt).getTime() })
   }
+  // CL-16：連到作業的同意書，作業列已經在清單裡（狀態在作業的「狀態」分頁），不再多列一張卡。
+  // 只看作業列有沒有這份作業，不是「有 itemId 就不列」：作業不在本人名單上時，同意書卡仍是唯一入口。
+  const listedItems = new Set(rows.map((row) => row.itemId))
+  for (const row of rows) {
+    const todo = itemTodo(row, now)
+    const consent = row.kind === 'consent_form' ? consentOf.get(row.itemId) : undefined
+    // CL-18：同意書的表態不寫進繳交紀錄，作業列改看本人表態（字與完成與否沿用 `consentTodo`）。
+    // 免繳、尚未開放仍以作業為準；輪到你表態時保留作業的時間狀態（逾期／快到期／待交），沒逾期就寫「待你同意」。
+    // 找不到有效版本（失效、作廢、還沒建立）照舊是作業本身的狀態。
+    if (consent && todo.status !== 'exempt' && todo.status !== 'notOpen') {
+      if (consent.todo.status === 'done') {
+        entries.push({ todo: { ...todo, status: 'done', label: consent.todo.label, late: false }, finishedAt: consent.finishedAt })
+        continue
+      }
+      if (todo.status !== 'overdue') {
+        entries.push({ todo: { ...todo, label: consent.todo.label }, finishedAt: consent.finishedAt })
+        continue
+      }
+    }
+    entries.push({ todo, finishedAt: row.latestReceivedAt?.getTime() ?? -Infinity })
+  }
+  for (const [key, consent] of consentOf) if (!listedItems.has(key)) entries.push(consent)
   const byDue = (a: StudentTodo, b: StudentTodo) => (a.due?.getTime() ?? Infinity) - (b.due?.getTime() ?? Infinity)
   const byTitle = (a: StudentTodo, b: StudentTodo) => a.title.localeCompare(b.title, 'zh-Hant')
   const open = entries.filter((e) => !isFinished(e.todo)).map((e) => e.todo)

@@ -1,0 +1,8 @@
+{
+  // pnpm typecheck 用這份：引擎＋劇本一起 strict。編譯選項沿用 engine/tsconfig.json（引擎單獨開編輯器時仍用它）。
+  "extends": "./engine/tsconfig.json",
+  "compilerOptions": {
+    "strict": true
+  },
+  "include": ["engine/**/*.ts", "chapters/**/*.ts"]
+}

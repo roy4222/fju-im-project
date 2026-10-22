@@ -8,6 +8,7 @@ import type {
   GradingAssignmentSummary,
   TeacherOption,
 } from '@/application/groups'
+import { CharCount, charCountId } from '@/app/_ui/char-count'
 import { cn } from '@/shared/cn'
 import { formatBytes } from '@/shared/format-bytes'
 import {
@@ -20,6 +21,7 @@ import {
 import { DIALOG, Feedback, INPUT, LABEL, PRIMARY, SECONDARY, useCloseOnSuccess, useDialog } from './admin-group-forms'
 import { IconUserPlus } from '@tabler/icons-react'
 import { BTN_ROW as ROW, BTN_ROW_GHOST as ROW_GHOST } from '@/app/_ui/dashboard/look'
+import { AvatarImg } from '@/app/_ui/avatar/avatar-img'
 
 /**
  * 票 19：管理員指派、重派、解除指導老師（原型 `AssignDialog`），以及批次指派 CSV（原型沒有，模組實作設計 03 §7.2 缺口）。
@@ -43,6 +45,7 @@ export type AdvisorGroup = {
 function TeacherSelect({ id, teachers, exclude }: { id: string; teachers: TeacherOption[]; exclude: string | null }) {
   const [value, setValue] = useState('')
   const options = teachers.filter((t) => t.userId !== exclude)
+  const selected = options.find((t) => t.userId === value)
   return (
     <div>
       <label htmlFor={id} className={LABEL}>
@@ -58,6 +61,9 @@ function TeacherSelect({ id, teachers, exclude }: { id: string; teachers: Teache
           </option>
         ))}
       </select>
+      {selected ? (
+        <AvatarImg user={{ ...selected, id: value }} size={24} />
+      ) : null}
     </div>
   )
 }
@@ -68,18 +74,19 @@ function Reason({ id, maxLength, placeholder }: { id: string; maxLength: number;
   return (
     <div>
       <label htmlFor={id} className={LABEL}>
-        理由（必填）
+        理由（可不填）
       </label>
       <textarea
         id={id}
         name="reason"
         rows={3}
-        maxLength={maxLength}
+        aria-describedby={charCountId(id)}
         placeholder={placeholder}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         className={INPUT}
       />
+      <CharCount forId={id} max={maxLength} value={value} />
     </div>
   )
 }
@@ -247,6 +254,7 @@ const ERROR_KINDS: readonly AdvisorBatchKind[] = ['group_missing', 'teacher_miss
  * 檔案位元組直接 POST 到 `/api/files/upload`（和名單匯入同一條路）；預覽與執行都由伺服器重新讀那份原檔。
  */
 export function BatchAssignDialog({
+  teachers,
   cohortId,
   cohortLabel,
   kindLabels,
@@ -254,6 +262,7 @@ export function BatchAssignDialog({
   maxBytes,
   reasonMaxLength,
 }: {
+  teachers: TeacherOption[]
   cohortId: string
   cohortLabel: string
   kindLabels: Record<AdvisorBatchKind, string>
@@ -385,6 +394,7 @@ export function BatchAssignDialog({
             </label>
           ) : step.kind === 'preview' ? (
             <BatchPreview
+              teachers={teachers}
               step={step}
               kindLabels={kindLabels}
               reason={reason}
@@ -420,6 +430,7 @@ export function BatchAssignDialog({
 }
 
 function BatchPreview({
+  teachers,
   step,
   kindLabels,
   reason,
@@ -431,6 +442,7 @@ function BatchPreview({
   onRestart,
   onExecute,
 }: {
+  teachers: TeacherOption[]
   step: Extract<Step, { kind: 'preview' }>
   kindLabels: Record<AdvisorBatchKind, string>
   reason: string
@@ -444,10 +456,11 @@ function BatchPreview({
 }) {
   const { preview } = step
   const { counts } = preview
+  const teacherByEmail = new Map(teachers.map((t) => [t.loginEmail.toLowerCase(), t]))
   const errors = counts.group_missing + counts.teacher_missing + counts.duplicate
   const changes = counts.new + counts.reassign
   const blocked =
-    errors > 0 || changes === 0 || (counts.reassign > 0 && !confirmReassign) || reason.trim() === '' || Boolean(busy)
+    errors > 0 || changes === 0 || (counts.reassign > 0 && !confirmReassign) || Boolean(busy)
   const kinds = Object.keys(kindLabels) as AdvisorBatchKind[]
 
   return (
@@ -486,7 +499,13 @@ function BatchPreview({
               <tr key={row.line} data-testid={`advisor-batch-row-${row.line}`} className="border-t border-border">
                 <td className="px-3 py-2 tabular-nums">{row.line}</td>
                 <td className="px-3 py-2 tabular-nums">{row.groupCode || '—'}</td>
-                <td className="px-3 py-2">{row.teacherEmail || '—'}</td>
+                <td className="px-3 py-2"><div className="flex items-center gap-2">
+                  {teacherByEmail.has(row.teacherEmail.toLowerCase()) ? <AvatarImg user={{
+                    ...teacherByEmail.get(row.teacherEmail.toLowerCase())!,
+                    id: teacherByEmail.get(row.teacherEmail.toLowerCase())!.userId,
+                  }} size={24} decorative /> : null}
+                  {row.teacherEmail || '—'}
+                </div></td>
                 <td className={cn('px-3 py-2 whitespace-nowrap', ERROR_KINDS.includes(row.kind) && 'font-semibold text-danger')}>
                   {kindLabels[row.kind]}
                 </td>
@@ -517,17 +536,18 @@ function BatchPreview({
       ) : null}
       <div>
         <label htmlFor="advisor-batch-reason" className={LABEL}>
-          理由（必填，整批共用）
+          理由（可不填，整批共用）
         </label>
         <textarea
           id="advisor-batch-reason"
           rows={2}
-          maxLength={reasonMaxLength}
+          aria-describedby={charCountId('advisor-batch-reason')}
           placeholder="例：115 學年抽籤結果"
           value={reason}
           onChange={(e) => onReason(e.target.value)}
           className={INPUT}
         />
+        <CharCount forId="advisor-batch-reason" max={reasonMaxLength} value={reason} />
       </div>
       <div className="flex flex-wrap justify-end gap-2">
         <button type="button" className={SECONDARY} onClick={onRestart} disabled={Boolean(busy)}>

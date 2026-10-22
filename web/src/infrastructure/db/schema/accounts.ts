@@ -55,6 +55,10 @@ export const userProfiles = pgTable(
      * 老師與管理員看得到姓名、學號、聯絡 Email（電話永不公開）；成組或停用後查詢自動不列。
      */
     openToJoin: boolean('open_to_join').notNull().default(false),
+    /** 名片的一句話自介（規格③ §4.1）；最多 50 字，關掉公開找隊員時仍保留。 */
+    bio: text('bio').notNull().default(''),
+    /** 名片技能（字串陣列；最多 8 個、每個 1～12 字由用例守）。 */
+    skills: jsonb('skills').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     /** 只是列表顯示用；判定一律看 `sessions.login_method`（模組 01 §2）。 */
     loginMethodLast: text('login_method_last'),
     /** 選了第幾張預設頭像（1～100）；兩欄都 NULL 時依帳號 hash 固定一張（Q105）。 */
@@ -74,6 +78,8 @@ export const userProfiles = pgTable(
     }),
   },
   (t) => [
+    check('user_profiles_bio_length_check', sql`length(${t.bio}) <= 50`),
+    check('user_profiles_skills_array_check', sql`jsonb_typeof(${t.skills}) = 'array'`),
     check(
       'user_profiles_login_method_last_check',
       sql`${t.loginMethodLast} is null or ${t.loginMethodLast} in ('google','password')`,
@@ -218,12 +224,7 @@ export const registrationApplications = pgTable(
     ),
     check(
       'registration_applications_verification_method_check',
-      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match')`,
-    ),
-    // 核准必記核實方式（模組 01 §2）。
-    check(
-      'registration_applications_approved_verification_check',
-      sql`${t.state} <> 'approved' or ${t.verificationMethod} is not null`,
+      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match','office_review','email_roster_match')`,
     ),
     // 核實方式選 other 時必須寫說明。
     check(
@@ -314,7 +315,7 @@ export const userStatusEvents = pgTable(
     ),
     check(
       'user_status_events_verification_method_check',
-      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match')`,
+      sql`${t.verificationMethod} is null or ${t.verificationMethod} in ('id_document','school_channel','other','google_email_match','office_review','email_roster_match')`,
     ),
     check('user_status_events_actor_kind_check', sql`${t.actorKind} in ('user','system','worker')`),
     check(

@@ -172,6 +172,8 @@ describe('逐欄對照模組 01 v2.4 附錄 A 與模組 10 附錄 A', () => {
       'open_to_join',
       // SH-8（0016）加的頭像欄。
       'avatar_preset', 'avatar_file_id',
+      // C3-01（0023）加的名片欄。
+      'bio', 'skills',
     ],
     student_identities: ['cohort_id', 'student_no', 'user_id', 'created_at'],
     registration_applications: [
@@ -425,7 +427,7 @@ describe('其他表的約束反例', () => {
     })
   })
 
-  it('registration_applications：核准必須有核實方式，other 必須寫說明', async () => {
+  it('registration_applications：核准可不帶核實方式（0020），other 必須寫說明', async () => {
     await withIsolatedDatabase({ label: 'verify-check', setup: migratedSchema }, async (db) => {
       const { userId } = await seedForConstraints(db)
       await expect(
@@ -436,7 +438,7 @@ describe('其他表的約束反例', () => {
            values (gen_random_uuid(), $1, 'X', '410000003', '09', 'c@example.com', 'c@example.com', 'approved', 'user', $1)`,
           [userId],
         ),
-      ).rejects.toThrow(/registration_applications_approved_verification_check/)
+      ).resolves.toBeTruthy()
 
       await expect(
         db.sql(

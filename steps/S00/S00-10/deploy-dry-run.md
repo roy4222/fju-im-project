@@ -108,7 +108,7 @@ permissions:
 ## 自動測試
 ```
 
- RUN  v3.2.6 /Users/lubaiyu/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
+ RUN  v3.2.6 <home>/fju-project/.claude/worktrees/ssh-connection-4ed37a/web
 
  ✓ |integration| test/ops/deploy.integration.test.ts (29 tests) 358ms
 

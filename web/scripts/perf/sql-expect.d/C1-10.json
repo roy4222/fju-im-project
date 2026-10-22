@@ -1,0 +1,7 @@
+{
+  "ticket": "C1-10",
+  "override": {
+    "/dashboard/student/affairs": { "from": "base", "value": { "as": "student", "baseline": 9, "max": 9, "identity": 0 } },
+    "/dashboard/teacher/affairs": { "from": "base", "value": { "as": "teacher", "baseline": 9, "max": 9, "identity": 0 } }
+  }
+}

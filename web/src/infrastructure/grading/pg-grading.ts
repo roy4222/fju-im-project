@@ -7,6 +7,7 @@ import {
   collectSchemeKeys,
   normalizeSchemeStages,
   normalizeScores,
+  panelStageKeys,
   readSchemeStages,
   summarizeScores,
   type AdminAssignmentView,
@@ -52,6 +53,7 @@ import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { reachFaultPoint } from '@/shared/fault-points'
 import { err, ok, type Err, type Result } from '@/shared/result'
 import { exactScore } from '@/shared/score'
+import { charLength } from '@/shared/text'
 import { RealClock, type Clock } from '@/shared/time'
 
 /**
@@ -157,7 +159,7 @@ export function normalizeComment(value: unknown): { ok: true; value: string | nu
   if (typeof value !== 'string') return err('VALIDATION_FAILED', '評語格式不對，請重新整理頁面再試。', { details: { field: 'comment' } })
   if (value.trim() === '') return { ok: true, value: null }
   // 用字元數（code point）比，跟資料庫的 char_length 一致：emoji 不會被算成兩個字。
-  if ([...value].length > MAX_COMMENT_LENGTH) {
+  if (charLength(value) > MAX_COMMENT_LENGTH) {
     return err('VALIDATION_FAILED', `評語最多 ${MAX_COMMENT_LENGTH} 字，請刪短一點再存。`, { details: { field: 'comment' } })
   }
   return { ok: true, value }
@@ -374,6 +376,8 @@ export class PgGradingCommand implements GradingCommand {
         `update grading_schemes set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,
         [scheme.id, version.id, realAt, adminId],
       )
+      // C1-04：新版沒有的評分項目，側表列（對應作業、說明、評審組）同交易刪掉（設計方案① §1.3）。
+      await dropStaleStageSettings(tx, cohortId, [...keys])
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: adminId,
@@ -433,24 +437,28 @@ export class PgGradingCommand implements GradingCommand {
       const stage = stageOf(stages, String(input.stageKey ?? ''))
       if (!stage) return err('VALIDATION_FAILED', '目前的評分規則沒有這個階段，請重新整理頁面。')
 
-      const existing = await tx.query<{ revision: number }>(
-        'select revision from stage_requirements where group_id = $1 and stage_key = $2 for update',
-        [group.id, stage.key],
+      // C1-04：屬於評審組就同交易改評審組全部項目（依 stage_key 排序上鎖）；版本號只比對請求的那一項。
+      const keys = await panelKeysOf(tx, cohort.id, stage.key, stages)
+      const existing = await tx.query<{ stage_key: string; revision: number }>(
+        'select stage_key, revision from stage_requirements where group_id = $1 and stage_key = any($2::text[]) order by stage_key for update',
+        [group.id, keys],
       )
-      const current = existing.rows[0]
-      if ((current?.revision ?? 0) !== input.revision) return staleRevision()
-      if (current) {
-        await tx.query(
-          `update stage_requirements set required_count = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
-            where group_id = $1 and stage_key = $2`,
-          [group.id, stage.key, count, realAt, adminId],
-        )
-      } else {
-        await tx.query(
-          `insert into stage_requirements (group_id, stage_key, required_count, created_at, created_by_user_id, updated_at, updated_by_user_id)
-           values ($1, $2, $3, $4, $5, $4, $5)`,
-          [group.id, stage.key, count, realAt, adminId],
-        )
+      const revisions = new Map(existing.rows.map((r) => [r.stage_key, r.revision]))
+      if ((revisions.get(stage.key) ?? 0) !== input.revision) return staleRevision()
+      for (const key of keys) {
+        if (revisions.has(key)) {
+          await tx.query(
+            `update stage_requirements set required_count = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+              where group_id = $1 and stage_key = $2`,
+            [group.id, key, count, realAt, adminId],
+          )
+        } else {
+          await tx.query(
+            `insert into stage_requirements (group_id, stage_key, required_count, created_at, created_by_user_id, updated_at, updated_by_user_id)
+             values ($1, $2, $3, $4, $5, $4, $5)`,
+            [group.id, key, count, realAt, adminId],
+          )
+        }
       }
       await this.#audit.append(tx, {
         actorKind: 'user',
@@ -463,7 +471,7 @@ export class PgGradingCommand implements GradingCommand {
         cohortId: cohort.id,
         realAt,
         businessAt: businessNow,
-        payload: { stageKey: stage.key, requiredCount: count, previousRevision: input.revision },
+        payload: { stageKey: stage.key, requiredCount: count, previousRevision: input.revision, appliedStageKeys: keys },
       })
       // 要求份數是計算基礎的一部分（票 24）：這一組有生效中的更正就進「待復核」。
       await flagOverridesForReview(tx, this.#events, {
@@ -473,7 +481,14 @@ export class PgGradingCommand implements GradingCommand {
         realAt,
         businessAt: businessNow,
       })
-      const receipt = { groupId: group.id, groupCode: group.code, stageKey: stage.key, stageName: stage.name, requiredCount: count }
+      const receipt = {
+        groupId: group.id,
+        groupCode: group.code,
+        stageKey: stage.key,
+        stageName: stage.name,
+        requiredCount: count,
+        appliedStageKeys: keys,
+      }
       const full = { ...receipt, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { groupId: group.id, stageKey: stage.key } })
       return { ok: true as const, receipt: full }
@@ -515,55 +530,64 @@ export class PgGradingCommand implements GradingCommand {
 
       const teacher = await eligibleTeacher(tx, input.teacherUserId)
       if (!teacher) return err('VALIDATION_FAILED', '找不到這位老師，或帳號已停用、不再是老師。', { details: { field: 'teacherUserId' } })
-      const duplicate = await tx.query(
-        `select 1 from evaluator_assignments where group_id = $1 and stage_key = $2 and teacher_user_id = $3 and valid_to is null`,
-        [group.id, stage.key, teacher.userId],
-      )
-      if (duplicate.rowCount) return alreadyAssigned(teacher.name, group.code, stage.name)
-      // 票 24：改派時選「保留」後，舊分掛在已結束的指派上繼續採計；同一位老師再被指派回來就會算兩票，擋掉。
-      if (await hasCountedInStage(tx, group.id, stage.key, teacher.userId)) {
-        return alreadyCounted(teacher.name, group.code, stage.name)
+      // C1-04：屬於評審組就對評審組全部項目各指派一筆（同交易）；任一項目不能指派就整筆不做（先全部檢查完才寫）。
+      const keys = await panelKeysOf(tx, cohort.id, stage.key, stages)
+      const targets = keys.map((key) => stageOf(stages, key)!)
+      for (const target of targets) {
+        const duplicate = await tx.query(
+          `select 1 from evaluator_assignments where group_id = $1 and stage_key = $2 and teacher_user_id = $3 and valid_to is null`,
+          [group.id, target.key, teacher.userId],
+        )
+        if (duplicate.rowCount) return alreadyAssigned(teacher.name, group.code, target.name)
+        // 票 24：改派時選「保留」後，舊分掛在已結束的指派上繼續採計；同一位老師再被指派回來就會算兩票，擋掉。
+        if (await hasCountedInStage(tx, group.id, target.key, teacher.userId)) {
+          return alreadyCounted(teacher.name, group.code, target.name)
+        }
       }
 
-      const assignmentId = uuidv7()
-      await tx.query(
-        `insert into evaluator_assignments
-           (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $7)`,
-        [assignmentId, group.id, stage.key, teacher.userId, businessNow, adminId, realAt],
-      )
-      await this.#events.publish(tx, {
-        type: 'grading.assigned',
-        scope: 'cohort',
-        cohortId: cohort.id,
-        source: { type: 'grading_assignment', id: assignmentId, version: 1 },
-        actor: { kind: 'user', userId: adminId },
-        recipients: [teacher.userId],
-        recipientBasis: { basis: 'evaluator_assignment', assignmentId },
-        // 只放 ID 與標題：組別代號、階段名稱。**沒有任何分數**。
-        payload: {
-          title: `你被指派評分：${group.code}「${stage.name}」`,
-          groupId: group.id,
-          code: group.code,
-          stageKey: stage.key,
-        },
-        occurredRealAt: realAt,
-        occurredBusinessAt: businessNow,
-      })
-      await this.#audit.append(tx, {
-        actorKind: 'user',
-        actorUserId: adminId,
-        role: 'admin',
-        action: 'grading.assign',
-        targetType: 'group',
-        targetId: group.id,
-        scope: 'cohort',
-        cohortId: cohort.id,
-        realAt,
-        businessAt: businessNow,
-        payload: { assignmentId, stageKey: stage.key, teacherUserId: teacher.userId },
-      })
-      const receipt = { assignmentId, groupCode: group.code, stageName: stage.name, teacherName: teacher.name }
+      let assignmentId = ''
+      for (const target of targets) {
+        const id = uuidv7()
+        if (target.key === stage.key) assignmentId = id
+        await tx.query(
+          `insert into evaluator_assignments
+             (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id, created_at, updated_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $7)`,
+          [id, group.id, target.key, teacher.userId, businessNow, adminId, realAt],
+        )
+        await this.#events.publish(tx, {
+          type: 'grading.assigned',
+          scope: 'cohort',
+          cohortId: cohort.id,
+          source: { type: 'grading_assignment', id, version: 1 },
+          actor: { kind: 'user', userId: adminId },
+          recipients: [teacher.userId],
+          recipientBasis: { basis: 'evaluator_assignment', assignmentId: id },
+          // 只放 ID 與標題：組別代號、階段名稱。**沒有任何分數**。
+          payload: {
+            title: `你被指派評分：${group.code}「${target.name}」`,
+            groupId: group.id,
+            code: group.code,
+            stageKey: target.key,
+          },
+          occurredRealAt: realAt,
+          occurredBusinessAt: businessNow,
+        })
+        await this.#audit.append(tx, {
+          actorKind: 'user',
+          actorUserId: adminId,
+          role: 'admin',
+          action: 'grading.assign',
+          targetType: 'group',
+          targetId: group.id,
+          scope: 'cohort',
+          cohortId: cohort.id,
+          realAt,
+          businessAt: businessNow,
+          payload: { assignmentId: id, stageKey: target.key, teacherUserId: teacher.userId, ...(keys.length > 1 ? { panelOf: stage.key } : {}) },
+        })
+      }
+      const receipt = { assignmentId, groupCode: group.code, stageName: stage.name, teacherName: teacher.name, appliedStageKeys: keys }
       const full = { ...receipt, requestId, serverTime: realAt.toISOString() }
       await this.#ledger.commit(tx, begun.recordId, { receipt: full, resultRef: { assignmentId } })
       return { ok: true as const, receipt: full }
@@ -902,6 +926,13 @@ function stateOf(current: CurrentEvaluation | undefined): EvaluationState {
   return current?.counted ? 'counted' : current?.draft ? 'draft' : 'empty'
 }
 
+/**
+ * 這個評分項目的側表（`gss`）與對應作業（`li`）；`c`＝cohorts、`a`＝evaluator_assignments（C1-04）。
+ * 只接在目前版本有的項目上（呼叫端用 `stageOf` 過濾），所以不在目前版本的側表列不會被讀到。
+ */
+const LINKED_ITEM_JOIN = `left join grading_stage_settings gss on gss.cohort_id = c.id and gss.stage_key = a.stage_key
+         left join managed_items li on li.id = gss.item_id`
+
 /** 本屆本階段的現行結算（`c`＝cohorts、`a`＝evaluator_assignments）；放在主查詢裡當子查詢，不另查。 */
 const SETTLED_AT = `(select gs.settled_at from grade_settlements gs
     where gs.cohort_id = c.id and gs.stage_key = a.stage_key and gs.released_at is null)`
@@ -1105,14 +1136,27 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       stages: unknown
       leader_name: string | null
       settled_at: Date | null
+      linked_item_id: string | null
+      linked_title: string | null
+      linked_last_at: Date | null
+      linked_files: number | null
     }>(
       `select a.id, a.group_id, g.code as group_code, a.stage_key, c.code as cohort_code, c.name as cohort_name, v.stages,
-              ${LEADER_NAME} as leader_name, ${SETTLED_AT} as settled_at
+              ${LEADER_NAME} as leader_name, ${SETTLED_AT} as settled_at,
+              gss.item_id as linked_item_id, li.title as linked_title, ls.received_business_at as linked_last_at, ls.files as linked_files
          from evaluator_assignments a
          join groups g on g.id = a.group_id and g.status = 'active'
          join cohorts c on c.id = g.cohort_id and c.status <> 'archived'
          join grading_schemes s on s.cohort_id = c.id
          join grading_scheme_versions v on v.id = s.current_version_id
+         ${LINKED_ITEM_JOIN}
+         left join lateral (
+           select sv.received_business_at,
+                  (select count(*)::int from submission_files sf where sf.submission_version_id = sv.id) as files
+             from submission_versions sv
+            where sv.item_id = gss.item_id and sv.receiver_kind = 'group' and sv.receiver_id = a.group_id
+            order by sv.version_no desc limit 1
+         ) ls on gss.item_id is not null
         where a.teacher_user_id = $1 and a.valid_to is null
         order by c.code, g.code, a.stage_key`,
       [who.userId],
@@ -1146,6 +1190,16 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
           submittedAt: counted?.submitted_real_at ?? null,
           draftAfterFinal: !!counted && !!current?.draft,
           settled: r.settled_at !== null,
+          linkedItem:
+            r.linked_item_id && r.linked_title !== null
+              ? {
+                  itemId: r.linked_item_id,
+                  title: r.linked_title,
+                  submitted: r.linked_last_at !== null,
+                  lastSubmittedAt: r.linked_last_at,
+                  fileCount: r.linked_files ?? 0,
+                }
+              : null,
         },
       ]
     })
@@ -1159,10 +1213,14 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
 
   /**
    * 評分單組頁（TE-11）：評閱桌（4 句）、隊列（3 句）、本組正式繳交與附件（3 句）三路並行，固定 10 句、深度 2。
-   * 上一組／下一組由頁面用 `queue` 算，不另查；附件一次批次讀，不逐份呼叫 `receiverVersion`。
+   * 側表（對應作業、說明）併在評閱桌與隊列的主查詢裡，不另查；上一組／下一組用 `queue` 算；附件一次批次讀，不逐份呼叫 `receiverVersion`。
    * 沒注入繳交查詢是組裝錯誤（程式寫錯，不是使用者會走到的路），直接 throw；`getGradingQuery()` 一定有注入。
+   *
+   * C1-04（設計方案① §3.4、AC-28a）：一次看一個評分項目。先驗本人對 `(groupId, stageKey)` 有有效指派（沒給 `stageKey`＝
+   * 本組第一個分給我的項目），沒有 → `NOT_ASSIGNED`、不回任何繳交；再用側表 `item_id` 過濾繳交查詢的回傳，
+   * 只留那份作業的版本；沒有對應作業 → 空陣列，**不退回「本組全部繳交」**。
    */
-  async teacherBenchPage(actor: ResolvedActor, groupId: string): Promise<Result<TeacherBenchPage>> {
+  async teacherBenchPage(actor: ResolvedActor, groupId: string, stageKey?: string | null): Promise<Result<TeacherBenchPage>> {
     if (!this.#submissions) throw new Error('PgGradingQuery 沒有注入繳交查詢（composition/grading.ts 的 getGradingQuery）。')
     const [loaded, queue, submissions] = await Promise.all([
       this.#bench(actor, groupId),
@@ -1170,8 +1228,28 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       this.#submissions.groupVersionsWithFiles(actor, groupId),
     ])
     if (!loaded.ok) return loaded
+    const wanted = typeof stageKey === 'string' && stageKey !== '' ? stageKey : null
+    const entry = wanted === null ? loaded.bench.entries[0] : loaded.bench.entries.find((e) => e.stage.key === wanted)
+    if (!entry) return notAssigned()
+    const link = loaded.links.get(entry.stage.key) ?? null
+    const linkedItem = link?.itemId && link.itemTitle !== null ? { itemId: link.itemId, title: link.itemTitle } : null
+    // 同屆同評分項目、照老師清單的順序（屆別、組別代號）找前後一組。
+    const sameStage = queue.filter((e) => e.cohortCode === loaded.bench.cohortCode && e.stageKey === entry.stage.key)
+    const at = sameStage.findIndex((e) => e.groupId === groupId)
     return ok(
-      { ...loaded.bench, leaderName: loaded.leaderName, queue, submissions: submissions ?? [] },
+      {
+        ...loaded.bench,
+        leaderName: loaded.leaderName,
+        queue,
+        submissions: linkedItem ? (submissions ?? []).filter((v) => v.itemId === linkedItem.itemId) : [],
+        stageKey: entry.stage.key,
+        linkedItem,
+        stageDescription: link?.description ?? null,
+        neighbors: {
+          prev: at > 0 ? sameStage[at - 1]!.groupId : null,
+          next: at >= 0 && at < sameStage.length - 1 ? sameStage[at + 1]!.groupId : null,
+        },
+      },
       { requestId: uuidv7(), serverTime: new Date().toISOString() },
     )
   }
@@ -1238,7 +1316,19 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
   }
 
   /** 評閱桌本體：指派＋頭列（含組長）合併 1 句，再並行讀組員、目前評分、退回各 1 句。 */
-  async #bench(actor: ResolvedActor, groupId: string): Promise<{ ok: true; bench: TeacherBench; leaderName: string | null } | Err> {
+  async #bench(
+    actor: ResolvedActor,
+    groupId: string,
+  ): Promise<
+    | {
+        ok: true
+        bench: TeacherBench
+        leaderName: string | null
+        /** 每個評分項目的側表（C1-04；只有本人有指派、目前版本有的項目）。 */
+        links: ReadonlyMap<string, { itemId: string | null; itemTitle: string | null; description: string | null }>
+      }
+    | Err
+  > {
     const who = authorizeTeacher(actor)
     if (!who.ok) return who
     if (!isUuid(groupId)) return notAssigned()
@@ -1254,14 +1344,19 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
       stages: unknown
       leader_name: string | null
       settled_at: Date | null
+      linked_item_id: string | null
+      linked_title: string | null
+      description: string | null
     }>(
       `select a.id, a.stage_key, g.code, c.code as cohort_code, c.name as cohort_name, v.id as version_id, v.version_no, v.stages,
-              ${LEADER_NAME} as leader_name, ${SETTLED_AT} as settled_at
+              ${LEADER_NAME} as leader_name, ${SETTLED_AT} as settled_at,
+              gss.item_id as linked_item_id, li.title as linked_title, gss.description
          from evaluator_assignments a
          join groups g on g.id = a.group_id
          join cohorts c on c.id = g.cohort_id
          left join grading_schemes s on s.cohort_id = c.id
          left join grading_scheme_versions v on v.id = s.current_version_id
+         ${LINKED_ITEM_JOIN}
         where a.group_id = $1 and a.teacher_user_id = $2 and a.valid_to is null
         order by a.stage_key`,
       [groupId, who.userId],
@@ -1350,6 +1445,11 @@ export class PgGradingQuery implements GradingQuery, AssignmentsForTeacherQuery 
         entries,
       },
       leaderName: head.leader_name,
+      links: new Map(
+        assignments.rows
+          .filter((a) => entries.some((e) => e.assignmentId === a.id))
+          .map((a) => [a.stage_key, { itemId: a.linked_item_id, itemTitle: a.linked_title, description: a.description }]),
+      ),
     }
   }
 
@@ -1439,6 +1539,27 @@ export async function lockGroupAndScheme(
     versionNo: version.version_no,
     versionStatus: version.status,
   }
+}
+
+/**
+ * 評審組展開（C1-04；設計方案① §1.3）：`stageKey` 屬於評審組時回傳同組全部項目（依 `stage_key` 排序），否則只有它自己。
+ * 只認目前版本的項目；呼叫端已拿方案頭列的鎖（`setStageSetting` 拿 `FOR UPDATE`，跟這裡排隊）。
+ */
+export async function panelKeysOf(tx: Pick<PoolClient, 'query'>, cohortId: string, stageKey: string, stages: readonly SchemeStage[]): Promise<string[]> {
+  const rows = await tx.query<{ stage_key: string; panel_key: string | null }>(
+    'select stage_key, panel_key from grading_stage_settings where cohort_id = $1 and panel_key is not null',
+    [cohortId],
+  )
+  return panelStageKeys(
+    rows.rows.map((r) => ({ stageKey: r.stage_key, panelKey: r.panel_key })),
+    stageKey,
+    stages.map((s) => s.key),
+  )
+}
+
+/** 換目前版本（發布、套用）時：新版沒有的評分項目，側表列同交易刪掉（含 `panel_key`；C1-04）。 */
+export async function dropStaleStageSettings(tx: Pick<PoolClient, 'query'>, cohortId: string, keys: readonly string[]): Promise<void> {
+  await tx.query('delete from grading_stage_settings where cohort_id = $1 and not (stage_key = any($2::text[]))', [cohortId, keys])
 }
 
 /** 帳號正常、目前有老師角色的人；不是就回 null。 */

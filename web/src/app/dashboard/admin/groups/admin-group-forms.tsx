@@ -1,6 +1,6 @@
 'use client'
 import { useActionState, useCallback, useEffect, useRef, useState } from 'react'
-import { saveGroupingSettingsAction, voidProposalAction } from './actions'
+import { saveGroupingSettingsAction } from './actions'
 import { ALERT, DIALOG as LOOK_DIALOG, DIALOG_TITLE, INPUT as LOOK_INPUT, NOTE } from '@/app/_ui/dashboard/look'
 import { buttonVariants } from '@/app/_ui/ui/button'
 import { IconSettings } from '@tabler/icons-react'
@@ -117,63 +117,6 @@ export function GroupingSettingsEditor({
             </button>
             <button type="submit" disabled={pending} className={PRIMARY}>
               {pending ? '處理中…' : '儲存'}
-            </button>
-          </div>
-        </form>
-      </dialog>
-    </div>
-  )
-}
-
-export function VoidProposalButton({
-  proposalId,
-  label,
-  requestId,
-  reasonMaxLength,
-}: {
-  proposalId: string
-  /** 例如「王小明的提案」，給按鈕與對話框的無障礙名稱。 */
-  label: string
-  requestId: string
-  reasonMaxLength: number
-}) {
-  const [state, formAction, pending] = useActionState(voidProposalAction, undefined)
-  const dialog = useDialog()
-  useCloseOnSuccess(state, dialog.close)
-
-  return (
-    <div className="space-y-2">
-      <button type="button" className={SECONDARY} aria-label={`作廢：${label}`} onClick={dialog.open}>
-        作廢
-      </button>
-      <Feedback state={state?.ok ? state : undefined} />
-      <dialog ref={dialog.ref} aria-label={`作廢${label}？`} className={DIALOG}>
-        <form action={formAction} className="space-y-4 p-5">
-          <h2 className={DIALOG_TITLE}>作廢{label}？</h2>
-          <p className="text-sm text-muted-foreground">
-            作廢後這次組隊不會成立，大家都可以重新組隊。理由只留在系辦紀錄，學生的通知只會說「管理員作廢」。
-          </p>
-          <input type="hidden" name="proposalId" value={proposalId} />
-          <input type="hidden" name="requestId" value={requestId} />
-          <div>
-            <label htmlFor={`void-reason-${proposalId}`} className={LABEL}>
-              理由（必填）
-            </label>
-            <textarea
-              id={`void-reason-${proposalId}`}
-              name="reason"
-              rows={3}
-              maxLength={reasonMaxLength}
-              className={INPUT}
-            />
-          </div>
-          <Feedback state={state?.ok ? undefined : state} />
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" className={SECONDARY} onClick={dialog.close}>
-              先不要
-            </button>
-            <button type="submit" disabled={pending} className={PRIMARY}>
-              {pending ? '處理中…' : '確定作廢'}
             </button>
           </div>
         </form>

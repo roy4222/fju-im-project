@@ -240,6 +240,21 @@ function createAuthMailer(): Mailer {
  */
 const mailOutcome = new AsyncLocalStorage<{ failed: boolean }>()
 
+/**
+ * 這一次 `requestPasswordReset` 寄的是不是系辦新增成員後的「請設定密碼」信（C2-09）。
+ * 套件的 `sendResetPassword` 回呼拿不到呼叫端的意圖，所以用這個盒子帶過去（只有 wrapper 的 `sendSetupPasswordMail` 會開）。
+ */
+const resetMailVariant = new AsyncLocalStorage<'setup' | 'reset'>()
+
+export function withSetupMailVariant<T>(fn: () => Promise<T>): Promise<T> {
+  return resetMailVariant.run('setup', fn)
+}
+
+/** 系辦在帳號列替人寄「重設密碼」信（C2-11）：信的內容跟忘記密碼同一封，只是發動的是已授權的管理員，所以走內部呼叫。 */
+export function withAdminResetMailVariant<T>(fn: () => Promise<T>): Promise<T> {
+  return resetMailVariant.run('reset', fn)
+}
+
 export function withMailOutcome<T>(fn: () => Promise<T>): Promise<T> {
   return mailOutcome.run({ failed: false }, fn)
 }
@@ -372,7 +387,7 @@ function createAuth() {
        */
       sendResetPassword: async ({ user, token }) => {
         void mailer
-          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token)) })
+          .send({ to: user.email, ...passwordResetMail(resetPasswordUrl(token), resetMailVariant.getStore() === 'setup' ? 'setup' : undefined) })
           .then((result) => {
             if (!result.ok) console.error('[auth] 重設密碼信寄不出去', { outboxId: result.outboxId, code: result.code })
           })
@@ -746,10 +761,14 @@ function createAuth() {
           if (!otpLimiters.resetEmail.hit(email).allowed) {
             throw tooMany(`寄太多次了，請${inWords(RATE_LIMITS.passwordReset.email.windowMs)}後再試。`)
           }
-          if (!otpLimiters.resetIp.hit(clientIpFrom(headers)).allowed) {
-            throw tooMany(`這個網路寄重設連結的次數已達上限，請${inWords(RATE_LIMITS.passwordReset.ip.windowMs)}後再試。`)
+          // 系辦在後台替人寄「請設定密碼」或「重設密碼」信（內部呼叫，不是訪客的表單）：不受每 IP 桶與人機驗證限制，
+          // 每個 Email 的桶照扣（系辦連寄幾十個人，不該被同一個出口 IP 的桶擋住）。
+          if (!(!ctx.request && isInternalCall() && resetMailVariant.getStore() !== undefined)) {
+            if (!otpLimiters.resetIp.hit(clientIpFrom(headers)).allowed) {
+              throw tooMany(`這個網路寄重設連結的次數已達上限，請${inWords(RATE_LIMITS.passwordReset.ip.windowMs)}後再試。`)
+            }
+            await requireTurnstile(turnstileConfig, headers, 'reset')
           }
-          await requireTurnstile(turnstileConfig, headers, 'reset')
         }
 
         // ── 重設密碼：新密碼長度跟註冊、改密同一條（套件預設只要 8 字） ─────────────────
@@ -988,6 +1007,7 @@ function createAuth() {
               throw new APIError('INTERNAL_SERVER_ERROR', { code: 'INTERNAL', message: '登入失敗，請改用 Email 與新密碼登入。' })
             }
             await setSessionCookie(ctx, { session, user })
+            await setOfficeHint(ctx, finished.userId)
             return ctx.json({ success: true, resumed: true, userId: finished.userId })
           }
         }
@@ -1016,6 +1036,17 @@ function createAuth() {
           const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
           ctx.setCookie('fju_ga_login', 'google', { path: '/', sameSite: 'lax', maxAge: 60, httpOnly: false, secure })
         }
+
+        // ── 前台編輯提示 cookie（C2-16；規格② 設計方案 §6.2 第 4 點） ─────────────────────────────
+        //
+        // 密碼登入、Google callback 建了新 session 之後，查 `role_assignments` 有沒有有效的系辦角色（帳號也得是已開通）：
+        // 有就設 `fju_office=1`，`proxy.ts` 看到它才把五條前台路徑改寫到 `/office-edit/*`。**只是提示、不是授權**：
+        // 編輯路由自己再用身分判一次，用例也各自判權限。不是系辦但帶著舊的提示（同一台換人登入）就清掉。
+        // 續辦完成建 session 的地方（上面 check-verification-otp 那段）也呼叫同一支。Google callback 成功是 302（丟 redirect），
+        // 所以跟上面的分析 cookie 一樣放在 `instanceof APIError` 提早 return 之前；Set-Cookie 由套件合併保留。
+        const signedIn = ctx.path === '/sign-in/email' ? !looksLikeApiError(returned) : ctx.path.startsWith('/callback/')
+        const newUserId = ctx.context.newSession?.user.id
+        if (signedIn && newUserId) await setOfficeHint(ctx, String(newUserId))
 
         // ── 身分快取（SH-B1；B 設計方案 §4.1，▶R-5） ─────────────────────────────────────────
         //
@@ -1047,6 +1078,10 @@ function createAuth() {
           } else if (ctx.path !== '/reset-password' && typeof userId === 'string' && userId) cache.bustUser(userId)
           else cache.clear()
         }
+
+        // 登出成功 → 清掉前台編輯提示 cookie（C2-16；§6.2 第 4 點）。所有登出入口（後台登出鈕、「重新確認身分」、
+        // 直接打 `POST /api/auth/sign-out`）都經過這裡，Server Action 由 nextCookies 帶出去。
+        if (ctx.path === '/sign-out' && !looksLikeApiError(returned)) clearOfficeHint(ctx)
 
         if (returned instanceof APIError) return
 
@@ -1150,6 +1185,33 @@ export const OTP_INVALID_MESSAGE = '驗證碼不正確或已失效。請再確�
 async function endpointJson(returned: unknown): Promise<unknown> {
   if (returned instanceof Response) return returned.status === 200 ? returned.clone().json() : null
   return looksLikeApiError(returned) ? null : (returned ?? null)
+}
+
+/**
+ * 前台編輯提示 cookie（C2-16；規格② 設計方案 §6.2 第 4 點）。名稱＝`proxy.ts` 的 `OFFICE_COOKIE`
+ * （infrastructure 不能 import app，所以寫字面值）。HttpOnly、SameSite=Lax、整站；HTTPS 站台才加 Secure。
+ * 系辦＝有效的 admin 角色（`revoked_real_at is null`）且帳號已開通；設為／取消管理員會撤 session，重登就重算。
+ */
+async function setOfficeHint(ctx: { setCookie: (name: string, value: string, options?: Record<string, unknown>) => unknown; request?: Request; headers?: Headers }, userId: string): Promise<void> {
+  const office = await getPool().query(
+    `select 1 from role_assignments r join users u on u.id = r.user_id
+      where r.user_id = $1 and r.role = 'admin' and r.revoked_real_at is null and u.status = 'active'
+      limit 1`,
+    [userId],
+  )
+  const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
+  if (office.rowCount) {
+    ctx.setCookie('fju_office', '1', { path: '/', sameSite: 'lax', httpOnly: true, secure })
+    return
+  }
+  const sent = (ctx.request?.headers ?? ctx.headers)?.get('cookie') ?? ''
+  if (/(?:^|;\s*)fju_office=/.test(sent)) clearOfficeHint(ctx)
+}
+
+/** 清掉前台編輯提示 cookie（Max-Age=0；屬性跟設的時候一樣，瀏覽器才認得是同一張）。 */
+function clearOfficeHint(ctx: { setCookie: (name: string, value: string, options?: Record<string, unknown>) => unknown }): void {
+  const secure = (process.env.BETTER_AUTH_URL ?? '').startsWith('https://')
+  ctx.setCookie('fju_office', '', { path: '/', sameSite: 'lax', httpOnly: true, secure, maxAge: 0 })
 }
 
 /**

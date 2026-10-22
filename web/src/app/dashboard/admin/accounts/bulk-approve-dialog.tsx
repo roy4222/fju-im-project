@@ -1,10 +1,9 @@
 'use client'
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import type { BulkApprovalPreview, BulkApprovalReceipt, RosterMatchStatus, VerificationMethod } from '@/application/accounts'
+import type { BulkApprovalPreview, BulkApprovalReceipt, RosterMatchStatus } from '@/application/accounts'
 import { cn } from '@/shared/cn'
 import { bulkApproveAction, previewBulkApproveAction } from './actions'
-import type { ReviewLabels } from './review-dialog'
 
 /**
  * 批次核准註冊（第三波 W6，N-09；§9 第 3 條「篩選 → 多選 → 批次」）。
@@ -120,22 +119,18 @@ type Phase =
  * `offRosterIds`：名單比對不到或資料不符的人（Q93：不能批次核准）。勾到他們時按鈕旁寫一句「名單外的要逐一核對」；
  * 送出時伺服器照樣把他們略過並寫原因，畫面只提醒、不代替伺服器判斷。
  */
-export function BulkApproveDialog({ labels, offRosterIds = [] }: { labels: ReviewLabels; offRosterIds?: readonly string[] }) {
+export function BulkApproveDialog({ offRosterIds = [] }: { offRosterIds?: readonly string[] }) {
   const router = useRouter()
   const { selected, clear } = useSelection()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [isOpen, setIsOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
-  const [method, setMethod] = useState<VerificationMethod | null>(null)
-  const [note, setNote] = useState('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function open() {
     setPhase({ kind: 'loading' })
-    setMethod(null)
-    setNote('')
     setReason('')
     setError(null)
     setIsOpen(true)
@@ -168,14 +163,10 @@ export function BulkApproveDialog({ labels, offRosterIds = [] }: { labels: Revie
   }
 
   async function confirm(items: Item[], previewSkipped: string[]) {
-    if (!method) {
-      setError('請選擇怎麼確認是本人。')
-      return
-    }
     setBusy(true)
     setError(null)
     try {
-      const result = await bulkApproveAction({ items, previewSkipped, verificationMethod: method, verificationNote: note, reason })
+      const result = await bulkApproveAction({ items, previewSkipped, reason })
       if (result.ok) setPhase({ kind: 'done', receipt: result.data })
       else setError(result.message)
     } catch {
@@ -262,60 +253,21 @@ export function BulkApproveDialog({ labels, offRosterIds = [] }: { labels: Revie
 
               {phase.items.length === 0 ? (
                 <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-                  勾選的人都需要個別審核，沒有可以一起核准的。請關閉後逐一打開「審核」。
+                  勾選的人都需要個別審核，沒有可以一起核准的。請關閉後逐一核准。
                 </p>
               ) : (
-                <>
-                  <fieldset className="space-y-2">
-                    <legend className="text-sm font-medium text-foreground">
-                      怎麼確認是本人 <span className="font-normal text-muted-foreground">・必選，這一批共用</span>
-                    </legend>
-                    {labels.methods.map((m) => (
-                      <label key={m} className="flex items-start gap-2 text-sm text-foreground">
-                        <input
-                          type="radio"
-                          name="bulk-approve-method"
-                          value={m}
-                          checked={method === m}
-                          onChange={() => {
-                            setMethod(m)
-                            setError(null)
-                          }}
-                          className="mt-1"
-                        />
-                        {labels.methodLabel[m]}
-                      </label>
-                    ))}
-                    {method ? (
-                      <label className="block text-sm font-medium text-foreground">
-                        怎麼確認的說明
-                        <span className="ml-1 font-normal text-muted-foreground">・{labels.noteHint[method]}</span>
-                        <textarea
-                          rows={2}
-                          value={note}
-                          onChange={(e) => {
-                            setNote(e.target.value)
-                            setError(null)
-                          }}
-                          required={labels.noteRequired[method]}
-                          className={TEXTAREA}
-                        />
-                      </label>
-                    ) : null}
-                  </fieldset>
-                  <label className="block text-sm font-medium text-foreground">
-                    理由 <span className="font-normal text-muted-foreground">・選填，會寫入每一位的紀錄</span>
-                    <textarea
-                      rows={2}
-                      value={reason}
-                      onChange={(e) => {
-                        setReason(e.target.value)
-                        setError(null)
-                      }}
-                      className={TEXTAREA}
-                    />
-                  </label>
-                </>
+                <label className="block text-sm font-medium text-foreground">
+                  理由 <span className="font-normal text-muted-foreground">・選填，會寫入每一位的紀錄</span>
+                  <textarea
+                    rows={2}
+                    value={reason}
+                    onChange={(e) => {
+                      setReason(e.target.value)
+                      setError(null)
+                    }}
+                    className={TEXTAREA}
+                  />
+                </label>
               )}
 
               {error ? (

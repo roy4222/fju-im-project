@@ -5,7 +5,7 @@ import { displayPersonName, statusGate, type ResolvedActor } from '@/application
 import { cohortLabel, type BusinessClockSource, type CohortStatus } from '@/application/cohorts'
 import { renderBodyHtml, sanitizeBody } from '@/application/items'
 import type { EventPublisher } from '@/application/notifications'
-import { canonicalJson, type AuditWriter, type FileStorage, type OperationLedger } from '@/application/ops'
+import { canonicalJson, type AuditWriter, type FilePurpose, type FileStorage, type OperationLedger } from '@/application/ops'
 import {
   BUTTON_TEXT,
   buildParticipants,
@@ -17,6 +17,9 @@ import {
   causeForRestart,
   checkVoid,
   checkVote,
+  consentSkipReason,
+  contentChangedRecipients,
+  contentChangedTitle,
   freezeAuthorizationScope,
   hasVisibleText,
   isTerminal,
@@ -39,11 +42,15 @@ import {
   scopeContent,
   SIGNOFF_PURPOSES,
   supersedesOnRestart,
+  VOID_CAUSE,
   type AdminGroupRow,
   type AdminSignoffBoard,
   type AdvisorParticipant,
   type AttachmentVersion,
   type AuthorizationScope,
+  type ConsentBoardPerson,
+  type ConsentBoardRow,
+  type ConsentItemBoard,
   type CreateVersionInput,
   type CreateVersionReceipt,
   type DraftSnapshot,
@@ -105,15 +112,52 @@ import { formatTaipeiMinute, RealClock, type Clock } from '@/shared/time'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID.test(value)
 
-type CohortRow = { id: string; code: string; name: string; status: CohortStatus }
+export type CohortRow = { id: string; code: string; name: string; status: CohortStatus }
 
 /** 檔名用的屆別：「第43屆(115)」（括號換半形、去掉空白與斜線）。 */
 function fileCohortLabel(c: { readonly name: string; readonly code: string }): string {
   return cohortLabel(c).replace(/（/g, '(').replace(/）/g, ')').replace(/[\s/\\]/g, '')
 }
-type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
-type PackageRow = { id: string; cohort_id: string; current_version_id: string | null }
+export type GroupRow = { id: string; cohort_id: string; code: string; status: 'active' | 'dissolved' }
 type StatusRow = { version_id: string; version_no: number; state: SignoffState; cause: string | null }
+
+/** 已 `FOR UPDATE` 的簽核包列（`lockLegacyPackage`／`lockItemPackage`）。 */
+export type LockedPackage = { id: string; cohort_id: string; purpose: SignoffPurpose; item_id: string | null; current_version_id: string | null }
+
+/** `createVersionInTx` 的附件來源（C 階段規格① §3.3）。 */
+export type VersionAttachmentSource =
+  | { readonly source: 'submission'; readonly fileIds: readonly string[] }
+  | { readonly source: 'item_attachment'; readonly itemId: string; readonly itemTitle: string; readonly itemVersionNo: number; readonly fileIds: readonly string[] }
+
+/** `createVersionInTx` 的授權範圍來源：不帶、從精選草稿凍結、沿用舊版凍結的（內容改版）。 */
+export type VersionScopeSource =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'draft'; readonly entryId: string }
+  | { readonly kind: 'carry_over'; readonly fromVersionId: string; readonly scope: AuthorizationScope | null }
+
+export type CreateVersionInTxInput = {
+  readonly cohort: CohortRow
+  readonly group: GroupRow
+  readonly pkg: LockedPackage
+  /** 已清洗的全文與它的 sha256。 */
+  readonly content: string
+  readonly contentChecksum: string
+  readonly attachments: VersionAttachmentSource
+  readonly scope: VersionScopeSource
+  readonly notify: 'version_created' | 'content_changed'
+  readonly adminId: string
+  readonly realAt: Date
+  readonly businessAt: Date
+}
+
+export type CreatedVersion = {
+  readonly versionId: string
+  readonly versionNo: number
+  readonly participants: Participants
+  readonly supersededVersionNo: number | null
+  readonly supersededVersionId: string | null
+  readonly previousState: SignoffState | null
+}
 
 type Deps = {
   audit: AuditWriter<PoolClient>
@@ -125,7 +169,7 @@ type Deps = {
   realClock?: Clock
 }
 
-function groupNotFound(): Err {
+export function groupNotFound(): Err {
   return err('VALIDATION_FAILED', '找不到這個組別，請重新整理頁面。', { details: { field: 'groupId' } })
 }
 
@@ -219,61 +263,108 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       if (cohort.status === 'archived') return err('COHORT_ARCHIVED', `${cohortLabel(cohort)}已封存，同意書只能查看。`)
       if (group.status === 'dissolved') return err('GROUP_DISSOLVED', `${group.code} 已解散，不能再建立同意書。`)
 
-      // 參與者＝此刻實際有效的組員＋主指導（組別列 FOR SHARE 期間不會有人改成員）。
-      const participants = buildParticipants(await currentMembers(tx, group.id), await currentAdvisor(tx, group.id), group.code)
-      if (!participants.ok) return participants
+      // 舊 API 的簽核包：一組一用途一個、不連作業（`item_id is null`；C 階段規格① §1.2）。
+      const pkg = await lockLegacyPackage(tx, { group, cohort, purpose: input.purpose, adminId, realAt })
+      const built = await this.createVersionInTx(tx, {
+        cohort,
+        group,
+        pkg,
+        content,
+        contentChecksum,
+        attachments: { source: 'submission', fileIds: attachments },
+        scope: entryId ? { kind: 'draft', entryId } : { kind: 'none' },
+        notify: 'version_created',
+        adminId,
+        realAt,
+        businessAt: businessNow,
+      })
+      if (!built.ok) return built
+      const v = built.value
 
-      // 簽核包：一組一用途一個，沒有就建；鎖住它配版本號、換目前版本。
-      await tx.query(
-        `insert into signoff_packages (id, group_id, cohort_id, purpose, created_at, created_by_user_id, updated_at, updated_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $5, $6)
-         on conflict (group_id, purpose) do nothing`,
-        [uuidv7(), group.id, cohort.id, input.purpose, realAt, adminId],
-      )
-      const pkg = (
-        await tx.query<PackageRow>(
-          'select id, cohort_id, current_version_id from signoff_packages where group_id = $1 and purpose = $2 for update',
-          [group.id, input.purpose],
-        )
-      ).rows[0]!
-      const previous = pkg.current_version_id
-        ? (
-            await tx.query<StatusRow>(
-              `select s.version_id, v.version_no, s.state, s.cause
-                 from signoff_version_status s join signoff_package_versions v on v.id = s.version_id
-                where s.version_id = $1 for update of s`,
-              [pkg.current_version_id],
-            )
-          ).rows[0]!
-        : null
-
-      const versionId = uuidv7()
-      const versionRef = { refType: 'signoff_version' as const, refId: versionId }
-
-      // 最終文件授權：從這一組的精選草稿「此刻」的內容凍結授權範圍，海報一起綁到版本上。
-      let scope: AuthorizationScope | null = null
-      if (entryId) {
-        const draft = await lockDraft(tx, entryId, group.id)
-        if (!draft) {
-          return err('VALIDATION_FAILED', `找不到 ${group.code} 的這份成果展示草稿；請先到「成果展示」替這一組建立草稿。`, {
-            details: { field: 'showcaseEntryId' },
-          })
-        }
-        const frozen = freezeAuthorizationScope(draft, sha256(canonicalJson(scopeContent(draft))), group.code)
-        if (!frozen.ok) return frozen
-        scope = frozen.value
-        if (draft.poster) {
-          const held = await this.#files.attach(tx, draft.poster.fileId, versionRef, {
-            purpose: 'poster',
-            heldBy: { refType: 'showcase_draft', refId: draft.entryId },
-          })
-          if (!held.ok) return held
-        }
+      const receipt = {
+        packageId: pkg.id,
+        versionId: v.versionId,
+        versionNo: v.versionNo,
+        groupCode: group.code,
+        purpose: input.purpose,
+        studentCount: v.participants.students.length,
+        advisorName: v.participants.advisor.displayName,
+        supersededVersionNo: v.supersededVersionNo,
+        requestId,
+        serverTime: realAt.toISOString(),
       }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { packageId: pkg.id, versionId: v.versionId } })
+      return { ok: true as const, receipt }
+    })
+  }
 
+  /**
+   * 在呼叫端的交易裡建一版（C 階段規格① §3.3 `#createVersionInTx`）：`createVersion`（舊 API）與同意書作業的 hook
+   * （`PgConsentPublishHook`：發布建包、內容改版、補建）共用。呼叫前簽核包列已 `FOR UPDATE`（`lockLegacyPackage`／`lockItemPackage`）。
+   *
+   * 步驟：舊目前版本 `FOR UPDATE` → 參與者快照 → 授權範圍（從草稿凍結，或沿用舊版凍結的）→ 附件綁定（依來源）→
+   * 版本內容＋狀態列 → 舊版失效（cause `content_change`、事件只留不通知）→ 換目前版本 → 通知 → 稽核。
+   *
+   * 附件來源（§1.2「不冒充繳交檔」）：
+   * - `submission`：只能是這一組正式送出的繳交檔（舊 API），`heldBy: submission_version`。
+   * - `item_attachment`：這份同意書作業此刻的附件，`{ purpose: 'attachment', heldBy: { refType: 'item_attachment', refId: itemId } }`。
+   * 通知（§1.2「一版只發一種建版通知」）：`version_created` 給新版的參與學生；`content_changed` 給**被取代那一版**快照裡的
+   * 全部學生＋主指導（不再發 `version_created`）。
+   *
+   * 不在 `SignoffCommand` 介面上：只給同一個模組的 infrastructure（hook）用。
+   */
+  async createVersionInTx(tx: PoolClient, v: CreateVersionInTxInput): Promise<{ ok: true; value: CreatedVersion } | Err> {
+    const { cohort, group, pkg, adminId, realAt, businessAt } = v
+    const previous = pkg.current_version_id
+      ? (
+          await tx.query<StatusRow & { participants: unknown; authorization_scope: unknown }>(
+            `select s.version_id, v.version_no, s.state, s.cause, v.participants, v.authorization_scope
+               from signoff_version_status s join signoff_package_versions v on v.id = s.version_id
+              where s.version_id = $1 for update of s`,
+            [pkg.current_version_id],
+          )
+        ).rows[0]!
+      : null
+
+    // 參與者＝此刻實際有效的組員＋主指導（組別列 FOR SHARE 期間不會有人改成員）。
+    const participants = buildParticipants(await currentMembers(tx, group.id), await currentAdvisor(tx, group.id), group.code)
+    if (!participants.ok) return participants
+
+    const versionId = uuidv7()
+    const versionRef = { refType: 'signoff_version' as const, refId: versionId }
+
+    // 授權範圍：最終文件授權從這一組的精選草稿「此刻」的內容凍結，海報一起綁到版本上；內容改版沿用舊版凍結的範圍。
+    let scope: AuthorizationScope | null = null
+    if (v.scope.kind === 'draft') {
+      const draft = await lockDraft(tx, v.scope.entryId, group.id)
+      if (!draft) {
+        return err('VALIDATION_FAILED', `找不到 ${group.code} 的這份成果展示草稿；請先到「成果展示」替這一組建立草稿。`, {
+          details: { field: 'showcaseEntryId' },
+        })
+      }
+      const frozen = freezeAuthorizationScope(draft, sha256(canonicalJson(scopeContent(draft))), group.code)
+      if (!frozen.ok) return frozen
+      scope = frozen.value
+      if (draft.poster) {
+        const held = await this.#files.attach(tx, draft.poster.fileId, versionRef, {
+          purpose: 'poster',
+          heldBy: { refType: 'showcase_draft', refId: draft.entryId },
+        })
+        if (!held.ok) return held
+      }
+    } else if (v.scope.kind === 'carry_over') {
+      scope = v.scope.scope
+      const heldBy = { refType: 'signoff_version' as const, refId: v.scope.fromVersionId }
+      for (const asset of scope?.assets ?? []) {
+        const held = await this.#files.attach(tx, asset.fileId, versionRef, { purpose: 'poster', heldBy })
+        if (!held.ok) return held
+      }
+    }
+
+    const attachmentVersions: AttachmentVersion[] = []
+    if (v.attachments.source === 'submission') {
       // 附件：只能是這一組正式送出過的繳交檔案；綁的是那一刻的檔案版本與 checksum。
-      const attachmentVersions: AttachmentVersion[] = []
-      for (const fileId of attachments) {
+      for (const fileId of v.attachments.fileIds) {
         const source = await submittedFileOf(tx, fileId, group.id)
         if (!source) {
           return err('FILE_NOT_OWNED', `有一個附件不是 ${group.code} 正式送出的繳交檔案，請重新整理頁面再選。`, {
@@ -285,121 +376,203 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
           heldBy: { refType: 'submission_version', refId: source.submissionVersionId },
         })
         if (!held.ok) return held
-        attachmentVersions.push({
-          fileId,
-          checksum: held.receipt.checksum,
-          name: source.name,
-          source: { itemTitle: source.itemTitle, versionNo: source.versionNo },
-        })
+        attachmentVersions.push({ fileId, checksum: held.receipt.checksum, name: source.name, source: { itemTitle: source.itemTitle, versionNo: source.versionNo } })
       }
-
-      const versionNo = await nextVersionNo(tx, pkg.id)
-      const supersedeCause = causeForNewVersion(previous)
-      await insertVersion(tx, {
-        versionId,
-        packageId: pkg.id,
-        versionNo,
-        content,
-        contentChecksum,
-        attachments: attachmentVersions,
-        participants: participants.value,
-        supersedeCause,
-        scope,
-        adminId,
-        realAt,
-        businessAt: businessNow,
-      })
-
-      // 同組同用途原本的目前版本：還沒失效或作廢就讓它失效（舊同意留歷史、不計入新版）。
-      let supersededVersionNo: number | null = null
-      if (previous && !isTerminal(previous.state)) {
-        await markSuperseded(tx, previous.version_id, 'content_change', adminId, realAt)
-        supersededVersionNo = previous.version_no
-        // 舊版自己的操作歷程也留一筆（匯出的「操作歷程」依版本 ID 讀稽核，票 26）。
-        await this.#audit.append(tx, {
-          actorKind: 'user',
-          actorUserId: adminId,
-          role: 'admin',
-          action: 'signoff.version_supersede',
-          targetType: 'signoff_version',
-          targetId: previous.version_id,
-          scope: 'cohort',
-          cohortId: cohort.id,
-          realAt,
-          businessAt: businessNow,
-          payload: { groupId: group.id, purpose: input.purpose, versionNo: previous.version_no, from: previous.state, cause: 'content_change', replacedBy: versionId },
-        })
-        await this.#events.publish(tx, {
-          type: 'signoff.superseded',
-          scope: 'cohort',
-          cohortId: cohort.id,
-          source: { type: 'signoff_version', id: previous.version_id, version: previous.version_no },
-          actor: { kind: 'user', userId: adminId },
-          // 系辦自己建新版造成的失效：留事件、不通知（見事件目錄 `signoff.superseded`）。
-          recipients: [],
-          recipientBasis: { basis: 'admin_own_action' },
-          payload: { groupId: group.id, code: group.code, purpose: input.purpose, cause: 'content_change', replacedBy: versionId },
-          occurredRealAt: realAt,
-          occurredBusinessAt: businessNow,
-        })
+    } else {
+      // 同意書作業的附件：以「此刻是這份作業的附件」為證明（item 來源綁檔須傳 purpose 'attachment'＋heldBy item_attachment），
+      // 不走繳交檔那條檢查。綁的是那一刻的檔案版本與 checksum。
+      const { itemId, itemTitle, itemVersionNo } = v.attachments
+      for (const fileId of v.attachments.fileIds) {
+        const held = await this.#files.attach(tx, fileId, versionRef, { purpose: 'attachment', heldBy: { refType: 'item_attachment', refId: itemId } })
+        if (!held.ok) return held
+        const name = (await tx.query<{ original_name: string }>('select original_name from stored_files where id = $1', [fileId])).rows[0]?.original_name ?? '附件'
+        attachmentVersions.push({ fileId, checksum: held.receipt.checksum, name, source: { itemTitle, versionNo: itemVersionNo, kind: 'item_attachment' } })
       }
-      await tx.query(
-        `update signoff_packages set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,
-        [pkg.id, versionId, realAt, adminId],
-      )
+    }
 
-      // 輪到本人同意：只發給參與學生（老師要等全員同意，管理員不收）。
-      await this.#publishVersionCreated(tx, {
-        cohortId: cohort.id,
-        group,
-        purpose: input.purpose,
-        versionId,
-        versionNo,
-        participants: participants.value,
-        adminId,
-        realAt,
-        businessAt: businessNow,
-      })
+    const versionNo = await nextVersionNo(tx, pkg.id)
+    const supersedeCause = causeForNewVersion(previous)
+    await insertVersion(tx, {
+      versionId,
+      packageId: pkg.id,
+      versionNo,
+      content: v.content,
+      contentChecksum: v.contentChecksum,
+      attachments: attachmentVersions,
+      participants: participants.value,
+      supersedeCause,
+      scope,
+      adminId,
+      realAt,
+      businessAt,
+    })
+
+    // 同一包原本的目前版本：還沒失效或作廢就讓它失效（舊同意留歷史、不計入新版）。
+    let supersededVersionNo: number | null = null
+    if (previous && !isTerminal(previous.state)) {
+      await markSuperseded(tx, previous.version_id, 'content_change', adminId, realAt)
+      supersededVersionNo = previous.version_no
+      // 舊版自己的操作歷程也留一筆（匯出的「操作歷程」依版本 ID 讀稽核，票 26）。
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: adminId,
         role: 'admin',
-        action: 'signoff.version_create',
+        action: 'signoff.version_supersede',
         targetType: 'signoff_version',
-        targetId: versionId,
+        targetId: previous.version_id,
         scope: 'cohort',
         cohortId: cohort.id,
         realAt,
-        businessAt: businessNow,
-        payload: {
-          groupId: group.id,
-          purpose: input.purpose,
-          versionNo,
-          contentChecksum,
-          attachmentFileIds: attachments,
-          studentUserIds: participants.value.students.map((s) => s.userId),
-          advisorUserId: participants.value.advisor.userId,
-          supersedeCause,
-          supersededVersionId: supersededVersionNo !== null ? previous!.version_id : null,
-          scopeSource: scope?.scopeSource ?? null,
-        },
+        businessAt,
+        payload: { groupId: group.id, purpose: pkg.purpose, itemId: pkg.item_id, versionNo: previous.version_no, from: previous.state, cause: 'content_change', replacedBy: versionId },
       })
+      await this.#events.publish(tx, {
+        type: 'signoff.superseded',
+        scope: 'cohort',
+        cohortId: cohort.id,
+        source: { type: 'signoff_version', id: previous.version_id, version: previous.version_no },
+        actor: { kind: 'user', userId: adminId },
+        // 系辦自己建新版造成的失效：留事件、不通知（見事件目錄 `signoff.superseded`）。
+        recipients: [],
+        recipientBasis: { basis: 'admin_own_action' },
+        payload: { groupId: group.id, code: group.code, purpose: pkg.purpose, cause: 'content_change', replacedBy: versionId },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessAt,
+      })
+    }
+    await tx.query(
+      `update signoff_packages set current_version_id = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4 where id = $1`,
+      [pkg.id, versionId, realAt, adminId],
+    )
 
-      const receipt = {
-        packageId: pkg.id,
+    if (v.notify === 'version_created') {
+      // 輪到本人同意：只發給參與學生（老師要等全員同意，管理員不收）。
+      await this.#publishVersionCreated(tx, {
+        cohortId: cohort.id,
+        group,
+        purpose: pkg.purpose,
         versionId,
         versionNo,
-        groupCode: group.code,
-        purpose: input.purpose,
-        studentCount: participants.value.students.length,
-        advisorName: participants.value.advisor.displayName,
-        supersededVersionNo,
-        requestId,
-        serverTime: realAt.toISOString(),
-      }
-      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { packageId: pkg.id, versionId } })
-      return { ok: true as const, receipt }
+        participants: participants.value,
+        adminId,
+        realAt,
+        businessAt,
+      })
+    } else {
+      // 內容改版（#161）：被取代那一版的全部參與者（含已同意的學生與主指導）都收到「內容已更新」；這一版不再發 version_created。
+      const recipients = contentChangedRecipients((previous && readParticipants(previous.participants)) || participants.value)
+      await this.#events.publish(tx, {
+        type: 'signoff.content_changed',
+        scope: 'cohort',
+        cohortId: cohort.id,
+        source: { type: 'signoff_version', id: versionId, version: versionNo },
+        actor: { kind: 'user', userId: adminId },
+        recipients,
+        recipientBasis: { basis: 'signoff_previous_participants', versionId: previous?.version_id ?? null, groupId: group.id },
+        payload: {
+          title: contentChangedTitle(group.code, PURPOSE_LABEL[pkg.purpose]),
+          groupId: group.id,
+          code: group.code,
+          purpose: pkg.purpose,
+          versionNo,
+          itemId: pkg.item_id,
+          replaces: previous?.version_id ?? null,
+        },
+        occurredRealAt: realAt,
+        occurredBusinessAt: businessAt,
+      })
+    }
+    await this.#audit.append(tx, {
+      actorKind: 'user',
+      actorUserId: adminId,
+      role: 'admin',
+      action: 'signoff.version_create',
+      targetType: 'signoff_version',
+      targetId: versionId,
+      scope: 'cohort',
+      cohortId: cohort.id,
+      realAt,
+      businessAt,
+      payload: {
+        groupId: group.id,
+        purpose: pkg.purpose,
+        itemId: pkg.item_id,
+        versionNo,
+        contentChecksum: v.contentChecksum,
+        attachmentFileIds: attachmentVersions.map((a) => a.fileId),
+        attachmentSource: v.attachments.source,
+        studentUserIds: participants.value.students.map((s) => s.userId),
+        advisorUserId: participants.value.advisor.userId,
+        supersedeCause,
+        supersededVersionId: supersededVersionNo !== null ? previous!.version_id : null,
+        scopeSource: scope?.scopeSource ?? null,
+        notify: v.notify,
+      },
     })
+    return {
+      ok: true,
+      value: {
+        versionId,
+        versionNo,
+        participants: participants.value,
+        supersededVersionNo,
+        supersededVersionId: supersededVersionNo !== null ? previous!.version_id : null,
+        previousState: previous?.state ?? null,
+      },
+    }
+  }
+
+  /**
+   * 在呼叫端交易裡作廢一個簽核包目前的版本（給同意書作業 hook 的「對象減組」用；C 階段規格① §6.4）。
+   * 狀態 `cause` 固定代碼 `void`，理由進稽核與事件 payload。已作廢的不動（回 false）。呼叫前簽核包列已 `FOR UPDATE`。
+   */
+  async voidCurrentInTx(
+    tx: PoolClient,
+    v: { cohort: CohortRow; group: GroupRow; pkg: LockedPackage; reason: string; adminId: string; realAt: Date; businessAt: Date },
+  ): Promise<boolean> {
+    if (!v.pkg.current_version_id) return false
+    const row = (
+      await tx.query<StatusRow>(
+        `select s.version_id, ver.version_no, s.state, s.cause
+           from signoff_version_status s join signoff_package_versions ver on ver.id = s.version_id
+          where s.version_id = $1 for update of s`,
+        [v.pkg.current_version_id],
+      )
+    ).rows[0]
+    if (!row || row.state === 'void') return false
+    await tx.query(
+      `update signoff_version_status
+          set state = 'void', cause = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4
+        where version_id = $1`,
+      [row.version_id, VOID_CAUSE, v.realAt, v.adminId],
+    )
+    const { eventId } = await this.#events.publish(tx, {
+      type: 'signoff.voided',
+      scope: 'cohort',
+      cohortId: v.cohort.id,
+      source: { type: 'signoff_version', id: row.version_id, version: row.version_no },
+      actor: { kind: 'user', userId: v.adminId },
+      recipients: [],
+      recipientBasis: { basis: 'none' },
+      payload: { groupId: v.group.id, code: v.group.code, purpose: v.pkg.purpose, itemId: v.pkg.item_id, from: row.state, cause: VOID_CAUSE, reason: v.reason },
+      occurredRealAt: v.realAt,
+      occurredBusinessAt: v.businessAt,
+    })
+    await this.#audit.append(tx, {
+      actorKind: 'user',
+      actorUserId: v.adminId,
+      role: 'admin',
+      action: 'signoff.version_void',
+      targetType: 'signoff_version',
+      targetId: row.version_id,
+      scope: 'cohort',
+      cohortId: v.cohort.id,
+      reason: v.reason,
+      realAt: v.realAt,
+      businessAt: v.businessAt,
+      payload: { eventId, from: row.state, groupId: v.group.id, purpose: v.pkg.purpose, itemId: v.pkg.item_id, versionNo: row.version_no, cause: VOID_CAUSE, reason: v.reason },
+    })
+    return true
   }
 
   /**
@@ -516,7 +689,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         targetId: row.version_id,
         scope: 'cohort',
         cohortId: row.cohort_id,
-        reason: `組別解散：${input.reason}`,
+        reason: input.reason ? `組別解散：${input.reason}` : '組別解散',
         realAt: input.realAt,
         businessAt: input.businessAt,
         payload: { eventId, from: row.state, groupId: input.groupId, purpose: row.purpose, versionNo: row.version_no, cause: 'group_dissolved' },
@@ -547,7 +720,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
     }
     const loginMethod = actor.loginMethod
     if (!loginMethod) return err('UNAUTHENTICATED', '讀不到這次登入的方式，請重新登入後再回覆。')
-    const reason = normalizeReason(input.reason, input.decision === 'reject', input.decision === 'reject' ? '不同意或退回' : '同意')
+    // 理由選填（C 階段規格① §1.4 X2）：不同意／退回沒填理由也收；有填才驗長度。
+    const reason = normalizeReason(input.reason, false, input.decision === 'reject' ? '不同意或退回' : '同意')
     if (!reason.ok) return reason
     const checksum = String(input.contentChecksum ?? '')
     const businessNow = await this.#businessClock.now()
@@ -647,9 +821,11 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
           `update signoff_version_status
               set state = $2, cause = $3, completed_real_at = $4, revision = revision + 1, updated_at = $5, updated_by_user_id = $6
             where version_id = $1`,
-          [version.id, next, next === 'revision' ? reason.reason : null, next === 'complete' ? realAt : null, realAt, actor.userId],
+          // 退回修正中的 cause：有理由就是理由原文（畫面照舊顯示）；沒填理由寫固定代碼 disagree／return（狀態列 CHECK 要非空）。
+          [version.id, next, next === 'revision' ? reason.reason ?? result : null, next === 'complete' ? realAt : null, realAt, actor.userId],
         )
-        const label = `${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版`
+        // 學生、老師收的通知不寫版本號（AC-22）；只給系辦的作廢通知才寫。
+        const label = `${group.code}「${PURPOSE_LABEL[pkg.purpose]}」`
         const common = { scope: 'cohort' as const, cohortId: cohort.id, source, actor: actorRef, occurredRealAt: realAt, occurredBusinessAt: businessNow }
         if (next === 'teacher_pending') {
           await this.#events.publish(tx, {
@@ -669,7 +845,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: [...stillIn, participants!.advisor.userId],
             recipientBasis: { basis: 'signoff_participants_effective_at_completion', versionId: version.id },
             payload: {
-              title: `${label} 這一版同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
+              title: `${label}這一版同意書全員已同意（站內同意紀錄，不代表校方正式接受這份同意紀錄）`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -684,7 +860,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
             recipients: voter === 'student' ? [...admins, participants!.advisor.userId] : admins,
             recipientBasis: { basis: voter === 'student' ? 'active_admins+snapshot_advisor' : 'active_admins', versionId: version.id },
             payload: {
-              title: `${label} 被${voter === 'student' ? '學生不同意' : '指導老師退回'}，回到修正中`,
+              title: `${label}同意書被${voter === 'student' ? '學生不同意' : '指導老師退回'}，回到修正中`,
               groupId: group.id,
               code: group.code,
               purpose: pkg.purpose,
@@ -749,7 +925,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
-    const reason = normalizeReason(input.reason, true, what)
+    // 理由選填（C 階段規格① §1.4）：狀態 cause 固定代碼（reset／沿用），理由只進稽核與事件 payload。
+    const reason = normalizeReason(input.reason, false, what)
     if (!reason.ok) return reason
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
@@ -788,8 +965,10 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       const newRef = { refType: 'signoff_version' as const, refId: newVersionId }
       const heldBy = { refType: 'signoff_version' as const, refId: version.id }
       const attachments = Array.isArray(version.attachment_file_versions) ? (version.attachment_file_versions as AttachmentVersion[]) : []
+      // 重綁依每個檔**實際**的用途（§3.3）：舊 API 的繳交檔是 submission、同意書作業的附件是 attachment；證明都是「舊版正持有它」。
+      const purposes = await filePurposes(tx, attachments.map((a) => a.fileId))
       for (const a of attachments) {
-        const held = await this.#files.attach(tx, a.fileId, newRef, { purpose: 'submission', heldBy })
+        const held = await this.#files.attach(tx, a.fileId, newRef, { purpose: purposes.get(a.fileId) ?? 'submission', heldBy })
         if (!held.ok) return held
       }
       const scope = readAuthorizationScope(version.authorization_scope)
@@ -829,7 +1008,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         actor: { kind: 'user', userId: adminId },
         recipients: [],
         recipientBasis: { basis: 'none' },
-        payload: { kind, groupId: group.id, code: group.code, purpose: pkg.purpose, from: status.state, replacedBy: newVersionId },
+        payload: { kind, groupId: group.id, code: group.code, purpose: pkg.purpose, from: status.state, replacedBy: newVersionId, reason: reason.reason },
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })
@@ -866,7 +1045,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         targetType: 'signoff_version',
         targetId: version.id,
         reason: reason.reason,
-        payload: { eventId, from: status.state, oldSuperseded, newVersionId, newVersionNo: versionNo, groupId: group.id, purpose: pkg.purpose },
+        payload: { eventId, from: status.state, oldSuperseded, newVersionId, newVersionNo: versionNo, groupId: group.id, purpose: pkg.purpose, reason: reason.reason },
       })
       await this.#audit.append(tx, {
         ...auditBase,
@@ -907,13 +1086,16 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
     })
   }
 
-  /** 作廢目前這一版（S11-07）：理由必填；之後誰都不能再表態。已完成的作廢等於撤回這份授權。 */
+  /**
+   * 作廢目前這一版（S11-07）：之後誰都不能再表態。已完成的作廢等於撤回這份授權。
+   * 理由選填（C 階段規格① §1.4）：狀態 `cause` 固定寫代碼 `void`（`describeCause` 翻成「系辦作廢」），理由只進稽核與事件 payload。
+   */
   async voidVersion(actor: ResolvedActor, input: ReasonedVersionInput, requestId: string): Promise<Result<VoidReceipt>> {
     const blocked = authorizeAdmin(actor, '作廢同意書')
     if (blocked) return blocked
     if (!isUuid(requestId)) return badRequestId()
     if (!isUuid(input.versionId)) return versionNotFound()
-    const reason = normalizeReason(input.reason, true, '作廢')
+    const reason = normalizeReason(input.reason, false, '作廢')
     if (!reason.ok) return reason
     const adminId = actor.kind === 'authenticated' ? actor.userId : ''
     const businessNow = await this.#businessClock.now()
@@ -944,7 +1126,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         `update signoff_version_status
             set state = 'void', cause = $2, revision = revision + 1, updated_at = $3, updated_by_user_id = $4
           where version_id = $1`,
-        [version.id, reason.reason, realAt, adminId],
+        [version.id, VOID_CAUSE, realAt, adminId],
       )
       const { eventId } = await this.#events.publish(tx, {
         type: 'signoff.voided',
@@ -954,7 +1136,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         actor: { kind: 'user', userId: adminId },
         recipients: [],
         recipientBasis: { basis: 'none' },
-        payload: { groupId: group.id, code: group.code, purpose: pkg.purpose, from: status.state },
+        payload: { groupId: group.id, code: group.code, purpose: pkg.purpose, from: status.state, cause: VOID_CAUSE, reason: reason.reason },
         occurredRealAt: realAt,
         occurredBusinessAt: businessNow,
       })
@@ -970,7 +1152,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
         reason: reason.reason,
         realAt,
         businessAt: businessNow,
-        payload: { eventId, from: status.state, groupId: group.id, purpose: pkg.purpose, versionNo: version.version_no },
+        payload: { eventId, from: status.state, groupId: group.id, purpose: pkg.purpose, versionNo: version.version_no, cause: VOID_CAUSE, reason: reason.reason },
       })
       const receipt = {
         versionId: version.id,
@@ -1042,8 +1224,8 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
           // 學生還在同意中時只發給學生（網站問題 #4／TE-02：還沒輪到的老師不提醒，取代 Q38）；標題的括號句仍保留給學生看；輪到老師時維持原字。
           title:
             status.state === 'teacher_pending'
-              ? `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版還等你閱讀並回覆`
-              : `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」第 ${version.version_no} 版同意書還有人沒回覆（學生全員同意後才輪到老師表態）`,
+              ? `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」同意書還等你閱讀並回覆`
+              : `提醒：${group.code}「${PURPOSE_LABEL[pkg.purpose]}」同意書還有人沒回覆（學生全員同意後才輪到老師表態）`,
           groupId: group.id,
           code: group.code,
           purpose: pkg.purpose,
@@ -1192,7 +1374,7 @@ export class PgSignoffCommand implements SignoffCommand, SignoffParticipantHook<
       recipients: v.participants.students.map((s) => s.userId),
       recipientBasis: { basis: 'signoff_participants', versionId: v.versionId, groupId: v.group.id },
       payload: {
-        title: `${v.group.code}「${PURPOSE_LABEL[v.purpose]}」第 ${v.versionNo} 版輪到你閱讀並同意`,
+        title: `${v.group.code}「${PURPOSE_LABEL[v.purpose]}」同意書輪到你閱讀並同意`,
         groupId: v.group.id,
         code: v.group.code,
         purpose: v.purpose,
@@ -1224,7 +1406,7 @@ function versionNotFound(): Err {
 type LockedVersion = {
   cohort: CohortRow
   group: GroupRow
-  pkg: { id: string; purpose: SignoffPurpose; current_version_id: string | null }
+  pkg: { id: string; purpose: SignoffPurpose; item_id: string | null; current_version_id: string | null }
   version: {
     id: string
     version_no: number
@@ -1251,7 +1433,7 @@ async function lockVersion(tx: PoolClient, versionId: string): Promise<LockedVer
   const locked = await lockGroup(tx, found.group_id)
   if (!locked) return null
   const pkg = (
-    await tx.query<LockedVersion['pkg']>('select id, purpose, current_version_id from signoff_packages where id = $1 for update', [
+    await tx.query<LockedVersion['pkg']>('select id, purpose, item_id, current_version_id from signoff_packages where id = $1 for update', [
       found.package_id,
     ])
   ).rows[0]
@@ -1432,7 +1614,7 @@ async function insertVersion(
 }
 
 /** 鎖順序：屆別 FOR SHARE → 組別 FOR SHARE（見檔頭）。 */
-async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: CohortRow; group: GroupRow } | null> {
+export async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: CohortRow; group: GroupRow } | null> {
   const owner = await tx.query<{ cohort_id: string }>('select cohort_id from groups where id = $1', [groupId])
   const cohortId = owner.rows[0]?.cohort_id
   if (!cohortId) return null
@@ -1444,8 +1626,61 @@ async function lockGroup(tx: PoolClient, groupId: string): Promise<{ cohort: Coh
 
 type Queryable = Pick<PoolClient, 'query'>
 
+const LOCKED_PACKAGE_COLUMNS = 'id, cohort_id, purpose, item_id, current_version_id'
+
+/** 舊 API 的簽核包：一組一用途一個、不連作業（`item_id is null`）；沒有就建，然後 `FOR UPDATE`（配版本號、換目前版本）。 */
+export async function lockLegacyPackage(
+  tx: PoolClient,
+  v: { group: GroupRow; cohort: CohortRow; purpose: SignoffPurpose; adminId: string; realAt: Date },
+): Promise<LockedPackage> {
+  await tx.query(
+    `insert into signoff_packages (id, group_id, cohort_id, purpose, created_at, created_by_user_id, updated_at, updated_by_user_id)
+     values ($1, $2, $3, $4, $5, $6, $5, $6)
+     on conflict (group_id, purpose) where item_id is null do nothing`,
+    [uuidv7(), v.group.id, v.cohort.id, v.purpose, v.realAt, v.adminId],
+  )
+  return (
+    await tx.query<LockedPackage>(
+      `select ${LOCKED_PACKAGE_COLUMNS} from signoff_packages where group_id = $1 and purpose = $2 and item_id is null for update`,
+      [v.group.id, v.purpose],
+    )
+  ).rows[0]!
+}
+
+/**
+ * 連到同意書作業的簽核包：一組一份作業一包（`(group_id, item_id)` 唯一；C 階段規格① §1.2）。
+ * `create: true` 沒有就建（發布、補建）；`create: false` 只找（內容改版、對象減組），沒有回 null。找到就 `FOR UPDATE`。
+ */
+export async function lockItemPackage(
+  tx: PoolClient,
+  v: { group: GroupRow; cohort: CohortRow; itemId: string; purpose?: SignoffPurpose; adminId: string; realAt: Date; create: boolean },
+): Promise<LockedPackage | null> {
+  if (v.create) {
+    if (!v.purpose) throw new Error('lockItemPackage：建包要給 purpose')
+    await tx.query(
+      `insert into signoff_packages (id, group_id, cohort_id, purpose, item_id, created_at, created_by_user_id, updated_at, updated_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $6, $7)
+       on conflict (group_id, item_id) where item_id is not null do nothing`,
+      [uuidv7(), v.group.id, v.cohort.id, v.purpose, v.itemId, v.realAt, v.adminId],
+    )
+  }
+  return (
+    await tx.query<LockedPackage>(`select ${LOCKED_PACKAGE_COLUMNS} from signoff_packages where group_id = $1 and item_id = $2 for update`, [
+      v.group.id,
+      v.itemId,
+    ])
+  ).rows[0] ?? null
+}
+
+/** 一批檔案此刻登記的用途（重綁附件時要照實際用途證明）。 */
+async function filePurposes(db: Queryable, fileIds: readonly string[]): Promise<Map<string, FilePurpose>> {
+  if (fileIds.length === 0) return new Map()
+  const rows = await db.query<{ id: string; purpose: FilePurpose }>('select id, purpose from stored_files where id = any($1::uuid[])', [fileIds])
+  return new Map(rows.rows.map((r) => [r.id, r.purpose]))
+}
+
 /** 此刻的有效組員（當時姓名與學號）。 */
-async function currentMembers(db: Queryable, groupId: string): Promise<StudentParticipant[]> {
+export async function currentMembers(db: Queryable, groupId: string): Promise<StudentParticipant[]> {
   const rows = await db.query<{ membership_id: string; user_id: string; name: string; student_no: string | null }>(
     `select m.id as membership_id, m.user_id, coalesce(p.display_name, u.name) as name, si.student_no
        from group_memberships m
@@ -1459,7 +1694,7 @@ async function currentMembers(db: Queryable, groupId: string): Promise<StudentPa
 }
 
 /** 此刻的主指導。 */
-async function currentAdvisor(db: Queryable, groupId: string): Promise<AdvisorParticipant | null> {
+export async function currentAdvisor(db: Queryable, groupId: string): Promise<AdvisorParticipant | null> {
   const rows = await db.query<{ id: string; teacher_user_id: string; name: string }>(
     `select a.id, a.teacher_user_id, coalesce(p.display_name, u.name) as name
        from advisor_assignments a
@@ -1555,11 +1790,13 @@ type VersionRow = {
   current_version_id: string | null
   created_real_at: Date
   created_by_name: string
+  item_id: string | null
+  item_title: string | null
 }
 
 const VERSION_SELECT = `
   select v.id as version_id, v.package_id, v.version_no, p.purpose, g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name,
-         p.cohort_id, s.updated_at as status_updated_at,
+         p.cohort_id, s.updated_at as status_updated_at, p.item_id, mi.title as item_title,
          v.content_text, v.content_checksum, v.attachment_file_versions, v.participants, v.authorization_scope, v.supersede_cause,
          s.state, s.cause, p.current_version_id, v.created_real_at,
          coalesce(cp.display_name, cu.name) as created_by_name
@@ -1569,7 +1806,8 @@ const VERSION_SELECT = `
     join groups g on g.id = p.group_id
     join cohorts c on c.id = p.cohort_id
     join users cu on cu.id = v.created_by_user_id
-    left join user_profiles cp on cp.user_id = v.created_by_user_id`
+    left join user_profiles cp on cp.user_id = v.created_by_user_id
+    left join managed_items mi on mi.id = p.item_id`
 
 const NO_PARTICIPANTS: Participants = { students: [], advisor: { userId: '', displayName: '（無）', assignmentId: '' } }
 
@@ -1818,14 +2056,7 @@ export class PgSignoffQuery implements SignoffQuery {
       return { groupCode: null, versions: [] }
     }
     return this.#withClient(async (db) => {
-      const group = (
-        await db.query<{ id: string; code: string }>(
-          `select g.id, g.code from group_memberships m join groups g on g.id = m.group_id
-            where m.user_id = $1 and m.valid_to is null and g.status = 'active'
-            order by m.valid_from desc limit 1`,
-          [actor.userId],
-        )
-      ).rows[0]
+      const group = await currentGroupOf(db, actor.userId)
       if (!group) return { groupCode: null, versions: [] }
       const rows = (
         await db.query<VersionRow>(`${VERSION_SELECT} where p.group_id = $1 and v.id = p.current_version_id order by p.purpose desc`, [
@@ -1840,18 +2071,31 @@ export class PgSignoffQuery implements SignoffQuery {
   async teacherView(actor: ResolvedActor): Promise<readonly TeacherSignoffCard[]> {
     if (statusGate(actor, 'business') || actor.kind !== 'authenticated' || !actor.roles.includes('teacher')) return []
     return this.#withClient(async (db) => {
-      const rows = await db.query<SummaryRow & { group_id: string; group_code: string; cohort_code: string; cohort_name: string; purpose: SignoffPurpose }>(
-        `select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, v.id as version_id, v.version_no,
-                s.state, s.cause, v.participants, v.created_real_at, s.updated_at as status_updated_at
+      return this.#teacherCards(db, actor, null)
+    })
+  }
+
+  async teacherViewByItem(actor: ResolvedActor, itemId: string): Promise<readonly TeacherSignoffCard[]> {
+    if (statusGate(actor, 'business') || actor.kind !== 'authenticated' || !actor.roles.includes('teacher') || !isUuid(itemId)) return []
+    return this.#withClient((db) => this.#teacherCards(db, actor, itemId))
+  }
+
+  /** 老師此刻指導的組、每個簽核包的目前版本；`itemId` 給了只留連到那份作業的包。 */
+  async #teacherCards(db: Queryable, actor: Extract<ResolvedActor, { kind: 'authenticated' }>, itemId: string | null): Promise<TeacherSignoffCard[]> {
+    {
+      const rows = await db.query<TeacherCardRow>(
+        `select g.id as group_id, g.code as group_code, c.code as cohort_code, c.name as cohort_name, p.purpose, p.item_id, mi.title as item_title,
+                v.id as version_id, v.version_no, s.state, s.cause, v.participants, v.created_real_at, s.updated_at as status_updated_at
            from advisor_assignments a
            join groups g on g.id = a.group_id and g.status = 'active'
            join cohorts c on c.id = g.cohort_id and c.status <> 'archived'
            join signoff_packages p on p.group_id = g.id
            join signoff_package_versions v on v.id = p.current_version_id
            join signoff_version_status s on s.version_id = v.id
-          where a.teacher_user_id = $1 and a.valid_to is null
+           left join managed_items mi on mi.id = p.item_id
+          where a.teacher_user_id = $1 and a.valid_to is null and ($2::uuid is null or p.item_id = $2::uuid)
           order by c.code desc, g.code, p.purpose desc`,
-        [actor.userId],
+        [actor.userId, itemId],
       )
       const votes = await votesOf(
         db,
@@ -1870,12 +2114,169 @@ export class PgSignoffQuery implements SignoffQuery {
           cohortCode: r.cohort_code,
           cohortName: r.cohort_name,
           purpose: r.purpose,
+          itemId: r.item_id,
+          itemTitle: r.item_title,
           current,
           mine: { isSnapshotAdvisor, voted: isSnapshotAdvisor ? current.progress.advisor.result : null },
         }
       })
+    }
+  }
+
+  async studentViewByItem(actor: ResolvedActor, itemId: string): Promise<StudentSignoffView> {
+    if (statusGate(actor, 'business') || actor.kind !== 'authenticated' || !actor.roles.includes('student') || !isUuid(itemId)) {
+      return { groupCode: null, versions: [] }
+    }
+    return this.#withClient(async (db) => {
+      const group = await currentGroupOf(db, actor.userId)
+      if (!group) return { groupCode: null, versions: [] }
+      const rows = (
+        await db.query<VersionRow>(`${VERSION_SELECT} where p.group_id = $1 and p.item_id = $2 and v.id = p.current_version_id`, [group.id, itemId])
+      ).rows
+      const prefetched = await prefetchDetails(db, rows, actor.userId)
+      return { groupCode: group.code, versions: rows.map((row) => toDetailFrom(row, actor, prefetched)) }
     })
   }
+
+  /** 舊網址 `/dashboard/admin/signoff/[versionId]` 轉址用（C1-11、§3.3）：這一版所屬的包連到哪份作業；舊包或找不到是 null。 */
+  async itemOfVersion(actor: ResolvedActor, versionId: string): Promise<Result<{ readonly itemId: string | null }>> {
+    const blocked = authorizeAdmin(actor, '查看同意書')
+    if (blocked) return blocked
+    const receipt = { requestId: uuidv7(), serverTime: new Date().toISOString() }
+    if (!isUuid(versionId)) return ok({ itemId: null }, receipt)
+    return this.#withClient(async (db) => {
+      const row = (
+        await db.query<{ item_id: string | null }>(
+          `select p.item_id from signoff_package_versions v join signoff_packages p on p.id = v.package_id where v.id = $1`,
+          [versionId],
+        )
+      ).rows[0]
+      return ok({ itemId: row?.item_id ?? null }, receipt)
+    })
+  }
+
+  /**
+   * 系辦「繳交狀況」（C 階段規格① §3.3 `itemBoard`）：這份同意書作業名單上（`response_rosters` 目前有效的整組收件者）的每一組一列。
+   * 有包的帶目前版本的狀態與逐人表態（照那一版的參與者快照、名字與頭像取此刻）；沒包的說此刻缺老師還是缺組員。
+   */
+  async itemBoard(actor: ResolvedActor, itemId: string): Promise<Result<ConsentItemBoard>> {
+    const blocked = authorizeAdmin(actor, '查看同意書繳交狀況')
+    if (blocked) return blocked
+    if (!isUuid(itemId)) return err('VALIDATION_FAILED', '找不到這份同意書作業，請重新整理頁面。')
+    return this.#withClient(async (db) => {
+      const item = (
+        await db.query<{ id: string; title: string; consent_mode: string | null; consent_purpose: SignoffPurpose | null }>(
+          `select id, title, consent_mode, consent_purpose from managed_items where id = $1 and deleted_at is null`,
+          [itemId],
+        )
+      ).rows[0]
+      if (!item || item.consent_mode !== 'form' || !item.consent_purpose) {
+        return err('VALIDATION_FAILED', '這份作業不是站內同意書，沒有繳交狀況看板。')
+      }
+      const groups = await db.query<{ group_id: string; code: string; member_count: number; has_advisor: boolean }>(
+        `select g.id as group_id, g.code,
+                (select count(*)::int from group_memberships m where m.group_id = g.id and m.valid_to is null) as member_count,
+                exists (select 1 from advisor_assignments a where a.group_id = g.id and a.valid_to is null) as has_advisor
+           from response_rosters r join groups g on g.id = r.receiver_id
+          where r.item_id = $1 and r.receiver_kind = 'group' and r.eligible_to_business_at is null
+          order by g.code`,
+        [itemId],
+      )
+      const packages = await db.query<SummaryRow & { package_id: string; group_id: string }>(
+        `select p.id as package_id, p.group_id, v.id as version_id, v.version_no, s.state, s.cause, v.participants, v.created_real_at,
+                s.updated_at as status_updated_at
+           from signoff_packages p
+           join signoff_package_versions v on v.id = p.current_version_id
+           join signoff_version_status s on s.version_id = v.id
+          where p.item_id = $1`,
+        [itemId],
+      )
+      const votes = await votesOf(
+        db,
+        packages.rows.map((p) => p.version_id),
+      )
+      const profiles = await profilesForSnapshots(
+        db,
+        packages.rows.map((p) => p.participants),
+      )
+      // 每一版上一次提醒的時間（看板的 24 小時冷卻；口徑同 `lastRemindedAt`），一句查完。
+      const reminded = new Map(
+        (
+          await db.query<{ source_id: string; at: Date }>(
+            `select source_id, max(occurred_real_at) as at from domain_events
+              where type = 'signoff.reminded' and source_type = 'signoff_version' and source_id = any($1::uuid[])
+              group by source_id`,
+            [packages.rows.map((p) => p.version_id)],
+          )
+        ).rows.map((r) => [r.source_id, r.at] as const),
+      )
+      const rows: ConsentBoardRow[] = groups.rows.map((g) => {
+        const pkg = packages.rows.find((p) => p.group_id === g.group_id)
+        if (!pkg) {
+          return {
+            groupId: g.group_id,
+            groupCode: g.code,
+            packageId: null,
+            versionId: null,
+            versionNo: null,
+            state: null,
+            cause: null,
+            students: [],
+            advisor: null,
+            skipped: consentSkipReason({ memberCount: g.member_count, hasAdvisor: g.has_advisor }),
+            lastRemindedAt: null,
+          }
+        }
+        const summary = summaryOf(pkg, votes, profiles)
+        const person = (p: { userId: string; displayName: string; result: VoteResult | null; at: Date | null; avatarPreset: number | null; avatarFileId: string | null }): ConsentBoardPerson => ({
+          userId: p.userId,
+          name: p.displayName,
+          avatarPreset: p.avatarPreset,
+          avatarFileId: p.avatarFileId,
+          result: p.result,
+          at: p.at,
+        })
+        return {
+          groupId: g.group_id,
+          groupCode: g.code,
+          packageId: pkg.package_id,
+          versionId: summary.versionId,
+          versionNo: summary.versionNo,
+          state: summary.state,
+          cause: summary.cause,
+          students: summary.progress.students.map(person),
+          advisor: summary.progress.advisor.userId ? person(summary.progress.advisor) : null,
+          skipped: null,
+          lastRemindedAt: reminded.get(summary.versionId) ?? null,
+        }
+      })
+      return ok({ itemId: item.id, itemTitle: item.title, purpose: item.consent_purpose, rows }, { requestId: uuidv7(), serverTime: new Date().toISOString() })
+    })
+  }
+}
+
+type TeacherCardRow = SummaryRow & {
+  group_id: string
+  group_code: string
+  cohort_code: string
+  cohort_name: string
+  purpose: SignoffPurpose
+  item_id: string | null
+  item_title: string | null
+}
+
+/** 學生此刻所在的有效組（最近加入的那一個）。 */
+async function currentGroupOf(db: Queryable, userId: string): Promise<{ id: string; code: string } | null> {
+  return (
+    (
+      await db.query<{ id: string; code: string }>(
+        `select g.id, g.code from group_memberships m join groups g on g.id = m.group_id
+          where m.user_id = $1 and m.valid_to is null and g.status = 'active'
+          order by m.valid_from desc limit 1`,
+        [userId],
+      )
+    ).rows[0] ?? null
+  )
 }
 
 /**
@@ -1978,6 +2379,8 @@ function toDetailFrom(
     groupCode: row.group_code,
     cohortCode: row.cohort_code,
     cohortName: row.cohort_name,
+    itemId: row.item_id,
+    itemTitle: row.item_title,
     // 存的時候清洗過；輸出前再清一次（就算資料庫被人直接改過也一樣安全）。
     contentHtml: renderBodyHtml(row.content_text),
     contentChecksum: row.content_checksum,

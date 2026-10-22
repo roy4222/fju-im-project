@@ -232,6 +232,18 @@ async function download(actor: ResolvedActor, fileId: string) {
   return result.ok ? 'ok' : result.code
 }
 
+/**
+ * 評分項目連到作業（側表 `grading_stage_settings`，C 階段規格① §1.3）：評分老師只讀得到自己項目連到的作業的繳交（§3.2）。
+ * 側表不擋 stage_key 在不在已發布方案（那是 C1-04 的 application 驗證），這裡直接寫列。
+ */
+async function linkStage(cohortId: string, stageKey: string, itemId: string) {
+  await owner.sql(
+    `insert into grading_stage_settings (cohort_id, stage_key, item_id, updated_by_user_id) values ($1, $2, $3, $4)
+     on conflict (cohort_id, stage_key) do update set item_id = excluded.item_id`,
+    [cohortId, stageKey, itemId, adminId],
+  )
+}
+
 async function versionFile(itemId: string, receiverId: string, versionNo: number): Promise<string> {
   const found = await owner.sql(
     `select sf.file_id from submission_files sf join submission_versions v on v.id = sf.submission_version_id
@@ -409,7 +421,7 @@ describe('2. 附件下載授權（逐角色）', () => {
     expect(await advisor.item(teacherActor(outsider), onlyG2)).toBeNull()
     const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '個人意向', fields: PERSONAL_FIELDS })
     expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
-    await publish(personal.itemId, personal.revision)
+    await publish(personal.itemId, personal.revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
     expect(await advisor.item(teacherActor(outsider), personal.itemId)).toBeNull()
     expect((await advisor.item(teacherActor(t1), personal.itemId))!.entries.length).toBeGreaterThan(0)
   })
@@ -463,7 +475,7 @@ describe('3. 老師矩陣只列自己目前指導的組別 × 收件項目', () 
     const { cohortId, stageId, g1, itemId } = await groupScenario()
     const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '個人意向', fields: PERSONAL_FIELDS })
     expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
-    await publish(personal.itemId, personal.revision)
+    await publish(personal.itemId, personal.revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
     const before = (await advisor.matrix(teacherActor(t1)))!
     expect(before.groups.map((g) => g.groupId)).toContain(g1)
     expect(before.individualItems.map((i) => i.itemId)).toContain(personal.itemId)
@@ -582,7 +594,9 @@ describe('5. 受指派的評分老師（票 24、S10-03）讀得到該組正式�
   }
 
   it('有效評分指派：本組正式版本列得出來、內容點得開、附件下載得到；別組、共用草稿不行；指派結束立刻失效', async () => {
-    const { s1, g1, g2, itemId, f1, f2, f6 } = await groupScenario()
+    const { cohortId, s1, g1, g2, itemId, f1, f2, f6 } = await groupScenario()
+    // C 階段起評分項目要先連到這份作業才讀得到（§3.2）。
+    await linkStage(cohortId, 'mid', itemId)
     const evaluator = await newUser('評分老師', 'teacher')
     // 還沒指派：什麼都拿不到。
     expect(await download(teacherActor(evaluator), f1)).toBe('FORBIDDEN')
@@ -627,7 +641,8 @@ describe('5. 受指派的評分老師（票 24、S10-03）讀得到該組正式�
   })
 
   it('純評分老師（沒指導任何組）打得開內容、isLatest 正確；無關的老師（沒指導也沒評分、或只指導別組）一律 null', async () => {
-    const { g1, g2, itemId } = await groupScenario()
+    const { cohortId, g1, g2, itemId } = await groupScenario()
+    await linkStage(cohortId, 'mid', itemId)
     const evaluator = await newUser('只評分的老師', 'teacher')
     const outsider = await newUser('無關的老師', 'teacher')
     await evaluate(g1, evaluator)
@@ -644,6 +659,50 @@ describe('5. 受指派的評分老師（票 24、S10-03）讀得到該組正式�
     expect(await advisor.receiverVersion(teacherActor(t3), itemId, g2, 1)).not.toBeNull()
     // 評分老師對別組（沒有評分指派）也是 null。
     expect(await advisor.receiverVersion(teacherActor(evaluator), itemId, g2, 1)).toBeNull()
+  })
+
+  it('只評 s1 的老師讀不到 B 的版本與附件；只評沒連結作業的 s2 什麼都讀不到；主指導照舊都讀得到（C 階段規格① §3.2、AC-28a）', async () => {
+    const { cohortId, stageId, s1, g1, itemId: itemA, f1, f2 } = await groupScenario()
+    const itemB = await published(cohortId, stageId, { title: '別份作業 B' })
+    const fb = await mustUpload(s1, itemB, 'b.pdf', PDF)
+    await saveAndSubmit(s1, itemB, { topic: 'B 的題目', report: fb })
+    await linkStage(cohortId, 's1', itemA)
+    const ding = await newUser('只評 s2 的老師', 'teacher')
+    const wu = await newUser('只評 s1 的老師', 'teacher')
+    await owner.sql(
+      `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
+       values (gen_random_uuid(), $1, 's2', $2, now(), $4), (gen_random_uuid(), $1, 's1', $3, now(), $4)`,
+      [g1, ding, wu, adminId],
+    )
+
+    // 丁（只評 s2，s2 沒連結作業）：A、B 的版本與附件都拿不到。
+    for (const f of [f1, f2, fb]) expect(await download(teacherActor(ding), f)).toBe('FORBIDDEN')
+    expect(await advisor.groupVersions(teacherActor(ding), g1)).toEqual([])
+    expect(await advisor.groupVersionsWithFiles(teacherActor(ding), g1)).toEqual([])
+    expect(await advisor.receiverVersion(teacherActor(ding), itemA, g1, 1)).toBeNull()
+    expect(await advisor.receiverVersion(teacherActor(ding), itemB, g1, 1)).toBeNull()
+
+    // 戊（只評 s1，s1→A）：A 的每一版與附件可以；B 的版本與附件不行。
+    expect(await download(teacherActor(wu), f1)).toBe('ok')
+    expect(await download(teacherActor(wu), f2)).toBe('ok')
+    expect(await download(teacherActor(wu), fb)).toBe('FORBIDDEN')
+    expect((await advisor.groupVersions(teacherActor(wu), g1))!.map((v) => [v.itemId, v.versionNo])).toEqual([
+      [itemA, 2],
+      [itemA, 1],
+    ])
+    expect((await advisor.groupVersionsWithFiles(teacherActor(wu), g1))!.flatMap((v) => v.attachments.map((a) => a.fileId)).sort()).toEqual(
+      [f1, f2].sort(),
+    )
+    expect(await advisor.receiverVersion(teacherActor(wu), itemA, g1, 1)).not.toBeNull()
+    expect(await advisor.receiverVersion(teacherActor(wu), itemB, g1, 1)).toBeNull()
+
+    // 側表把 s1 改連到 B：戊立刻改成只讀得到 B（下載當下重查）。
+    await linkStage(cohortId, 's1', itemB)
+    expect(await download(teacherActor(wu), f1)).toBe('FORBIDDEN')
+    expect(await download(teacherActor(wu), fb)).toBe('ok')
+
+    // 主指導（T1）兩份都讀得到（主指導規則不動）。
+    for (const f of [f1, f2, fb]) expect(await download(teacherActor(t1), f)).toBe('ok')
   })
 
   it('同時是主指導與評分老師：移除評分指派後仍以主指導身分讀得到（GRD-14）', async () => {
@@ -686,7 +745,7 @@ describe('4. 個人回答：老師預設看不到；管理員開主指導閱覽�
     expect(opened).toMatchObject({ ok: true, receipt: { enabled: true, effectiveFromVersionNo: 1 } })
     const audit = await owner.sql(`select action, payload from audit_events where target_id = $1 and action like 'submission.advisor_visibility.%'`, [itemId])
     expect(audit.rows).toEqual([expect.objectContaining({ action: 'submission.advisor_visibility.enable' })])
-    await publish(itemId, revision)
+    await publish(itemId, revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
 
     expect((await query.myItem(s1.id, itemId))!.advisorCanView).toBe(true)
     await saveAndSubmit(s1, itemId, { wish: '請注意時程' })
@@ -790,7 +849,7 @@ describe('6. 老師名單也認得系辦開放的個別補交（W10b）', () => 
     const groupItem = await published(cohortId, stageId, { title: '補交整組' })
     const personal = await created(cohortId, stageId, { receiverUnit: 'individual', title: '補交個人', fields: PERSONAL_FIELDS })
     expect((await submissions.setAdvisorVisibility(adminActor(), personal.itemId, true, randomUUID())).ok).toBe(true)
-    await publish(personal.itemId, personal.revision)
+    await publish(personal.itemId, personal.revision + 1) // 開閱覽也讓 revision +1（C 收尾 CL-13）
 
     businessNow = AFTER
     try {
@@ -895,10 +954,13 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     return { cohortId, s1, s2, s6, g1, g2, itemA, itemB, g1Files, g2Files, evaluator }
   }
 
-  async function evaluate(groupId: string, teacherId: string) {
+  /** 評分老師評兩個項目：mid→期中報告、fin→系統驗收報告（C 階段起要連到作業才讀得到，§3.2）。 */
+  async function evaluate(groupId: string, teacherId: string, scenario: { cohortId: string; itemA: string; itemB: string }) {
+    await linkStage(scenario.cohortId, 'mid', scenario.itemA)
+    await linkStage(scenario.cohortId, 'fin', scenario.itemB)
     await owner.sql(
       `insert into evaluator_assignments (id, group_id, stage_key, teacher_user_id, valid_from, assigned_by_user_id)
-       values (gen_random_uuid(), $1, 'mid', $2, now(), $3)`,
+       values (gen_random_uuid(), $1, 'mid', $2, now(), $3), (gen_random_uuid(), $1, 'fin', $2, now(), $3)`,
       [groupId, teacherId, adminId],
     )
   }
@@ -934,11 +996,11 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
   }
 
   it('groupVersionsWithFiles：版本與 groupVersions 相同；每一版附件與資料庫逐欄相等、PDF 是 application/pdf；共用草稿、別組不出現', async () => {
-    const { s1, s6, g1, g2, itemA, g1Files, g2Files, evaluator } = await filesScenario()
+    const { cohortId, s1, s6, g1, g2, itemA, itemB, g1Files, g2Files, evaluator } = await filesScenario()
     const outsider = await newUser('無關的老師', 'teacher')
     // 還沒指派：空的。
     expect(await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1)).toEqual([])
-    await evaluate(g1, evaluator)
+    await evaluate(g1, evaluator, { cohortId, itemA, itemB })
 
     // 共用草稿的附件不算正式版本。
     const draftFile = await uploadTo(s1, itemA, 'report', 'draft.pdf')
@@ -997,11 +1059,18 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
       businessClock,
       pool: () => app,
     })
-    const stages: SchemeStageInput[] = [{ name: '系統驗收', weight: 100, items: [{ name: '功能完整', type: 'number', max: 100, weight: 100 }] }]
+    // C 階段起評分老師只讀得到自己項目連到的作業（§3.2）：兩個項目各連一份作業、都指派給他，兩份都讀得到。
+    const stages: SchemeStageInput[] = [
+      { name: '期中', weight: 50, items: [{ name: '報告', type: 'number', max: 100, weight: 100 }] },
+      { name: '系統驗收', weight: 50, items: [{ name: '功能完整', type: 'number', max: 100, weight: 100 }] },
+    ]
     const scheme = await grading.createSchemeVersion(adminActor(), { cohortId, stages }, randomUUID())
     if (!scheme.ok) throw new Error(scheme.message)
     expect((await grading.publishScheme(adminActor(), { versionId: scheme.receipt.versionId }, randomUUID())).ok).toBe(true)
+    await linkStage(cohortId, 's1', itemA)
+    await linkStage(cohortId, 's2', itemB)
     expect((await grading.assign(adminActor(), { groupId: g1, stageKey: 's1', teacherUserId: evaluator }, randomUUID())).ok).toBe(true)
+    expect((await grading.assign(adminActor(), { groupId: g1, stageKey: 's2', teacherUserId: evaluator }, randomUUID())).ok).toBe(true)
 
     const counter = countingPool(app)
     const countedAdvisor = new PgAdvisorSubmissionQuery(() => counter.db, new PgSubmissionLateFlags(() => app))
@@ -1019,7 +1088,9 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     expect(before.listed).toHaveLength(2)
     expect(before.filesCount).toBe(3)
     expect(before.pageCount).toBe(10)
-    expect(before.page.ok && before.page.receipt.submissions).toEqual(await advisor.groupVersionsWithFiles(teacherActor(evaluator), g1))
+    // 批改頁沒帶 stage＝第一個分給他的項目 s1，只列 s1 連結的作業（期中報告）的版本（C1-04 §3.4）。
+    expect(before.page.ok && before.page.receipt.submissions).toEqual(before.listed.filter((v) => v.itemId === itemA))
+    expect(before.page.ok && before.page.receipt.submissions.map((v) => [v.title, v.versionNo, v.attachments.length])).toEqual([['期中報告', 1, 2]])
     expect(before.page.ok && before.page.receipt.leaderName).toBe('組長小明')
 
     // 每份作業再送兩版、每版附四份檔（原本兩份）：6 版。
@@ -1042,7 +1113,12 @@ describe('6. TE-11 groupVersionsWithFiles：評分單組頁初開就有每一版
     expect(flatten(after.listed)).toEqual(await attachmentsInDb(g1))
     expect(after.filesCount).toBe(3)
     expect(after.pageCount).toBe(10)
-    expect(after.page.ok && after.page.receipt.submissions).toEqual(after.listed)
+    expect(after.page.ok && after.page.receipt.submissions).toEqual(after.listed.filter((v) => v.itemId === itemA))
+    expect(after.page.ok && after.page.receipt.submissions.map((v) => [v.title, v.versionNo])).toEqual([
+      ['期中報告', 3],
+      ['期中報告', 2],
+      ['期中報告', 1],
+    ])
 
     // 沒有評分指派：單組頁 NOT_ASSIGNED（守衛不變）、附件查詢是空陣列（不發附件那一句）。
     counter.reset()

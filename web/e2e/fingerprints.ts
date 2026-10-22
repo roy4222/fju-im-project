@@ -3,12 +3,17 @@
  *
  * 否定斷言（「回應裡不該有這一頁的內容」）與正向斷言（「轉過去的頁真的是它」）都從這裡拿，
  * 頁面文字改了只要改這一處；`pages.spec.ts` 的反向對照會先紅，提醒指紋跟著改。
+ *
+ * D-23 放寬：下面的字面值是「基底」；之後的票不改這裡，改在 `fingerprints.d/<票號>.json`（規則見那裡的 README），
+ * `FINGERPRINTS` 是基底＋小檔合併後的結果。小檔撞鍵時這支在 import 時就丟錯，所有用到它的 spec 都載入失敗。
  */
+import { fileURLToPath } from 'node:url'
+import { mergeFromDir } from '../scripts/overlay/merge.mjs'
 
-/** 每一條受保護路由上，只有有權限的人才看得到的一段字。 */
-export const FINGERPRINTS: Record<string, string> = {
+/** 每一條受保護路由上，只有有權限的人才看得到的一段字（基底；改用 `fingerprints.d/` 小檔）。 */
+export const BASE_FINGERPRINTS: Record<string, string> = {
   '/dashboard/admin': '作業完成率',
-  '/dashboard/admin/accounts': '名單與停用',
+  '/dashboard/admin/accounts': '系上所有帳號都在這裡',
   '/dashboard/admin/cohorts': '新註冊加入這屆',
   '/dashboard/teacher': '待辦',
   '/dashboard/student': '看完整時程',
@@ -42,9 +47,24 @@ export const FINGERPRINTS: Record<string, string> = {
   '/dashboard/admin/home-settings': '前台首頁最上面的大圖與兩行標語',
   // 評分規則子頁（AD-08）：評分要求與指派區塊的副標，沒有評分規則時也在。
   '/dashboard/admin/grading/rules': '每組要幾份評分、指派哪位老師評',
-  // 設定總頁（AD-20）：時間軸卡的說明句。
-  '/dashboard/admin/settings': '四個階段與活動日期',
+  // C 階段規格② 的新分頁（C2-01）：指紋是分頁列下的說明句（`[data-testid="tab-intro"]`），改句子要一起改。
+  // 舊設定入口頁 `/dashboard/admin/settings` 改成轉址，驗法在 `admin-redirects.spec.ts`。
+  '/dashboard/admin/affairs/assignments': '要學生或組別繳交的作業與專題需求',
+  '/dashboard/admin/affairs/resources': '給學生下載的範本、表單與參考資料',
+  '/dashboard/admin/affairs/rules': '前台「專題規則」照這裡的順序顯示',
+  '/dashboard/admin/groups/unassigned': '這一屆還沒有加入任何組別的學生。',
+  '/dashboard/admin/grading/teachers': '每一組由哪幾位老師評分，以及指派與改派。',
+  '/dashboard/admin/grading/settle': '把老師送出的評分結算成各階段的正式成績。',
+  '/dashboard/admin/accounts/pending': '註冊後等系辦確認身分的申請',
+  '/dashboard/admin/accounts/disabled': '已停用、不能登入的帳號',
+  '/dashboard/admin/accounts/roster': '匯入系上提供的學生名單',
 }
+
+/** 小檔資料夾；`FINGERPRINTS_OVERLAY_DIR` 只給單元測試指到衝突 fixture 用。 */
+const overlayDir = process.env.FINGERPRINTS_OVERLAY_DIR ?? fileURLToPath(new URL('./fingerprints.d', import.meta.url))
+
+/** 基底＋小檔合併後的指紋；spec 一律用這個。 */
+export const FINGERPRINTS: Record<string, string> = mergeFromDir(BASE_FINGERPRINTS, overlayDir, 'fingerprints').merged
 
 /** 三種角色的後台首頁指紋（`identity-per-request.spec.ts` 用）。 */
 export const STUDENT_HOME = FINGERPRINTS['/dashboard/student']!

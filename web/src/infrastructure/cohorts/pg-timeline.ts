@@ -9,7 +9,9 @@ import {
   isRequestId,
   normalizeActivityInput,
   normalizeScheduleInput,
+  planActivityMove,
   planStageVersions,
+  stageChangeSummary,
   stagePositionAt,
   type Activity,
   type ActivityAudience,
@@ -23,6 +25,7 @@ import {
   type SaveScheduleReceipt,
   type ScheduleInput,
   type Stage,
+  type StageChangeSummary,
   type StagePosition,
   type StudentTimeline,
   type TimelineCommand,
@@ -43,7 +46,7 @@ import {
 import { getPool } from '@/infrastructure/db/client'
 import { sha256 } from '@/infrastructure/ops/audit-writer'
 import { err, type Err, type Result } from '@/shared/result'
-import { RealClock, type Clock } from '@/shared/time'
+import { RealClock, taipeiDayEndExclusive, taipeiDayStart, type Clock } from '@/shared/time'
 
 /**
  * 階段、年度結束日與獨立活動（票 11；模組實作設計 02 §3「stage upsert」「event upsert／cancel」、§5、§6）。
@@ -53,7 +56,7 @@ import { RealClock, type Clock } from '@/shared/time'
  *   後到的看到 revision 變了就回 `CONFLICT`。
  * - 活動：`cohorts FOR SHARE`（確認屆別沒被封存），再 `project_events FOR UPDATE`。
  *
- * 刪除（第三波 W11）只限已取消的活動，打刪除標記（`deleted_at`／`deleted_by_user_id`）不實體刪列；
+ * 刪除（③ §9.1）排定中、已取消的都能直接刪，打刪除標記（`deleted_at`／`deleted_by_user_id`）不實體刪列；
  * 被刪的活動在鎖列與所有查詢都當作不存在。
  *
  * 活動每次異動都在同一筆交易發一個 `calendar.changed` 事件（沒有收件人：站內日曆是查出來的，
@@ -113,6 +116,44 @@ async function loadStages(db: Pick<Pool, 'query'> | PoolClient, cohortId: string
   )
   return rows.rows.map(toStage)
 }
+
+type GroupWork = { itemIds: string[]; groupIds: string[]; recipients: string[] }
+
+/**
+ * 階段日期改了以後要提醒誰（③ §9.2）：截止落在變動段（變動**後**的範圍）裡的整組作業，
+ * 收件組＝這些作業目前有效、沒免填的整組名單，收件人＝這些組的現任組員。個人作業不算；
+ * 指定 G03 的作業只算 G03。沒有任何收件組的作業仍算進「有 N 個整組作業」。
+ */
+async function groupWorkIn(
+  db: Pick<PoolClient, 'query'>,
+  cohortId: string,
+  windows: StageChangeSummary['windows'],
+): Promise<GroupWork> {
+  if (windows.length === 0) return { itemIds: [], groupIds: [], recipients: [] }
+  // -- ① managed_items／response_rosters 契約（③ §14.3：只讀 placement、status、deleted_at、due_at、receiver_unit 與
+  //    response_rosters 的 item_id、receiver_kind、receiver_id、eligible_to_business_at、exempt；①改欄名請同步這一句）
+  const rows = await db.query<{ item_id: string; group_id: string | null; user_id: string | null }>(
+    `select mi.id as item_id, r.receiver_id as group_id, m.user_id
+       from managed_items mi
+       left join response_rosters r
+         on r.item_id = mi.id and r.receiver_kind = 'group' and r.eligible_to_business_at is null and not r.exempt
+       left join group_memberships m on m.group_id = r.receiver_id and m.valid_to is null
+      where mi.cohort_id = $1 and mi.placement = 'submission' and mi.status = 'published' and mi.deleted_at is null
+        and mi.receiver_unit = 'group'
+        and exists (select 1 from unnest($2::timestamptz[], $3::timestamptz[]) as w(from_at, to_at)
+                     where mi.due_at >= w.from_at and mi.due_at < w.to_at)`,
+    [cohortId, windows.map((w) => taipeiDayStart(w.startDate)), windows.map((w) => taipeiDayEndExclusive(w.lastDate))],
+  )
+  const uniq = (values: (string | null)[]) => [...new Set(values.filter((v): v is string => v !== null))].sort()
+  return {
+    itemIds: uniq(rows.rows.map((r) => r.item_id)),
+    groupIds: uniq(rows.rows.filter((r) => r.user_id !== null).map((r) => r.group_id)),
+    recipients: uniq(rows.rows.map((r) => r.user_id)),
+  }
+}
+
+/** 甘特拖拉放開前的預覽（③ §9.2 確認框）：不寫入。 */
+export type SchedulePreview = { readonly changedStages: number[]; readonly groupItemCount: number; readonly message: string }
 
 const AUDIT_VERB: Record<Exclude<ActivityReceipt['action'], 'deleted'>, string> = {
   created: 'create',
@@ -246,6 +287,24 @@ export class PgTimelineCommand implements TimelineCommand {
       )
 
       const changedStages = plan.filter((p) => p.rangeChanged).map((p) => p.seq)
+      // 日期有變：同一筆交易發 `timeline.stage_changed`（③ §9.2；只改名稱、說明不發）。
+      // 沒有收件組也照發（recipients 空、worker 不產生通知）：事件是「階段改過」的紀錄，不只是寄信。
+      const summary = stageChangeSummary(current, next)
+      if (summary) {
+        const work = await groupWorkIn(tx, cohortId, summary.windows)
+        await this.#events.publish(tx, {
+          type: 'timeline.stage_changed',
+          scope: 'cohort',
+          cohortId,
+          source: { type: 'timeline', id: cohortId, version: cohort.revision + 1 },
+          actor: { kind: 'user', userId },
+          recipients: work.recipients,
+          recipientBasis: { basis: 'group_items_in_changed_stages', groupIds: work.groupIds, itemIds: work.itemIds },
+          payload: { title: summary.notificationTitle, changedStages: summary.changedStages },
+          occurredRealAt: realAt,
+          occurredBusinessAt: businessAt,
+        })
+      }
       await this.#audit.append(tx, {
         actorKind: 'user',
         actorUserId: userId,
@@ -271,6 +330,44 @@ export class PgTimelineCommand implements TimelineCommand {
       await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { cohortId } })
       return { ok: true as const, receipt }
     })
+  }
+
+  /**
+   * 拖階段分界／年度結束日放開後、按「確定」前的預覽（③ §9.2）：算出確認框的句子與「有 N 個整組作業」，不寫入。
+   * 權限、輸入驗證、版本過期跟 `saveSchedule` 同一套；日期沒變回 `changedStages: []`。
+   */
+  async previewSchedule(
+    actor: ResolvedActor,
+    cohortId: string,
+    input: ScheduleInput,
+    expectedRevision: number,
+  ): Promise<{ ok: true; preview: SchedulePreview } | Err> {
+    const denied = authorizeAdmin(actor, '設定階段')
+    if (denied) return denied
+    if (!isCohortId(cohortId)) return cohortNotFound()
+    const normalized = normalizeScheduleInput(input)
+    if (!normalized.ok) return normalized
+    const next = normalized.value
+
+    const client = await this.#pool().connect()
+    try {
+      const found = await client.query<CohortRow>(
+        `select id, code, name, status, revision, to_char(year_end_date, 'YYYY-MM-DD') as year_end_date from cohorts where id = $1`,
+        [cohortId],
+      )
+      const cohort = found.rows[0]
+      if (!cohort) return cohortNotFound()
+      if (cohort.status === 'archived') return archived(cohort)
+      if (cohort.revision !== expectedRevision) return staleRevision()
+      const current: CohortSchedule = { stages: await loadStages(client, cohortId), yearEndDate: cohort.year_end_date }
+      const draft = stageChangeSummary(current, next)
+      if (!draft) return { ok: true, preview: { changedStages: [], groupItemCount: 0, message: '' } }
+      const groupItemCount = (await groupWorkIn(client, cohortId, draft.windows)).itemIds.length
+      const summary = stageChangeSummary(current, next, groupItemCount)!
+      return { ok: true, preview: { changedStages: summary.changedStages, groupItemCount, message: summary.message } }
+    } finally {
+      client.release()
+    }
   }
 
   async createActivity(
@@ -392,6 +489,79 @@ export class PgTimelineCommand implements TimelineCommand {
     })
   }
 
+  async moveActivity(
+    actor: ResolvedActor,
+    activityId: string,
+    dates: { startDate: string; endDate: string },
+    expectedRevision: number,
+    requestId: string,
+  ): Promise<Result<ActivityReceipt>> {
+    const denied = authorizeAdmin(actor, '管理活動')
+    if (denied) return denied
+    if (!isRequestId(requestId)) return badRequestId()
+    if (!isCohortId(activityId)) return activityNotFound()
+    const userId = actorUserId(actor)
+    const businessAt = await this.#businessClock.now()
+
+    return this.#run(async (tx) => {
+      const locked = await this.#lockActivity(tx, activityId)
+      if (!locked) return activityNotFound()
+      const { cohort, row } = locked
+
+      const realAt = this.#realClock.now()
+      // 拖拉也是「修改活動」：沿用同一個冪等種類，指紋另外標 `move` 跟整份表單的改期分開。
+      const begun = await this.#ledger.begin(
+        tx,
+        {
+          actorUserId: userId,
+          operationKind: 'cohort.activity.update',
+          requestId,
+          fingerprint: sha256(canonicalJson({ activityId, move: dates, expectedRevision })),
+          scope: 'cohort',
+          cohortId: cohort.id,
+        },
+        realAt,
+      )
+      if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
+      if (cohort.status === 'archived') return archived(cohort)
+      if (row.revision !== expectedRevision) return staleRevision()
+      if (row.status === 'cancelled') return err('VALIDATION_FAILED', '這個活動已經取消，不能再改期。')
+      const before = toActivity(row)
+      const planned = planActivityMove(before, dates)
+      if (!planned.ok) return planned
+
+      await tx.query(
+        `update project_events
+            set starts_at = $2, ends_at = $3, revision = revision + 1, updated_at = $4, updated_by_user_id = $5
+          where id = $1`,
+        [activityId, planned.value.startsAt, planned.value.endsAt, realAt, userId],
+      )
+      const after: NormalizedActivity = {
+        title: before.title,
+        description: before.description,
+        startsAt: planned.value.startsAt,
+        endsAt: planned.value.endsAt,
+        allDay: before.allDay,
+        audienceKind: before.audienceKind,
+      }
+      await this.#recordChange(tx, {
+        cohortId: cohort.id,
+        activityId,
+        version: row.revision + 1,
+        action: 'updated',
+        userId,
+        realAt,
+        businessAt,
+        before,
+        after,
+      })
+
+      const receipt = { activityId, title: before.title, action: 'updated' as const, requestId, serverTime: realAt.toISOString() }
+      await this.#ledger.commit(tx, begun.recordId, { receipt, resultRef: { activityId } })
+      return { ok: true as const, receipt }
+    })
+  }
+
   async cancelActivity(
     actor: ResolvedActor,
     activityId: string,
@@ -483,11 +653,10 @@ export class PgTimelineCommand implements TimelineCommand {
         realAt,
       )
       if (begun.outcome !== 'fresh') return replayed<ActivityReceipt>(begun)
-      if (deleted) return activityNotFound()
+      const blocker = activityDeleteBlocker({ deleted })
+      if (blocker) return err('VALIDATION_FAILED', blocker)
       if (cohort.status === 'archived') return archived(cohort)
       if (row.revision !== expectedRevision) return staleRevision()
-      const blocker = activityDeleteBlocker(toActivity(row))
-      if (blocker) return err('VALIDATION_FAILED', blocker)
 
       await tx.query(
         `update project_events

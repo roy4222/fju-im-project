@@ -131,14 +131,23 @@ describe('測試站（BUSINESS_CLOCK_OVERRIDE_ENABLED=true）', () => {
     expect(history[0]!.setByName).toBe('A1')
   })
 
+  it('原因選填（C2 X2；AC-C2-10）：留空也能設定，紀錄與稽核的原因是 NULL', async () => {
+    const result = await clock(true).set(actor(adminId), { businessAt: '2026-10-02T00:00:00', reason: '   ' }, randomUUID())
+    expect(result).toMatchObject({ ok: true })
+    const latest = await owner.sql(`select reason from business_clock_overrides order by real_at desc, id desc limit 1`)
+    expect(latest.rows[0]).toEqual({ reason: null })
+    const audit = await owner.sql(`select reason from audit_events where action = 'business_clock.set' order by real_at desc, id desc limit 1`)
+    expect(audit.rows[0]).toEqual({ reason: null })
+  })
+
   it('紀錄不可變：fju_app 改不了也刪不掉', async () => {
     await expect(app.query(`update business_clock_overrides set reason = 'x'`)).rejects.toThrow(/permission denied/i)
     await expect(app.query(`delete from business_clock_overrides`)).rejects.toThrow(/permission denied/i)
   })
 
-  it('原因必填；時間格式不對拒絕；都不寫紀錄', async () => {
+  it('原因超過上限；時間格式不對拒絕；都不寫紀錄', async () => {
     const before = await count('select count(*) as n from business_clock_overrides')
-    expect(await clock(true).set(actor(adminId), { businessAt: '2027-03-01T10:00:00', reason: ' ' }, randomUUID())).toMatchObject({
+    expect(await clock(true).set(actor(adminId), { businessAt: '2027-03-01T10:00:00', reason: 'x'.repeat(201) }, randomUUID())).toMatchObject({
       ok: false,
       code: 'VALIDATION_FAILED',
     })

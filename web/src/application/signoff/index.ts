@@ -35,7 +35,17 @@ export {
   scopeContent,
   SIGNOFF_PURPOSES,
   STATE_LABEL,
+  STATUS_CAUSE_LABEL,
+  VOID_CAUSE,
 } from '@/application/signoff/version'
+export {
+  consentSkipReason,
+  contentChangedRecipients,
+  contentChangedTitle,
+  describeMissingDrafts,
+  GROUP_REMOVED_REASON,
+  rebuildsOnContentChange,
+} from '@/application/signoff/consent-bridge'
 export type {
   ExportLifecycle,
   ExportVote,
@@ -75,6 +85,10 @@ export {
 export type {
   AdminGroupRow,
   AdminSignoffBoard,
+  ConsentBoardPerson,
+  ConsentBoardRow,
+  ConsentItemBoard,
+  ConsentSkipReason,
   CreateVersionInput,
   CreateVersionReceipt,
   ReasonedVersionInput,

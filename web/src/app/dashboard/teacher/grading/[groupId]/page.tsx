@@ -1,15 +1,16 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { TEACHER_NAV } from '@/app/dashboard/_nav'
 import { VersionContent } from '@/app/dashboard/_submissions/version-parts'
-import { BackLink, OUTLINE_BUTTON, PageTitle, Pill } from '@/app/dashboard/teacher/_ui/dash'
+import { BackLink, PageTitle, Pill } from '@/app/dashboard/teacher/_ui/dash'
 import type { BenchSnapshot, NeighbourLink } from '@/app/dashboard/teacher/grading/[groupId]/bench-types'
-import { GroupSubmissions } from '@/app/dashboard/teacher/grading/[groupId]/submissions'
+import { GroupRail } from '@/app/dashboard/teacher/grading/[groupId]/group-rail'
+import { StageDocuments } from '@/app/dashboard/teacher/grading/[groupId]/submissions'
 import { filterQueue, neighbours, parseFilter } from '@/app/dashboard/teacher/grading/filter'
 import { GradingBench } from '@/app/dashboard/teacher/grading/grading-bench'
+import { sectionId } from '@/app/dashboard/teacher/grading/stage-sections'
 import { myStatusOf } from '@/app/dashboard/teacher/grading/rules'
 import type { ResolvedActor } from '@/application/accounts'
 import type { BenchEntry } from '@/application/grading'
@@ -26,12 +27,12 @@ type Search = { stage?: string | string[]; filter?: string | string[]; item?: st
 const BASE = '/dashboard/teacher/grading'
 
 /**
- * 一頁一個讀取入口：`teacherBenchPage` 一次並行讀齊評閱桌、隊列、本組正式繳交與附件（TE-11，固定 10 句）。
+ * 一頁一個讀取入口：`teacherBenchPage` 一次並行讀齊評閱桌、隊列、這個評分項目對應作業的本組正式版本與附件（TE-11、C1-04）。
  * 只有老師主動點開某一版（`?item=&version=`，而且是本組讀得到的版本）時，才多讀一次 `receiverVersion`（既有行為；
  * A 階段這條支線約 19 句，設計方案 §5 記為已知超出，B 再優化）。
  */
 async function loadBenchPage(actor: ResolvedActor, groupId: string, search: Search) {
-  const page = await getGradingQuery().teacherBenchPage(actor, groupId)
+  const page = await getGradingQuery().teacherBenchPage(actor, groupId, typeof search.stage === 'string' ? search.stage : null)
   if (!page.ok) return null
   const item = typeof search.item === 'string' ? search.item : null
   const version = typeof search.version === 'string' ? Number(search.version) : null
@@ -76,11 +77,14 @@ function benchSnapshotOf(entry: BenchEntry, serverTime: string): BenchSnapshot {
 }
 
 /**
- * 老師的單組評分頁（票 23、37；TE-06b 照 Q78 重做）：桌機兩欄，左欄「本組正式繳交」（附件清單＋在新分頁開啟 PDF），
- * 右欄固定的評分卡；頁首是自己的狀態與上一組／下一組。手機兩欄變上下，評分卡在下、動作列固定在底部。
+ * 老師的三欄批改頁（票 23、37；TE-06b；C1-12 照設計方案① §7.3 重做）：
+ * 左欄＝這個評分項目分給我的組（目前組高亮）＋上一組／下一組＋「繳交版本」下拉與檔案清單；
+ * 中欄＝所選檔案的內嵌預覽（評分項目沒有對應作業時是標題＋說明＋「這個項目不看作業，直接填分」）；右欄＝固定的評分卡。
+ * 手機三欄變上下三段，中欄預覽收成「開啟文件」按鈕，評分卡在下、動作列固定在底部。
  *
- * 只給**本人在這一組的有效指派**：沒有被指派（或指派已結束、組別不存在）一律導到 `/403`「找不到這個頁面」，
- * 不說原因、不透露這一組的任何評分資料（2026-10-12 Roy Q35）。同一組被指派多個階段時，用評分卡上方的階段切換。
+ * 只給**本人對這一組這個評分項目的有效指派**：沒有被指派（或指派已結束、組別不存在、`?stage=` 不是分給我的項目）一律導到
+ * `/403`「找不到這個頁面」，不說原因、不透露這一組的任何評分資料（2026-10-12 Roy Q35）。同一組被指派多個評分項目時，
+ * 用評分卡上方的「選擇評分項目」切換。
  *
  * 被系辦退回、還沒重新送出：評分卡上方顯示退回理由與時間，退回前的分數預填回表單（票 24）。
  * 正式送出後仍可改、重新送出（B 階段 TE-B1）；系辦結算這一階段後整張唯讀（TE-B2b）。哪些能改由 `BenchEntry` 決定。
@@ -100,24 +104,26 @@ export default async function TeacherGradingGroupPage({
   const { page, opened } = loaded
 
   const { entries, groupCode, cohortCode, cohortName, memberNames, versionNo, leaderName, queue } = page
-  const entry = entries.find((e) => e.stage.key === search.stage) ?? entries[0]!
+  // `teacherBenchPage` 已驗過本人對這個評分項目有有效指派（沒帶 `?stage=` 就是本組第一個分給我的項目）。
+  const entry = entries.find((e) => e.stage.key === page.stageKey) ?? entries[0]!
   const stageKey = entry.stage.key
   const filter = parseFilter(search.filter)
   const hrefOf = (id: string) => `${BASE}/${id}?stage=${encodeURIComponent(stageKey)}${filter === 'all' ? '' : `&filter=${filter}`}`
   const benchHref = hrefOf(groupId)
 
-  // 上一組／下一組：同階段、同篩選（從總覽帶來的 `?filter=`）的前後一組；這一組已不在篩選裡（例如剛送出）就看同階段全部。
-  const sameStage = queue.filter((e) => e.stageKey === stageKey)
+  // 左欄組別清單是同屆別、同評分項目的全部組（不同屆別的方案可以有同代號的項目，一定連屆別一起比）；
+  // 上一組／下一組：同屆別、同評分項目、同篩選（從總覽帶來的 `?filter=`）的前後一組；這一組已不在篩選裡（例如剛送出）就看同階段全部。
+  const sameStage = queue.filter((e) => e.cohortCode === cohortCode && e.stageKey === stageKey)
   const filtered = filterQueue(sameStage, filter)
   const around = neighbours(filtered.some((e) => e.groupId === groupId) ? filtered : sameStage, groupId)
   const link = (e: (typeof queue)[number] | null): NeighbourLink => (e ? { href: hrefOf(e.groupId), groupCode: e.groupCode } : null)
-  const mine = queue.find((e) => e.groupId === groupId && e.stageKey === stageKey)
+  const mine = sameStage.find((e) => e.groupId === groupId)
   const status = mine ? myStatusOf(mine) : null
 
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current={BASE}>
       <div className="flex flex-col gap-5 pb-48 lg:pb-0">
-        <BackLink href={filter === 'all' ? `${BASE}?stage=${encodeURIComponent(stageKey)}` : `${BASE}?stage=${encodeURIComponent(stageKey)}&filter=${filter}`}>
+        <BackLink href={`${BASE}${filter === 'all' ? '' : `?filter=${filter}`}#${sectionId(cohortCode, stageKey)}`}>
           評分總覽
         </BackLink>
         <PageTitle
@@ -130,21 +136,23 @@ export default async function TeacherGradingGroupPage({
               </Pill>
             ) : null
           }
-          actions={
-            <nav aria-label="切換組別" className="flex items-center gap-2">
-              <NeighbourButton side="prev" link={link(around.prev)} />
-              <NeighbourButton side="next" link={link(around.next)} />
-            </nav>
-          }
         />
 
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <GroupSubmissions
+        {/* 三欄（≥ xl）：左＝組別＋繳交版本與檔案、中＝文件預覽、右＝評分卡。lg～xl 兩欄（左上組別、左下預覽、右評分卡），更窄上下三段。 */}
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[15rem_minmax(0,1fr)_380px]">
+          <StageDocuments
+            viewerKey={entry.assignmentId}
+            linkedItem={page.linkedItem}
+            stageName={entry.stage.name}
+            description={page.stageDescription}
             rows={page.submissions}
             benchHref={benchHref}
-            opened={opened ? <VersionContent version={opened} backHref={benchHref} backLabel="本組正式繳交" title={`${groupCode} 組`} /> : null}
+            opened={opened ? <VersionContent version={opened} backHref={benchHref} backLabel="文件預覽" title={`${groupCode} 組`} /> : null}
+            railTop={<GroupRail entries={sameStage} currentGroupId={groupId} hrefOf={hrefOf} prev={link(around.prev)} next={link(around.next)} />}
+            railClassName="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1 xl:sticky xl:top-[4.5rem]"
+            docClassName="dash-card min-w-0 overflow-hidden lg:col-start-1 lg:row-start-2 xl:col-start-2 xl:row-span-2 xl:row-start-1"
           />
-          <div className="min-w-0 lg:sticky lg:top-[4.5rem] lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto lg:rounded-[18px]">
+          <div className="min-w-0 lg:sticky lg:top-[4.5rem] lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto lg:rounded-[18px] xl:col-start-3">
             <GradingBench
               key={entry.assignmentId}
               assignmentId={entry.assignmentId}
@@ -155,7 +163,7 @@ export default async function TeacherGradingGroupPage({
               members={memberNames.join('、')}
             >
               {entries.length > 1 ? (
-                <nav aria-label="選擇階段" className="inline-flex w-fit max-w-full flex-wrap gap-1 rounded-xl border border-border bg-card p-1">
+                <nav aria-label="選擇評分項目" className="inline-flex w-fit max-w-full flex-wrap gap-1 rounded-xl border border-border bg-card p-1">
                   {entries.map((e) => (
                     <Link
                       key={e.assignmentId}
@@ -174,7 +182,7 @@ export default async function TeacherGradingGroupPage({
               {entry.returned ? (
                 <p role="status" data-testid="returned-notice" className="rounded-lg bg-destructive-subtle px-3 py-2 text-sm text-destructive-on-subtle">
                   系辦在 {formatTaipeiMinute(entry.returned.returnedAt)} 退回了這一份評分：{entry.returned.reason}
-                  。退回前的分數已經填回表單，修改後請重新正式送出。
+                  。退回前的分數已經填回表單，修改後請重新送出。
                 </p>
               ) : null}
             </GradingBench>
@@ -182,38 +190,5 @@ export default async function TeacherGradingGroupPage({
         </div>
       </div>
     </DashboardShell>
-  )
-}
-
-/**
- * 上一組／下一組。換組用整頁導向（一般 `<a>`，不是 client 端路由）：評分卡還有沒存的輸入時，
- * 瀏覽器的「離開此頁？」提示（評分卡掛的 beforeunload）才會跳出來。第一組／最後一組那一邊停用。
- */
-function NeighbourButton({ side, link }: { side: 'prev' | 'next'; link: NeighbourLink }) {
-  const label = side === 'prev' ? '上一組' : '下一組'
-  const content =
-    side === 'prev' ? (
-      <>
-        <IconChevronLeft aria-hidden />
-        {label}
-      </>
-    ) : (
-      <>
-        {label}
-        <IconChevronRight aria-hidden />
-      </>
-    )
-  if (!link) {
-    return (
-      <a role="link" aria-disabled="true" className={cn(OUTLINE_BUTTON, 'pointer-events-none h-10 px-3 opacity-50')}>
-        {content}
-      </a>
-    )
-  }
-  return (
-    <a href={link.href} title={`${label}：${link.groupCode}`} className={cn(OUTLINE_BUTTON, 'h-10 px-3')}>
-      {content}
-      <span className="sr-only">：{link.groupCode}</span>
-    </a>
   )
 }

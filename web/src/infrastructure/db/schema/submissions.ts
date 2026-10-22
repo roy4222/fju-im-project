@@ -177,7 +177,8 @@ export const submissionReopens = pgTable(
     receiverKind: text('receiver_kind').notNull(),
     receiverId: uuid('receiver_id').notNull(),
     dueAt: timestamp('due_at', tz).notNull(),
-    reason: text('reason').notNull(),
+    /** 補交理由（0021 起選填）。 */
+    reason: text('reason'),
     createdAt: timestamp('created_at', tz).notNull().defaultNow(),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
@@ -185,7 +186,10 @@ export const submissionReopens = pgTable(
   },
   (t) => [
     check('submission_reopens_receiver_kind_check', sql`${t.receiverKind} in ('user','group')`),
-    check('submission_reopens_reason_check', sql`char_length(${t.reason}) between 1 and 200`),
+    check(
+      'submission_reopens_reason_check',
+      sql`${t.reason} is null or char_length(${t.reason}) between 1 and 200`,
+    ),
     index('submission_reopens_receiver_idx').on(t.itemId, t.receiverKind, t.receiverId),
   ],
 )

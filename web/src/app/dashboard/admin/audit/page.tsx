@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { IconHistory } from '@tabler/icons-react'
+import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { requireRole } from '@/app/_ui/guard'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { PageTitle, Panel, PanelEmpty, Pill } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
 import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { SETTINGS_TABS } from '@/app/dashboard/admin/_tabs.consts'
 import { AuditSearch, type AuditSearchRow } from '@/app/dashboard/admin/audit/audit-search'
 import type { AuditLogEntry, AuditWhoFilter } from '@/application/ops'
 import {
@@ -27,14 +29,6 @@ import { formatTaipeiMinute } from '@/shared/time'
 export const metadata = { title: '操作紀錄｜資管系專題平台' }
 
 const BASE = '/dashboard/admin/audit'
-
-/** 設定的四個分頁（設計方案 §3.6；D-1 `h1` 用側欄名「設定」）。 */
-const SETTINGS_TABS = [
-  { href: '/dashboard/admin/cohorts', label: '屆別' },
-  { href: '/dashboard/admin/timeline', label: '時間軸' },
-  { href: '/dashboard/admin/home-settings', label: '首頁設定' },
-  { href: '/dashboard/admin/audit', label: '操作紀錄' },
-] as const
 
 /**
  * 管理員「操作紀錄」（票 36；原型 `/dashboard/admin/audit`；模組 10「依角色篩選，每筆有時間、人、動作、對象、理由；不可修改」）。
@@ -117,12 +111,14 @@ export default async function AdminAuditPage({
           {formatTaipeiMinute(e.realAt)}
         </time>
         <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-          <span
-            aria-hidden
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-[10px] font-bold text-brand-on-subtle"
-          >
-            {actorLabel(e).slice(0, 1)}
-          </span>
+          {/* 找得到帳號的人用頭像（C3 §2.3）；系統、背景工作、已不存在的帳號維持純文字。旁邊已寫姓名，頭像 alt 留空。 */}
+          {e.actorKind === 'user' && e.actorUserId ? (
+            <UserAvatar
+              user={{ id: e.actorUserId, name: actorLabel(e), avatarPreset: e.actorAvatarPreset, avatarFileId: e.actorAvatarFileId }}
+              size={24}
+              decorative
+            />
+          ) : null}
           <span className="truncate">{actorLabel(e)}</span>
         </span>
         <div className="min-w-0">
@@ -147,6 +143,9 @@ export default async function AdminAuditPage({
         <div className="mt-3">
           <AdminTabs label="設定分頁" current={BASE} items={SETTINGS_TABS} />
         </div>
+        <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+          誰在什麼時候、對哪個對象做了什麼，以及當時寫的理由。
+        </p>
         <div className="flex flex-col gap-5">
           {log ? (
             // 角色篩選是分頁列下的膠囊（設計方案 §3.6）；仍是網址（`?role=`），重新整理不會丟。

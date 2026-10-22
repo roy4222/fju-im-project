@@ -1,0 +1,4 @@
+{
+  "ticket": "C1-16",
+  "override": { "/dashboard/admin/files": { "from": "base", "value": "沒有地方在用的檔案可以在這裡刪除" } }
+}

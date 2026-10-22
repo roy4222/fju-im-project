@@ -1,15 +1,25 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
  * 票 40：系辦用**真的畫面**完成一次去識別化（ACC-14）。
  *
- * 影響預覽 → 理由必填 → 照打登入 Email 才按得下去 → 回執只有代稱；
+ * 影響預覽 → 理由選填 → 照打登入 Email 才按得下去 → 回執只有代稱；
  * 之後原姓名搜不到、狀態篩選找得到代稱；本人舊分頁下一個動作就被登出，原 Email 也登入不了。
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU；測試中途失敗也會關）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
 const ownerUrl = process.env.DATABASE_URL_OWNER
 /** e2e/session.ts 造的帳號都用這個密碼。 */
 const PASSWORD = 'E2e-Password-Correct-9'
@@ -55,13 +65,13 @@ test.beforeAll(async ({ playwright }) => {
 
 test('系辦完成一次去識別化：預覽、理由、照打 Email、回執只有代稱；本人被登出且不能再登入', async ({ browser }) => {
   // 本人的「舊分頁」：已經登入、開著學生首頁。
-  const studentContext = await browser.newContext()
+  const studentContext = track(await browser.newContext())
   await studentContext.addCookies([toPlaywrightCookie(target.cookie, BASE_URL)])
   const studentPage = await studentContext.newPage()
   await studentPage.goto('/dashboard/student')
   await expect(studentPage).toHaveURL(/\/dashboard\/student$/)
 
-  const adminContext = await browser.newContext()
+  const adminContext = track(await browser.newContext())
   const page = await adminContext.newPage()
   const session = await sharedTestSession(page.request, 'admin')
   await adminContext.addCookies([toPlaywrightCookie(session.cookie, BASE_URL)])
@@ -69,10 +79,10 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await page.goto(`/dashboard/admin/accounts?q=${encodeURIComponent(name)}`)
   // T6 系6：去識別化收在每列的「更多」選單（選單是 portal，項目從整頁找）。
   await rowOf(page, name).getByRole('button', { name: `更多 ${name}` }).click()
-  await page.getByRole('menu').getByRole('group', { name: '危險操作' }).getByRole('menuitem', { name: `刪除 ${name} 的個人資料` }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: `刪除 ${name} 的個人資料` }).click()
   const dialog = page.getByRole('dialog', { name: `刪除 ${name} 的個人資料` })
 
-  // 第三波 AC-37：去識別化在「更多」的「危險操作」組；確認視窗寫對象、後果、能不能恢復。
+  // C 階段規格② A23：「刪除個人資料」是「更多」的最後一項（沒有危險操作群組）；確認視窗寫對象、後果、能不能恢復。
   const facts = dialog.getByTestId('danger-facts')
   for (const k of ['對象', '後果', '能不能恢復']) await expect(facts).toContainText(k)
   await expect(facts).toContainText(name)
@@ -83,7 +93,7 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await expect(dialog.getByRole('region', { name: '會清除' })).toBeVisible()
   await expect(dialog.getByTestId('deidentify-retained')).toContainText('操作紀錄')
 
-  // 沒寫理由、沒照打 Email 之前按不下去；打錯也按不下去。
+  // 理由選填（C2 X2）；沒照打 Email 之前按不下去，打錯也按不下去。
   const confirm = dialog.getByRole('button', { name: '確認刪除個人資料' })
   await expect(confirm).toBeDisabled()
   await dialog.getByLabel(/理由/).fill('本人申請刪除個資')
@@ -114,7 +124,8 @@ test('系辦完成一次去識別化：預覽、理由、照打 Email、回執�
   await studentPage.getByLabel('Email').fill(target.email)
   await studentPage.getByLabel('密碼', { exact: true }).fill(PASSWORD)
   await studentPage.getByRole('button', { name: '登入', exact: true }).click()
-  await expect(studentPage.getByRole('alert')).toBeVisible()
+  // 只找 main 裡的：Next 的換頁播報（`#__next-route-announcer__`，在 main 外）也是 role=alert，hydrate 後才掛上。
+  await expect(studentPage.getByRole('main').getByRole('alert')).toBeVisible()
   await expect(studentPage).toHaveURL(/\/login/)
 
   await studentContext.close()

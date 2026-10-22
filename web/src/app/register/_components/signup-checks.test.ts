@@ -1,8 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { fillOtp, isCompleteOtp, signupFieldErrors } from './signup-checks'
-import { StepBar, stepStates } from './step-bar'
+import { StepBar, stepDir, stepStates } from './step-bar'
 
 describe('第 1 步的格式檢查（AC-VI-45）', () => {
   const ok = { email: 's1@example.com', password: 'a'.repeat(12), passwordConfirm: 'a'.repeat(12) }
@@ -59,5 +60,27 @@ describe('進度條三格', () => {
     for (const label of ['建立帳號', '驗證 Email', '填學生資料']) expect(html).toContain(label)
     expect(html.match(/aria-current="step"/g)).toHaveLength(1)
     expect(html).toMatch(/aria-current="step" data-state="current"/)
+    // Stepper B（規格④ §4.3）：往前（沒帶 dir）時 ol 沒有 data-anim。
+    expect(html).toMatch(/^<ol class="step-bar [^"]*" aria-label="註冊進度">/)
+    expect(html).not.toContain('data-anim')
+  })
+
+  it('回上一步（dir=back，AC-28）：ol 帶 data-anim="back"，仍是 3 格、第 1 格目前步驟', () => {
+    const html = renderToStaticMarkup(createElement(StepBar, { current: 1, dir: 'back' }))
+    expect(html).toMatch(/^<ol [^>]*aria-label="註冊進度" data-anim="back">/)
+    expect(html.match(/<li /g)).toHaveLength(3)
+    expect(html).toMatch(/<li [^>]*aria-current="step" data-state="current"/)
+    expect([...html.matchAll(/data-state="(\w+)"/g)].map((m) => m[1])).toEqual(['current', 'todo', 'todo'])
+  })
+
+  it('stepDir 只認 back，其他值當往前', () => {
+    expect(stepDir('back')).toBe('back')
+    for (const raw of [undefined, '', 'forward', 'BACK', ['back']]) expect(stepDir(raw)).toBe('forward')
+  })
+
+  it('不輸出 style 屬性、Server Component（0 JS）', () => {
+    const html = renderToStaticMarkup(createElement(StepBar, { current: 2, dir: 'back' }))
+    expect(html).not.toContain('style=')
+    expect(readFileSync(new URL('./step-bar.tsx', import.meta.url), 'utf8')).not.toContain('use client')
   })
 })

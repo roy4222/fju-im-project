@@ -1,6 +1,6 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test'
 import { Pool } from 'pg'
-import { fillItemBody } from './item-body'
+import { createItemOnPage, createRuleInline, fillItemForm, formReady, openAdvanced } from './create-item'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
@@ -152,7 +152,7 @@ async function itemByTitle(title: string) {
   return found.rows[0]!
 }
 
-/** 三步驟快速建立＋發布（票 15 的表單）。 */
+/** 那一類分頁的「新增」→ 一頁式共用表單（C1-06）→ 發布。正文用原始 HTML 填（要測前台淨化與排版）。 */
 async function quickPublish(
   page: Page,
   options: {
@@ -165,30 +165,34 @@ async function quickPublish(
     important?: boolean
   },
 ) {
-  await page.goto(`/dashboard/admin/affairs?cohort=${cohortId}`)
-  await page.getByRole('button', { name: '新增項目' }).click()
-  const dialog = page.getByRole('dialog', { name: '新增項目' })
-  await dialog.getByRole('radio', { name: options.placement }).check()
-  await dialog.getByLabel('標題').fill(options.title)
-  await dialog.getByLabel('誰看得到').selectOption(options.audience)
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  await dialog.getByLabel('說明', { exact: true }).fill(options.body)
-  if (options.file) {
-    await dialog.locator('input[type=file]').setInputFiles({ name: options.file.name, mimeType: 'application/pdf', buffer: options.file.buffer })
-    await expect(dialog.getByRole('link', { name: options.file.name })).toBeVisible()
+  // 專題規則沒有右上「新增」（CL-1）：走清單底部「新增章節」的就地表單（規則固定公開、沒有對象欄）。
+  if (options.placement.test('專題規則')) {
+    await page.goto(`/dashboard/admin/affairs/rules?cohort=${cohortId}`)
+    await createRuleInline(page, { title: options.title, html: options.body, file: options.file })
+    const rule = await itemByTitle(options.title)
+    itemIds[options.title] = rule.id
+    return rule
   }
-  await dialog.getByRole('button', { name: '下一步' }).click()
-  // 等第 3 步真的出來（檢查清單）再看勾選；只看 data-ok="no" 為 0 在切換前就會成立。
-  await expect(dialog.getByRole('list', { name: '發布前檢查' })).toBeVisible()
-  await expect(dialog.locator('[data-ok="no"]')).toHaveCount(0)
-  const important = dialog.getByRole('checkbox', { name: /重要公告/ })
+  // C1-07：各分頁的「新增」直接開那一類的表單（不再先選類型）。
+  const tab = options.placement.test('資源下載')
+      ? { path: 'affairs/resources', button: '新增資源' }
+      : { path: 'affairs', button: '新增公告' }
+  await page.goto(`/dashboard/admin/${tab.path}?cohort=${cohortId}`)
+  await page.getByRole('button', { name: tab.button }).click()
+  const dialog = page.getByRole('dialog', { name: tab.button })
+  const form = await formReady(dialog)
+  await fillItemForm(page, form, { title: options.title, audience: options.audience, html: options.body, file: options.file })
+  // 「重要公告」在進階設定（公告、資源才有）：公開、所有登入者的公告預設不逐人通知；其他對象預設通知。
+  await openAdvanced(form)
+  const important = form.getByRole('checkbox', { name: /重要公告/ })
   if (await important.count()) {
-    // 公開、所有登入者的公告預設不逐人通知；其他對象預設通知。
+    await expect(important.locator('xpath=..')).toContainText('勾選後將通知')
     if (options.audience === 'public' || options.audience === 'signed_in') await expect(important).not.toBeChecked()
     await important.setChecked(options.important === true)
   }
-  await dialog.getByRole('button', { name: '發布', exact: true }).click()
-  await expect(dialog.getByRole('status')).toContainText(`「${options.title}」已發布`)
+  await form.getByRole('button', { name: '發布', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('item-toast')).toHaveText('已發布')
   const item = await itemByTitle(options.title)
   itemIds[options.title] = item.id
   return item
@@ -255,24 +259,17 @@ test('管理員發布公開公告、登入可見公告、專題規則、資源�
     file: { name: '報告範本.pdf', buffer: PDF },
   })
 
-  // 組別收件（完整編輯器，同票 15 的做法）：截止在 20 天後。
+  // 組別收件（全頁共用表單，C1-06；沒有所屬階段、預設一個檔案欄）：截止在 20 天後。
   due = new Date(Date.now() + 20 * 86_400_000)
-  await page.goto(`/dashboard/admin/editor/new?cohort=${cohortId}`)
-  await page.getByLabel('標題', { exact: true }).fill(SUBMISSION)
-  await fillItemBody(page, '請上傳期中報告 PDF。')
-  await page.getByLabel('顯示在哪一區', { exact: true }).selectOption('submission')
-  await page.getByRole('radio', { name: '整組一份', exact: true }).check()
-  await page.getByLabel('誰看得到').selectOption('groups')
-  await page.getByRole('checkbox', { name: /G01/ }).check()
-  await page.getByLabel('所屬階段').selectOption({ index: 2 })
-  await page.getByLabel('截止時間（臺灣時間，含這一分鐘）').fill(localMinute(due))
-  await page.getByLabel('要新增的欄位類型').selectOption('file')
-  await page.getByRole('button', { name: '新增欄位' }).click()
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  const check = page.getByRole('dialog', { name: '發布前檢查' })
-  await expect(check.locator('[data-ok="no"]')).toHaveCount(0)
-  await check.getByRole('button', { name: '確認發布' }).click()
-  await expect(check.getByRole('status')).toContainText('需要繳交的名單 1 組')
+  await createItemOnPage(page, cohortId, {
+    placement: 'submission',
+    title: SUBMISSION,
+    body: '請上傳期中報告 PDF。',
+    unit: '整組一份',
+    audience: 'groups',
+    groups: ['G01'],
+    dueAt: localMinute(due),
+  })
   itemIds[SUBMISSION] = (await itemByTitle(SUBMISSION)).id
 })
 
@@ -433,8 +430,12 @@ test('下架：網址顯示「已下架」與下一步（不是 404）、附件�
   const after = await itemByTitle(PUBLIC_NEWS)
   expect(after.status).toBe('published')
   expect(after.actual_opened_at).toEqual(before.actual_opened_at)
-  await expect(page.getByRole('region', { name: '發布紀錄' })).toContainText('重新發布')
-  await expect(page.getByRole('region', { name: '發布紀錄' })).toContainText('下架')
+  // 發布紀錄在進階設定最下方（C1-06）。
+  const form = await formReady(page)
+  await openAdvanced(form)
+  await form.locator('summary', { hasText: '發布紀錄' }).click()
+  await expect(form.getByRole('list', { name: '發布紀錄' })).toContainText('重新發布')
+  await expect(form.getByRole('list', { name: '發布紀錄' })).toContainText('下架')
 
   await asVisitor(page)
   await page.goto(`/news/${before.id}`)
@@ -443,13 +444,14 @@ test('下架：網址顯示「已下架」與下一步（不是 404）、附件�
   await anonymous.dispose()
 })
 
-test('撤回（還沒有人作答）：回到草稿，學生打開網址看到「已撤回」；再按發布恢復同一個項目', async ({ page }) => {
+test('撤回（還沒有人作答；畫面沒有撤回鈕，資料直接改）：回到草稿，學生打開網址看到「已撤回」；再按發布恢復同一個項目', async ({ page }) => {
   const before = await itemByTitle(MEMBER_NEWS)
   await asAdmin(page)
+  // C1-06 起畫面上沒有「撤回」（API 保留，`lifecycle.ts` 規則不變）：直接把資料改成撤回後的樣子（回到草稿、revision＋1、取消置頂）。
+  await pool.query(`update managed_items set status = 'draft', revision = revision + 1, pinned_at = null where id = $1`, [before.id])
   await page.goto(`/dashboard/admin/editor/${before.id}`)
-  await page.getByRole('button', { name: '撤回', exact: true }).click()
-  await page.getByRole('dialog', { name: '撤回成草稿？' }).getByRole('button', { name: '確認撤回' }).click()
   await expect(page.getByTestId('item-status')).toHaveText('草稿')
+  await expect(page.getByRole('button', { name: '撤回' })).toHaveCount(0)
   expect((await itemByTitle(MEMBER_NEWS)).status).toBe('draft')
 
   await signIn(page, student)
@@ -459,10 +461,10 @@ test('撤回（還沒有人作答）：回到草稿，學生打開網址看到�
 
   await asAdmin(page)
   await page.goto(`/dashboard/admin/editor/${before.id}`)
-  await page.getByRole('button', { name: '發布', exact: true }).click()
-  await page.getByRole('dialog', { name: '發布前檢查' }).getByRole('button', { name: '確認發布' }).click()
-  await expect(page.getByTestId('item-status')).toHaveText('發布中')
+  await (await formReady(page)).getByRole('button', { name: '發布', exact: true }).click()
+  await expect(page).toHaveURL(/\/dashboard\/admin\/affairs\?/)
   const after = await itemByTitle(MEMBER_NEWS)
+  expect(after.status).toBe('published')
   expect(after.id).toBe(before.id)
   expect(after.actual_opened_at).toEqual(before.actual_opened_at)
 
@@ -471,42 +473,27 @@ test('撤回（還沒有人作答）：回到草稿，學生打開網址看到�
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(MEMBER_NEWS)
 })
 
-test('前台「專題時程」行事曆：屆別活動與收件截止（臺灣日期），只給老師的活動不出現', async ({ page }) => {
+test('前台「專題時程」活動清單：屆別活動與收件截止（臺灣日期、依月份分組），只給老師的活動不出現', async ({ page }) => {
   await signIn(page, student)
   await page.goto('/timeline')
 
-  // 活動（現在＋3 天）與截止（現在＋20 天）可能跨月：各自翻到那個月（讀畫面上的年月再算差），驗右欄「M 月」清單。
-  const calendar = page.getByTestId('student-calendar')
-  const heading = calendar.getByText(/^\d{4} 年 \d{1,2} 月$/)
-  const showMonth = async (day: string) => {
-    const [shownY, shownM] = ((await heading.innerText()).match(/\d+/g) ?? []).map(Number)
-    const [y, m] = day.split('-').map(Number)
-    const diff = (y! - shownY!) * 12 + (m! - shownM!)
-    for (let i = 0; i < Math.abs(diff); i += 1) await calendar.getByRole('button', { name: diff > 0 ? '下個月' : '上個月' }).click()
-    await expect(heading).toHaveText(`${y} 年 ${m} 月`)
-    return calendar.getByRole('list', { name: `${m} 月`, exact: true })
-  }
+  // 活動（現在＋3 天）與截止（現在＋20 天）可能跨月：各自在清單那個月份的一組裡找（甘特的斷言在 timeline-page.spec）。
+  const monthList = (day: string) =>
+    page.getByRole('region', { name: '活動清單' }).getByRole('list', { name: `${Number(day.slice(5, 7))} 月`, exact: true })
   const activityDay = ymd(new Date(Date.now() + 3 * 86_400_000))
-  await expect(await showMonth(activityDay)).toContainText(ACTIVITY)
-  // 老師活動跟 ACTIVITY 同一天：翻到那個月再驗，否則它本來就不在畫面上、否定斷言會空轉。
+  await expect(monthList(activityDay).getByRole('listitem').filter({ hasText: ACTIVITY })).toContainText(activityDay)
   await expect(page.getByRole('main')).not.toContainText(TEACHER_ACTIVITY)
   const dueDay = ymd(due)
-  const month = await showMonth(dueDay)
-  await expect(month.getByRole('listitem').filter({ hasText: SUBMISSION })).toContainText('截止')
-
-  // 點截止那一天，看到這份收件的截止。
-  await calendar.getByRole('button', { name: new RegExp(`^${dueDay}`) }).click()
-  const day = calendar.getByRole('list', { name: '這天的行程' })
-  await expect(day).toContainText(SUBMISSION)
-  await expect(day).toContainText('截止')
+  const row = monthList(dueDay).getByRole('listitem').filter({ hasText: SUBMISSION })
+  await expect(row).toContainText('截止')
+  await expect(row).toContainText(dueDay)
 })
 
-test('公開首頁「我的工作」：學生看到自己要交的收件截止與待繳數（跟學生首頁同一份資料），不是寫死的「沒有」', async ({ page }) => {
+test('公開首頁沒有「我的工作」：學生有要交的收件，首頁也不列（工作都在後台，C2-14）', async ({ page }) => {
   await signIn(page, student)
   await page.goto('/')
-  const work = page.getByRole('region', { name: '我的工作' })
-  await expect(work.getByTestId('home-deadlines')).toContainText(SUBMISSION)
-  await expect(work.getByTestId('home-deadlines')).toContainText(`截止 ${ymd(due)}`)
-  await expect(work).not.toContainText('近期沒有要截止的項目')
-  await expect(work.getByTestId('home-work-pending')).toHaveText(/^待繳交 [1-9]\d* 件$/)
+  await expect(page.getByRole('region', { name: '我的工作' })).toHaveCount(0)
+  await expect(page.getByRole('main')).not.toContainText(SUBMISSION)
+  await expect(page.getByTestId('home-deadlines')).toHaveCount(0)
+  await expect(page.getByTestId('home-work-pending')).toHaveCount(0)
 })

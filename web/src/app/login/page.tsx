@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { currentActor, homeFor } from '@/app/_ui/guard'
 import { Turnstile } from '@/app/_turnstile/turnstile'
-import { AuthSplit } from '@/app/_ui/auth-split'
+import { AuthStage } from '@/app/_ui/auth-stage'
 import { googleSignInErrorMessage } from '@/app/_ui/oauth-messages'
 import { SiteShell } from '@/app/_ui/site-shell'
 import { GoogleButton } from '@/app/login/google-button'
@@ -19,7 +19,7 @@ export const metadata = { title: '登入｜資管系專題平台' }
  * （callbackURL＝`/login?next=…`），由這一段分流：被要求改密 → 改密頁；待審 → 等待審核頁；
  * 其他 → `next`（經 `safeNextPath`）或自己的首頁。跟密碼登入的 Server Action 同一套規則。
  *
- * 外框是左圖右卡（`AuthSplit`）；卡片有登入、忘記密碼、已寄出三種模式（`login-card.tsx`）。
+ * 外框是置中白卡（`AuthStage`），背景 LetterGlitch 在 `layout.tsx`、沒有頁尾（規格④ §4.1）；卡片有登入、忘記密碼、已寄出三種模式（`login-card.tsx`）。
  * `?mode=forgot`（`/forgot-password` 導過來的）直接開在忘記密碼模式；模式由卡片自己讀網址。
  */
 export default async function LoginPage({
@@ -39,8 +39,8 @@ export default async function LoginPage({
   const googleError = googleSignInErrorMessage(params.error)
 
   return (
-    <SiteShell bare>
-      <AuthSplit image={{ src: '/placeholder/campus.jpg', alt: '輔仁大學校園', width: 960, height: 639 }}>
+    <SiteShell bare footer={false}>
+      <AuthStage>
         <LoginCard
           next={next}
           notice={
@@ -62,9 +62,10 @@ export default async function LoginPage({
           registerHint={
             // 註冊說明只放這裡（首頁 hero 改介紹專題）；註冊關閉時（設計方案 §5）整段不出現。句子照 R11。
             isRegistrationOpen() ? (
-              <p className="mt-4 text-center text-[13px] text-muted-foreground" data-testid="register-hint">
+              <p className="mt-4 text-center text-sm text-muted-foreground" data-testid="register-hint">
                 還沒有帳號？學生請先
-                <Link className="font-bold text-primary hover:underline" href="/register">
+                {/* 觸控裝置點得到的高度 44 px（規格④ §4.4）；負邊距是透明延伸區，不撐開版面。 */}
+                <Link className="font-bold text-primary hover:underline pointer-coarse:-my-3 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center" href="/register">
                   註冊
                 </Link>
                 。
@@ -72,7 +73,7 @@ export default async function LoginPage({
             ) : null
           }
         />
-      </AuthSplit>
+      </AuthStage>
     </SiteShell>
   )
 }

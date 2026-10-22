@@ -56,34 +56,52 @@ export function navTitle(items: readonly NavItem[], current: string, roleLabel: 
  */
 export const ADMIN_NAV: readonly NavItem[] = [
   { href: '/dashboard/admin', label: '首頁', icon: 'home' },
-  // 公告與作業：分頁列另有檔案管理、成果展示（AD-03、AD-04）。
+  // 公告與作業：六個分頁（設計方案 §2.2；分頁列在 `admin/_tabs.ts`）。
   {
     href: '/dashboard/admin/affairs',
     label: '公告與作業',
     icon: 'affairs',
-    activeFor: ['/dashboard/admin/showcase', '/dashboard/admin/files'],
+    activeFor: [
+      '/dashboard/admin/affairs/assignments',
+      '/dashboard/admin/affairs/resources',
+      '/dashboard/admin/affairs/rules',
+      '/dashboard/admin/showcase',
+      '/dashboard/admin/files',
+    ],
   },
-  // 分組：合作案分頁（AD-07）。
-  { href: '/dashboard/admin/groups', label: '分組', icon: 'groups', activeFor: ['/dashboard/admin/industry'] },
-  // 成績：評分規則子頁（AD-08）、站內同意書分頁（AD-09）。
+  // 分組：全部組別、未分組學生、產學合作。
+  {
+    href: '/dashboard/admin/groups',
+    label: '分組',
+    icon: 'groups',
+    activeFor: ['/dashboard/admin/groups/unassigned', '/dashboard/admin/industry'],
+  },
+  // 成績：成績表、評分規則、評分老師、結算。舊同意書網址（C2-22 起轉到作業分頁）保留在 activeFor，舊書籤轉走前仍亮這一項。
   {
     href: '/dashboard/admin/grading',
     label: '成績',
     icon: 'grading',
-    activeFor: ['/dashboard/admin/signoff', '/dashboard/admin/grading/rules'],
+    activeFor: [
+      '/dashboard/admin/grading/rules',
+      '/dashboard/admin/grading/teachers',
+      '/dashboard/admin/grading/settle',
+      '/dashboard/admin/signoff',
+    ],
   },
-  { href: '/dashboard/admin/accounts', label: '帳號', icon: 'accounts' },
-  // 設定總頁（AD-20）：四張卡連到屆別、時間軸（含模擬業務鐘）、首頁設定、操作紀錄（AD-12、AD-15）。
+  // 帳號：全部帳號、待審核、已停用、名單匯入。
   {
-    href: '/dashboard/admin/settings',
+    href: '/dashboard/admin/accounts',
+    label: '帳號',
+    icon: 'accounts',
+    activeFor: ['/dashboard/admin/accounts/pending', '/dashboard/admin/accounts/disabled', '/dashboard/admin/accounts/roster'],
+  },
+  // 設定：直接進「屆別」分頁（舊入口頁 `/settings` 轉過來，見 `admin/legacy-redirects.ts`）。
+  // 首頁設定不在分頁列，C2-17 刪頁時從這裡拿掉；測試用時間只在測試站有。
+  {
+    href: '/dashboard/admin/cohorts',
     label: '設定',
     icon: 'settings',
-    activeFor: [
-      '/dashboard/admin/cohorts',
-      '/dashboard/admin/timeline',
-      '/dashboard/admin/home-settings',
-      '/dashboard/admin/audit',
-    ],
+    activeFor: ['/dashboard/admin/timeline', '/dashboard/admin/audit', '/dashboard/admin/clock'],
   },
 ]
 
@@ -125,6 +143,7 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/cohorts', role: 'admin' },
   { path: '/dashboard/admin/timeline', role: 'admin' },
   { path: '/dashboard/admin/groups', role: 'admin' },
+  { path: '/dashboard/admin/groups/[groupId]', role: 'admin' },
   // 專題事務工作台與完整編輯器（票 15）；既有項目的 `/dashboard/admin/editor/<id>` 與收件名單頁
   // `/dashboard/admin/affairs/<id>`（票 18，roster.spec 驗學生與老師被擋）同一個守衛。
   { path: '/dashboard/admin/affairs', role: 'admin' },
@@ -137,8 +156,17 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   { path: '/dashboard/admin/grading', role: 'admin' },
   // 評分規則子頁（AD-08）：評分規則、版本紀錄、每組要幾份評分與指派。
   { path: '/dashboard/admin/grading/rules', role: 'admin' },
-  // 設定總頁（AD-20）：四張卡連到屆別、時間軸、首頁設定、操作紀錄。
-  { path: '/dashboard/admin/settings', role: 'admin' },
+  // C 階段規格② 的新分頁（C2-01）：公告與作業三個、分組一個、成績兩個（結算之前漏列）、帳號三個。
+  // 舊設定入口頁 `/dashboard/admin/settings` 改成轉址，守衛另由 `admin-redirects.spec.ts` 驗。
+  { path: '/dashboard/admin/affairs/assignments', role: 'admin' },
+  { path: '/dashboard/admin/affairs/resources', role: 'admin' },
+  { path: '/dashboard/admin/affairs/rules', role: 'admin' },
+  { path: '/dashboard/admin/groups/unassigned', role: 'admin' },
+  { path: '/dashboard/admin/grading/teachers', role: 'admin' },
+  { path: '/dashboard/admin/grading/settle', role: 'admin' },
+  { path: '/dashboard/admin/accounts/pending', role: 'admin' },
+  { path: '/dashboard/admin/accounts/disabled', role: 'admin' },
+  { path: '/dashboard/admin/accounts/roster', role: 'admin' },
   { path: '/dashboard/teacher/grading', role: 'teacher' },
   { path: '/dashboard/student/grading', role: 'student' },
   { path: '/dashboard/teacher', role: 'teacher' },
@@ -159,13 +187,11 @@ export const PROTECTED_ROUTES: readonly { path: string; role: Role }[] = [
   // 合作案管理（票 20）。前台的 `/industry` 不在這裡：它是「登入後」內容，不分角色（頁面自己顯示登入提示）。
   { path: '/dashboard/teacher/industry', role: 'teacher' },
   { path: '/dashboard/admin/industry', role: 'admin' },
-  // 簽核與精選（票 25）；版本頁 `/dashboard/{admin,teacher}/signoff/<版本>` 同一個守衛。
-  { path: '/dashboard/admin/signoff', role: 'admin' },
+  // 簽核與精選（票 25）；老師版本頁 `/dashboard/teacher/signoff/<版本>` 同一個守衛。
+  // 系辦的 `/dashboard/admin/signoff` C2-22 起是轉址頁（到作業分頁），驗法移到 admin-redirects.spec。
   { path: '/dashboard/admin/showcase', role: 'admin' },
   // 操作紀錄（票 36）：誰、何時、對哪個對象、做了什麼、為什麼；只有管理員讀得到。
   { path: '/dashboard/admin/audit', role: 'admin' },
-  // 首頁設定（第三波 W3）：首頁大圖與兩行標語。
-  { path: '/dashboard/admin/home-settings', role: 'admin' },
   { path: '/dashboard/teacher/signoff', role: 'teacher' },
   { path: '/dashboard/student/signoff', role: 'student' },
 ]

@@ -141,6 +141,41 @@
       "when": 1792250671200,
       "tag": "0019_rules_position",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792332830677,
+      "tag": "0020_c2_verification_office_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792337571040,
+      "tag": "0021_c1_affairs_consent_grading",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792375898426,
+      "tag": "0022_c2_site_texts",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792401847221,
+      "tag": "0023_c3_profile_card_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792474022858,
+      "tag": "0024_c3_events_span",
+      "breakpoints": true
     }
   ]
 }

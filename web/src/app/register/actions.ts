@@ -103,7 +103,8 @@ export async function backToSignupStep(formData: FormData): Promise<void> {
   jar.delete({ name: RESUME_COOKIE, path: '/register' })
   // 表單上帶的 Email 只在上面兩種來源都沒有時才用（例如 cookie 已過期）。
   if (!email) email = field(formData, 'email', 254).trim()
-  redirect(email ? `/register?email=${encodeURIComponent(email)}` : '/register')
+  // `dir=back`：步驟條反向播（規格④ §4.3）。
+  redirect(email ? `/register?dir=back&email=${encodeURIComponent(email)}` : '/register?dir=back')
 }
 
 /**

@@ -18,7 +18,11 @@ import { PgPublicShowcaseQuery } from '@/infrastructure/showcase/pg-public-showc
  * 第三波 W0：第十三支新增首頁設定、個別補交兩表，並給舊表加刪除標記與輪播順序（細節在 wave3-schema.integration.test.ts）。
  * 第三波 W15：第十四支只改精選「一組一屆一個條目」的唯一索引，改成只算未刪除的（刪掉後同組可以再建草稿；下面倒數第二組）。
  * B 階段 A-01：0017 新增系辦結算表 `grade_settlements`、0018 給 `evaluations` 加評語欄；已套 0016、有資料的庫升上來（下面倒數第二組）。
- * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面最後一組）。
+ * B 階段 A-14：0019 只給 `managed_items` 加規則章節位置欄與索引（仍七十張表）；已套 0018、有資料的庫升上來會回填順序（下面倒數第二組）。
+ * C 階段 C2-21：0020 只放寬約束（理由選填、核實方式加 office_review／email_roster_match；仍七十張表）；已套 0019、有資料的庫升上來（下面最後一組）。
+ * C 階段 C1-01：0021 新增評分項目側表 `grading_stage_settings`（七十一張表），其餘是加欄與放寬（細節在 s04-items、pg-signoff、pg-grading 整合測試）。
+ * C 階段 C2-17：0022 新增站內文字 `site_texts`（七十二張表），只有新增；已套 0021、有資料的庫升上來（下面倒數第二組）。
+ * C 階段 C3-01：0023（③-1）名片欄、分組理由放寬、產學確認欄（仍七十二張表）；已套 0022、有資料的庫升上來（下面最後一組）。
  */
 
 beforeAll(async () => {
@@ -130,6 +134,12 @@ const VB1_TABLES = ['mail_outbox']
 /** B 階段 A-01 的 0017：系辦結算。 */
 const A01_TABLES = ['grade_settlements']
 
+/** C 階段 C1-01 的 0021：評分項目側表（對應作業、說明、評審組）。 */
+const C1_TABLES = ['grading_stage_settings']
+
+/** C 階段 C2-17 的 0022：系辦可在前台改的站內文字（頁尾聯絡、三張卡、隱私權政策）。 */
+const C2_TABLES = ['site_texts']
+
 const EXPECTED_TABLES = [
   ...S00_TABLES,
   ...S01_TABLES,
@@ -144,9 +154,11 @@ const EXPECTED_TABLES = [
   ...W0_TABLES,
   ...VB1_TABLES,
   ...A01_TABLES,
+  ...C1_TABLES,
+  ...C2_TABLES,
 ].sort()
 
-const LATEST = '0019_rules_position'
+const LATEST = '0024_c3_events_span'
 
 async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>): Promise<string[]> {
   const rows = await db.sql(
@@ -158,7 +170,7 @@ async function tableNames(db: Awaited<ReturnType<typeof createIsolatedDatabase>>
 }
 
 describe('空庫 migration', () => {
-  it('在全新的空 schema 上跑得起來，建出七十張表', async () => {
+  it('在全新的空 schema 上跑得起來，建出七十二張表', async () => {
     await withIsolatedDatabase({ label: 'empty-migrate' }, async (db) => {
       const before = await tableNames(db)
       expect(before).toEqual([])
@@ -569,6 +581,348 @@ describe('0019（A-14）：已套 0018、有資料的庫升到 0019：回填順�
         db.schemaName,
       ])
       expect(String(index.rows[0]!.indexdef)).toMatch(/\(cohort_id, rules_position\) WHERE .*placement = 'rules'.*deleted_at IS NULL/)
+    })
+  })
+})
+
+describe('0020（C2-21）：已套 0019、有資料的庫升到 0020：理由選填、核實方式新值', () => {
+  it('舊列不受影響；理由可存 NULL；核准可不帶核實方式；三表收 office_review／email_roster_match、亂填照擋', async () => {
+    await withIsolatedDatabase({ label: 'm0020' }, async (db) => {
+      await applyMigrations(db, '0019_rules_position')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0020@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), '113', '113', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      const clock = (reason: string | null) =>
+        db.sql(
+          `insert into business_clock_overrides (id, environment, business_at, real_at, set_by_user_id, reason)
+           values (gen_random_uuid(), 'local', now(), now(), $1, $2) returning id`,
+          [userId, reason],
+        )
+      const status = (from: string | null, to: string, reason: string | null) =>
+        db.sql(
+          `insert into cohort_status_events (id, cohort_id, from_status, to_status, reason, actor_user_id, real_at, business_at)
+           values (gen_random_uuid(), $1, $2, $3, $4, $5, now(), now()) returning id`,
+          [cohortId, from, to, reason, userId],
+        )
+      let studentNo = 410000100
+      const application = (state: string, method: string | null) =>
+        db.sql(
+          `insert into registration_applications
+             (id, user_id, applied_name, student_no, phone, contact_email, login_email, state, verification_method,
+              created_by_kind, created_by_user_id)
+           values (gen_random_uuid(), $1, 'X', $2, '09', 'c@example.com', 'c@example.com', $3, $4, 'user', $1) returning id`,
+          [userId, String(studentNo++), state, method],
+        )
+      const userStatus = (method: string) =>
+        db.sql(
+          `insert into user_status_events (id, user_id, from_status, to_status, verification_method, actor_kind, real_at)
+           values (gen_random_uuid(), $1, 'pending', 'active', $2, 'system', now())`,
+          [userId, method],
+        )
+      const audit = (method: string) =>
+        db.sql(
+          `insert into audit_events (id, actor_kind, action, target_type, target_id, scope, verification_method, real_at, business_at)
+           values (gen_random_uuid(), 'system', 'account.approve', 'registration_application', gen_random_uuid(), 'global', $1, now(), now())`,
+          [method],
+        )
+
+      // 0019 時：空理由、封存無理由、核准無核實方式、新值都被擋。
+      await expect(clock(null)).rejects.toThrow(/null value in column "reason"/)
+      await expect(clock('  ')).rejects.toThrow(/business_clock_overrides_reason_check/)
+      await expect(status('active', 'archived', null)).rejects.toThrow(/cohort_status_events_archive_reason_check/)
+      await expect(application('approved', null)).rejects.toThrow(/registration_applications_approved_verification_check/)
+      await expect(audit('office_review')).rejects.toThrow(/audit_events_verification_method_check/)
+      const oldClock = String((await clock('示範')).rows[0]!.id)
+      const oldStatus = String((await status('active', 'archived', '年度結束')).rows[0]!.id)
+      const oldApplication = String((await application('approved', 'id_document')).rows[0]!.id)
+
+      await applyMigration(db, '0020_c2_verification_office_review')
+
+      expect((await db.sql(`select reason from business_clock_overrides where id = $1`, [oldClock])).rows).toEqual([{ reason: '示範' }])
+      expect((await db.sql(`select reason from cohort_status_events where id = $1`, [oldStatus])).rows).toEqual([{ reason: '年度結束' }])
+      expect((await db.sql(`select verification_method from registration_applications where id = $1`, [oldApplication])).rows).toEqual([
+        { verification_method: 'id_document' },
+      ])
+
+      // 理由選填（X2）：測試用時間、封存／解封都可存 NULL。
+      const column = await db.sql(
+        `select is_nullable from information_schema.columns where table_schema = $1 and table_name = 'business_clock_overrides' and column_name = 'reason'`,
+        [db.schemaName],
+      )
+      expect(column.rows).toEqual([{ is_nullable: 'YES' }])
+      await expect(clock(null)).resolves.toBeTruthy()
+      await expect(status('archived', 'active', null)).resolves.toBeTruthy()
+      await expect(status('active', 'archived', null)).resolves.toBeTruthy()
+      // 其他約束沒被一起拿掉。
+      await expect(
+        db.sql(
+          `insert into business_clock_overrides (id, environment, business_at, real_at, set_by_user_id) values (gen_random_uuid(), 'production', now(), now(), $1)`,
+          [userId],
+        ),
+      ).rejects.toThrow(/business_clock_overrides_environment_check/)
+      await expect(status('active', 'gone', null)).rejects.toThrow(/cohort_status_events_to_status_check/)
+
+      // 不再問核實方式（X3）：核准可不帶；三表收兩個新值、舊值照收、亂填照擋；other 仍要說明。
+      await expect(application('approved', null)).resolves.toBeTruthy()
+      await expect(application('approved', 'other')).rejects.toThrow(/registration_applications_other_note_check/)
+      for (const method of ['office_review', 'email_roster_match', 'id_document', 'google_email_match']) {
+        await expect(application('approved', method), `registration_applications 擋了 ${method}`).resolves.toBeTruthy()
+        await expect(userStatus(method), `user_status_events 擋了 ${method}`).resolves.toBeTruthy()
+        await expect(audit(method), `audit_events 擋了 ${method}`).resolves.toBeTruthy()
+      }
+      await expect(application('approved', 'guess')).rejects.toThrow(/registration_applications_verification_method_check/)
+      await expect(userStatus('guess')).rejects.toThrow(/user_status_events_verification_method_check/)
+      await expect(audit('guess')).rejects.toThrow(/audit_events_verification_method_check/)
+
+      const gone = await db.sql(
+        `select conname from pg_constraint c join pg_namespace n on n.oid = c.connamespace
+          where n.nspname = $1 and conname in ('business_clock_overrides_reason_check', 'cohort_status_events_archive_reason_check', 'registration_applications_approved_verification_check')`,
+        [db.schemaName],
+      )
+      expect(gone.rows).toEqual([])
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES.filter((t) => !C1_TABLES.includes(t) && !C2_TABLES.includes(t)))
+    })
+  })
+})
+
+describe('0022（C2-17）：已套 0021、有資料的庫升到 0022：只多 site_texts', () => {
+  it('舊表不動；site_texts 只收五個 key、revision ≥ 1；fju_app 能讀寫但不能刪', async () => {
+    await withIsolatedDatabase({ label: 'm0022' }, async (db) => {
+      await applyMigrations(db, '0021_c1_affairs_consent_grading')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0022@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      await db.sql(`insert into home_settings (id, tagline_line1, updated_by_user_id) values (1, '舊標語', $1)`, [userId])
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES.filter((t) => !C2_TABLES.includes(t)))
+
+      await applyMigration(db, '0022_c2_site_texts')
+
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+      expect((await db.sql(`select tagline_line1 from home_settings where id = 1`)).rows).toEqual([{ tagline_line1: '舊標語' }])
+      const insert = (key: string, revision = 1) =>
+        db.sql(`insert into site_texts (key, value, revision, updated_by_user_id) values ($1, '{"phone":"02-0000-0000"}'::jsonb, $2, $3)`, [key, revision, userId])
+      await expect(insert('footer_contact')).resolves.toBeTruthy()
+      await expect(insert('quick_card_2')).resolves.toBeTruthy()
+      await expect(insert('hero')).rejects.toThrow(/site_texts_key_check/)
+      await expect(insert('privacy', 0)).rejects.toThrow(/site_texts_revision_check/)
+
+      // 權限照 0012 給 home_settings 的寫法：app 角色讀、寫、改，不能刪。
+      const grants = await db.sql(
+        `select privilege_type from information_schema.role_table_grants
+          where table_schema = $1 and table_name = 'site_texts' and grantee = 'fju_app' order by privilege_type`,
+        [db.schemaName],
+      )
+      expect(grants.rows.map((r) => r.privilege_type)).toEqual(['INSERT', 'SELECT', 'UPDATE'])
+    })
+  })
+})
+
+describe('0023（C3-01，③-1）：已套 0022、有資料的庫升到 0023：名片欄、理由選填、產學確認', () => {
+  it('舊列拿到預設；指派、結束、解除、解散理由都可 NULL，但結束列仍要記誰；新欄有 CHECK', async () => {
+    await withIsolatedDatabase({ label: 'm0023' }, async (db) => {
+      await applyMigrations(db, '0022_c2_site_texts')
+      const people = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status)
+         values (gen_random_uuid(), '系辦', 'm0023-admin@example.com', true, now(), 'active'),
+                (gen_random_uuid(), '老師', 'm0023-teacher@example.com', true, now(), 'active') returning id`,
+      )
+      const adminId = String(people.rows[0]!.id)
+      const teacherId = String(people.rows[1]!.id)
+      const cohort = await db.sql(
+        `insert into cohorts (id, code, name, status, year_end_date, created_by_kind) values (gen_random_uuid(), '114', '114', 'active', '2027-06-30', 'system') returning id`,
+      )
+      const cohortId = String(cohort.rows[0]!.id)
+      await db.sql(
+        `insert into user_profiles (user_id, display_name, name_normalized, contact_email, cohort_id) values ($1, '系辦', '系辦', 'm0023-admin@example.com', $2)`,
+        [adminId, cohortId],
+      )
+      let code = 0
+      const group = () =>
+        db
+          .sql(
+            `insert into groups (id, cohort_id, code, group_type, established_real_at, established_business_at, created_by_kind)
+             values (gen_random_uuid(), $1, $2, 'industry', now(), now(), 'system') returning id`,
+            [cohortId, `G${String((code += 1)).padStart(2, '0')}`],
+          )
+          .then((r) => String(r.rows[0]!.id))
+      const opportunity = await db.sql(
+        `insert into industry_opportunities
+           (id, owner_teacher_user_id, company_name, department, content, requirements, created_by_kind, created_by_user_id)
+         values (gen_random_uuid(), $1, '輔仁科技', '資訊部', '內容', '條件', 'user', $1) returning id`,
+        [teacherId],
+      )
+      const opportunityId = String(opportunity.rows[0]!.id)
+      const assign = (groupId: string, reason: string | null) =>
+        db.sql(
+          `insert into advisor_assignments (id, group_id, teacher_user_id, source, valid_from, assigned_by_user_id, reason)
+           values (gen_random_uuid(), $1, $2, 'admin', now(), $3, $4) returning id`,
+          [groupId, teacherId, adminId, reason],
+        )
+      const endAssignment = (id: string, endedBy: string | null, reason: string | null) =>
+        db.sql(
+          `update advisor_assignments set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, end_reason = $3 where id = $1`,
+          [id, endedBy, reason],
+        )
+      const link = (groupId: string) =>
+        db
+          .sql(
+            `insert into opportunity_links (id, group_id, opportunity_id, valid_from, linked_by_user_id)
+             values (gen_random_uuid(), $1, $2, now(), $3) returning id`,
+            [groupId, opportunityId, adminId],
+          )
+          .then((r) => String(r.rows[0]!.id))
+      const endLink = (id: string, endedBy: string | null, reason: string | null) =>
+        db.sql(
+          `update opportunity_links set valid_to = now(), ended_real_at = now(), ended_by_user_id = $2, end_reason = $3 where id = $1`,
+          [id, endedBy, reason],
+        )
+      const dissolve = (groupId: string, reason: string | null) =>
+        db.sql(`update groups set status = 'dissolved', dissolved_real_at = now(), dissolve_reason = $2 where id = $1`, [groupId, reason])
+
+      // 0022 時：空理由被擋。
+      const g1 = await group()
+      await expect(assign(g1, null)).rejects.toThrow(/advisor_assignments_admin_reason_check/)
+      const oldAssignment = String((await assign(g1, '系辦指派')).rows[0]!.id)
+      await expect(endAssignment(oldAssignment, adminId, null)).rejects.toThrow(/advisor_assignments_ended_check/)
+      const oldLink = await link(g1)
+      await expect(endLink(oldLink, adminId, null)).rejects.toThrow(/opportunity_links_ended_check/)
+      await expect(dissolve(await group(), null)).rejects.toThrow(/groups_dissolved_check/)
+
+      await applyMigration(db, '0023_c3_profile_card_links')
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+
+      // 舊列拿到預設：名片空、既有連結算已確認。
+      expect((await db.sql(`select bio, skills from user_profiles where user_id = $1`, [adminId])).rows).toEqual([{ bio: '', skills: [] }])
+      expect((await db.sql(`select state from opportunity_links where id = $1`, [oldLink])).rows).toEqual([{ state: 'active' }])
+      expect((await db.sql(`select reason from advisor_assignments where id = $1`, [oldAssignment])).rows).toEqual([{ reason: '系辦指派' }])
+
+      // advisor_assignments.end_reason 可 NULL，但結束列仍要 ended_by_user_id。
+      await expect(endAssignment(oldAssignment, null, null)).rejects.toThrow(/advisor_assignments_ended_check/)
+      await expect(endAssignment(oldAssignment, adminId, null)).resolves.toMatchObject({ rowCount: 1 })
+      expect(
+        (await db.sql(`select end_reason, ended_by_user_id from advisor_assignments where id = $1`, [oldAssignment])).rows,
+      ).toEqual([{ end_reason: null, ended_by_user_id: adminId }])
+      // advisor_assignments.reason 可 NULL（管理員指派理由選填）。
+      await expect(assign(g1, null)).resolves.toMatchObject({ rowCount: 1 })
+
+      // opportunity_links.end_reason 可 NULL，但結束列仍要 ended_by_user_id。
+      await expect(endLink(oldLink, null, null)).rejects.toThrow(/opportunity_links_ended_check/)
+      await expect(endLink(oldLink, adminId, null)).resolves.toMatchObject({ rowCount: 1 })
+
+      // groups.dissolve_reason 可 NULL；解散仍要時間。
+      const g3 = await group()
+      await expect(dissolve(g3, null)).resolves.toMatchObject({ rowCount: 1 })
+      await expect(db.sql(`update groups set dissolved_real_at = null where id = $1`, [g3])).rejects.toThrow(/groups_dissolved_check/)
+
+      // opportunity_links.state 預設 active、只收 pending／active。
+      const g4 = await group()
+      const newLink = await link(g4)
+      expect((await db.sql(`select state from opportunity_links where id = $1`, [newLink])).rows).toEqual([{ state: 'active' }])
+      await expect(db.sql(`update opportunity_links set state = 'pending' where id = $1`, [newLink])).resolves.toMatchObject({ rowCount: 1 })
+      await expect(db.sql(`update opportunity_links set state = 'declined' where id = $1`, [newLink])).rejects.toThrow(
+        /opportunity_links_state_check/,
+      )
+
+      // user_profiles.skills 預設空陣列；bio ≤ 50 字、skills 必須是陣列。
+      const student = await db.sql(
+        `with u as (insert into users (id, name, email, email_verified, updated_at) values (gen_random_uuid(), '學生', 'm0023-s@example.com', true, now()) returning id)
+         insert into user_profiles (user_id, display_name, name_normalized, contact_email) select id, '學生', '學生', 'm0023-s@example.com' from u
+         returning user_id, bio, skills`,
+      )
+      expect(student.rows[0]).toMatchObject({ bio: '', skills: [] })
+      const studentId = String(student.rows[0]!.user_id)
+      const card = (bio: string, skills: string) =>
+        db.sql(`update user_profiles set bio = $2, skills = $3::jsonb where user_id = $1`, [studentId, bio, skills])
+      await expect(card('字'.repeat(50), '["前端","資料庫"]')).resolves.toMatchObject({ rowCount: 1 })
+      await expect(card('字'.repeat(51), '[]')).rejects.toThrow(/user_profiles_bio_length_check/)
+      await expect(card('', '{"a":1}')).rejects.toThrow(/user_profiles_skills_array_check/)
+
+      // group_proposals.opportunity_id 可空、指向合作案；管理員作廢理由選填。
+      const proposal = (opportunity: string | null) =>
+        db.sql(
+          `insert into group_proposals (id, cohort_id, proposer_user_id, group_type, expires_business_at, opportunity_id, created_real_at, created_business_at)
+           values (gen_random_uuid(), $1, $2, 'industry', now(), $3, now(), now()) returning id`,
+          [cohortId, studentId, opportunity],
+        )
+      await expect(proposal(null)).resolves.toMatchObject({ rowCount: 1 })
+      const withOpportunity = String((await proposal(opportunityId)).rows[0]!.id)
+      await expect(proposal('00000000-0000-0000-0000-000000000000')).rejects.toThrow(/group_proposals_opportunity_id_industry_opportunities_id_fk/)
+      await expect(
+        db.sql(
+          `update group_proposals set state = 'terminated', termination_kind = 'admin_voided', reason = null,
+                  closed_real_at = now(), closed_business_at = now(), closed_by_kind = 'user', closed_by_user_id = $2 where id = $1`,
+          [withOpportunity, adminId],
+        ),
+      ).resolves.toMatchObject({ rowCount: 1 })
+
+      const gone = await db.sql(
+        `select conname from pg_constraint c join pg_namespace n on n.oid = c.connamespace
+          where n.nspname = $1 and conname in ('advisor_assignments_admin_reason_check', 'group_proposals_admin_voided_reason_check')`,
+        [db.schemaName],
+      )
+      expect(gone.rows).toEqual([])
+    })
+  })
+})
+
+describe('0024（C3-06，③-2）：已套 0023、有資料的庫升到 0024：活動跨日、直接刪除', () => {
+  it('舊的全天活動補 ends_at＝starts_at + 1 天；全天活動 ends_at 非空且大於 starts_at；排定中的活動可以標 deleted_at', async () => {
+    await withIsolatedDatabase({ label: 'm0024' }, async (db) => {
+      await applyMigrations(db, '0023_c3_profile_card_links')
+      const user = await db.sql(
+        `insert into users (id, name, email, email_verified, updated_at, status) values (gen_random_uuid(), '系辦', 'm0024@example.com', true, now(), 'active') returning id`,
+      )
+      const userId = String(user.rows[0]!.id)
+      const cohort = await db.sql(`insert into cohorts (id, code, name, created_by_kind) values (gen_random_uuid(), '115', '115', 'system') returning id`)
+      const cohortId = String(cohort.rows[0]!.id)
+      const insert = (startsAt: string, endsAt: string | null, allDay: boolean) =>
+        db
+          .sql(
+            `insert into project_events (id, cohort_id, title, starts_at, ends_at, all_day, audience_kind, created_by_kind)
+             values (gen_random_uuid(), $1, 't', $2, $3, $4, 'cohort_students', 'system') returning id`,
+            [cohortId, startsAt, endsAt, allDay],
+          )
+          .then((r) => String(r.rows[0]!.id))
+      const remove = (id: string) =>
+        db.sql(`update project_events set deleted_at = now(), deleted_by_user_id = $2 where id = $1`, [id, userId])
+
+      // 0023 時：全天活動 ends_at 是 NULL；排定中的不能標刪除。
+      const oldAllDay = await insert('2026-12-19T16:00:00Z', null, true)
+      const oldTimed = await insert('2026-12-20T06:00:00Z', null, false)
+      // CL-3（#819）：0023 的 CHECK 允許 ends_at = starts_at；全天活動這樣存的也要補成次日 00:00，否則 0024 加 CHECK 會失敗。
+      const sameAllDay = await insert('2026-12-21T16:00:00Z', '2026-12-21T16:00:00Z', true)
+      await expect(remove(oldTimed)).rejects.toThrow(/project_events_deleted_check/)
+
+      await applyMigration(db, '0024_c3_events_span')
+      expect(await tableNames(db)).toEqual(EXPECTED_TABLES)
+
+      const rows = await db.sql(`select id, ends_at from project_events order by starts_at`)
+      expect(rows.rows.map((r) => [r.id, (r.ends_at as Date | null)?.toISOString() ?? null])).toEqual([
+        [oldAllDay, '2026-12-20T16:00:00.000Z'],
+        [oldTimed, null],
+        [sameAllDay, '2026-12-22T16:00:00.000Z'],
+      ])
+      expect((await db.sql(`select count(*)::int as n from project_events where all_day and ends_at is null`)).rows).toEqual([{ n: 0 }])
+
+      // 全天活動 ends_at 非空且大於 starts_at；有時間的仍可 NULL 或等於開始。
+      await expect(insert('2027-03-09T16:00:00Z', null, true)).rejects.toThrow(/project_events_all_day_end_check/)
+      await expect(insert('2027-03-09T16:00:00Z', '2027-03-09T16:00:00Z', true)).rejects.toThrow(/project_events_ends_after_starts_check/)
+      await expect(insert('2027-03-09T16:00:00Z', '2027-03-12T16:00:00Z', true)).resolves.toBeTruthy()
+      await expect(insert('2027-04-01T01:00:00Z', '2027-04-01T01:00:00Z', false)).resolves.toBeTruthy()
+      await expect(insert('2027-04-01T01:00:00Z', '2027-04-01T00:00:00Z', false)).rejects.toThrow(/project_events_ends_after_starts_check/)
+
+      // 排定中的活動可以直接標 deleted_at；刪除標記兩欄仍要成對。
+      await expect(remove(oldTimed)).resolves.toMatchObject({ rowCount: 1 })
+      expect((await db.sql(`select status from project_events where id = $1`, [oldTimed])).rows).toEqual([{ status: 'scheduled' }])
+      await expect(db.sql(`update project_events set deleted_at = now() where id = $1`, [oldAllDay])).rejects.toThrow(
+        /project_events_deleted_check/,
+      )
     })
   })
 })

@@ -1,0 +1,21 @@
+/* ==========================================================================
+   前台首頁橫幅的 Pixel（home-hero-pixel.tsx，規格④ §3，強度「淡」）。
+   疊在照片與深藍漸層之上、文字之下：像素層 z-index 1，後面的兄弟（文字那層）提到 2。不擋點擊。
+   「淡」＝整層最高 50% 不透明；掛上後 300 ms 淡入，沒有版面跳動（absolute 鋪滿）。
+   ========================================================================== */
+@layer components {
+  .home-hero-pixel {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0.5;
+    animation: home-hero-pixel-in 300ms ease-out;
+  }
+  .home-hero-pixel ~ * { z-index: 2; }
+  .home-hero-pixel > canvas { display: block; width: 100%; height: 100%; }
+  @keyframes home-hero-pixel-in {
+    from { opacity: 0; }
+  }
+}

@@ -15,7 +15,7 @@ import { requireRole } from '@/app/_ui/guard'
 import { EmptyState } from '@/app/_ui/primitives'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { STUDENT_NAV } from '@/app/dashboard/_nav'
-import { MarkAllReadButton, MarkReadButton } from '@/app/dashboard/_inbox/inbox-forms'
+import { MarkAllReadButton, MarkReadButton, OpenNotificationButton } from '@/app/dashboard/_inbox/inbox-forms'
 import type { InboxItem } from '@/application/notifications'
 import { cohortLabel, getInboxQuery, inboxCohortText, inboxFilterParam, notificationKindLabel, parseInboxFilter, SOURCE_STATE_TEXT } from '@/composition/inbox'
 import { cn } from '@/shared/cn'
@@ -114,7 +114,7 @@ export default async function StudentInboxPage({ searchParams }: { searchParams:
             <section aria-label="通知列表">
               <ul className="divide-y divide-border">
                 {page.items.map((item) => (
-                  <Row key={item.id} item={item} />
+                  <Row key={item.id} item={item} inbox={BASE} />
                 ))}
               </ul>
             </section>
@@ -136,8 +136,8 @@ export default async function StudentInboxPage({ searchParams }: { searchParams:
   )
 }
 
-/** 一則通知（原型一列：圖示方塊、種類標籤＋標題、右邊時間與未讀點）。整列不做成連結：右邊有「標為已讀」按鈕。 */
-function Row({ item }: { item: InboxItem }) {
+/** 一則通知（原型一列：圖示方塊、種類標籤＋標題、右邊時間與未讀點）。有來源頁的點標題（C2-15：標已讀再導過去），沒有的右邊才有「標為已讀」。 */
+function Row({ item, inbox }: { item: InboxItem; inbox: string }) {
   const unread = item.readAt === null
   const blocked = item.source.state === 'forbidden' || item.source.state === 'withdrawn'
   const title = blocked ? SOURCE_STATE_TEXT[item.source.state as 'forbidden' | 'withdrawn'] : item.title
@@ -154,16 +154,14 @@ function Row({ item }: { item: InboxItem }) {
         <KindIcon className="size-4.5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">{notificationKindLabel(item.kind)}</span>
           {href ? (
-            <Link href={href} className={cn('min-w-0 truncate text-[15px] hover:underline', unread ? 'font-bold' : 'font-medium')}>
-              {title}
-            </Link>
+            <OpenNotificationButton notificationId={item.id} title={title} inbox={inbox} className={cn('min-w-0 truncate text-[15px] hover:underline', unread ? 'font-bold' : 'font-medium')} />
           ) : (
             <span className={cn('min-w-0 truncate text-[15px]', unread ? 'font-bold' : 'font-medium')}>{title}</span>
           )}
-        </p>
+        </div>
         <p className="mt-0.5 text-sm text-muted-foreground">
           {inboxCohortText(item)}
           {item.source.state === 'archived' ? `・${SOURCE_STATE_TEXT.archived}` : ''}
@@ -177,7 +175,7 @@ function Row({ item }: { item: InboxItem }) {
           <>
             <span className="size-2 rounded-full bg-brand" aria-hidden />
             <span className="sr-only">未讀</span>
-            <MarkReadButton notificationId={item.id} title={title} />
+            {href ? null : <MarkReadButton notificationId={item.id} title={title} />}
           </>
         ) : (
           <span className="text-xs text-muted-foreground">已讀</span>

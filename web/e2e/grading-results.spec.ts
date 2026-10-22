@@ -204,17 +204,18 @@ async function openGrading(page: Page) {
   await expect(page.getByRole('heading', { name: '成績', exact: true })).toBeVisible()
 }
 
-/** AD-08：評分規則、版本紀錄、評分要求與指派搬到子頁 `/dashboard/admin/grading/rules`。 */
+/** AD-08：評分規則、版本紀錄在 `/dashboard/admin/grading/rules`；C1-13：要幾位老師評與指派在「評分老師」分頁。 */
 async function openRules(page: Page) {
   await asAdmin(page)
   await page.goto(`/dashboard/admin/grading/rules?cohort=${cohortId}`)
   await expect(page.getByRole('heading', { name: '評分規則', exact: true })).toBeVisible()
 }
 
-/** 評分要求與指派、版本紀錄在子頁是頁內區塊（AD-08）。 */
+/** 版本紀錄在評分規則分頁是頁內區塊（AD-08）；要幾位老師評與指派在「評分老師」分頁（C1-13）。 */
 async function openAssign(page: Page) {
-  await openRules(page)
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toBeVisible()
+  await asAdmin(page)
+  await page.goto(`/dashboard/admin/grading/teachers?cohort=${cohortId}`)
+  await expect(page.getByRole('region', { name: '評分老師' })).toBeVisible()
 }
 async function openVersions(page: Page) {
   await openRules(page)
@@ -236,8 +237,8 @@ async function submitScore(page: Page, teacher: TestSession, stageKey: string, s
   await expect(page.getByRole('main')).toContainText(`${CODE} 成績測試（${CODE}）・`)
   const bench = page.getByRole('region', { name: `G01「${stageName}」評分表` })
   await bench.getByLabel('1. 總分').fill(value)
-  await bench.getByRole('button', { name: '正式送出' }).click()
-  await page.getByRole('dialog', { name: '確認正式送出' }).getByRole('button', { name: '確認送出' }).click()
+  await bench.getByRole('button', { name: '送出', exact: true }).click()
+  await page.getByRole('dialog', { name: '確認送出' }).getByRole('button', { name: '確認送出' }).click()
   const receipt = page.getByRole('dialog', { name: '已送出' })
   await expect(receipt).toContainText('已計入階段成績')
   await receipt.getByRole('button', { name: '知道了' }).click()
@@ -341,7 +342,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   const fill = async () => {
     await page.getByTestId('choice-replace').getByRole('radio').check()
     await page.getByLabel('接手的評分老師（不選＝只移除，之後再指派）').selectOption({ label: NAMES[3]! })
-    await page.getByLabel('理由（必填，留在指派紀錄裡；被移出的老師看得到）').fill('評一老師請長假')
+    await page.getByLabel('理由（選填，留在指派紀錄裡；被移出的老師看得到）').fill('評一老師請長假')
     await page.getByRole('button', { name: '確認執行' }).click()
   }
   await fill()
@@ -351,12 +352,12 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await page.reload()
   await fill()
   await expect(
-    page.getByRole('status').filter({ hasText: `G01「期中」${NAMES[0]} 老師 → ${NAMES[3]} 老師（替換評分老師、重新評分；每組需要 2 位老師評分）` }),
+    page.getByRole('status').filter({ hasText: `G01「期中」${NAMES[0]} 老師 → ${NAMES[3]} 老師（替換評分老師、重新評分；要 2 位老師評）` }),
   ).toBeVisible()
 
   await openGrading(page)
   await expect(bookRow(page, 'G01').getByTestId('stage-mid')).toContainText('尚未完成（1／2）')
-  // 「評分要求與指派」（評分規則子頁）的份數和成績表同一份。
+  // 「評分老師」分頁的份數和成績表同一份。
   await openAssign(page)
   await expect(page.getByTestId('grading-row-G01')).toContainText('已正式送出 1／2 份')
   await openGrading(page)
@@ -381,7 +382,7 @@ test('改派三選一：評一（期中）→ 預覽三種；預覽過期要重�
   await signIn(page, teachers[3]!)
   await expect(async () => {
     await page.goto('/dashboard/teacher/inbox')
-    await expect(page.getByRole('link', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
+    await expect(page.getByRole('button', { name: '你被指派評分：G01「期中」' })).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 45_000 })
   await expect(page.getByTestId('inbox-item').filter({ hasText: '被移出' })).toHaveCount(0)
   await signIn(page, teachers[2]!)
@@ -404,8 +405,8 @@ test('評四送出期中 85 → 系辦復核「沿用原更正值」→ 採用 8
 
 test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；確認套用後照新權重重算並鎖定', async ({ page }) => {
   await openRules(page)
-  await page.getByRole('button', { name: '建立新版評分規則' }).click()
-  const dialog = page.getByRole('dialog', { name: '建立新版評分規則' })
+  await page.getByRole('button', { name: '修改評分規則' }).click()
+  const dialog = page.getByRole('dialog', { name: '修改評分規則' })
   await dialog.getByLabel('占總成績 %').nth(0).fill('50')
   await dialog.getByLabel('占總成績 %').nth(1).fill('50')
   await dialog.getByRole('button', { name: '建立草稿' }).click()
@@ -424,9 +425,9 @@ test('方案 v2（期中／期末 50／50）：先看影響、取消不重算；
 
   await openVersions(page)
   await page.getByRole('link', { name: '查看第 2 版重算影響（尚不套用）' }).click()
-  // 第三波 AC-37：確認套用在「危險操作」區；寫對象、範圍（未解散的組、已解散的不受影響）、後果、能不能恢復。
-  const danger = page.getByRole('region', { name: '危險操作' })
-  const facts = danger.getByTestId('danger-facts')
+  // 第三波 AC-37：確認套用寫對象、範圍（未解散的組、已解散的不受影響）、後果、能不能恢復；C1-13 拿掉紅色危險區，改「確認套用」卡。
+  const danger = page.getByRole('region', { name: '確認套用' })
+  const facts = danger.getByTestId('apply-facts')
   for (const k of ['對象', '範圍', '後果', '能不能恢復']) await expect(facts).toContainText(k)
   await expect(facts).toContainText('第 1 版換成第 2 版')
   await expect(facts).toContainText('未解散的')
@@ -497,14 +498,15 @@ test('封存的屆別：成績頁仍選得到，只能看與匯出——建立�
   await openGrading(page)
   await expect(page.getByTestId('cohort-archived')).toContainText(`${CODE} 成績測試（${CODE}）已封存，只能查看與匯出`)
   await expect(bookRow(page, 'G01').getByTestId('final')).toContainText('88.32')
+  await openRules(page)
+  await expect(page.getByRole('button', { name: '修改評分規則' })).toBeDisabled()
   await openAssign(page)
-  await expect(page.getByRole('button', { name: '建立新版評分規則' })).toBeDisabled()
   const assignRow = page.getByTestId('grading-row-G01')
   await expect(assignRow).toContainText('已封存，不能指派')
   await expect(assignRow.getByRole('button')).toHaveCount(0)
   await expect(page.getByRole('link', { name: /移除或改派/ })).toHaveCount(0)
   await openGrading(page)
-  await expect(page.getByRole('region', { name: '評分要求與指派' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '評分老師' })).toHaveCount(0)
   const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '匯出 CSV' }).click()])
   expect(fs.readFileSync((await csv.path())!, 'utf8')).toContain('"G01"')
 })

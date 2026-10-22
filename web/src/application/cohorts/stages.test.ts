@@ -4,6 +4,8 @@ import {
   normalizeScheduleInput,
   planStageVersions,
   STAGE_DESCRIPTION_MAX_LENGTH,
+  STAGE_NAME_MAX_LENGTH,
+  stageChangeSummary,
   stagePositionAt,
   timelineView,
   type CohortSchedule,
@@ -238,5 +240,94 @@ describe('timelineView：專題時間軸每一段的狀態（票 38）', () => {
   it('沒設階段或年度結束日：null（畫面顯示尚未設定）', () => {
     expect(timelineView({ stages: [], yearEndDate: null }, tw('2026-10-01T00:00:00'))).toBeNull()
     expect(timelineView({ stages: SCHEDULE.stages, yearEndDate: null }, tw('2026-10-01T00:00:00'))).toBeNull()
+  })
+})
+
+describe('stageChangeSummary：階段確認框與通知的句子（③ §9.2、AC-C3-38、39）', () => {
+  // AC-C3-38：10/1、11/19、3/1、5/1，年度結束 6/30。
+  const BEFORE: CohortSchedule = {
+    stages: [
+      { seq: 1, name: '分組', description: '', startDate: '2026-10-01', deadlineVersion: 1 },
+      { seq: 2, name: '題目與計畫書', description: '', startDate: '2026-11-19', deadlineVersion: 1 },
+      { seq: 3, name: '系統開發', description: '', startDate: '2027-03-01', deadlineVersion: 1 },
+      { seq: 4, name: '成果', description: '', startDate: '2027-05-01', deadlineVersion: 1 },
+    ],
+    yearEndDate: '2027-06-30',
+  }
+  const after = (patch: { seq?: number; startDate?: string; name?: string; yearEndDate?: string }) => ({
+    stages: BEFORE.stages.map((s) => ({
+      name: s.seq === patch.seq && patch.name ? patch.name : s.name,
+      description: s.description,
+      startDate: s.seq === patch.seq && patch.startDate ? patch.startDate : s.startDate,
+    })),
+    yearEndDate: patch.yearEndDate ?? BEFORE.yearEndDate!,
+  })
+
+  it('第 1／2 段分界往左 7 天：兩段都變、確認句與通知標題（最後一天＝下一段開始日前一天）', () => {
+    const summary = stageChangeSummary(BEFORE, after({ seq: 2, startDate: '2026-11-12' }), 1)
+    expect(summary).toEqual({
+      changedStages: [1, 2],
+      windows: [
+        { seq: 1, startDate: '2026-10-01', lastDate: '2026-11-11' },
+        { seq: 2, startDate: '2026-11-12', lastDate: '2027-02-28' },
+      ],
+      message: '第 2 階段『題目與計畫書』開始日 11/19 → 11/12（第 1 階段跟著變短）。有 1 個整組作業在這兩段裡，會重新提醒相關的組。',
+      notificationTitle: '專題時程更新：第 2 階段『題目與計畫書』改為 11/12–2/28',
+    })
+  })
+
+  it('往右拖＝上一段變長；沒有整組作業就不提醒', () => {
+    const summary = stageChangeSummary(BEFORE, after({ seq: 3, startDate: '2027-03-08' }), 0)
+    expect(summary?.message).toBe('第 3 階段『系統開發』開始日 3/1 → 3/8（第 2 階段跟著變長）。')
+    expect(summary?.notificationTitle).toBe('專題時程更新：第 3 階段『系統開發』改為 3/8–4/30')
+  })
+
+  it('年度結束日：只有第 4 段變', () => {
+    const summary = stageChangeSummary(BEFORE, after({ yearEndDate: '2027-07-07' }), 2)
+    expect(summary?.changedStages).toEqual([4])
+    expect(summary?.message).toBe('年度結束日 6/30 → 7/7（第 4 階段跟著變長）。有 2 個整組作業在這段裡，會重新提醒相關的組。')
+    expect(summary?.notificationTitle).toBe('專題時程更新：第 4 階段『成果』改為 5/1–7/7')
+  })
+
+  it('只改名稱、日期沒變：null（不確認、不通知）', () => {
+    expect(stageChangeSummary(BEFORE, after({ seq: 2, name: '題目' }), 3)).toBeNull()
+  })
+
+  it('一次改兩個分界（視窗路徑）：句子逐一列出', () => {
+    const next = after({ seq: 2, startDate: '2026-11-12' })
+    const two = { ...next, stages: next.stages.map((s, i) => (i === 3 ? { ...s, startDate: '2027-05-08' } : s)) }
+    const summary = stageChangeSummary(BEFORE, two, 0)
+    expect(summary?.changedStages).toEqual([1, 2, 3, 4])
+    expect(summary?.message).toBe('第 2 階段『題目與計畫書』開始日 11/19 → 11/12；第 4 階段『成果』開始日 5/1 → 5/8。')
+    expect(summary?.notificationTitle).toBe('專題時程更新：第 2 階段『題目與計畫書』改為 11/12–2/28、第 4 階段『成果』改為 5/8–6/30')
+  })
+})
+
+describe('階段名稱與說明字數以字計（⑤-16、AC-63）', () => {
+  const dates = ['2026-09-15', '2026-11-01', '2027-01-10', '2027-03-01']
+  const firstStage = (name: string, description?: string): ScheduleInput => ({
+    stages: dates.map((startDate, i) => ({ name: i === 0 ? name : `第${i + 1}段`, startDate, ...(i === 0 ? { description } : {}) })),
+    yearEndDate: '2027-06-30',
+  })
+
+  it('舊結果＝新結果：純中文名稱剛好上限過、多一字擋', () => {
+    expect(normalizeScheduleInput(firstStage('字'.repeat(STAGE_NAME_MAX_LENGTH))).ok).toBe(true)
+    const long = normalizeScheduleInput(firstStage('字'.repeat(STAGE_NAME_MAX_LENGTH + 1)))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.name')
+  })
+
+  it('名稱含 emoji 與中文剛好上限：通過；多一字擋', () => {
+    const name = `👍中${'字'.repeat(STAGE_NAME_MAX_LENGTH - 2)}`
+    expect(name.length).toBe(STAGE_NAME_MAX_LENGTH + 1)
+    expect(normalizeScheduleInput(firstStage(name)).ok).toBe(true)
+    const long = normalizeScheduleInput(firstStage(`${name}字`))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.name')
+  })
+
+  it('說明含 emoji 與中文剛好上限：通過；多一字擋', () => {
+    const description = `👍中${'字'.repeat(STAGE_DESCRIPTION_MAX_LENGTH - 2)}`
+    expect(normalizeScheduleInput(firstStage('成組期', description)).ok).toBe(true)
+    const long = normalizeScheduleInput(firstStage('成組期', `${description}字`))
+    expect(long.ok ? null : long.details?.field).toBe('stage1.description')
   })
 })

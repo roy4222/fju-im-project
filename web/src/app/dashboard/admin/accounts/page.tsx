@@ -1,26 +1,25 @@
 import Link from 'next/link'
-import { IconAlertTriangle, IconChevronRight, IconFileSpreadsheet, IconUserCheck, IconUsers } from '@tabler/icons-react'
+import { redirect } from 'next/navigation'
+import { IconUsers } from '@tabler/icons-react'
 import { UserAvatar } from '@/app/_ui/avatar/user-avatar'
 import { requireRole } from '@/app/_ui/guard'
 import { loadAdminSummary } from '@/app/_ui/workload'
 import { DashboardShell } from '@/app/_ui/site-shell'
 import { ClearFilters, Pager, SearchForm } from '@/app/_ui/data-table'
 import { FacetMenu } from '@/app/_ui/data-table-facet'
-import { PageTitle, Panel, PanelEmpty } from '@/app/_ui/dashboard/primitives'
+import { PageTitle, Panel } from '@/app/_ui/dashboard/primitives'
 import { ADMIN_NAV } from '@/app/dashboard/_nav'
+import { AdminTabs } from '@/app/dashboard/admin/_tabs'
+import { ACCOUNT_TABS } from '@/app/dashboard/admin/_tabs.consts'
+import { legacyAdminRedirect } from '@/app/dashboard/admin/legacy-redirects'
 import type { DirectoryFilter, DirectorySort } from '@/application/accounts'
 import {
   ACCOUNT_STATUS_LABEL,
-  BULK_MAX_CHARS,
   DIRECTORY_ROLES,
   DIRECTORY_SORTS,
   DIRECTORY_STATUSES,
   directoryQueryString,
-  EVIDENCE_LABEL,
   getAccountDirectoryCommand,
-  EVIDENCE_NEEDS_ATTENTION,
-  getRegistrationCommand,
-  getRosterCommand,
   normalizeDirectoryFilter,
   ROLE_LABEL,
   SEARCH_MAX_LENGTH,
@@ -30,26 +29,13 @@ import {
   VERIFICATION_NOTE_REQUIRED,
 } from '@/composition/accounts'
 import { cn } from '@/shared/cn'
-import { formatTaipeiMinute } from '@/shared/time'
 import { AccountsTable, type SortHeader } from './accounts-table'
-import { BulkDisableDialog } from './bulk-disable-dialog'
-import { BulkApproveCheckbox, BulkApproveDialog, BulkApproveProvider, BulkApproveSelectAll } from './bulk-approve-dialog'
-import { ImportRosterDialog } from './import-roster-dialog'
-import { EvidencePills, ReviewDialog, type ReviewLabels } from './review-dialog'
-import { NewTeacherDialog, TemporaryPasswordDialog, type VerificationLabels } from './teacher-dialogs'
-
-const REVIEW_LABELS: ReviewLabels = {
-  evidence: EVIDENCE_LABEL,
-  attention: EVIDENCE_NEEDS_ATTENTION,
-  // google_email_match 是系統自動開通寫的（VB-6），系辦不能選；與 MANUAL_VERIFICATION_METHODS 同一份清單。
-  methods: VERIFICATION_METHODS.filter((m) => m !== 'google_email_match'),
-  methodLabel: VERIFICATION_LABEL,
-  noteRequired: VERIFICATION_NOTE_REQUIRED,
-  noteHint: VERIFICATION_NOTE_HINT,
-}
+import { NewMemberDialog } from './new-member-dialog'
+import type { VerificationLabels } from './temporary-password-dialog'
 
 const VERIFICATION_LABELS: VerificationLabels = {
-  methods: VERIFICATION_METHODS,
+  // 對話框還在問核實方式（C2-09／C2-11 才拿掉）：自動開通與系辦審核那三個新值不是人能選的，排除（C2-10 Review）。
+  methods: VERIFICATION_METHODS.filter((m) => m !== 'google_email_match' && m !== 'office_review' && m !== 'email_roster_match'),
   methodLabel: VERIFICATION_LABEL,
   noteRequired: VERIFICATION_NOTE_REQUIRED,
   noteHint: VERIFICATION_NOTE_HINT,
@@ -97,16 +83,13 @@ export default async function AdminAccountsPage({
   // 授權檢查在**頁面自己**：放在 layout 擋不住，App Router 會把 layout 與 page 並行渲染，
   // layout 丟掉 children 或 redirect 都來不及——那一頁已經被做出來、跟著 payload 送走了。
   const actor = await requireRole('/dashboard/admin/accounts', 'admin')
+  const params = await searchParams
+  // 舊的 `?status=pending|disabled` 書籤：守衛之後轉到「待審核」「已停用」分頁，其餘 query 照帶（`legacy-redirects.ts`）。
+  const legacy = legacyAdminRedirect(BASE, params)
+  if (legacy) redirect(legacy)
 
   // 用例自己再判一次授權（頁面通過不代表用例會放行）。
-  const listed = await getRosterCommand().listVersions(actor)
-  const versions = listed.ok ? listed.receipt.versions : []
-  const pendingResult = await getRegistrationCommand().listPending(actor)
-  const pending = pendingResult.ok ? pendingResult.receipt : null
-  const applications = pending?.applications ?? []
-  // 名單比對不到或資料不符的人不能批次核准（伺服器會略過），勾到時按鈕旁提醒要逐一核對（Q93）。
-  const offRosterIds = applications.filter((a) => a.match.status !== 'matched').map((a) => a.applicationId)
-  const filter = normalizeDirectoryFilter(await searchParams)
+  const filter = normalizeDirectoryFilter(params)
   const accounts = getAccountDirectoryCommand()
   const directoryResult = await accounts.list(actor, filter)
   const directory = directoryResult.ok ? directoryResult.receipt : null
@@ -115,6 +98,8 @@ export default async function AdminAccountsPage({
   const totalPages = directory ? Math.max(1, Math.ceil(directory.total / directory.pageSize)) : 1
   const statusHref = (status: DirectoryFilter['status']) =>
     `${BASE}${directoryQueryString({ ...filter, status: filter.status === status ? null : status, orphan: false, page: 1 })}`
+  // 「待審核」「已停用」各有自己的分頁（C 階段規格② §3.1）：膠囊直接連過去，搜尋字照帶。
+  const tabHref = (tab: 'pending' | 'disabled') => `${BASE}/${tab}${directoryQueryString({ ...filter, status: null, orphan: false, page: 1 })}`
   const everyone = summary ? summary.pending + summary.active + summary.disabled : 0
   const hrefWith = (overrides: Partial<DirectoryFilter>) => `${BASE}${directoryQueryString({ ...filter, ...overrides, page: 1 })}`
   const filtered = Boolean(filter.q || filter.role || filter.cohortId || filter.status || filter.orphan)
@@ -127,101 +112,16 @@ export default async function AdminAccountsPage({
 
   return (
     <DashboardShell roleLabel="系辦" items={ADMIN_NAV} current={BASE}>
-      {/* AD-11（設計方案 §3.5）：審核在前 → 帳號列表（篩選膠囊帶數字）→ 收合的「名單與停用」。 */}
+      {/* C 階段規格② §3.1：這一頁只剩帳號列表；待審核、已停用、名單匯入各有自己的分頁。 */}
+      {/* 標題列只有一顆「新增成員」（A18）；「發臨時密碼」在每一列（A15）。 */}
+      <PageTitle title="帳號" actions={<NewMemberDialog cohorts={directory?.cohorts ?? []} />} />
+      <div className="mt-4">
+        <AdminTabs label="帳號分頁" current={BASE} items={ACCOUNT_TABS} />
+      </div>
+      <p data-testid="tab-intro" className="-mt-2 mb-4 text-sm text-muted-foreground">
+        系上所有帳號都在這裡，可以搜尋、篩選、排序與匯出；系統不存可查看的密碼，只能核發一次性臨時密碼。
+      </p>
       <div className="flex flex-col gap-5">
-        <PageTitle
-          title="帳號"
-          description="系統不存可查看的密碼，只能核發一次性臨時密碼。"
-          actions={
-            <>
-              {/* 票 8：新增老師與發臨時密碼（用 Email 找人）。每一列的「發臨時密碼」在下方帳號表格裡。 */}
-              <TemporaryPasswordDialog labels={VERIFICATION_LABELS} />
-              <NewTeacherDialog labels={VERIFICATION_LABELS} />
-            </>
-          }
-        />
-
-        {/* 第三波 W6：勾選後「核准勾選的 N 位」一起核准；需要人判斷的列由伺服器自動略過並寫原因。 */}
-        <BulkApproveProvider pendingIds={applications.map((a) => a.applicationId)}>
-        <Panel
-          title={pending ? `待審核 ${applications.length} 位` : '待審核'}
-          icon={<IconUserCheck />}
-          description="名單比對只協助判斷，不會自動核准；核准前請以校方既有方式核對本人"
-          action={
-            applications.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <BulkApproveSelectAll applicationIds={applications.map((a) => a.applicationId)} />
-                  全選
-                </label>
-                <BulkApproveDialog labels={REVIEW_LABELS} offRosterIds={offRosterIds} />
-              </div>
-            ) : null
-          }
-          aria-label="待審核"
-        >
-          {pending && !pending.registrationOpenCohort ? (
-            <p className="mx-5 mb-3 rounded-lg bg-brand-subtle px-3 py-2 text-sm text-brand-on-subtle" role="note">
-              目前沒有設定新註冊學生加入的屆別：不在本屆名單上的人核准時要手動選屆別。可以到「屆別」頁設定。
-            </p>
-          ) : null}
-          {applications.length === 0 ? (
-            <PanelEmpty title="目前沒有待審核的註冊。" hint="學生改過資料時，要重新打開核對才能核准。" />
-          ) : (
-            // 每人一張卡。外層仍是 table／row：卡片是一列一列的同款資料，讀屏照表格念，既有 e2e 也照列找人。
-            <table aria-label="待審核清單" className="block px-5 pb-5">
-              <thead className="sr-only">
-                <tr>
-                  {['勾選', '姓名與 Email', '學號與系級', '比對結果', '送出時間', '操作'].map((h) => (
-                    <th key={h} scope="col">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                {applications.map((a) => (
-                  <tr
-                    key={a.applicationId}
-                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 rounded-lg border border-border bg-background p-3.5"
-                  >
-                    <td className="row-span-4 pt-0.5">
-                      <BulkApproveCheckbox applicationId={a.applicationId} name={a.appliedName} />
-                    </td>
-                    <td className="min-w-0">
-                      <span className="block truncate font-semibold text-foreground">{a.appliedName}</span>
-                      <span className="block truncate text-xs text-muted-foreground" title={a.loginEmail}>
-                        {a.loginEmail}
-                      </span>
-                    </td>
-                    <td className="row-span-4 self-center">
-                      <ReviewDialog
-                        key={`r-${a.applicationId}-${a.revision}`}
-                        application={a}
-                        cohorts={pending!.cohorts}
-                        registrationOpenCohort={pending!.registrationOpenCohort}
-                        labels={REVIEW_LABELS}
-                      />
-                    </td>
-                    <td className="text-sm">
-                      <span className="tabular">{a.studentNo}</span>
-                      <span className="text-muted-foreground">・{a.departmentClass || '—'}</span>
-                    </td>
-                    <td>
-                      <EvidencePills flags={a.flags} labels={REVIEW_LABELS} />
-                    </td>
-                    <td className="tabular text-xs text-muted-foreground">
-                      {formatTaipeiMinute(new Date(a.updatedAt))} 送出
-                      {a.revision > 1 ? <span className="ml-1">（第 {a.revision} 版）</span> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </Panel>
-        </BulkApproveProvider>
-
         <Panel
           title={listTitle}
           icon={<IconUsers />}
@@ -234,9 +134,9 @@ export default async function AdminAccountsPage({
               {/* D-6（Q116）：原本的三顆圓環磚改成表格上方一列帶數字的篩選膠囊；「未設定身分」（票 10b）一起留著。 */}
               <nav aria-label="依狀態篩選" className="flex flex-wrap gap-2">
                 <StatusPill label="全部" value={summary ? everyone : null} href={hrefWith({ status: null, orphan: false })} active={!filter.status && !filter.orphan} />
-                <StatusPill label="待審核" value={summary?.pending ?? null} href={statusHref('pending')} active={filter.status === 'pending' && !filter.orphan} hot />
+                <StatusPill label="待審核" value={summary?.pending ?? null} href={tabHref('pending')} active={false} hot />
                 <StatusPill label="已核准" value={summary?.active ?? null} href={statusHref('active')} active={filter.status === 'active' && !filter.orphan} />
-                <StatusPill label="已停用" value={summary?.disabled ?? null} href={statusHref('disabled')} active={filter.status === 'disabled' && !filter.orphan} />
+                <StatusPill label="已停用" value={summary?.disabled ?? null} href={tabHref('disabled')} active={false} />
                 <StatusPill
                   label="未設定身分"
                   value={summary?.orphans ?? null}
@@ -263,6 +163,7 @@ export default async function AdminAccountsPage({
                 toolbar={
                   <>
                 <SearchForm
+                  key={filter.q}
                   action={BASE}
                   label="篩選帳號"
                   placeholder="搜尋姓名、學號或 Email"
@@ -321,81 +222,6 @@ export default async function AdminAccountsPage({
           )}
         </Panel>
 
-        {/* 少用的整批動作收進預設收合的一區（不是另一頁）；`<details>` 收合不需要 JS。 */}
-        <details aria-label="名單與停用" className="dash-card group/roster overflow-hidden">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3.5 text-[15px] font-bold text-foreground [&::-webkit-details-marker]:hidden">
-            <IconChevronRight aria-hidden className="size-4 text-muted-foreground transition-transform group-open/roster:rotate-90" />
-            名單與停用
-          </summary>
-          <div className="flex flex-col gap-5 border-t border-border/70 px-5 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                上傳本屆名單 CSV。每次匯入都另存一份，舊的不會被蓋掉；名單只協助審核比對，不會自動核准任何人。
-              </p>
-              <ImportRosterDialog />
-            </div>
-
-            <section aria-label="歷次匯入">
-              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-foreground">
-                <IconFileSpreadsheet aria-hidden className="size-4 text-muted-foreground" />
-                歷次匯入
-              </h3>
-              {versions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">還沒有匯入過名單。</p>
-              ) : (
-                <ul className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                  {versions.map((v) => (
-                    <li key={v.id}>
-                      <article
-                        aria-label={`${v.cohortName}（${v.cohortCode}）名單`}
-                        className="flex h-full flex-col gap-1 rounded-lg border border-border bg-background p-3.5 text-sm"
-                      >
-                        <span className="font-semibold text-foreground">
-                          {v.cohortName}（{v.cohortCode}）
-                        </span>
-                        <span className="tabular text-xs text-muted-foreground">
-                          {formatTaipeiMinute(new Date(v.importedAt))}・{v.importedBy}
-                        </span>
-                        <span className="tabular">
-                          有效 <span className="font-semibold">{v.counts.valid}</span> 筆
-                          <span className="text-muted-foreground">
-                            ・重複 {v.counts.duplicate}・缺欄 {v.counts.missing}・衝突 {v.counts.conflict}
-                          </span>
-                        </span>
-                        {v.fileId ? (
-                          // 下載每次都經 /api/files/[id] 重新授權；別人拿到這個網址也打不開。
-                          <a
-                            href={`/api/files/${v.fileId}`}
-                            title={v.fileName ?? undefined}
-                            aria-label={`下載原檔${v.fileName ? ` ${v.fileName}` : ''}`}
-                            className="mt-auto truncate pt-1 font-semibold text-primary underline-offset-4 hover:underline"
-                            download
-                          >
-                            下載原檔{v.fileName ? `・${v.fileName}` : ''}
-                          </a>
-                        ) : null}
-                      </article>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            {/* 第三波 §9 規則 1（驗收 P-06）：批次停用一次影響很多人，跟例行的匯出拉開，放在最後的危險操作區。 */}
-            <section aria-label="危險操作" className="rounded-lg border border-destructive/30 p-4">
-              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-destructive-on-subtle">
-                <IconAlertTriangle aria-hidden className="size-4" />
-                危險操作
-              </h3>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  上傳 TXT 或貼上學號（一行一個），先預覽再寫理由確認。停用不是刪除：資料與紀錄都保留、之後可以逐一恢復；停用的人在任何分頁做下一個動作就會被登出。
-                </p>
-                <BulkDisableDialog maxChars={BULK_MAX_CHARS} />
-              </div>
-            </section>
-          </div>
-        </details>
       </div>
     </DashboardShell>
   )

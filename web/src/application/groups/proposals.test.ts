@@ -3,9 +3,11 @@ import type { ResolvedActor } from '@/application/accounts'
 import {
   canViewTeammates,
   describeConfirmReceipt,
+  describeTerminateReceipt,
   nextGroupCode,
   normalizeProposeInput,
   normalizeVoidReason,
+  PROPOSAL_STATE_LABEL,
   proposalExpiry,
   studentCohortOf,
   TERMINATION_KIND_LABEL,
@@ -26,6 +28,7 @@ function actor(roles: ('student' | 'teacher' | 'admin')[], cohortId: string | nu
 }
 
 const FIVE = { min: 5, max: 5 }
+const OPPORTUNITY = '44444444-4444-4444-8444-444444444444'
 
 describe('提案輸入：人數依屆別設定（含自己）', () => {
   it('預設五人：填四位同學剛好；空白欄略過、重複與自己的學號去掉', () => {
@@ -36,7 +39,7 @@ describe('提案輸入：人數依屆別設定（含自己）', () => {
     )
     expect(result).toEqual({
       ok: true,
-      value: { groupType: 'general', memberStudentNos: ['410000002', '410000003', '410000004', '410000005'] },
+      value: { groupType: 'general', memberStudentNos: ['410000002', '410000003', '410000004', '410000005'], opportunityId: null },
     })
   })
 
@@ -46,17 +49,36 @@ describe('提案輸入：人數依屆別設定（含自己）', () => {
     if (!three.ok) expect(three.message).toContain('本屆每組 5 人')
 
     const range = { min: 3, max: 4 }
-    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2'] }, range, null).ok).toBe(true)
-    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3'] }, range, null).ok).toBe(true)
-    const tooMany = normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3', 'a4'] }, range, null)
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2'], opportunityId: OPPORTUNITY }, range, null).ok).toBe(true)
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3'], opportunityId: OPPORTUNITY }, range, null).ok).toBe(true)
+    const tooMany = normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1', 'a2', 'a3', 'a4'], opportunityId: OPPORTUNITY }, range, null)
     expect(tooMany.ok).toBe(false)
     if (!tooMany.ok) expect(tooMany.message).toContain('3–4 人')
   })
 
-  it('類型只收一般／產學；學號只收英數', () => {
+  it('類型只收一般／產學；產學合作一定要選合作案（C3-11）、一般專題不看合作案；學號只收英數', () => {
     expect(normalizeProposeInput({ groupType: 'exception', memberStudentNos: [] }, { min: 1, max: 5 }, null)).toMatchObject({
       ok: false,
       details: { field: 'groupType' },
+    })
+    const noCase = normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'] }, { min: 1, max: 5 }, null)
+    expect(noCase).toMatchObject({ ok: false, code: 'VALIDATION_FAILED', details: { field: 'opportunityId' } })
+    if (!noCase.ok) expect(noCase.message).toBe('請選合作案。')
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'], opportunityId: '  ' }, { min: 1, max: 5 }, null)).toMatchObject({
+      ok: false,
+      details: { field: 'opportunityId' },
+    })
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'], opportunityId: 'not-a-uuid' }, { min: 1, max: 5 }, null)).toMatchObject({
+      ok: false,
+      details: { field: 'opportunityId' },
+    })
+    expect(normalizeProposeInput({ groupType: 'industry', memberStudentNos: ['a1'], opportunityId: ` ${OPPORTUNITY} ` }, { min: 1, max: 5 }, null)).toEqual({
+      ok: true,
+      value: { groupType: 'industry', memberStudentNos: ['a1'], opportunityId: OPPORTUNITY },
+    })
+    expect(normalizeProposeInput({ groupType: 'general', memberStudentNos: ['a1'], opportunityId: OPPORTUNITY }, { min: 1, max: 5 }, null)).toEqual({
+      ok: true,
+      value: { groupType: 'general', memberStudentNos: ['a1'], opportunityId: null },
     })
     expect(normalizeProposeInput({ groupType: 'general', memberStudentNos: ["41'; drop"] }, { min: 1, max: 5 }, null)).toMatchObject({
       ok: false,
@@ -86,8 +108,8 @@ describe('其他純規則', () => {
     expect(nextGroupCode(['G01', 'G09', 'X99'])).toBe('G10')
   })
 
-  it('作廢理由必填、去空白、有上限', () => {
-    expect(normalizeVoidReason('  ')).toMatchObject({ ok: false, code: 'VALIDATION_FAILED' })
+  it('終止建立的理由選填、去空白、有上限', () => {
+    expect(normalizeVoidReason('  ')).toEqual({ ok: true, value: '' })
     expect(normalizeVoidReason(' 名單有誤 ')).toEqual({ ok: true, value: '名單有誤' })
     expect(normalizeVoidReason('字'.repeat(201)).ok).toBe(false)
   })
@@ -106,7 +128,18 @@ describe('其他純規則', () => {
   })
 
   it('五種終止加上衝突都有產品文件用的名稱', () => {
-    expect(Object.values(TERMINATION_KIND_LABEL)).toEqual(['被拒絕', '成員撤回同意', '提案人撤回', '逾期', '管理員作廢', '成員已在其他組'])
+    expect(Object.values(TERMINATION_KIND_LABEL)).toEqual(['被拒絕', '成員撤回同意', '發起人撤回', '逾期', '系辦終止', '成員已在其他組'])
+  })
+
+  it('用詞：建立組別、發起人、系辦終止；沒有「提案」「組隊中」', () => {
+    expect(PROPOSAL_STATE_LABEL.open).toBe('建立中（等全員確認）')
+    const sentence = describeTerminateReceipt({ proposalId: COHORT, terminationKind: 'declined' })
+    expect(sentence).toContain('這次建立組別沒有成立（被拒絕）')
+    expect(describeTerminateReceipt({ proposalId: COHORT, terminationKind: 'admin_voided' })).toContain('（系辦終止）')
+    const conflict = describeConfirmReceipt({ proposalId: COHORT, confirmedCount: 5, memberCount: 5, groupCode: null, outcome: 'conflict' })
+    for (const text of [sentence, conflict, ...Object.values(PROPOSAL_STATE_LABEL), ...Object.values(TERMINATION_KIND_LABEL)]) {
+      expect(text).not.toMatch(/提案|組隊中/)
+    }
   })
 
   it('確認回執的句子', () => {

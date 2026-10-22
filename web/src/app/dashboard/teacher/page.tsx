@@ -46,7 +46,7 @@ export default async function TeacherHomePage() {
 
   return (
     <DashboardShell roleLabel="老師" items={TEACHER_NAV} current={BASE}>
-      <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-8">
         <HomeHero
           ctx={ctx}
           perspective="staff"

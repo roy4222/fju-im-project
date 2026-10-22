@@ -103,7 +103,7 @@ await renderChapter({ dir: chapter!.outDir });               // → <run 目錄>
 
 | 動作 | 行為 |
 |---|---|
-| `t.click(locator)` | 目標沒有完整在畫面裡（含被橫向／直向捲動容器切到，例如比畫面寬的表格最右邊的操作欄）就先平滑捲動（每一層容器與整頁、兩個方向都處理），捲完照新位置算游標；游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。**真的換頁**（整頁載入、或 SPA 換到別的路徑）時，從點擊那一刻起暫停計時、等新頁穩定再繼續，波紋與載好的新頁同一格出現；只改查詢字串的不算換頁，畫面過程照錄、只等這一下的請求做完。點的是別頁的連結卻一直沒換頁，那段等待也不進影片。`t.click(loc, false)` 完全不等。 |
+| `t.click(locator)` | 目標沒有完整在畫面裡（含被橫向／直向捲動容器切到，例如比畫面寬的表格最右邊的操作欄）就先平滑捲動（每一層容器與整頁、兩個方向都處理），捲完照新位置算游標。「畫面裡」扣掉蓋在邊上的 sticky／fixed 元素：黏頂列、黏住的表頭、固定的首欄或操作欄（目標自己在裡面的不算，`pointer-events: none` 的不算），被它們蓋住也會捲出來；捲動中才黏住的表頭還蓋著就再補捲一段。游標以緩動移過去（600～900 ms，速度上限 2.4 px/ms），停 150 ms 再按；放開滑鼠且頁面畫出下一格時出現橘色波紋。**真的換頁**（整頁載入、或 SPA 換到別的路徑）時，從點擊那一刻起暫停計時、等新頁穩定再繼續，波紋與載好的新頁同一格出現；只改查詢字串的不算換頁，畫面過程照錄、只等這一下的請求做完。點的是別頁的連結卻一直沒換頁，那段等待也不進影片。`t.click(loc, false)` 完全不等。 |
 | `t.type(locator, text, { secret })` | 先點進欄位，再逐字輸入（每字 60～130 ms，固定種子，每次一樣）。`secret: true` 時 events.json 只記遮罩。 |
 | `t.select(locator, value)` | 原生下拉：游標移過去＋波紋，直接選值（原生彈出層錄不到）。自訂下拉請用兩次 `t.click`。 |
 | `t.upload(locator, file, { via })` | file input 多半隱藏，`via` 指定游標要點的按鈕。 |
@@ -179,15 +179,33 @@ node engine/cli.ts assemble --out ~/work/tutorial-out/dub-Charon/final --feature
 
 錄影用 CDP 連續截圖，每張影格記請求前後的中點時間，自己排成固定 30fps（每格取不晚於格位中點的最新影格），再以 image2 固定 30fps 讀進 ffmpeg（不經過 fps 換算），所以影片時間與事件時間用同一個時鐘。配音合成與 `offRecord` 期間時鐘暫停、影格丟掉（只留暫停中最後一張當恢復時的畫面）。每章開頭在暫停中閃 0.7 秒時間條碼，量「畫面內容 → 截圖」的延遲（`captureLatencyMs`）並扣掉。
 
+## 跨程序鎖
+
+白話：多個程序（例如兩個 `up.sh`／`reset.sh`）搶同一份資源時要有一把鎖。鎖最危險的地方是「以為前一個人死了，把他的鎖刪掉」，結果兩個人同時動手。所以這裡的規則是：**鎖只准持有者自己放；別人等不到，就停下來告訴人，由人決定刪。**
+
+規則（#411）：
+
+1. 鎖用 OS advisory lock（`flock`／`fcntl`，程序死了系統自己收回），或用 `mkdir` 鎖但**不自動回收**。
+2. 等鎖逾時只做一件事：印出持有者（pid、還在不在、在做什麼）、鎖的位置與下一步，然後零副作用退出。由人確認沒有別的程序在跑，再手動刪鎖。
+3. **禁止依逾時（或「看起來過期」）刪別人的鎖。** 也不准用 pid 不在了就自動收回；為了罕見的殘留去冒兩個人同時拿到鎖的險，不值得。
+4. 只放自己拿的鎖（owner 檔第一行的 pid 是自己才刪）。
+
+合規範例：`env/lib.sh` 的 `lock_acquire`（`env/lib.sh:395-421`）：用 `mkdir` 原子建立鎖目錄；逾時 `die`，訊息列出鎖位置、持有者 pid 與狀態、建置 PGID 與刪鎖前要先確認的事，不刪鎖；`lock_release`（`env/lib.sh:424`起）只在 owner 是自己時才放。測試見 `env/safety.test.mjs` 的「多實例共用鎖」。
+
+不做靜態檢查的理由：#411 曾提議用靜態檢查攔「刪鎖檔」的程式，這次不做——`tools/tutorial` 只有 `lock_acquire` 這一處鎖實作；`ops/` 的部署鎖（`ops/deploy.sh:110,166`、`ops/auto-deploy.sh:63,130-131`）用 flock 的非阻塞模式，拿不到就退出、不刪鎖，本來就合規。規則加 Review 就夠；等出現會自行回收鎖的實作再評估。
+
 ## 測試
 
 ```sh
 pnpm -C tools/tutorial test        # 需要 macOS 有畫面的工作階段（會開 Chromium 視窗）與 ffmpeg
-pnpm -C tools/tutorial typecheck
+pnpm -C tools/tutorial typecheck   # tsc -p tsconfig.json：引擎（engine/**）＋所有劇本（chapters/**）一起 strict，Linux 也能跑
 ```
+
+- `typecheck` 用根目錄的 `tsconfig.json`（沿用 `engine/tsconfig.json` 的編譯選項，`include` 多了 `chapters/**`）：劇本寫錯型別（傳錯參數、拼錯選項、用了可能是 `undefined` 的值）在這裡就紅，不必等到錄影時才當掉。`engine/tsconfig.json` 只含引擎，留給編輯器用，不要拿它當檢查。
 
 - **不開瀏覽器**（只要 ffmpeg）：`assemble`、`checks`、`cursor`、`dub`、`runs`、`subtitles`、`tts`——`cd tools/tutorial && node --test --test-concurrency=1 engine/test/{assemble,checks,cursor,dub,runs,subtitles,tts}.test.ts`。重配音與組裝的程式（`dub.ts`、`assemble.ts`、`meta.ts`）不載入 Playwright。
 - **要 Chromium**：`recorder`、`render`（實際 render 一章，標題卡與疊加層是 Chromium 畫的）、`scroll`、`waits`。沒裝 Chromium 的環境這四個會失敗，不屬於上一組。
+- **只要 Chromium、不錄影**（無頭，Linux 也能跑）：`sticky-insets`——`cd tools/tutorial && node --test engine/test/sticky-insets.test.ts`。
 
 - `cursor.test.ts`：每段 600～900 ms、逐格速度不超過上限、緩動起訖。
 - `recorder.test.ts`：
@@ -200,7 +218,8 @@ pnpm -C tools/tutorial typecheck
   - 真的錄到未載入圖（`click(loc, false)` 不等穩定）：`quality.ok=false`、`unloadedImages` 指出哪幾秒哪張圖。
   - 截圖空檔：網頁自己卡 250 ms 只標記；錄影程序卡 300 ms（截圖跟不上）中止並報錯。
 - `waits.test.ts`：換頁回溯暫停後動作拋錯，暫停一定收尾（假分頁、不開瀏覽器）；換頁前還在飛的請求（真的 HTTP 伺服器永遠不回）不會讓之後的 `waitStable` 等到逾時；逾時原因寫實際卡住的那一項（「網路一直沒停」列出網址、「畫面一直在變」附變動範圍）；步驟裡逾時的 `waitStable`、點了別頁連結卻沒換頁的等待都不佔影片時間；`press` 記進 events.json 且鍵真的送到頁面；表單裡按 Enter 送出換到慢圖頁，從按下那一格起就是載好的新頁、press 與 url 同一時刻；同路徑只改查詢字串（`replaceState`／`pushState`）不算換頁——逐格看到「載入中」的過程、沒有回溯暫停；同網址整頁重載仍算換頁、沒有灰圖。
-- `scroll.test.ts`：已經看得到的元素 `t.scroll(locator)` 仍對到上方三分之一（容器內與整頁）；比畫面寬、比容器高的表格，操作鈕在容器右下角看不到的地方：`t.click` 先把容器橫向＋直向捲過去、點擊座標等於捲完後的元素中心 × 1.5、按鈕真的被點到；`t.scroll({ x, within })`、`t.scroll(300)`、`t.scroll(locator)` 各自的位移與平滑時長。
+- `scroll.test.ts`：已經看得到的元素 `t.scroll(locator)` 仍對到上方三分之一（容器內與整頁）；比畫面寬、比容器高的表格，操作鈕在容器右下角看不到的地方：`t.click` 先把容器橫向＋直向捲過去、點擊座標等於捲完後的元素中心 × 1.5、按鈕真的被點到；`t.scroll({ x, within })`、`t.scroll(300)`、`t.scroll(locator)` 各自的位移與平滑時長；黏頂列＋黏住的表頭（#412）：整頁表格最後一列一開始被黏在黏頂列下面的表頭蓋住、容器捲到底後點第一列，`t.click` 捲完兩顆按鈕都沒被蓋住、真的被點到、表頭一次都沒被點到；比沒被蓋住的可見區還高的元素（整頁有黏頂列、容器有黏住的表頭）捲完中心仍在可見區裡、點得到。
+- `sticky-insets.test.ts`：`t.click` 捲動時「可見區四邊被蓋掉多少」：容器裡黏住的表頭（上）與同一列黏住的首欄（左）、整頁的黏頂列加上黏在它下面的表頭（疊起來算）；沒黏住、在畫面中間的表頭，`pointer-events: none` 的固定提示，目標自己所在的黏住元素都不算。
 - `runs.test.ts`：run 目錄原子建立與撞名拒絕；名額預設 1 路、第 2 路排隊印「等待錄影名額」、`TUTORIAL_RECORD_SLOTS=2` 可開第 2 路；指定 2 路時第 3 路排隊；鎖檔常駐、不自己回收。跨程序（`test/slot-holder.ts` 當獨立程序）：5 個程序同一毫秒搶 2 個名額、任何時刻持有者 ≤ 2（目錄裡留著舊鎖檔也一樣）；持有者被 `kill -9` 後名額自動釋放給排隊的。
 - `render.test.ts`：狀態白話規則（「✅ 正常」「🟡 等你決定：」、say 本身超過 22 字才截斷、前綴不佔額度、evidence／note 不上畫面）、假網址列不顯示 UUID 查詢參數、按鍵鍵帽字與片段切法；合成一章實際 render，檢查格式（H.264 1920×1080 30fps＋AAC）、標題卡、網址列、底部字幕帶（深色、字幕在帶子裡）、頁面區 80～960 沒被蓋到、游標位置、波紋圓心與配音音量。
 - `tts.test.ts`（假 HTTP，不打真 API）：請求格式、pcm→wav 標頭與長度、同文字同聲音走快取（重跑也是）、換聲音或模型才重打、429 照 `Retry-After` 退避再重試、502／520 與連線失敗、收到標頭後讀內容斷線都重試、一直 429 到次數上限放棄、402 不重試（`TtsQuotaError`）、HTTP 錯誤內容或連線錯誤帶著金鑰時訊息被遮掉、失敗不留快取檔。

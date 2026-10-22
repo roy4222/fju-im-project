@@ -12,6 +12,57 @@
 
 - spec 基準 `f974bce`（母 spec v3.6）通過後進入拆票；v0.2 全套 158 張經 Codex 集中 review（F01–F15）後修為 v0.3，再依 Codex 局部 review R01–R08 修為 **v0.3.1：166 張（10 張直接 BLOCKED，待 Roy 產品決策；D-10 已改工程確認）**；修訂腳本從備份還原後連跑兩次零位元差異，重複段落／表格切斷／舊上限殘留檢查 0。入口：[`slices/🎫 票草稿/00 總索引.md`](<slices/🎫 票草稿/00 總索引.md>)、[`01 修訂差異、決策表與覆蓋表 v0.3.md`](<slices/🎫 票草稿/01 修訂差異、決策表與覆蓋表 v0.3.md>)（每項修訂位置、三類決策表、有效依賴圖、行為子項覆蓋表）＋每切片一份。spec 局部回寫：母 spec v3.7、契約 01 v2.5、契約 05 v2.4、模組 02／05／07／08／09／10 v2.4、切片總圖 v2.4、SOP 05 步驟 2（只回寫 review 導出的資料契約與 port，不重開需求）。待 Codex 集中核對局部差異與 Roy 回覆決策；通過後一次開齊 GitHub backlog（可開始票＋明確 BLOCKED 票），開票不等於開工。正式上票前最後核對（Codex 三項局部修正已修）：契約 01 §4.7 表格完整、模組 05 `syncRoster` 只限核准、受阻統計含切片 gate；`slices/🎫 票草稿/正文/SNN 正式正文.md` 是每張票的可讀正文層（白話目標、做到哪裡、Roy 操作→預期表、誰確認、原型圖），GitHub 實作票正文由此＋技術九欄組成。同步 receipt：`../vault-sync-receipt-2026-09-13-round11.json`。
 
+## 寫入規則（2026-10-21，C ⑤-11；#411 第一組）
+
+白話：好幾段程式同時改同一批資料時，大家要照同一個順序去「鎖」，才不會你等我、我等你卡死；字數也只用一種算法，畫面和後端才不會對不上。這節是規則，不是新程式；碰到下列情況，寫法要照做，Review 也照此檢查。
+
+1. **鎖的順序一律固定**（交易內先鎖前面的，再鎖後面的，不准反過來）：
+   - 檔案：**同一個檔案內**，先 `stored_files`，再 `file_references`。程式位置：`web/src/infrastructure/accounts/avatar-store.ts:47-59` 的 `softDeleteAvatarFile`（先更新 `stored_files` 標刪、再釋放 `file_references`），呼叫處 `avatar-store.ts:154`、`avatar-store.ts:200`。一次附多個檔時是逐檔做完（一個檔的 `stored_files`＋`file_references` 做完再換下一個，檔案依 id 排序），見 `pg-items.ts:1916-1922`、`pg-submissions.ts:293-304`。
+   - 頭像（換頭像、系辦重設）的整串順序：（重設先整組管理員）→ `users` → `user_profiles` → 檔案，寫在 `avatar-store.ts:28-32` 與 `avatar-store.ts:194`。**這串只適用頭像**；停用帳號是先組別（屆別 `FOR SHARE` → 組別 `FOR UPDATE`）再 `users`，見 `web/src/application/groups/ports.ts:131`。
+   - 屆別、組、成員：先屆別，再組，最後成員。程式位置：`web/src/infrastructure/groups/pg-groups.ts:1387`（屆別 `FOR SHARE` → 組別 `FOR UPDATE`）；註冊自動開通的整串順序 `cohorts → users → registration_applications → student_identities` 見 `web/src/infrastructure/accounts/registration-command.ts:376`。「組 → 成員」目前只是規則，程式裡沒有集中的一處可指，新寫入照此做。
+2. **worker 與網站（兩個程序）會同時寫的資料，用 `pg_advisory_xact_lock`**，並且鎖的鍵要在同一張表列舉，避免兩邊各取各的名字：
+   - 交易層級（`pg_advisory_xact_lock`）：交易結束自動放，不會漏放。**本表就是登記處，新增鍵一定要登記**（`git grep -n "pg_advisory"` 應該和本表一一對得上）。注意「雜湊函式」那欄：同一個字串用 `hashtext` 和 `hashtextextended` 算出來是兩把不同的鎖，互不排斥；同一把鎖的所有使用處必須用同一個函式。
+
+     | 鍵（雜湊函式的輸入） | 雜湊函式 | 保護什麼 | 程式位置 |
+     |---|---|---|---|
+     | `signup-resume:<email>` | `hashtext` | 同一 Email 的註冊續辦／清理排隊 | `signup-resume.ts` |
+     | `cohorts.<欄位>` | `hashtext` | 同時只有一屆帶 `is_default_working`／`is_registration_open`（設定新屆別時把舊的取消） | `pg-cohorts.ts` |
+     | `groups.code:<cohortId>` | `hashtext` | 同屆組別代碼不重複 | `pg-groups.ts`、`pg-group-import.ts` |
+     | `groups.student:<studentId>` | `hashtext` | 同一學生同時只能被一個組操作 | `pg-groups.ts`、`pg-group-import.ts` |
+     | `items.rules:<cohortId>` | `hashtextextended`（seed 0） | 同屆規則集合 | `pg-items.ts` |
+     | `items.resource_category` | `hashtextextended`（seed 0） | 資源分類 | `pg-items.ts` |
+     | `reminder:item:<id>`、`reminder:grading:<cohortId>` | `hashtext` | 催繳／評分提醒排隊 | `pg-reminders.ts`（三個呼叫處共用取鎖函式 `lockKey`） |
+     | `submission_reopen:<itemId>:<receiverId>` | `hashtextextended`（seed 0） | 重新開放繳交 | `pg-submissions.ts` |
+     | `business_clock_overrides` | `hashtext` | 營運時鐘覆寫 | `pg-business-clock.ts` |
+
+   - session 層級（`pg_try_advisory_lock`，綁在專用連線上，程序死掉自動放；也登記在這裡）：
+
+     | 鍵 | 雜湊函式 | 保護什麼 | 程式位置 |
+     |---|---|---|---|
+     | `fju.worker` | `hashtextextended`（seed 0） | worker 只准一個在跑 | `worker-runtime.ts`（`WORKER_LOCK_NAME`、`acquireWorkerLock`，放鎖也在同檔） |
+3. **字數一律用 `charLength()`**（`web/src/shared/text.ts`，按字元算，一個表情符號算一個字）。不准用 `.length`（會把表情符號算成兩個字，和畫面計數不一致）。現有用法：`web/src/application/accounts/avatar.ts:84`、`application/cohorts/stages.ts:76`、`application/grading/scheme.ts:164`。
+4. **requestId 重播預設回原回執，屆別已封存也一樣**（2026-10-21，#814，主腦裁定）：白話：同一個 requestId 再送一次，等於「上次那件事」，系統只把上次的結果再回你一次，不會再寫資料；就算那一屆後來封存了也照回，因為那次操作在封存前真的成功過。所以寫入命令的順序是先看重播、後看封存（全站約 56 處，不改）。**例外只有 AC-56c 指定的 7 處，封存檢查排在重播之前，封存後重送回 `COHORT_ARCHIVED`**：
+   - `pg-submissions.ts`：`saveDraft`（`:210`，封存檢查 `:230`）、`submit`（`:312`，`:330`）、`setAdvisorVisibility`（改閱覽設定，`:553`，`:581`）、`reopen`（開放補交，`:639`，`:680`）、`setExempt`（設免繳，`:802`，`:836`）。
+   - `ops/file-storage.ts` 的 `upload`（上傳完成，`:193`，封存檢查 `:220`）：這一處靠的是上傳憑證（ticket）只能用一次，不是 requestId 重播；同樣是封存後重送拿到錯誤而不是舊結果。
+   - `signoff/pg-consent-bridge.ts` 的 `createForGroup`（同意書補建，`:228`，封存檢查 `:262` 在重播 `:277` 之前）。
+   - 新寫入命令照預設（先重播、後封存）；要變成例外，要有規格明文（像 AC-56c），並在這裡登記。**不要**加「`ledger.begin(` 前必須有封存檢查」的結構測試，會擋到解封與 #715／#788 已裁定的例外。
+   - 重新找出「先重播、後封存」的清單（預期印出 56 行與 `total 56`；在 repo 根目錄跑，來源：`docs/reviews/2026-10-21-architecture-security-review.md` 的重播掃描指令）：
+
+     ```sh
+     git grep -n -A40 'ledger.begin(' -- web/src/infrastructure ':!*.test.ts' | awk '
+     function flush() { if (site != "" && rep && after && site !~ /pg-cohorts\.ts/) { print site; n++ } }
+     /^[^ :]+:[0-9]+:.*ledger\.begin\(/ { flush(); split($0, a, ":"); site = a[1] ":" a[2]; rep = 0; after = 0; next }
+     /replayed</ { rep = 1; next }
+     rep && /status === .archived.|cohortStatus === .archived.|cohort_status === .archived.|archivedBlocks[(]|writeBlocked[(]|groupWriteBlocked[(]/ { after = 1 }
+     END { flush(); print "total " n }'
+     ```
+
+   - 核對 7 處例外：`git grep -nE "archivedGuard\(|status === 'archived'|replayed<" -- web/src/infrastructure/submissions/pg-submissions.ts web/src/infrastructure/ops/file-storage.ts web/src/infrastructure/signoff/pg-consent-bridge.ts`，每個命令的封存檢查（`archivedGuard(` 或 `status === 'archived'`）行號要小於它自己的 `replayed<` 行號（上傳不走 requestId，只有封存檢查行）；測試見 `archived-readonly.integration.test.ts` 的 AC-56c。
+5. 本機工具（教學影片環境）的跨程序鎖是另一組規則，見 [`tools/tutorial/README.md` 的「跨程序鎖」](../../tools/tutorial/README.md#跨程序鎖)。
+6. **「已刪除」這類例外頁的可見判斷，沿用「項目還在時」同一段可見範圍查詢**（2026-10-22，CL-7 #823 第 9 條；來源 CL-14 #849）：白話：東西刪掉後，誰能看到「已刪除」提示、誰還是只看到「找不到」，要跟刪除前「誰看得到這個項目」完全一樣；不准另寫一套判斷，否則刪除後會多放人進來（洩漏「這裡曾經有東西」）或把原本看得到的人擋掉。
+   - 寫法：刪除後的判斷（例如 `PgSubmissionQuery.deletedItemSeenBy`）重用項目頁本來的可見範圍條件（老師照作業頁 `#scope`、學生照作業區），只把「項目還在」那個條件拿掉。
+   - **測試一定要用同一個身分比對刪除前後**：刪前對每個身分記下「看得到嗎」，刪除後用例外頁的判斷再問一次，斷言兩份結果相等。範本：`web/src/infrastructure/items/pg-items.integration.test.ts` 的 it「已刪除的作業（CL-14 Review r1）：同一個人「刪前看得到」⇔「刪後算看得到」……」（`expect(after).toEqual(before)`），以及同檔 it「已刪除的公告（CL-14）……」的刪除前後比對。新增別種「已刪除」頁時照這兩支寫，不另寫結構測試（主腦 10/22 裁定）。
+
 ## GitHub review 入口（2026-09-12）
 
 - 文件 PR：[#7](https://github.com/roy4222/fju-im-project/pull/7)（`docs/engineering-spec-2026-09-12` → `main`；第三輪 commit `2dea682`，最新 head 見 PR；issue 全文與連結釘在第六輪 commit）。
@@ -39,6 +90,7 @@
 | `slices/` | 00 切片總圖與依賴 v2.3（切片出場與年度案例 PASS 的分界、逐張操作起點；S11 建精選草稿表與空的版本表）、01 案例責任表 v1.2（層 C：149 案→子 spec→劇本步驟→最終責任切片＝缺陷歸屬）、S00–S14 切片卡（出場條件固定四項）；第一條主線 S00→S07 |
 | `operations/` | 00 Roy 前置工作清單 v1.2（登入、開通、金鑰、校方申請的現況與待辦；插槽 host、GitHub 能力逐項表與人工 approval、Google Testing 例外；四項待決技術選擇）；SOP 01–06（VM、三組憑證與變數名、部署與健康判定、備份還原與副本一致性窗口、監測與告警通道、staging→正式 reset 範圍） |
 | `verification/` | 2026-09-12 操作手冊 v2.3（Codex 總入口，層 B）與 `scripts/` P00–P09 主線劇本、B01–B08 分支劇本（每份十段；B07 v1.3，P02、B01、B06 v1.2，P07、P08、P09、B02–B05 v1.1） |
+| `前端慣例.md` | 規格④ 的前端寫法（只在 repo，不鏡像）：不准 `style=`、`pointer-coarse:` 觸控目標、`fx/frame-loop` 用法、特效點開才下載、版面斷點 |
 | `../adr/` | 0001–0005（0005 proposed） |
 
 產品規則與案例 ID 只在 `../product/`；工程文件引用不改寫。

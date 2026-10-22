@@ -8,6 +8,7 @@
  * 而系辦要能查「這次核准是怎麼核實的」（2026-10-08 系2，Roy 同意）。只取這一個鍵、只對這一個動作。
  */
 
+import type { AvatarUser } from '@/application/accounts'
 import type { VerificationMethod } from '@/application/ops/records'
 
 /**
@@ -69,6 +70,11 @@ export type AuditLogEntry = {
   readonly actorKind: 'user' | 'system' | 'worker'
   /** 操作者顯示名稱；系統與背景工作沒有人。 */
   readonly actorName: string | null
+  /** 操作者帳號 id；系統、背景工作、找不到帳號時為 null（畫面只對有 id 的列畫頭像，C3 §2.3）。 */
+  readonly actorUserId: string | null
+  /** 操作者頭像兩欄（`AvatarUser`）；同一句查詢帶出，沒有個人資料列時為 null。 */
+  readonly actorAvatarPreset: number | null
+  readonly actorAvatarFileId: string | null
   /** 操作當下的角色（學生／老師／管理員）；本人動作（改密碼、補資料）與系統為 null。 */
   readonly role: 'student' | 'teacher' | 'admin' | null
   readonly action: string
@@ -102,6 +108,21 @@ export type AuditLog = {
   readonly truncated: boolean
 }
 
+/**
+ * 操作者的頭像資料（C3 §2.3）：`actor_kind='user'` 且找得到帳號才有；系統、背景工作、已不存在的帳號回 null，畫面維持純文字。
+ */
+export function auditActorAvatar(
+  entry: Pick<AuditLogEntry, 'actorKind' | 'actorUserId' | 'actorName' | 'actorAvatarPreset' | 'actorAvatarFileId'>,
+): AvatarUser | null {
+  if (entry.actorKind !== 'user' || !entry.actorUserId) return null
+  return {
+    id: entry.actorUserId,
+    name: entry.actorName?.trim() ?? '',
+    avatarPreset: entry.actorAvatarPreset,
+    avatarFileId: entry.actorAvatarFileId,
+  }
+}
+
 /** 這一筆算哪個分頁（與 `pg-audit-log.ts` 的分頁 SQL 一一對應）。 */
 export function auditWhoOf(entry: Pick<AuditLogEntry, 'actorKind' | 'role'>): Exclude<AuditWhoFilter, 'all'> {
   if (entry.actorKind !== 'user') return 'system'
@@ -120,15 +141,20 @@ const ACTION_LABEL: Record<string, string> = {
   'account.revoke_role': '取消管理員',
   'account.create_teacher': '新增老師',
   'account.preauthorize_teacher': '預先建立老師帳號',
+  'account.create_student': '新增學生',
+  'account.create_member': '新增成員',
   'account.issue_temporary_password': '核發臨時密碼',
   'account.issue_temporary_password_failed': '臨時密碼核發失敗',
+  'account.reset_mail_sent': '寄重設密碼信',
   'account.complete_teacher_profile': '老師補完資料',
   'account.update_contact': '更新聯絡資料',
+  'account.profile_card_update': '更新名片',
   'account.change_password': '變更密碼',
   'account.set_password': '設定密碼',
   'account.link_google': '連結 Google 登入',
   'account.bind_google_preauthorized': '預先建立的老師帳號綁定 Google',
   'account.repair_orphan': '替尚未設定身分的帳號補上身分',
+  'account.profile_edit': '編輯帳號（姓名、學號、屆別、角色）',
   'account.seed_first_admin': '建立第一位管理員',
   'account.seed_e2e_admin': '建立測試管理員帳號',
   'account.deidentify': '刪除個人資料（保留紀錄）',
@@ -159,11 +185,12 @@ const ACTION_LABEL: Record<string, string> = {
   'cohort.archive': '封存屆別',
   'cohort.unarchive': '解除封存屆別',
   'activity.deleted': '刪除活動',
-  'business_clock.set': '調整模擬時鐘',
+  'business_clock.set': '調整測試用時間',
   // 分組、指導與產學（模組 03）
   'group.dissolve': '解散組別',
   'group.establish': '組別成立',
   'group.export': '匯出組別名單',
+  'group.import': '匯入分組',
   'group.leader.change': '換組長',
   'group.member.add': '加入組員',
   'group.member.remove': '移出組員',
@@ -191,6 +218,9 @@ const ACTION_LABEL: Record<string, string> = {
   'opportunity.link': '連結合作案',
   'opportunity.unlink': '解除合作案連結',
   'opportunity.switch': '換合作案',
+  'opportunity.request': '選合作案（等負責老師確認）',
+  'opportunity.decline': '婉拒合作案',
+  'opportunity.confirm': '確認合作案（指導老師不變）',
   'opportunity.delete': '刪除合作案',
   'opportunity.deleted': '刪除合作案',
   'opportunity.published': '發布合作案',
@@ -213,12 +243,14 @@ const ACTION_LABEL: Record<string, string> = {
   'item.deleted': '刪除公告或作業',
   // B 階段 A-14 規則章節排序（預先登記）。
   'item.rule_moved': '調整規則章節順序',
+  'item.category_renamed': '資源分類改名',
   'item.published': '發布公告或作業',
   'item.withdrawn': '撤回公告或作業',
   'item.archived': '下架公告或作業',
   'item.republished': '重新發布公告或作業',
   'item.updated': '修改公告或作業',
   'item.announced': '發出重要公告通知',
+  'item.remind': '催繳作業',
   'submission.submitted': '正式送出繳交',
   'submission.reopen': '開放補交',
   'submission.reopened': '開放補交',
@@ -244,9 +276,11 @@ const ACTION_LABEL: Record<string, string> = {
   'grading.override_resolve': '重新確認更正',
   'grading.override_review': '重新確認更正',
   'grading.export': '匯出成績',
+  'grading.remind': '催繳評分',
   // B 階段 A-01 結算（預先登記）。
   'grading.settle': '結算成績',
   'grading.release': '解除成績結算',
+  'grading.stage_setting': '設定評分項目的對應作業與說明',
   // 簽核與精選（模組 07、09）
   'signoff.version_create': '建立站內同意書',
   'signoff.version_reopen': '重開同意書新版',
@@ -275,8 +309,10 @@ const ACTION_LABEL: Record<string, string> = {
   'home.update': '更新首頁設定',
   'home.updated': '更新首頁設定',
   'home.reset': '首頁設定恢復預設',
+  'site_text.updated': '更新站內文字',
   // 維運（模組 10）
   'ops.worker_alert': '背景工作警示',
+  'file.delete': '刪除檔案',
   'notification.test.send': '發送測試通知',
   'demo.seed': '放入示範資料',
   'demo.remove': '移除示範資料',
@@ -306,8 +342,9 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   registration_application: '註冊申請',
   roster_version: '匯入的學生名單',
   cohort: '屆別',
-  business_clock: '模擬時鐘',
+  business_clock: '測試用時間',
   home_settings: '首頁設定',
+  site_text: '站內文字',
   project_event: '活動',
   group: '組別',
   group_roster: '組別名單',
@@ -321,6 +358,7 @@ const TARGET_TYPE_LABEL: Record<string, string> = {
   signoff_version: '站內同意書',
   showcase_entry: '成果展示',
   storage: '儲存空間',
+  stored_file: '檔案',
 }
 
 /** 對象類型的中文對照（[代碼, 中文]），給稽核查詢在 SQL 裡組出和畫面一樣的對象文字（搜尋用）。 */

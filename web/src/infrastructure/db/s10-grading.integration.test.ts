@@ -200,7 +200,7 @@ describe('逐欄對照附錄 A', () => {
     },
     grade_overrides: {
       id: 'NO', group_id: 'NO', scheme_version_id: 'NO', original_value: 'NO', new_value: 'NO', basis_hash: 'NO',
-      reason: 'NO', actor_user_id: 'NO', real_at: 'NO',
+      reason: 'YES', actor_user_id: 'NO', real_at: 'NO',
     },
     override_review_state: {
       override_id: 'NO', state: 'NO', resolved_by_user_id: 'YES', resolved_at: 'YES', revision: 'NO', updated_at: 'NO',
@@ -269,13 +269,10 @@ describe('資料庫守的「只有一個」', () => {
     })
   })
 
-  it('指派結束要有理由；只有結束的指派才有「移除方式」', async () => {
+  it('指派結束的理由選填（0021，X2）；只有結束的指派才有「移除方式」', async () => {
     await withIsolatedDatabase({ label: 'assignment-checks', setup: migratedSchema }, async (db) => {
       const s = await seedGroup(db)
       const g = await seedGrading(db, s)
-      await expect(
-        db.sql(`update evaluator_assignments set valid_to = now(), ended_real_at = now() where id = $1`, [g.assignmentId]),
-      ).rejects.toMatchObject({ constraint: 'evaluator_assignments_ended_check' })
       await expect(db.sql(`update evaluator_assignments set removal_choice = 'keep' where id = $1`, [g.assignmentId])).rejects.toMatchObject({
         constraint: 'evaluator_assignments_ended_check',
       })
@@ -285,6 +282,9 @@ describe('資料庫守的「只有一個」', () => {
           [g.assignmentId],
         ),
       ).rejects.toMatchObject({ constraint: 'evaluator_assignments_removal_choice_check' })
+      await expect(
+        db.sql(`update evaluator_assignments set valid_to = now(), ended_real_at = now() where id = $1`, [g.assignmentId]),
+      ).resolves.toBeTruthy()
     })
   })
 

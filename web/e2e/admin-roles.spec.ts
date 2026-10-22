@@ -1,11 +1,11 @@
-import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { Pool } from 'pg'
 import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSession } from './session'
 
 /**
  * 票 10b：帳號列表每一列的「設為管理員／取消管理員」與孤兒帳號，用**真的畫面**走一次。
  *
- * 1. 老師 → 設為管理員（理由必填）→ 業務角色與套件的 `users.role` 一起變；再取消回來。
+ * 1. 老師 → 設為管理員（理由選填）→ 業務角色與套件的 `users.role` 一起變；再取消回來。
  * 2. 自己那一列沒有「取消管理員」。
  * 3. 孤兒帳號（只有登入身分）：磚與篩選看得到；補建成老師；另一個直接停用。
  *
@@ -14,6 +14,17 @@ import { createTestSession, sharedTestSession, toPlaywrightCookie, type TestSess
  */
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:8080'
+
+/** 這份開的瀏覽器 context 每個測試結束就關（#816：沒關的分頁會活到 worker 結束，全套連跑時一直吃 CPU）。 */
+const openContexts: BrowserContext[] = []
+function track(context: BrowserContext): BrowserContext {
+  openContexts.push(context)
+  return context
+}
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()))
+})
+
 const ownerUrl = process.env.DATABASE_URL_OWNER
 
 test.describe.configure({ mode: 'serial' })
@@ -35,7 +46,7 @@ test.afterAll(async () => {
 })
 
 async function adminPage(browser: Browser): Promise<{ page: Page; admin: TestSession }> {
-  const context = await browser.newContext()
+  const context = track(await browser.newContext())
   const page = await context.newPage()
   const admin = await sharedTestSession(page.request, 'admin')
   await context.addCookies([toPlaywrightCookie(admin.cookie, BASE_URL)])
@@ -87,7 +98,7 @@ const adminState = (userId: string) =>
     ).rows[0],
   )
 
-test('老師設為管理員、再取消：業務角色與套件的 users.role 一起變，理由必填', async ({ browser }) => {
+test('老師設為管理員、再取消：業務角色與套件的 users.role 一起變，理由選填', async ({ browser }) => {
   const { page } = await adminPage(browser)
   const teacher = await seeded('teacher', `${tag}-老師`)
 
@@ -96,25 +107,22 @@ test('老師設為管理員、再取消：業務角色與套件的 users.role �
   await expect(row).toBeVisible()
   // 還不是管理員：只有「設為管理員」，沒有「取消管理員」。
   await expect(row.getByRole('button', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  // 列上只留常用的「發臨時密碼」；少用的與危險的收在「更多」（第三波 AC-37：停用、去識別化在「危險操作」組）。
-  await expect(row.getByRole('button', { name: `發臨時密碼給 ${teacher.name}` })).toBeVisible()
-  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toHaveCount(0)
+  // C 階段規格② §3.2（A23）：列上有「寄重設密碼信」「停用」；「更多」沒有「危險操作」群組，「刪除個人資料」是最後一項。
+  await expect(row.getByRole('button', { name: `寄重設密碼信給 ${teacher.name}` })).toBeVisible()
+  await expect(row.getByRole('button', { name: `停用 ${teacher.name}` })).toBeVisible()
   await expect(row.getByRole('button', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
   await expect(row.getByRole('button', { name: `刪除 ${teacher.name} 的個人資料` })).toHaveCount(0)
 
   const menu = await openMore(page, teacher.name)
   await expect(menu.getByRole('menuitem', { name: `取消管理員 ${teacher.name}` })).toHaveCount(0)
-  const danger = menu.getByRole('group', { name: '危險操作' })
-  await expect(danger.getByRole('menuitem', { name: `停用 ${teacher.name}` })).toBeVisible()
-  await expect(danger.getByRole('menuitem', { name: `刪除 ${teacher.name} 的個人資料` })).toBeVisible()
-  await expect(danger.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` })).toHaveCount(0)
+  await expect(menu.getByRole('group', { name: '危險操作' })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: `停用 ${teacher.name}` })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem').last()).toHaveAccessibleName(`刪除 ${teacher.name} 的個人資料`)
   await menu.getByRole('menuitem', { name: `設為管理員 ${teacher.name}` }).click()
   const grant = page.getByRole('dialog', { name: `設為管理員 ${teacher.name}` })
   await expect(grant).toContainText('只給系辦與負責的老師')
-  // 沒寫理由不送。
-  await grant.getByRole('button', { name: '確認設為管理員' }).click()
-  await expect(grant.getByRole('alert')).toHaveText('請寫理由。')
-  await grant.getByLabel(/理由/).fill('e2e：新任承辦人')
+  // 理由選填（C2 X2；AC-C2-11）：留空直接送也成功。
+  await expect(grant.getByLabel('理由（選填，會留在操作紀錄）')).toHaveValue('')
   await grant.getByRole('button', { name: '確認設為管理員' }).click()
   await expect(grant.getByRole('status')).toContainText('已設為管理員')
   await grant.getByRole('button', { name: '關閉' }).click()
@@ -182,8 +190,7 @@ test('孤兒帳號：磚與篩選看得到；補建成老師；另一個直接�
   expect(repaired).toEqual({ status: 'active', roles: ['teacher'] })
 
   // 另一個孤兒：待審也能直接停用（沒有申請可以退回）。
-  const anotherMenu = await openMore(page, another.name)
-  await anotherMenu.getByRole('group', { name: '危險操作' }).getByRole('menuitem', { name: `停用 ${another.name}` }).click()
+  await rowOf(page, another.name).getByRole('button', { name: `停用 ${another.name}` }).click()
   const disable = page.getByRole('dialog', { name: `停用 ${another.name}` })
   // 確認視窗寫對象、後果、能不能恢復（AC-37）。
   await expect(disable).toContainText(another.name)

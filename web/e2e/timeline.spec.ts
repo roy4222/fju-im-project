@@ -5,7 +5,7 @@ import { sharedTestSession, toPlaywrightCookie, type TestRole } from './session'
 /**
  * 票 11（#222）：年度階段、活動與模擬時鐘。「做完的樣子」逐條走：
  *
- * 1. 管理員替屆別設四個階段的開始日（嚴格遞增）與年度結束日；建立、改期、取消活動。
+ * 1. 管理員替屆別設四個階段的開始日（嚴格遞增）與年度結束日；建立（可跨日）、編輯、直接刪除活動（C3-06）。
  * 2. 屆別從籌備中變進行中留下紀錄；三角色首頁顯示「尚未開始／階段 n／年度階段已結束」。
  * 3. 測試站的管理員可把「今天」設成任意時間（到秒、可前進可倒退），每次留操作者、原因、前後時間。
  *    （正式站沒有入口：CI 的 e2e 跑的是測試站設定；正式站拒絕由整合測試證明。）
@@ -68,24 +68,31 @@ async function setClock(page: Page, local: string, reason: string) {
   await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
 }
 
-test('建屆別、設為預設工作屆別；還沒設階段就轉進行中會被擋下', async ({ page }) => {
+test('建屆別、設為預設工作屆別；還沒設階段時「轉為進行中」停用並寫原因', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  await page.getByLabel('代碼').fill(CODE)
-  await page.getByLabel('名稱').fill(`${CODE} 年度測試`)
+  // C2-06：「新增屆別」開視窗填。
   await page.getByRole('button', { name: '新增屆別' }).click()
+  const create = page.getByRole('dialog', { name: '新增屆別' })
+  await create.getByLabel('代碼').fill(CODE)
+  await create.getByLabel('名稱').fill(`${CODE} 年度測試`)
+  await create.getByRole('button', { name: '確定新增' }).click()
   await expect(feedback(page, 'status')).toContainText(`已新增屆別 ${CODE} 年度測試（${CODE}）`)
 
   // 重新整理：新增表單的回饋不留在畫面上，下面才只會有一句回饋。
   await page.reload()
-  await page.getByRole('button', { name: `把 ${CODE} 設為後台預設查看的屆別` }).click()
+  // C2-06：換旗標在卡上「編輯」視窗裡。
+  await page.getByRole('button', { name: `編輯：${CODE}` }).click()
+  await page.getByRole('dialog', { name: `編輯${CODE}` }).getByRole('button', { name: `把 ${CODE} 設為後台預設查看的屆別` }).click()
   await expect(feedback(page, 'status')).toContainText(new RegExp(`已把後台預設查看的屆別設為.*（${CODE}）`))
 
-  // 第三波 AC-37：轉為進行中在危險操作區，先確認再送。
-  await page.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
-  await page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` }).getByRole('button', { name: '確定轉為進行中' }).click()
-  await expect(feedback(page, 'alert')).toContainText(new RegExp(`（${CODE}）還沒設定階段與年度結束日`))
+  // 轉為進行中是狀態旁的小字鈕（C2-06）：還沒排時程就 disabled，卡上寫原因、跟按鈕 title 同一句（AC-C2-13、§4.1）。
+  // 用例那一層的擋法（沒排時程回「還沒設定階段與年度結束日」）由 `pg-timeline.integration.test.ts` 負責。
   const row = page.getByRole('region', { name: new RegExp(CODE) })
+  const activate = row.getByRole('button', { name: `把 ${CODE} 轉為進行中` })
+  await expect(activate).toBeDisabled()
+  await expect(activate).toHaveAttribute('title', '先到專題時程排好四個階段')
+  await expect(row.getByTestId('activate-blocked-reason')).toHaveText('先到專題時程排好四個階段')
   await expect(row).toContainText('尚未開始（設定中）')
 })
 
@@ -95,9 +102,15 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(page.getByRole('heading', { name: '設定', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: '時間軸' })).toContainText(CODE)
   await expect(page.getByText('這一屆還沒設定階段')).toBeVisible()
+  // AC-C2-10：分頁標籤「專題時程」是目前頁；頁上沒有「調整模擬時鐘」連結（測試用時間直接打 /clock）。
+  await expect(page).toHaveTitle(/^專題時程｜/)
+  await expect(page.getByRole('navigation', { name: '設定分頁' }).getByRole('link', { name: '專題時程', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: /模擬時鐘/ })).toHaveCount(0)
+  await expect(page.getByRole('main')).not.toContainText('調整模擬時鐘')
 
-  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: `編輯 ${CODE} 年度測試（${CODE}） 的階段與日期` })
+  // C3-08：還沒設階段時才有「設定階段與日期」（四段一起填）；設好之後點甘特色塊一段一段改。
+  await page.getByRole('button', { name: '設定階段與日期', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: `設定 ${CODE} 年度測試（${CODE}） 的階段與日期` })
   const stages = [
     ['成組期', '2026-09-15'],
     ['期中', '2026-11-01'],
@@ -124,72 +137,118 @@ test('時間軸：填四個階段開始日與年度結束日；不遞增被拒�
   await expect(list).toContainText('2026-11-01 – 2027-01-09')
   await expect(list).toContainText('2027-03-01 – 2027-06-30')
 
-  // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變。
-  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  await dialog.getByLabel('第 3 階段開始日').fill('2026-10-01')
-  await dialog.getByRole('button', { name: '儲存' }).click()
-  await expect(dialog.getByRole('alert')).toContainText('第 3 階段的開始日')
-  await expect(dialog.getByRole('alert')).toContainText('要晚於第 2 階段')
-  await dialog.getByRole('button', { name: '先不改' }).click()
+  // 第三階段改成早於第二階段 → 被拒，對話框留著、原日期不變（C3-08：點甘特上的第 3 段色塊開「編輯第 3 階段」）。
+  await expect(page.getByRole('button', { name: '設定階段與日期', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: /^第 3 階段「期末」\d/ }).click()
+  const stage3 = page.getByRole('dialog', { name: '編輯第 3 階段' })
+  await stage3.getByLabel('第 3 階段開始日').fill('2026-10-01')
+  await stage3.getByRole('button', { name: '儲存' }).click()
+  await expect(stage3.getByRole('alert')).toContainText('第 3 階段的開始日')
+  await expect(stage3.getByRole('alert')).toContainText('要晚於第 2 階段')
+  await stage3.getByRole('button', { name: '先不改' }).click()
 
   await page.reload()
   await expect(page.getByRole('list', { name: '本屆階段' })).toContainText('2027-01-10 – 2027-02-28')
-  // 說明存進去了：重新打開對話框還在。
-  await page.getByRole('button', { name: '編輯階段與日期', exact: true }).click()
-  await expect(dialog.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
-  await dialog.getByRole('button', { name: '先不改' }).click()
+  // 說明存進去了：點第 1 段色塊打開還在。
+  await page.getByRole('button', { name: /^第 1 階段「成組期」\d/ }).click()
+  const stage1 = page.getByRole('dialog', { name: '編輯第 1 階段' })
+  await expect(stage1.getByLabel('第 1 階段一句話說明')).toHaveValue('五人一組報名，各自確認後成立。')
+  await stage1.getByRole('button', { name: '先不改' }).click()
 })
 
-test('活動：新增、改期、取消；取消後留在「已取消」、不在已排定清單', async ({ page }) => {
+test('活動：新增（單日、跨日）、編輯、直接刪除；沒有「取消活動」（C3-06：AC-C3-32、AC-C3-37、AC-C3-48(a)）', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/timeline')
 
   await page.getByRole('button', { name: '新增活動' }).click()
   const create = page.getByRole('dialog', { name: '新增活動' })
   await create.getByLabel('活動名稱').fill('期中發表會')
-  await create.getByLabel('日期', { exact: true }).fill('2026-12-20')
+  await create.getByLabel('開始日').fill('2026-12-20')
+  // 結束日跟著開始日走（單日）。
+  await expect(create.getByLabel('結束日')).toHaveValue('2026-12-20')
   await create.getByLabel('開始時間').fill('14:00')
-  await create.getByLabel('結束時間（可不填）').fill('16:00')
+  await create.getByLabel('結束時間').fill('16:00')
   await create.getByRole('button', { name: '建立活動' }).click()
   await expect(feedback(page, 'status')).toContainText('已新增活動「期中發表會」')
 
-  const scheduled = page.getByRole('region', { name: '已排定的活動' })
-  await expect(scheduled).toContainText('2026-12-20 14:00–16:00')
+  const list = page.getByRole('region', { name: '活動清單' })
+  await expect(list).toContainText('2026-12-20 14:00–16:00')
+  await expect(page.getByRole('button', { name: /^取消活動/ })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '危險操作' })).toHaveCount(0)
 
-  await scheduled.getByRole('button', { name: '改期：期中發表會' }).click()
-  const edit = page.getByRole('dialog', { name: '改期：期中發表會' })
-  await edit.getByLabel('日期', { exact: true }).fill('2026-12-22')
-  await edit.getByRole('button', { name: '儲存改期' }).click()
-  await expect(edit).toBeHidden()
-  await expect(scheduled).toContainText('2026-12-22 14:00–16:00')
+  // AC-C3-48(a)：非全天跨日、結束時間空白 → 伺服器擋「跨日的活動要填結束時間」，不建立。
+  await page.getByRole('button', { name: '新增活動' }).click()
+  await create.getByLabel('活動名稱').fill('面談')
+  await create.getByLabel('開始日').fill('2027-04-01')
+  await create.getByLabel('結束日').fill('2027-04-02')
+  await create.getByLabel('開始時間').fill('09:00')
+  await expect(create.getByLabel('結束時間')).toHaveAttribute('aria-required', 'true')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(create.getByRole('alert')).toContainText('跨日的活動要填結束時間')
+  // 結束日早於開始日也被擋。
+  await create.getByLabel('結束日').fill('2027-03-31')
+  await create.getByLabel('結束時間').fill('17:00')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(create.getByRole('alert')).toContainText('結束日不能早於開始日')
+  // AC-C3-32：有時間的跨日 4/1 09:00–4/2 17:00。
+  await create.getByLabel('結束日').fill('2027-04-02')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(feedback(page, 'status')).toContainText('已新增活動「面談」')
+  await expect(list).toContainText('4/1（四）09:00–4/2（五）17:00')
 
-  await scheduled.getByRole('button', { name: '取消活動：期中發表會' }).click()
-  await page.getByRole('dialog', { name: '取消「期中發表會」？' }).getByRole('button', { name: '確定取消' }).click()
-  const cancelledList = page.getByRole('region', { name: '已取消的活動' })
-  await expect(cancelledList).toContainText('期中發表會')
-  await expect(cancelledList).toContainText('已取消')
-  await expect(scheduled).not.toContainText('期中發表會')
-  // 那一列移出清單後，成功句子仍看得到（放在清單外、「已排定的活動」卡片上方）。
-  await expect(page.getByRole('status').filter({ hasText: '已取消活動' })).toHaveText(
-    '已取消活動「期中發表會」；它會留在「已取消」清單。',
+  // AC-C3-32：全天跨日 3/10–3/12，資料庫 ends_at＝3/13 00:00（臺灣）。
+  await page.getByRole('button', { name: '新增活動' }).click()
+  await create.getByLabel('活動名稱').fill('期中展')
+  await create.getByLabel('全天').check()
+  await create.getByLabel('開始日').fill('2027-03-10')
+  await create.getByLabel('結束日').fill('2027-03-12')
+  await create.getByRole('button', { name: '建立活動' }).click()
+  await expect(feedback(page, 'status')).toContainText('已新增活動「期中展」')
+  await expect(list).toContainText('3/10–3/12')
+  const span = await pool.query(
+    `select starts_at, ends_at from project_events where cohort_id = $1 and title = '期中展'`,
+    [await cohortId()],
   )
+  expect(span.rows[0].starts_at.toISOString()).toBe('2027-03-09T16:00:00.000Z')
+  expect(span.rows[0].ends_at.toISOString()).toBe('2027-03-12T16:00:00.000Z')
+
+  await list.getByRole('button', { name: '編輯：期中發表會' }).click()
+  const edit = page.getByRole('dialog', { name: '編輯：期中發表會' })
+  await expect(edit.getByLabel('結束日')).toHaveValue('2026-12-20')
+  await edit.getByLabel('開始日').fill('2026-12-22')
+  await edit.getByRole('button', { name: '儲存' }).click()
+  await expect(edit).toBeHidden()
+  await expect(list).toContainText('2026-12-22 14:00–16:00')
+
+  // AC-C3-37：排定中的直接刪除，不必先取消。
+  await list.getByRole('button', { name: '刪除：期中發表會' }).click()
+  const confirm = page.getByRole('dialog', { name: '刪除「期中發表會」？' })
+  await expect(confirm).toContainText('確定刪除『期中發表會』？學生的時程上會直接消失。')
+  await confirm.getByRole('button', { name: '刪除', exact: true }).click()
+  await expect(list.getByRole('status').filter({ hasText: '已刪除活動' })).toHaveText('已刪除活動「期中發表會」。')
+  await expect(list.getByTestId('activity-row').filter({ hasText: '期中發表會' })).toHaveCount(0)
 
   // 重新整理仍然一樣；三個動作都在同一筆交易發了 calendar.changed 事件。
   await page.reload()
-  await expect(page.getByRole('region', { name: '已取消的活動' })).toContainText('期中發表會')
+  await expect(page.getByRole('region', { name: '活動清單' })).not.toContainText('期中發表會')
   const events = await pool.query(
     `select payload->>'action' as action from domain_events
-      where type = 'calendar.changed' and cohort_id = $1 order by occurred_real_at, id`,
+      where type = 'calendar.changed' and cohort_id = $1 and payload->>'title' = '期中發表會' order by occurred_real_at, id`,
     [await cohortId()],
   )
-  expect(events.rows.map((r) => r.action)).toEqual(['created', 'updated', 'cancelled'])
+  expect(events.rows.map((r) => r.action)).toEqual(['created', 'updated', 'deleted'])
+  const row = await pool.query(
+    `select status, deleted_at is not null as deleted from project_events where cohort_id = $1 and title = '期中發表會'`,
+    [await cohortId()],
+  )
+  expect(row.rows).toEqual([{ status: 'scheduled', deleted: true }])
 })
 
 test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列', async ({ page }) => {
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/cohorts')
-  // 第三波 AC-37：按鈕在「危險操作」區；確認視窗寫對象、範圍、後果、能不能恢復；按「先不要」什麼都不改。
-  const danger = page.getByRole('region', { name: '危險操作' })
+  // C2-06：按鈕是卡上狀態旁的小字（危險操作區拿掉）；確認視窗寫對象、範圍、後果、能不能恢復；按「先不要」什麼都不改。
+  const danger = page.getByRole('region', { name: new RegExp(CODE) })
   await danger.getByRole('button', { name: `把 ${CODE} 轉為進行中` }).click()
   const confirm = page.getByRole('dialog', { name: `把 ${CODE} 轉為進行中？` })
   // 驗收 P-01：確認視窗標題寫「名稱（代碼）」。
@@ -218,7 +277,7 @@ test('設好階段後轉進行中：狀態變進行中，狀態紀錄多一列',
   ])
 })
 
-test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁的階段文字一起變', async ({ page, request }) => {
+test('模擬業務鐘：原因選填；推到各個時間點，三角色首頁的階段文字一起變', async ({ page, request }) => {
   // 學生要歸屬這一屆，首頁才看得到它（老師與管理員看預設工作屆別）。
   // 兩個帳號各用一個還沒有任何 cookie 的 request 註冊：註冊回應會留下 session cookie，
   // 帶著 cookie 又沒有 Origin 的第二次 POST 會被 Better Auth 當成 CSRF 擋下。
@@ -233,10 +292,14 @@ test('模擬業務鐘：原因必填；推到各個時間點，三角色首頁�
 
   await signInAs(page, 'admin')
   await page.goto('/dashboard/admin/clock')
-  await expect(page.getByRole('heading', { name: '模擬時鐘' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '測試用時間' })).toBeVisible()
+  await expect(page).toHaveTitle('測試用時間｜資管系專題平台')
+  // 原因選填（C2 X2；AC-C2-10）：留空也設得了，紀錄的原因是 NULL。
   await page.getByLabel('要模擬的系統時間（臺灣時間，到秒）').fill('2027-03-01T10:00')
   await page.getByRole('button', { name: '設定模擬時間' }).click()
-  await expect(feedback(page, 'alert')).toContainText('請填原因：為什麼要調整模擬時鐘。')
+  await expect(feedback(page, 'status')).toContainText('已設定模擬時間')
+  const blank = await pool.query(`select reason from business_clock_overrides order by real_at desc, id desc limit 1`)
+  expect(blank.rows[0]).toEqual({ reason: null })
 
   // 第一階段開始日的前一晚：尚未開始。（設定後業務鐘會繼續走，所以不設在最後一秒；
   // 秒級邊界由單元測試證明。）

@@ -1,2 +1,0 @@
-# 根目錄 .gitignore 擋掉所有 screenshots/；這裡的三張小圖是截圖路由測試要用的假資料（AC-S-16、18）。
-!screenshots/
